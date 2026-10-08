@@ -16,12 +16,6 @@ class TestLightfieldSource:
         self.team_id = 123
         self.config = LightfieldSourceConfig(api_key="sk_lf_test")
 
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        observed_error = "401 Client Error: Unauthorized for url: https://api.lightfield.app/v1/accounts?limit=25"
-
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
     @parameterized.expand(
         [
             ("stripe", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),

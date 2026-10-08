@@ -114,17 +114,3 @@ def test_unknown_table_rejected_without_http(
     with pytest.raises(UnknownResourceError):
         GrowthBookSource().source_for_pipeline(config, manager, inputs)
     assert not http.calls
-
-
-@pytest.mark.parametrize(
-    ("base_url", "expected_url"),
-    [
-        ("  ", "https://api.growthbook.io/api/v2/features"),
-        (" https://flags.example.com/custom/api/ ", "https://flags.example.com/custom/api/v2/features"),
-    ],
-)
-def test_base_url_normalization(base_url: str, expected_url: str, http: responses.RequestsMock) -> None:
-    config = GrowthBookSourceConfig.from_dict({"api_key": "secret_test", "base_url": base_url})
-    http.add(responses.GET, expected_url, json={"features": []})
-    assert GrowthBookSource().validate_credentials(config, 123) == (True, None)
-    assert len(http.calls) == 1

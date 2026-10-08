@@ -692,9 +692,12 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       # posthog/egress is included because the stamphog worker routes its
-                      # GitHub calls through the egress transport.
+                      # GitHub calls through the egress transport. products/stamphog/packages is
+                      # included because the worker copies the review engine from its own image
+                      # into every review sandbox, so an engine change ships only on a redeploy.
                       stamphog:
                         - 'products/stamphog/backend/**'
+                        - 'products/stamphog/packages/**'
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'

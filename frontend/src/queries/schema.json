@@ -5111,7 +5111,6 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -6205,6 +6204,11 @@
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
                 },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
                 },
@@ -6413,6 +6417,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
@@ -17606,6 +17614,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17640,7 +17649,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },

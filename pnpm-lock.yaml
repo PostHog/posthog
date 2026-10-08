@@ -199,7 +199,7 @@ patchedDependencies:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
   html-to-image@1.11.13:
-    hash: c51d4e8d9f649ee8a8e61577347ca1e4a9da029e91a073a91aae08ebf783d5d2
+    hash: f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e
     path: patches/html-to-image@1.11.13.patch
   jest-junit@16.0.0:
     hash: b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811
@@ -1111,7 +1111,7 @@ importers:
         version: 1.5.15
       html-to-image:
         specifier: ^1.11.13
-        version: 1.11.13(patch_hash=c51d4e8d9f649ee8a8e61577347ca1e4a9da029e91a073a91aae08ebf783d5d2)
+        version: 1.11.13(patch_hash=f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e)
       husky:
         specifier: 'catalog:'
         version: 7.0.4
@@ -5606,8 +5606,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.21.2
-        version: '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.22.2
+        version: '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -10852,6 +10852,9 @@ packages:
   '@posthog/core@1.57.0':
     resolution: {integrity: sha512-ZpIWCSkog0v4whufAXetagBsVLqE1Zjl5DsHC2squTy8nS/vqZ9W5JvWkJFgHK8hk5x1gdwMoXY7FK2S0YRT1Q==}
 
+  '@posthog/core@1.57.2':
+    resolution: {integrity: sha512-dfxeSjUvR+j4M7odvyf/KVdcKTZZ87u/l9swJtDt9vFkI2km3RhEveOkIHtFcZEQ1cllx7YaKJfdw6c8zfIEvg==}
+
   '@posthog/hedgehog-mode@0.0.60':
     resolution: {integrity: sha512-NPxA6Rg2u3jY36d9i8QUbggauaBuJ8rhd0c74sWnDgla7cjh8ZcjGCtTEjHtVWundHU7JII43+iNrSD1bUvQ+w==}
     engines: {node: '>=18'}
@@ -10877,8 +10880,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.21.2':
-    resolution: {integrity: sha512-xfzkKZpnM604IKLVxj8ih6CHYaGMsWU6olvT8B2mtbHlRlJ1u5vQnYFII9lOgYkw0S0RME9sJxynm8+ITa4HAQ==}
+  '@posthog/mcp@0.22.2':
+    resolution: {integrity: sha512-mTG9qU03vVD0SPtf2hl+SStEVVSRRnYWNvbHb9wOqkOSLk/jjMEkmeTDkh6QRUifv0LgHg2C/syNiX501mAyEQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -23059,8 +23062,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.506.0:
-    resolution: {integrity: sha512-JgnP9TbR0qto9Y6cVSbKVa/PpsxGe8vSp1qxo6fy+IiDNcu97m5Ua6PkBZksScIUWLh2/3HDXrxOA5ruz2oZaA==}
+  unlayer-types@1.508.0:
+    resolution: {integrity: sha512-iOKjmCcSj3zBf7cib0SFhrpEXPMaohavqtkzEt/uHhwMPjN48Eg7lv0SCF1SRoD8N8BY1KxokOxSuErwydCJBw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30422,6 +30425,10 @@ snapshots:
     dependencies:
       '@posthog/types': 1.415.1
 
+  '@posthog/core@1.57.2':
+    dependencies:
+      '@posthog/types': 1.415.1
+
   '@posthog/hedgehog-mode@0.0.60(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       gsap: 3.14.2
@@ -30449,9 +30456,9 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
+  '@posthog/mcp@0.22.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
     dependencies:
-      '@posthog/core': 1.55.2
+      '@posthog/core': 1.57.2
       posthog-node: 5.54.1(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
@@ -37870,7 +37877,7 @@ snapshots:
 
   html-tags@3.3.1: {}
 
-  html-to-image@1.11.13(patch_hash=c51d4e8d9f649ee8a8e61577347ca1e4a9da029e91a073a91aae08ebf783d5d2): {}
+  html-to-image@1.11.13(patch_hash=f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e): {}
 
   html-url-attributes@3.0.1: {}
 
@@ -43516,7 +43523,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.506.0
+      unlayer-types: 1.508.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45835,7 +45842,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.506.0: {}
+  unlayer-types@1.508.0: {}
 
   unpipe@1.0.0: {}
 

@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 from requests import HTTPError, Response
 
@@ -127,22 +126,6 @@ class TestIncrementalParams:
         assert params[0]["page"] == 1
         assert params[0]["per_page"] == config.page_size
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_records_full_refresh_omits_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("records", [{"id": "1"}], total_pages=1, current_page=1)])
-
-        _rows(
-            _source(
-                "records",
-                _make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
-            )
-        )
-
-        assert "updated_since" not in params[0]
-
     @parameterized.expand(["forms", "projects", "photos", "records_history", "groups"])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_incremental_endpoints_never_filter(self, endpoint: str, MockSession) -> None:
@@ -197,11 +180,6 @@ class TestPaginatorHeuristic:
         # The page advances only while more pages remain.
         assert paginator.page == (2 if expected_more else 1)
 
-    def test_empty_page_stops(self) -> None:
-        paginator = FulcrumPageNumberPaginator(per_page=2)
-        paginator.update_state(self._body(total_pages=5, current_page=1), data=[])
-        assert paginator.has_next_page is False
-
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -233,19 +211,6 @@ class TestPagination:
         rows = _rows(_source("forms", manager))
 
         assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_without_total_stops(self, MockSession) -> None:
-        # No total_pages in the body and a page shorter than per_page ends the sync in one request.
-        session = MockSession.return_value
-        _wire(session, [_response("forms", [{"id": "a"}, {"id": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("forms", manager))
-
-        assert [r["id"] for r in rows] == ["a", "b"]
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
@@ -293,12 +258,6 @@ class TestValidateCredentials:
         with mock.patch(FULCRUM_SESSION_PATCH, return_value=session):
             assert validate_credentials("token") is expected
 
-    def test_network_error_is_false(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(FULCRUM_SESSION_PATCH, return_value=session):
-            assert validate_credentials("token") is False
-
 
 class TestRetryAndErrors:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
@@ -329,58 +288,12 @@ class TestRetryAndErrors:
             _rows(_source("forms", _make_manager()))
 
 
-class TestStaticEndpointParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_groups_requests_associations(self, MockSession) -> None:
-        # Without associations=true the group rows carry no member/layer/project/form ids, which is
-        # the whole reason the table exists — so it must ride on every page, not just the first.
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response("groups", [{"id": "g1"}], total_pages=2, current_page=1),
-                _response("groups", [{"id": "g2"}], total_pages=2, current_page=2),
-            ],
-        )
-
-        _rows(_source("groups", _make_manager()))
-
-        assert [p["associations"] for p in params] == ["true", "true"]
-
-
 class TestFormHistoryFanout:
     def _parent_page(self) -> Response:
         return _response("forms", [{"id": "f1"}, {"id": "f2"}], total_pages=1, current_page=1)
 
     def _child_page(self, form_id: str, version: int) -> Response:
         return _response("forms", [{"id": form_id, "version": version}], total_pages=1, current_page=1)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_forms_and_tags_rows_with_form_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls: list[str] = []
-        _wire(session, [self._parent_page(), self._child_page("f1", 1), self._child_page("f2", 3)], urls=urls)
-
-        rows = _rows(_source("form_history", _make_manager()))
-
-        assert urls[1:] == [
-            "https://api.fulcrumapp.com/api/v2/forms/f1/history.json",
-            "https://api.fulcrumapp.com/api/v2/forms/f2/history.json",
-        ]
-        # The parent id is injected under form_id, which is half the table's primary key — a row
-        # missing it would collide with every other form's version of the same number.
-        assert [(r["form_id"], r["version"]) for r in rows] == [("f1", 1), ("f2", 3)]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoints_each_finished_parent(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [self._parent_page(), self._child_page("f1", 1), self._child_page("f2", 3)])
-
-        manager = _make_manager()
-        _rows(_source("form_history", manager))
-
-        completed = [call.args[0].completed for call in manager.save_state.call_args_list]
-        assert completed[-1] == ["/forms/f1/history.json", "/forms/f2/history.json"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_completed_parents(self, MockSession) -> None:

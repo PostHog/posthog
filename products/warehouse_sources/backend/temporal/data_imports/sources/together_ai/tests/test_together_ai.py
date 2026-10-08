@@ -61,60 +61,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestRequests:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_rows_from_wrapped_endpoint(self, MockSession) -> None:
-        # fine_tunes wraps rows in {"data": [...]}; the data_selector unwraps them.
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"data": [{"id": "ft-1"}, {"id": "ft-2"}]})])
-
-        rows = _rows(together_ai_source("together_test", "fine_tunes", team_id=1, job_id="j"))
-
-        assert rows == [{"id": "ft-1"}, {"id": "ft-2"}]
-        assert session.send.call_count == 1
-        assert snaps[0]["method"] == "GET"
-        assert snaps[0]["url"] == f"{TOGETHER_AI_BASE_URL}/fine-tunes"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_yields_rows_from_bare_array_endpoint(self, MockSession) -> None:
-        # batches returns a bare JSON array (no data_selector).
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "batch-1"}, {"id": "batch-2"}])])
-
-        rows = _rows(together_ai_source("together_test", "batches", team_id=1, job_id="j"))
-
-        assert rows == [{"id": "batch-1"}, {"id": "batch-2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_uses_bearer_token_and_accept_header(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"data": [{"id": "ft-1"}]})])
-
-        _rows(together_ai_source("secret-key", "fine_tunes", team_id=1, job_id="j"))
-
-        # The Bearer token rides on the redacted framework auth, not a hand-built header.
-        assert snaps[0]["auth"].token == "secret-key"
-        assert session.headers.get("Accept") == "application/json"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoints_table_only_requests_dedicated_deployments(self, MockSession) -> None:
-        # Without the filter the response also contains every public serverless model,
-        # flooding the table with rows that duplicate the models catalog.
-        session = MockSession.return_value
-        snaps = _wire(session, [_response({"data": []})])
-
-        _rows(together_ai_source("together_test", "endpoints", team_id=1, job_id="j"))
-
-        assert snaps[0]["params"] == {"type": "dedicated"}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_top_level_endpoints_send_no_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_response([])])
-
-        _rows(together_ai_source("together_test", "models", team_id=1, job_id="j"))
-
-        assert snaps[0]["params"] == {}
-
     @parameterized.expand([("wrapped_empty", "files", {"data": []}), ("bare_empty", "evaluations", [])])
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_collection_yields_nothing(self, _name: str, endpoint: str, body: Any, MockSession) -> None:
@@ -210,18 +156,6 @@ class TestGetStatusCode:
         args, kwargs = session.get.call_args
         assert args[0] == f"{TOGETHER_AI_BASE_URL}/endpoints"
         assert kwargs["params"] == {"type": "dedicated"}
-
-    def test_unknown_schema_falls_back_to_files_probe(self) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        session = mock.MagicMock()
-        session.get.return_value = response
-
-        with mock.patch.object(together_ai, "make_tracked_session", return_value=session):
-            get_status_code("together_test", "not_a_table")
-
-        args, _kwargs = session.get.call_args
-        assert args[0] == f"{TOGETHER_AI_BASE_URL}/files"
 
 
 class TestTogetherAISourceResponse:

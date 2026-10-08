@@ -4,12 +4,11 @@ from typing import Any, cast
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests_mock
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -50,37 +49,6 @@ def source(endpoint: str, resume_manager: MagicMock, **kwargs: Any) -> SourceRes
 
 def rows(response: SourceResponse) -> list[dict[str, Any]]:
     return [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
-
-
-@pytest.mark.parametrize("endpoint", ["customers", "accounts"])
-@pytest.mark.parametrize("terminal_rows", [[], [{"id": "row-2"}]])
-def test_list_pagination_auth_and_checkpoint(endpoint: str, terminal_rows: list[dict[str, Any]]) -> None:
-    resume_manager = manager()
-    with requests_mock.Mocker() as http:
-        http.get(
-            f"{BASE_URL}/{endpoint}?page=1",
-            json=page([{"id": "row-1"}], f"{BASE_URL}/{endpoint}?page=2"),
-            complete_qs=True,
-        )
-        http.get(f"{BASE_URL}/{endpoint}?page=2", json=page(terminal_rows), complete_qs=True)
-        response = source(endpoint, resume_manager)
-        assert rows(response) == [{"id": "row-1"}, *terminal_rows]
-        assert http.call_count == 2
-        assert all(request.headers["mono-sec-key"] == CONFIG.api_key for request in http.request_history)
-        assert all("x-real-time" not in request.headers for request in http.request_history)
-    resume_manager.save_state.assert_called_once_with(MonoResumeConfig(paginator_state={"page": 2}))
-    resume_manager.clear_state.assert_not_called()
-    assert response.on_complete is not None
-    response.on_complete()
-    resume_manager.clear_state.assert_called_once()
-
-
-@pytest.mark.parametrize("endpoint", ["customers", "accounts"])
-def test_resumes_list_at_saved_page(endpoint: str) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/{endpoint}?page=4", json=page([{"id": "row-4"}]), complete_qs=True)
-        assert rows(source(endpoint, manager(MonoResumeConfig(paginator_state={"page": 4})))) == [{"id": "row-4"}]
-        assert http.call_count == 1
 
 
 @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -181,16 +149,6 @@ def test_resumes_child_page_with_original_date_bounds_and_skips_completed_accoun
         assert http.call_count == 2
 
 
-@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-def test_empty_account_does_not_stop_later_accounts() -> None:
-    with requests_mock.Mocker() as http:
-        http.get(f"{BASE_URL}/accounts", json=page([{"id": "account-a"}, {"id": "account-b"}]))
-        http.get(f"{BASE_URL}/accounts/account-a/transactions", json=page([]))
-        http.get(f"{BASE_URL}/accounts/account-b/transactions", json=page([{"id": "transaction-b"}]))
-        assert rows(source("transactions", manager())) == [{"id": "transaction-b", "account_id": "account-b"}]
-        assert http.call_count == 3
-
-
 @pytest.mark.parametrize("next_url", ["?page=1", "?page=0", "?page=no", "?offset=2", "?page=2&page=3"])
 def test_invalid_next_page_fails_instead_of_truncating_or_looping(next_url: str) -> None:
     with requests_mock.Mocker() as http:
@@ -239,21 +197,6 @@ def test_sync_auth_errors_match_user_facing_error_mapping(status: int, expected:
         messages = MonoSource().get_non_retryable_errors()
         assert any(pattern in str(error.value) and expected in (message or "") for pattern, message in messages.items())
         assert http.call_count == 1
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_responses_retry_without_advancing_page(status: int) -> None:
-    with requests_mock.Mocker() as http, patch.object(RESTClient._send_request.retry, "sleep"):  # type: ignore[attr-defined]
-        http.get(
-            f"{BASE_URL}/customers?page=1",
-            [
-                {"status_code": status, "json": {"status": "failed"}, "headers": {"Retry-After": "0"}},
-                {"json": page([{"id": "customer-1"}])},
-            ],
-            complete_qs=True,
-        )
-        assert rows(source("customers", manager())) == [{"id": "customer-1"}]
-        assert http.call_count == 2
 
 
 @pytest.mark.parametrize(

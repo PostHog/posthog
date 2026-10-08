@@ -592,6 +592,21 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
         'Tool "vision-scanners-prompt-suggestions-dismiss" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
     'vision-scanners-prompt-suggestions-generate': () =>
         'Tool "vision-scanners-prompt-suggestions-generate" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    // Replay Vision deprecation aliases. Each replacement takes the same arguments.
+    ...Object.fromEntries(
+        [
+            ['vision-observations-label-destroy', 'vision-observations-label-delete'],
+            ['vision-observations-retrieve', 'vision-observations-get'],
+            ['vision-quota-retrieve', 'vision-quota-get'],
+            ['vision-scanners-estimate-create', 'vision-scanners-estimate'],
+            ['vision-scanners-impact-retrieve', 'vision-scanners-impact-get'],
+            ['vision-scanners-inline-scan-create', 'vision-scanners-inline-scan'],
+        ].map(([removed, replacement]) => [
+            removed,
+            () =>
+                `Tool "${removed}" was removed. It was a deprecation alias for "${replacement}", which takes the same arguments. Call "${replacement}" instead.`,
+        ])
+    ),
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field

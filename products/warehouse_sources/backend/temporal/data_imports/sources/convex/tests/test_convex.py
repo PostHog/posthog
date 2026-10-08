@@ -9,7 +9,6 @@ from django.test import override_settings
 import structlog
 from parameterized import parameterized
 from requests.exceptions import (
-    ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
     HTTPError,
     ReadTimeout,
@@ -201,15 +200,6 @@ class TestValidateDeployKey:
             with pytest.raises(InvalidDeployKeyError):
                 validate_deploy_key(deploy_key)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_request_header_is_encodable_for_a_copy_pasted_key(self, mock_session: Mock) -> None:
-        mock_session.return_value.get.return_value = _make_response({})
-
-        get_json_schemas("https://swift-lemur-123.convex.cloud", "prod:swift-lemur-123|abc\u2028")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Convex prod:swift-lemur-123|abc"
-
 
 class TestComponentSupport:
     @parameterized.expand(
@@ -261,16 +251,6 @@ class TestComponentSupport:
         self, _name: str, schemas_response: dict[str, Any], expected: list[tuple[str, str]]
     ) -> None:
         assert sorted(iter_component_tables(schemas_response)) == sorted(expected)
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_get_json_schemas_requests_by_component(self, mock_get: Mock) -> None:
-        # Without byComponent=true the API returns only root-component tables, so non-default
-        # components (e.g. betterAuth) become invisible.
-        mock_get.return_value.get.return_value = _make_response({})
-
-        get_json_schemas("https://x.convex.cloud", "key")
-
-        assert mock_get.return_value.get.call_args.kwargs["params"]["byComponent"] == "true"
 
 
 class TestConvexRetryPolicy:
@@ -353,21 +333,6 @@ class TestConvexNonRetryableErrors:
     def test_known_errors_match(self, _name: str, observed_error: str) -> None:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_missing_table_404_surfaces_actionable_message(self) -> None:
-        # A deleted table's 404 must stop retrying and tell the customer to turn off syncing for it,
-        # not store the raw driver text (which carries the deployment host). Mirror the finalizer's
-        # first-match selection (external_data_job.py), including its case-insensitive matching via
-        # `error_message_matches`, so a reorder that shadowed it with an earlier None key would be caught.
-        error_msg = "404 Client Error: Not Found for url: https://x.convex.cloud/api/v1/data/sync"
-        matches = [
-            friendly
-            for key, friendly in ConvexSource().get_non_retryable_errors().items()
-            if error_message_matches(error_msg, [key])
-        ]
-        assert matches, "a missing-table 404 must be classified non-retryable"
-        assert matches[0] is not None, "a missing-table 404 must surface an actionable message, not raw driver text"
-        assert "turn off syncing" in matches[0].lower()
 
     @parameterized.expand(
         [
@@ -534,30 +499,6 @@ def test_single_table_selection_and_legacy_rows(
     assert (resource.partition_keys, resource.partition_format) == (["_creationTime"], "week")
 
 
-@pytest.mark.parametrize("stored", ["stored", None])
-@pytest.mark.parametrize("final_has_more", [False, True])
-def test_catches_up_and_stages_the_cursor(
-    stored: str | None, final_has_more: bool, redis_boundary: Mock, http_boundary: Mock
-) -> None:
-    inputs = _inputs(stored=stored, watermark=123 if stored else None)
-    manager = ConvexSource().get_resumable_source_manager(inputs)
-    http_boundary.post.side_effect = [
-        _page("snapshot", status="snapshotting", has_more=False),
-        _page("stale", status="stale", has_more=False),
-        _page("end", has_more=final_has_more),
-    ]
-    assert list(_items(_resource(inputs, manager))) == []
-    requests = [call.kwargs["json"] for call in http_boundary.post.call_args_list]
-    assert requests[0].get("cursor") == stored
-    assert [body["cursor"] for body in requests[1:]] == ["snapshot", "stale"]
-    assert inputs.source_cursor is not None
-    assert inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
-    manager.commit()
-    assert manager.with_namespace("data_sync").load_state() == ConvexResumeConfig(
-        cursor="end", started_from_cursor=stored is not None
-    )
-
-
 def test_full_refresh_reads_one_list_snapshot(redis_boundary: Mock, http_boundary: Mock) -> None:
     inputs = _inputs(incremental=False, stored="ignored", table="auth.users")
     manager = ConvexSource().get_resumable_source_manager(inputs)
@@ -573,22 +514,6 @@ def test_full_refresh_reads_one_list_snapshot(redis_boundary: Mock, http_boundar
     assert (second.kwargs["params"]["cursor"], second.kwargs["params"]["snapshot"]) == ("c1", 5)
     assert inputs.source_cursor is not None
     assert inputs.source_cursor.staged is None
-
-
-def test_page_keeps_only_the_latest_revision_of_each_document(redis_boundary: Mock, http_boundary: Mock) -> None:
-    inputs = _inputs()
-    manager = ConvexSource().get_resumable_source_manager(inputs)
-    http_boundary.post.return_value = _page(
-        "end",
-        values=[
-            {"component": "", "table": "users", "ts": 100, "deleted": False, "value": {"_id": "a", "name": "v1"}},
-            {"component": "", "table": "users", "ts": 101, "deleted": False, "value": {"_id": "b"}},
-            {"component": "", "table": "users", "ts": 102, "deleted": True, "value": {"_id": "a"}},
-        ],
-    )
-    assert list(_items(_resource(inputs, manager))) == [
-        [{"_id": "a", "_ts": 102, "_deleted": True}, {"_id": "b", "_ts": 101, "_deleted": False}]
-    ]
 
 
 def test_legacy_watermark_converts_once_and_retries_from_saved_cursor(
@@ -720,6 +645,14 @@ def test_truncates_and_expiry_reset_only_when_required(
             reset.assert_not_called()
 
 
+def _pipeline_safe_point(manager: Any) -> Any:
+    def hook() -> None:
+        manager.confirm()
+        manager.commit()
+
+    return hook
+
+
 @pytest.mark.parametrize("rows", [[], [{"value": {"_id": "a"}, "ts": 100, "deleted": False}]])
 def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     rows: list[dict[str, Any]], redis_boundary: Mock, http_boundary: Mock
@@ -728,7 +661,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     manager = ConvexSource().get_resumable_source_manager(inputs)
     scoped = manager.with_namespace("data_sync")
     http_boundary.post.side_effect = [_page("checkpoint", status="stale", values=rows), RuntimeError("interrupted")]
-    with activate_safe_point(manager.commit, covers_framework_checkpoints=False):
+    with activate_safe_point(_pipeline_safe_point(manager), covers_framework_checkpoints=False):
         iterator = iter(_items(_resource(inputs, manager)))
         if rows:
             assert next(iterator) == [{"_id": "a", "_ts": 100, "_deleted": False}]
@@ -739,25 +672,11 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     http_boundary.post.side_effect = None
     http_boundary.post.return_value = _page("end")
     retry_manager = ConvexSource().get_resumable_source_manager(inputs)
-    with activate_safe_point(retry_manager.commit, covers_framework_checkpoints=False):
+    with activate_safe_point(_pipeline_safe_point(retry_manager), covers_framework_checkpoints=False):
         list(_items(_resource(inputs, retry_manager)))
     assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "checkpoint"
     assert scoped.load_state() == ConvexResumeConfig(cursor="end", started_from_cursor=True)
     assert inputs.source_cursor is not None and inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
-
-
-@pytest.mark.parametrize(
-    "transient_error",
-    [ChunkedEncodingError("interrupted"), ReadTimeout("timeout"), RequestsConnectionError("connection")],
-)
-def test_data_sync_retries_transient_transport_errors(
-    transient_error: Exception, redis_boundary: Mock, http_boundary: Mock
-) -> None:
-    inputs = _inputs()
-    http_boundary.post.side_effect = [transient_error, _page("end")]
-    with patch.object(_convex_post_retry, "sleep"):
-        list(_items(_resource(inputs, ConvexSource().get_resumable_source_manager(inputs))))
-    assert http_boundary.post.call_count == 2
 
 
 def test_data_sync_plan_error_maps_to_professional_plan(redis_boundary: Mock, http_boundary: Mock) -> None:

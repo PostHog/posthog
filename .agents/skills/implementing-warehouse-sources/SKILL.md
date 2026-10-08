@@ -428,6 +428,10 @@ while True:
 
 Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. Do not save after the yield. On a worker shutdown the pipeline ends the attempt before control returns to the source, so state saved after the `yield` is lost for the last batch: the next attempt reads that batch again (merge dedupes on primary key, a resumed full refresh appends it twice), and an attempt that writes one batch or fewer keeps no progress. A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
 
+A saved cursor can commit only after the pipeline confirms it. The pipeline confirms when the source hands it the next item, ends, or reaches a safe point.
+A cursor saved after the last `yield` therefore does not persist when the source raises, because the source can still hold rows that the cursor skips. The next attempt continues from the cursor of the last `yield`.
+A source that ends its own attempt on a page or time budget calls `manager.safe_point()` directly before the raise, with its local buffer empty, to keep its last cursor.
+
 Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
 The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
 At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
@@ -436,6 +440,29 @@ References: `document_deltas` in `convex/convex.py`, the sparse-sweep checkpoint
 The `rest_source` framework reaches a safe point after each page and before each retry wait on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
 The same condition decides when a `resume_hook` runs. When `items` returns the `Resource` directly, the hook runs before the page reaches the pipeline, so a page and its cursor commit together and a hand-off repeats no rows. When a source wraps the `Resource`, the hook runs when the wrapper asks for the next page, so a hand-off reads the last page again. Return the `Resource` directly when you can: use `data_map`, `add_map` and `add_filter` for row changes. A wrapper that hands each page on unchanged and holds no rows can keep the framework behavior by returning `Resource(wrapper, name=..., hints=resource._hints)` (see the usage report in `anthropic/anthropic.py`).
 Do not call `safe_point()` or `commit()` in a `resume_hook`.
+
+### The source contract
+
+A worker that shuts down hands each running import to another worker. Every source with extraction code must make that possible:
+
+1. Bounded calls: each request has a read timeout, and one request with its retries and waits holds the worker for 5 minutes at most, also after a 429 with a large `Retry-After`.
+2. A safe point for each request: the source makes no more than 3 requests in a row with no yield and no safe point.
+3. Resume state is staged before the `yield` it covers.
+
+`sources/tests/test_source_contract.py` runs each source in the registry against a fake HTTP server that stalls, rate-limits and returns empty pages. It compares the result with `sources/tests/source_contract_baseline.txt`, which lists each source that fails a condition or that the fake server cannot drive. A new source must pass; the baseline may only get shorter.
+`posthog/test/repo_invariants/test_warehouse_source_static_contract.py` and `test_resume_state_staged_before_yield.py` check the same contract in the source text of every source: no raw `time.sleep`, no session call without `timeout=`, no wrapper around a framework `Resource` without a safe point, and no `save_state` after the `yield`.
+
+```bash
+pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py posthog/test/repo_invariants/test_warehouse_source_static_contract.py posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+```
+
+When a fix makes an entry wrong, regenerate the baseline and commit it:
+
+```bash
+SOURCE_CONTRACT_WRITE_BASELINE=1 pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py -p no:xdist
+python posthog/test/repo_invariants/test_warehouse_source_static_contract.py
+python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+```
 
 ### Webhook source pattern
 

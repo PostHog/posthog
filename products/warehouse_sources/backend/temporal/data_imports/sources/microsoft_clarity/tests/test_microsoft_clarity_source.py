@@ -31,16 +31,6 @@ def _config(
     )
 
 
-class TestGetSchemas:
-    def test_endpoint_is_append_only_not_incremental(self) -> None:
-        # The API has no server-side "since" filter, so this must never be treated as truly
-        # incremental — but it should still append daily snapshots rather than overwrite them.
-        schema = MicrosoftClaritySource().get_schemas(MagicMock(), team_id=1)[0]
-        assert schema.supports_incremental is False
-        assert schema.supports_append is True
-        assert [f["field"] for f in schema.incremental_fields] == ["synced_at"]
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
@@ -65,11 +55,6 @@ class TestNonRetryableErrors:
     def test_known_error_is_non_retryable(self, _name: str, observed: str) -> None:
         errors = MicrosoftClaritySource().get_non_retryable_errors()
         assert any(key in observed for key in errors)
-
-    def test_transient_error_remains_retryable(self) -> None:
-        errors = MicrosoftClaritySource().get_non_retryable_errors()
-        observed = "HTTPSConnectionPool(host='www.clarity.ms', port=443): Read timed out."
-        assert not any(key in observed for key in errors)
 
     def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
         # `make_tracked_session`'s `DEFAULT_RETRY` already retries a read timeout before

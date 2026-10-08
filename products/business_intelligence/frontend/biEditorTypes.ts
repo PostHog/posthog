@@ -37,6 +37,7 @@ import {
     isBITableCalculation,
 } from './biAnalysis'
 import { biComparisonCategory, getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
+import { limitBIComparisonQuery } from './biComparisonLimit'
 import {
     buildBIConditionExpression,
     isBIConditionGroup,
@@ -377,8 +378,8 @@ export function getBIChartFit(config: BIConfig, chartType: ChartDisplayType): BI
             }
         case ChartDisplayType.TwoDimensionalHeatmap:
             return {
-                fits: rowCount >= 1 && columnCount >= 1 && config.values.length <= 1,
-                requirement: '1 or more dimensions on rows and on columns, and up to 1 measure',
+                fits: rowCount >= 1 && columnCount >= 1,
+                requirement: '1 or more dimensions on rows and on columns, and any measures',
             }
         case ChartDisplayType.BoldNumber:
         case ChartDisplayType.Metric:
@@ -611,6 +612,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         ...(candidate.resultFilters ? { resultFilters: candidate.resultFilters } : {}),
         ...(candidate.topN ? { topN: candidate.topN } : {}),
         ...(candidate.totals ? { totals: candidate.totals } : {}),
+        ...(candidate.missingDates ? { missingDates: candidate.missingDates } : {}),
         ...(candidate.compareFilter !== undefined ? { compareFilter: candidate.compareFilter } : {}),
         ...(candidate.dateField !== undefined
             ? { dateField: candidate.dateField === null ? null : parseBIFieldValue(candidate.dateField) }
@@ -1039,6 +1041,13 @@ export function getBIResultDimensions(config: BIConfig): { field: BIField; colum
     return dimensions.map(({ field, alias }) => ({ field, column: aliased ? alias : fieldExpression(field) }))
 }
 
+export function getBIResultMeasureColumns(config: BIConfig): { column: string; value?: BIValue }[] {
+    const { configuredValues } = computeBIQueryParts(config)
+    return configuredValues.length
+        ? configuredValues.map(({ alias, value }) => ({ column: alias, value }))
+        : [{ column: 'count' }]
+}
+
 export function buildBIRowsQuery(config: BIConfig, previous = false): HogQLQuery | null {
     if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
@@ -1318,11 +1327,20 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
                 `FROM ${escapePropertyAsHogQLIdentifier(config.source!.table)}`,
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
                 ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
-                ...(comparisonOrder ? [`ORDER BY ${comparisonOrder}`] : []),
-                `LIMIT ${resultLimit}`,
             ].join('\n')
         }
-        query = `SELECT * FROM ((${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})) LIMIT ${resultLimit}`
+        query = limitBIComparisonQuery({
+            query: `(${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})`,
+            config,
+            columns: [
+                ...dimensions.map(({ alias }) => alias),
+                ...(configuredValues.length ? configuredValues.map(({ alias }) => alias) : ['count']),
+                'bi_comparison',
+            ],
+            dimensions: dimensions.map(({ alias }) => alias),
+            order: comparisonOrder,
+            probe: probeForMoreRows,
+        })
         seriesSettings = {
             xAxis: { column: xDimension?.alias ?? 'bi_comparison' },
             xAxisLabel: xDimension ? getBIFieldPillLabel(xDimension.field) : 'Period',
@@ -1395,6 +1413,9 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
             column: alias,
             settings: getBIMeasureSettings(value),
         }))
+    if (config.missingDates) {
+        seriesSettings = { ...seriesSettings, showNullsAsZero: false }
+    }
     if (calculatedFormats.length) {
         seriesSettings = {
             ...seriesSettings,

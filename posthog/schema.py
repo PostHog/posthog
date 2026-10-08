@@ -210,6 +210,7 @@ from posthog.schema_enums import (
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
+    MissingDates as MissingDates,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
     MultiQuestionFormFieldType as MultiQuestionFormFieldType,
@@ -5050,6 +5051,10 @@ class BITableCalculation(BaseModel):
     computeUsing: str | None = Field(
         default=None,
         description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    requireFullWindow: bool | None = Field(
+        default=None,
+        description=("Require a complete window of non-null values before displaying a moving average."),
     )
     type: BITableCalculationType
     window: conint(ge=1) | None = Field(
@@ -11143,6 +11148,10 @@ class BIConfig(BaseModel):
     dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
     resultFilterGroup: BIConditionGroup | None = None
     resultFilters: list[BIResultFilter] | None = None
     rowFilterGroup: BIConditionGroup | None = None
@@ -16580,7 +16589,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None
