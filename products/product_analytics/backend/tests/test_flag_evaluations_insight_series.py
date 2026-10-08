@@ -25,6 +25,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     FunnelsDataWarehouseNode,
+    FunnelsFilter,
     FunnelsQuery,
     IntervalType,
     LifecycleDataWarehouseNode,
@@ -137,7 +138,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
             event="$pageview",
             distinct_id="alice",
             timestamp=datetime(2025, 1, 9, 10, tzinfo=UTC),
-            properties={"$group_0": "org-a"},
+            properties={"$group_0": "org-a", "$session_id": "s-alice"},
         )
         flush_persons_and_events()
         create_person_id_override_by_distinct_id("alice-2", "alice", self.team.pk, version=1)
@@ -163,21 +164,29 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("by_person", None),
-            ("by_group", 0),
+            ("by_person", None, None, [2, 1]),
+            ("by_group", 0, None, [2, 1]),
+            ("by_session", None, "properties.$session_id", [3, 1]),
         ]
     )
-    def test_funnel_from_flag_call_to_pageview(self, _name: str, aggregation_group_type_index: int | None):
+    def test_funnel_from_flag_call_to_pageview(
+        self,
+        _name: str,
+        aggregation_group_type_index: int | None,
+        aggregate_by_hogql: str | None,
+        expected: list[int],
+    ):
         query = FunnelsQuery(
             dateRange=DATE_RANGE,
             aggregation_group_type_index=aggregation_group_type_index,
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL=aggregate_by_hogql),
             series=[
                 FunnelsDataWarehouseNode(
                     id=TABLE,
                     table_name=TABLE,
                     timestamp_field="timestamp",
                     id_field="uuid",
-                    aggregation_target_field=_aggregation_target(aggregation_group_type_index),
+                    aggregation_target_field=aggregate_by_hogql or _aggregation_target(aggregation_group_type_index),
                     properties=[PROBE_FLAG],
                 ),
                 EventsNode(event="$pageview"),
@@ -186,7 +195,7 @@ class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        assert [step["count"] for step in results] == [2, 1]
+        assert [step["count"] for step in results] == expected
 
     @parameterized.expand(
         [
