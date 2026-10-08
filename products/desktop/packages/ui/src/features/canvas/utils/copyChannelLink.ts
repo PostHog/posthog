@@ -8,7 +8,7 @@ import { channelShareUrl } from "@posthog/ui/utils/posthogLinks";
 
 /**
  * Copy a channel's — or, with `taskId`, a thread's — shareable https link
- * (`<instance>/code/channel/<channelId>[/tasks/<taskId>]`) to the clipboard,
+ * (`<instance>/desktop/channel/<channelId>[/tasks/<taskId>]`) to the clipboard,
  * toasting success or failure. Mirrors `copyCanvasLink`: the https link
  * resolves to a web interstitial that deep-links into the desktop app, so it
  * opens for anyone whether or not they have the app installed.

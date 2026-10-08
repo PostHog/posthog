@@ -1,15 +1,19 @@
 import {
-  type CommentTarget,
-  commentScopeFromWire,
+    type CommentTarget,
+    commentScopeFromWire,
 } from "@posthog/core/comments/anchors";
-import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
+import type {
+    TaskLinkArtifactAnchor,
+    TaskLinkCommentAnchor,
+} from "@posthog/core/links/task-link";
 import {
-  TASK_SERVICE,
-  type TaskService,
+    TASK_SERVICE,
+    type TaskService,
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { usePendingArtifactOpenStore } from "@posthog/ui/features/deep-links/pendingArtifactOpenStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
@@ -30,86 +34,103 @@ const log = logger.scope("open-task");
  * (`useOpenTargetDeepLink`).
  */
 function commentTargetFromAnchor(
-  taskId: string,
-  anchor: TaskLinkCommentAnchor,
+    taskId: string,
+    anchor: TaskLinkCommentAnchor,
 ): CommentTarget {
-  const scope = commentScopeFromWire(anchor.scope);
-  if ((scope === "canvas" || scope === "task_artifact") && anchor.itemId) {
-    return { scope, itemId: anchor.itemId };
-  }
-  return { scope: "task", itemId: taskId };
+    const scope = commentScopeFromWire(anchor.scope);
+    if ((scope === "canvas" || scope === "task_artifact") && anchor.itemId) {
+        return { scope, itemId: anchor.itemId };
+    }
+    return { scope: "task", itemId: taskId };
+}
+
+export interface OpenTaskAnchors {
+    comment?: TaskLinkCommentAnchor;
+    artifact?: TaskLinkArtifactAnchor;
 }
 
 export function useHandleOpenTask(): (
-  taskId: string,
-  taskRunId?: string,
-  comment?: TaskLinkCommentAnchor,
+    taskId: string,
+    taskRunId?: string,
+    anchors?: OpenTaskAnchors,
 ) => Promise<void> {
-  const taskService = useService<TaskService>(TASK_SERVICE);
-  const { markAsViewed } = useTaskViewed();
-  const queryClient = useQueryClient();
+    const taskService = useService<TaskService>(TASK_SERVICE);
+    const { markAsViewed } = useTaskViewed();
+    const queryClient = useQueryClient();
 
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
+    const bluebirdEnabled = useFeatureFlag(
+        PROJECT_BLUEBIRD_FLAG,
+        import.meta.env.DEV,
+    );
 
-  return useCallback(
-    async (
-      taskId: string,
-      taskRunId?: string,
-      comment?: TaskLinkCommentAnchor,
-    ) => {
-      log.info(
-        `Opening task from deep link: ${taskId}${taskRunId ? `, run: ${taskRunId}` : ""}`,
-      );
-      try {
-        const result = await taskService.openTask(taskId, taskRunId);
-        if (!result.success) {
-          log.error("Failed to open task from deep link", {
-            taskId,
-            taskRunId,
-            error: result.error,
-            failedStep: result.failedStep,
-          });
-          toast.error(`Failed to open task: ${result.error}`);
-          return;
-        }
-
-        const { task } = result.data;
-        queryClient.setQueryData<Task[]>(taskKeys.list(), (old) => {
-          if (!old) return [task];
-          const existingIndex = old.findIndex((t) => t.id === task.id);
-          if (existingIndex >= 0) {
-            const updated = [...old];
-            updated[existingIndex] = task;
-            return updated;
-          }
-          return [task, ...old];
-        });
-        queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-
-        markAsViewed(taskId);
-        const channelTarget =
-          bluebirdEnabled && task.channel
-            ? { channelId: task.channel, newTab: true }
-            : { newTab: true };
-        void openTaskHelper(task, channelTarget);
-        if (comment) {
-          useCommentNavigationStore
-            .getState()
-            .requestCommentFocus(
-              taskId,
-              commentTargetFromAnchor(taskId, comment),
-              comment.threadId,
+    return useCallback(
+        async (
+            taskId: string,
+            taskRunId?: string,
+            anchors?: OpenTaskAnchors,
+        ) => {
+            const comment = anchors?.comment;
+            const artifact = anchors?.artifact;
+            log.info(
+                `Opening task from deep link: ${taskId}${taskRunId ? `, run: ${taskRunId}` : ""}`,
             );
-        }
-        log.info(`Opened task from deep link: ${taskId}`);
-      } catch (error) {
-        log.error("Unexpected error opening task from deep link:", error);
-        toast.error("Failed to open task");
-      }
-    },
-    [markAsViewed, queryClient, taskService, bluebirdEnabled],
-  );
+            try {
+                const result = await taskService.openTask(taskId, taskRunId);
+                if (!result.success) {
+                    log.error("Failed to open task from deep link", {
+                        taskId,
+                        taskRunId,
+                        error: result.error,
+                        failedStep: result.failedStep,
+                    });
+                    toast.error(`Failed to open task: ${result.error}`);
+                    return;
+                }
+
+                const { task } = result.data;
+                queryClient.setQueryData<Task[]>(taskKeys.list(), (old) => {
+                    if (!old) return [task];
+                    const existingIndex = old.findIndex(
+                        (t) => t.id === task.id,
+                    );
+                    if (existingIndex >= 0) {
+                        const updated = [...old];
+                        updated[existingIndex] = task;
+                        return updated;
+                    }
+                    return [task, ...old];
+                });
+                queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+
+                markAsViewed(taskId);
+                const channelTarget =
+                    bluebirdEnabled && task.channel
+                        ? { channelId: task.channel, newTab: true }
+                        : { newTab: true };
+                void openTaskHelper(task, channelTarget);
+                if (comment) {
+                    useCommentNavigationStore
+                        .getState()
+                        .requestCommentFocus(
+                            taskId,
+                            commentTargetFromAnchor(taskId, comment),
+                            comment.threadId,
+                        );
+                }
+                if (artifact) {
+                    usePendingArtifactOpenStore
+                        .getState()
+                        .requestArtifactOpen(taskId, artifact.itemId);
+                }
+                log.info(`Opened task from deep link: ${taskId}`);
+            } catch (error) {
+                log.error(
+                    "Unexpected error opening task from deep link:",
+                    error,
+                );
+                toast.error("Failed to open task");
+            }
+        },
+        [markAsViewed, queryClient, taskService, bluebirdEnabled],
+    );
 }

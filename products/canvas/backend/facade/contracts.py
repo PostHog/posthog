@@ -160,6 +160,9 @@ class CanvasRecord:
     pinned_at: datetime | None
     current_source_version_id: UUID | None
     published_build_id: UUID | None
+    shared_build_id: UUID | None
+    forked_from_canvas_id: UUID | None
+    forked_from_version_id: UUID | None
     created_by_id: int | None
     created_by: CanvasUser | None
     created_at: datetime
@@ -360,6 +363,22 @@ class CanvasBuildNotFoundError(Exception):
 
 class CanvasStateNotFoundError(Exception):
     pass
+
+
+class CanvasNotPublishedError(Exception):
+    pass
+
+
+class CanvasForkNotAllowedError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class CanvasForkRecord:
+    canvas: CanvasRecord
+    source_canvas_id: UUID
+    source_version_id: UUID | None
+    cross_team: bool
 
 
 class CanvasBuildCapacityExceeded(Exception):

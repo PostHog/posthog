@@ -30,6 +30,7 @@ from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
@@ -52,7 +53,9 @@ from products.canvas.backend.facade.contracts import (
     CanvasBuildCapacityExceeded,
     CanvasBuildNotFoundError,
     CanvasFieldChange,
+    CanvasForkNotAllowedError,
     CanvasNotFoundError,
+    CanvasNotPublishedError,
     CanvasRecord,
     CanvasRequestRejected,
     CanvasStateNotFoundError,
@@ -61,6 +64,7 @@ from products.canvas.backend.facade.contracts import (
     CanvasViewer,
 )
 from products.canvas.backend.facade.enums import CANVAS_BUILD_STATUS_READY, CANVAS_KIND_GRID, CANVAS_KINDS, CanvasAccess
+from products.canvas.backend.models import Canvas
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -81,6 +85,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
+    CanvasForkSerializer,
     CanvasLayoutPatchSerializer,
     CanvasLayoutPublishResponseSerializer,
     CanvasLayoutPublishSerializer,
@@ -280,6 +285,15 @@ class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
     rate = "120/min"
 
 
+class CanvasForkThrottle(SimpleRateThrottle):
+    scope = "canvas_fork"
+    rate = "20/hour"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class CanvasAccessMixin(TeamAndOrgViewSetMixin):
     """Team, channel, and sandbox visibility rules shared by every canvas-like resource."""
 
@@ -354,7 +368,7 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
 CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
 
 
-class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
+class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
     Source is versioned per publish and built server-side; the canvas app
@@ -365,7 +379,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     # The facade reads canvases; the viewset holds no queryset.
     queryset = None
     serializer_class = CanvasSerializer
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
         "list",
         "retrieve",
@@ -402,6 +416,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "publish_layout",
         "patch_layout",
         "home",
+        "fork",
     ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -413,9 +428,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
         if self.action == "call_connector":
             return [*super().get_throttles(), CanvasConnectorCallThrottle()]
+        if self.action == "fork":
+            return [*super().get_throttles(), CanvasForkThrottle()]
         return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        mixin_scopes = super().dangerously_get_required_scopes(request, view)
+        if mixin_scopes is not None:
+            return mixin_scopes
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
         # to create tasks or annotations.
@@ -462,6 +482,20 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         if is_service_auth(self.request):
             return None, None
         return self.user_access_control, AccessControlPermission()._get_required_access_level(self.request, self)
+
+    def get_object(self) -> Any:
+        """Resolve the model only for the generic access-control actions."""
+        if self.action not in {
+            "access_controls",
+            "resource_access_controls",
+            "global_access_controls",
+            "users_with_access",
+        }:
+            raise AssertionError("Canvas objects are otherwise resolved through the facade")
+        try:
+            return Canvas.objects.for_team(self.team_id).get(id=self.kwargs["pk"], deleted=False)
+        except (Canvas.DoesNotExist, ValueError):
+            raise NotFound()
 
     def _canvas(self) -> CanvasRecord:
         """The canvas in the URL, or 404 when the current action may not reach it."""
@@ -1499,6 +1533,64 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 }
             ).data
         )
+
+    @extend_schema(
+        operation_id="canvases_fork_create",
+        request=CanvasForkSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=CanvasSerializer, description="The copy, filed in the caller's personal space."
+            ),
+            403: OpenApiResponse(
+                description="Sandbox tokens cannot copy canvases, or the share does not allow copies."
+            ),
+            404: OpenApiResponse(description="No canvas the caller can open matches the source."),
+            409: OpenApiResponse(description="The source canvas has no published build to copy."),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def fork(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        user = self._request_user()
+        if user is None or self._is_sandbox_authenticated(request):
+            raise PermissionDenied("Copies are made by people; sandbox tokens cannot copy canvases.")
+        if not self.user_access_control.check_access_level_for_resource("canvas", required_level="editor"):
+            raise PermissionDenied("You do not have editor access to canvases, so you can't make a copy.")
+        payload = CanvasForkSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            forked = canvas_api.fork_canvas(
+                self._viewer(),
+                source_canvas_id=payload.validated_data.get("source_canvas_id"),
+                share_token=payload.validated_data.get("share_token"),
+                user_access_control=self.user_access_control,
+                was_impersonated=is_impersonated(request),
+            )
+        except CanvasNotFoundError:
+            raise NotFound("This link doesn't point at a shared canvas.")
+        except CanvasForkNotAllowedError as error:
+            raise PermissionDenied(str(error))
+        except CanvasNotPublishedError:
+            return Response(
+                {"detail": "This canvas hasn't been published yet, so there is nothing to copy."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the copy was not made."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas forked",
+            forked.canvas,
+            source_canvas_id=str(forked.source_canvas_id),
+            source_version_id=str(forked.source_version_id) if forked.source_version_id else None,
+            cross_team=forked.cross_team,
+            via_share_token=payload.validated_data.get("share_token") is not None,
+        )
+        return Response(CanvasSerializer(forked.canvas).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         operation_id="canvases_home_create",

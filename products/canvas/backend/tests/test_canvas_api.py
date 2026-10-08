@@ -77,6 +77,15 @@ class CanvasAPIBaseTest(APIBaseTest):
         with team_scope(self.team.id):
             self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
 
+    def _enable_access_control(self) -> None:
+        """Put the org on the access-control feature and demote the caller, so per-object rules apply."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+
     def _create_canvas(self, **overrides) -> str:
         body = {"name": "My canvas", "channel_id": str(self.channel.id), **overrides}
         response = self.client.post(f"/api/projects/{self.team.id}/canvases/", body, format="json")
@@ -405,7 +414,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         created = allowed.json()
         assert Canvas.objects.unscoped().get(id=created["id"]).generation_task_id == bound_task.id
         # The url is what agents hand to users; a guessed link does not resolve.
-        assert created["url"].endswith(f"/code/canvas/{self.channel.id}/{created['id']}")
+        assert created["url"].endswith(f"/desktop/canvas/{self.channel.id}/{created['id']}")
         assert denied.status_code == status.HTTP_403_FORBIDDEN
         assert wrong_channel.status_code == status.HTTP_403_FORBIDDEN
         # The rejection names the task's channel so the agent can recover in one step.
@@ -1451,6 +1460,42 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         assert str(private.id) not in other_visible
         assert str(notebook_widget.id) not in owner_visible
         assert str(notebook_widget.id) not in other_visible
+
+    def test_access_control_routes_accept_their_own_scope(self):
+        # The viewset's own scope override answers for every action, so it has to keep the
+        # access-control routes the mixin adds reachable for a scoped credential.
+        canvas_id = self._create_canvas(name="Scoped")
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-acl",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["canvas:read", "access_control:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/access_controls",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_team_visible_ids_apply_object_access_control(self):
+        self._enable_access_control()
+        owner = self._create_user("canvas-owner-acl@example.com")
+        with team_scope(self.team.id):
+            denied = Canvas.objects.create(team=self.team, channel=self.channel, name="Denied", created_by=owner)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=str(denied.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+
+        assert str(denied.id) not in canvas_facade.visible_canvas_ids(self.team.id, self.user.id)
+        assert str(denied.id) in canvas_facade.visible_canvas_ids(self.team.id, owner.id)
 
     def test_org_hidden_ids_exclude_owner_but_include_other_members(self):
         other = self._create_user("teammate-org@example.com")
