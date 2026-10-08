@@ -100,7 +100,9 @@ class TeamReads:
 
 
 def read_rollup_days(window: ReadWindow) -> RollupDays:
-    tag_queries(product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, name="warehouse_suggestions_rollup_days")
+    tag_queries(
+        product=Product.DATA_MODELING, feature=Feature.WAREHOUSE_SUGGESTIONS, name="warehouse_suggestions_rollup_days"
+    )
     days_with_data, recent_days_with_data = sync_execute(
         ROLLUP_DAYS_SQL,
         {"window_start": window.start, "window_end": window.end, "recent_start": window.recent_start},
@@ -111,7 +113,10 @@ def read_rollup_days(window: ReadWindow) -> RollupDays:
 
 def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days: RollupDays) -> TeamReads:
     tag_queries(
-        product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, team_id=team_id, name="warehouse_suggestions_reads"
+        product=Product.DATA_MODELING,
+        feature=Feature.WAREHOUSE_SUGGESTIONS,
+        team_id=team_id,
+        name="warehouse_suggestions_reads",
     )
     params: dict[str, Any] = {
         "team_id": team_id,

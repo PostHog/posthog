@@ -68,7 +68,9 @@ def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
 
 
 def _teams_with_reads() -> list[int]:
-    tag_queries(product=Product.WAREHOUSE, feature=Feature.ENRICHMENT, name="warehouse_suggestions_teams")
+    tag_queries(
+        product=Product.DATA_MODELING, feature=Feature.WAREHOUSE_SUGGESTIONS, name="warehouse_suggestions_teams"
+    )
     return [team_id for (team_id,) in sync_execute(TEAMS_WITH_READS_SQL, {"window_days": RULES.window_days})]
 
 
