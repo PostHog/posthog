@@ -108,6 +108,18 @@ export const Pie: Story = {
     name: 'Pie',
 }
 
+export const PiePercentages: Story = {
+    render: () =>
+        renderTrends(
+            {
+                kind: 'TrendsQuery',
+                trendsFilter: { display: 'ActionsPie', showValuesOnSeries: true, showPercentStackView: true },
+            },
+            BROWSER_TOTALS
+        ),
+    name: 'Pie — values and percentages',
+}
+
 export const Donut: Story = {
     render: () => renderTrends(trendsQuery('ActionsDonut'), BROWSER_TOTALS),
     name: 'Donut',
