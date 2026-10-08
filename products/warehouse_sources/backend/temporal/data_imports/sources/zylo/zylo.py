@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable, Iterable
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -9,12 +10,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
+    IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -32,7 +38,10 @@ INITIAL_INCREMENTAL_VALUE = "1970-01-01"
 
 @dataclasses.dataclass
 class ZyloResumeConfig:
-    next_skip: int
+    next_skip: Optional[int] = None
+    # AutomationExecutions fans out over Automations, so its resume state is the shape
+    # `build_dependent_resource` checkpoints: finished parents and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _format_zylo_filter_date(value: Any) -> str:
@@ -55,6 +64,25 @@ def _format_zylo_filter_date(value: Any) -> str:
     return f"{d.isoformat()},gte"
 
 
+def _resolve_cursor(
+    config: ZyloEndpointConfig, should_use_incremental_field: bool, incremental_field: Optional[str]
+) -> Optional[str]:
+    if not (should_use_incremental_field and config.incremental_fields):
+        return None
+    # Honor the user's chosen cursor field; fall back to the first advertised option.
+    advertised = {f["field"] for f in config.incremental_fields}
+    return incremental_field if incremental_field in advertised else config.incremental_fields[0]["field"]
+
+
+def _incremental_config(cursor: str) -> IncrementalConfig:
+    return {
+        "cursor_path": cursor,
+        "start_param": cursor,
+        "initial_value": INITIAL_INCREMENTAL_VALUE,
+        "convert": _format_zylo_filter_date,
+    }
+
+
 def get_resource(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -62,19 +90,14 @@ def get_resource(
 ) -> EndpointResource:
     config: ZyloEndpointConfig = ZYLO_ENDPOINTS[endpoint]
 
-    is_incremental = should_use_incremental_field and bool(config.incremental_fields)
-
-    cursor: Optional[str] = None
-    if is_incremental:
-        # Honor the user's chosen cursor field; fall back to the first advertised option.
-        advertised = {f["field"] for f in config.incremental_fields}
-        cursor = incremental_field if incremental_field in advertised else config.incremental_fields[0]["field"]
+    cursor = _resolve_cursor(config, should_use_incremental_field, incremental_field)
+    is_incremental = cursor is not None
 
     sort_field = cursor or "zylo_created_at"
     params: dict[str, Any] = {
         "sort": f"+{sort_field}",
     }
-    if is_incremental and cursor is not None:
+    if cursor is not None:
         params[cursor] = {
             "type": "incremental",
             "cursor_path": cursor,
@@ -108,20 +131,52 @@ def zylo_source(
     should_use_incremental_field: bool = False,
     incremental_field: Optional[str] = None,
 ) -> SourceResponse:
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": ZYLO_BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": f"{token_id}:{token_secret}",
-            },
-            "paginator": OffsetPaginator(
-                limit=PAGE_LIMIT,
-                offset_param="skip",
-                limit_param="limit",
-                total_path=None,
-            ),
+    endpoint_config = ZYLO_ENDPOINTS[endpoint]
+    client_config: ClientConfig = {
+        "base_url": ZYLO_BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": f"{token_id}:{token_secret}",
         },
+        "paginator": OffsetPaginator(
+            limit=PAGE_LIMIT,
+            offset_param="skip",
+            limit_param="limit",
+            total_path=None,
+        ),
+    }
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if endpoint_config.fanout is not None:
+        cursor = _resolve_cursor(endpoint_config, should_use_incremental_field, incremental_field)
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(ZyloResumeConfig(fanout_state=state))
+
+        child = build_dependent_resource(
+            endpoint_configs=ZYLO_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=endpoint_config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=cursor,
+            incremental_config_factory=_incremental_config,
+            child_params_extra={"sort": f"+{cursor or 'zylo_created_at'}"},
+            # The client's OffsetPaginator already sends `limit`.
+            page_size_param=None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume_config.fanout_state if resume_config else None,
+        )
+        return _make_source_response(endpoint_config, lambda: child)
+
+    config: RESTAPIConfig = {
+        "client": client_config,
         # Write disposition is set per-resource in get_resource (it always wins over
         # resource_defaults), so no default is needed here.
         "resource_defaults": {},
@@ -129,10 +184,8 @@ def zylo_source(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"offset": resume_config.next_skip}
+    if resume_config is not None and resume_config.next_skip is not None:
+        initial_paginator_state = {"offset": resume_config.next_skip}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when there's a next page to resume to. Redis TTL handles cleanup on completion.
@@ -148,11 +201,13 @@ def zylo_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    endpoint_config = ZYLO_ENDPOINTS[endpoint]
+    return _make_source_response(endpoint_config, lambda: resource)
 
+
+def _make_source_response(endpoint_config: ZyloEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
     return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
+        name=endpoint_config.name,
+        items=items,
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,

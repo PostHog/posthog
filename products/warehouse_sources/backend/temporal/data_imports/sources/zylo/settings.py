@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Zylo Enterprise (v2) API base URL. Every endpoint path below is relative to this.
@@ -39,10 +42,23 @@ class ZyloEndpointConfig:
     # Stable, never-updated datetime field used for partitioning. `zylo_created_at` is set once at
     # record creation and never changes, unlike `zylo_modified_at`.
     partition_key: Optional[str] = "zylo_created_at"
+    default_incremental_field: Optional[str] = "zylo_created_at"
+    page_size: int = PAGE_LIMIT
+    fanout: Optional[DependentEndpointConfig] = None
 
 
-# All resources are top-level list endpoints (no fan-out): every id in this catalog is a genuine
-# top-level list, so no parent identifier needs to ride in the primary key.
+# Executions are only listable per automation, so they fan out over `/v2/automations`. Execution
+# rows already carry `automation_id`, so nothing needs copying from the parent.
+AUTOMATION_FANOUT = DependentEndpointConfig(
+    parent_name="Automations",
+    resolve_param="automationId",
+    resolve_field="id",
+    include_from_parent=[],
+    parent_params={"sort": "+zylo_created_at"},
+)
+
+
+# Every resource except AutomationExecutions is a top-level list endpoint.
 ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
     "Applications": ZyloEndpointConfig(
         name="Applications",
@@ -107,6 +123,20 @@ ZYLO_ENDPOINTS: dict[str, ZyloEndpointConfig] = {
         name="ActivityHistory",
         path="/v2/activityHistory",
         table_name="activity_history",
+    ),
+    # Requires a token created with the automation role (`automations:read`).
+    "Automations": ZyloEndpointConfig(
+        name="Automations",
+        path="/v2/automations",
+        table_name="automations",
+    ),
+    # Execution ids are global (Zylo serves `/v2/automations/executions/{executionId}`), so `id`
+    # alone stays unique across every parent automation.
+    "AutomationExecutions": ZyloEndpointConfig(
+        name="AutomationExecutions",
+        path="/v2/automations/{automationId}/executions",
+        table_name="automation_executions",
+        fanout=AUTOMATION_FANOUT,
     ),
 }
 

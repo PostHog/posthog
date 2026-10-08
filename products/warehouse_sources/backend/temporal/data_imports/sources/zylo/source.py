@@ -41,6 +41,8 @@ _ENDPOINT_SCOPES: dict[str, str] = {
     "SavingsEvents": "applications:read",
     "ApplicationBudgets": "applications:read",
     "ActivityHistory": "team:read",
+    "Automations": "automations:read",
+    "AutomationExecutions": "automations:read",
 }
 
 
@@ -103,7 +105,13 @@ class ZyloSource(ResumableSource[ZyloSourceConfig, ZyloResumeConfig]):
             if endpoint_config is None:
                 permissions[endpoint] = None
                 continue
-            status = probe_endpoint_status(config.token_id, config.token_secret, endpoint_config.path)
+            # A fan-out child path has an unbound `{id}`, so probe its parent list, which needs the same scope.
+            probe_path = (
+                ZYLO_ENDPOINTS[endpoint_config.fanout.parent_name].path
+                if endpoint_config.fanout is not None
+                else endpoint_config.path
+            )
+            status = probe_endpoint_status(config.token_id, config.token_secret, probe_path)
             # Only a real denial counts as missing scope — throttles, 5xx, and network blips
             # must not mark a table unreachable.
             if status == 403:
@@ -161,7 +169,8 @@ class ZyloSource(ResumableSource[ZyloSourceConfig, ZyloResumeConfig]):
                 "**Integrations → API Integration → Connect** in Zylo and paste the token ID and secret "
                 "below. The key needs read scopes (e.g. `applications:read`, `contracts:read`, "
                 "`spend:read`, `team:read`) for the resources you want to sync — Purchase Orders and PO "
-                "Line Items are a premium feature and additionally require `spend:read`."
+                "Line Items are a premium feature and additionally require `spend:read`. Automations and "
+                "Automation Executions need a token created with the automation role (`automations:read`)."
             ),
             iconPath="/static/services/zylo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zylo",
