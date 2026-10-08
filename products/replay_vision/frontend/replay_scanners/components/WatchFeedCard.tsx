@@ -401,7 +401,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                 {/* A short rule rather than a full-width line: rows carry no card, so a full line reads as
                     the border between two rows. */}
                 <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">
-                    <span className="block h-px w-10 bg-border" aria-hidden />
+                    <span className="block h-0.5 w-16 rounded-full bg-border-bold" aria-hidden />
                     <p className="m-0 flex items-start gap-1.5 text-sm text-secondary">
                         <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
                         <span className="line-clamp-2">
