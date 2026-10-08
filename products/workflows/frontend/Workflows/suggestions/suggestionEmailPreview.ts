@@ -24,7 +24,10 @@ function doctypeOf(doc: Document): string {
 export function emailPreviewDocument(html: string, { loadRemote }: { loadRemote: boolean }): string {
     const doc = new DOMParser().parseFromString(html, 'text/html')
     // A refresh navigates the frame itself, which no policy directive stops, and a base can repoint links.
-    doc.querySelectorAll('meta[http-equiv], base').forEach((element) => element.remove())
+    // A nested frame or plugin carries its own document, out of reach of this cleanup, and has no place in an email.
+    doc.querySelectorAll('meta[http-equiv], base, iframe, frame, frameset, object, embed').forEach((element) =>
+        element.remove()
+    )
 
     const policy = doc.createElement('meta')
     policy.httpEquiv = 'Content-Security-Policy'

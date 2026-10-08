@@ -31,11 +31,19 @@ describe('emailPreviewDocument', () => {
         ['a refresh', '<meta http-equiv="refresh" content="0;url=https://attacker.example/">'],
         ['a looser policy of its own', `<meta http-equiv="Content-Security-Policy" content="img-src *">`],
         ['a base that repoints links', '<base href="https://attacker.example/">'],
+        [
+            'a nested frame with its own refresh',
+            `<iframe srcdoc="<meta http-equiv='refresh' content='0;url=https://attacker.example/'>"></iframe>`,
+        ],
+        [
+            'an embedded object',
+            '<object data="https://attacker.example/x"></object><embed src="https://attacker.example/y">',
+        ],
     ])('drops %s from the email, even with remote images loaded', (_name, tag) => {
-        const doc = preview(`<html><head>${tag}</head><body><p>Hi</p></body></html>`, true)
+        const doc = preview(`<html><head>${tag}</head><body><p>Hi</p>${tag}</body></html>`, true)
 
         expect(doc.querySelectorAll('meta[http-equiv]')).toHaveLength(1)
-        expect(doc.querySelector('base')).toBeNull()
+        expect(doc.querySelectorAll('base, iframe, object, embed')).toHaveLength(0)
         expect(policyOf(doc)).toContain('img-src data: https:')
     })
 
