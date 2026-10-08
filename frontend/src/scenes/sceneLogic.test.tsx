@@ -288,13 +288,16 @@ describe('sceneLogic', () => {
             expect(buildProtectedScene).not.toHaveBeenCalled()
         })
 
-        it('uses the project-unavailable surface without building the protected scene', async () => {
-            window.POSTHOG_APP_CONTEXT = { ...appContext, current_team: null } as AppContext
-            teamLogic.actions.loadCurrentTeamSuccess(null)
-            router.actions.push('/project/1/web')
-            await expectLogic(logic).toMatchValues({ activeSceneId: Scene.ErrorProjectUnavailable })
-            expect(buildProtectedScene).not.toHaveBeenCalled()
-        })
+        it.each([null, MOCK_DEFAULT_TEAM])(
+            'uses the project-unavailable surface without a synchronous project id: loaded team=%s',
+            async (loadedTeam) => {
+                window.POSTHOG_APP_CONTEXT = { ...appContext, current_team: null } as AppContext
+                teamLogic.actions.loadCurrentTeamSuccess(loadedTeam)
+                router.actions.push('/project/1/web')
+                await expectLogic(logic).toMatchValues({ activeSceneId: Scene.ErrorProjectUnavailable })
+                expect(buildProtectedScene).not.toHaveBeenCalled()
+            }
+        )
     })
 
     it('has preloaded some scenes', async () => {
