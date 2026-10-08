@@ -1016,8 +1016,10 @@ def insert_cohort_from_filters(
 # contradict what the cohort already reports.
 # Runs on the long-running queue (like the sibling cohort tasks) so a large paging run
 # can't clog the default workers, with a generous soft limit as a backstop ceiling.
-# get_cohort_actors_for_feature_flag catches BaseException, so a SoftTimeLimitExceeded,
-# a shutdown, or a revoke records error state and re-raises like any other failure.
+# get_cohort_actors_for_feature_flag catches BaseException, so an interruption raised into the
+# task (SoftTimeLimitExceeded, SystemExit) records error state and re-raises. A prefork child
+# killed by a signal runs no handler: a revoke with terminate=True, or a warm shutdown that
+# outlasts the pod's termination grace period, leaves the cohort calculating.
 @shared_task(
     ignore_result=True,
     max_retries=0,

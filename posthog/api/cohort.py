@@ -2315,7 +2315,7 @@ COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER = Counter(
 
 
 class PersonFlagEvaluationError(Exception):
-    pass
+    """The flags service failed to evaluate the flag for some persons. The cohort keeps the persons that matched."""
 
 
 def _batch_evaluate_flag_page_with_retries(
@@ -2464,7 +2464,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome="success").inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome="success").observe(time.monotonic() - start_monotonic)
-    # BaseException, so that a run the worker cuts short (shutdown, revoke) also clears is_calculating.
+    # BaseException, so that an interruption raised into the task (SystemExit) also clears is_calculating.
+    # A prefork child that receives SIGTERM or SIGKILL exits without running this handler.
     except BaseException as err:
         logger.exception(
             "cohort_from_feature_flag_failed",
