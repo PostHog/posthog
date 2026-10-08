@@ -4,7 +4,7 @@ from typing import Any, Literal, Union, cast
 
 from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import Model, QuerySet
+from django.db.models import Exists, Model, OuterRef, QuerySet
 from django.shortcuts import get_object_or_404
 
 import nh3
@@ -38,7 +38,7 @@ from posthog.event_usage import (
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -352,6 +352,8 @@ class OrganizationSerializer(
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         if not can_create_project_in_organization(organization, membership):
             return None
+        if hasattr(organization, "_has_non_demo_project"):
+            return organization._has_non_demo_project
         return organization.teams.exclude(is_demo=True).exists()
 
     @tracer.start_as_current_span("organization_serializer.teams")
@@ -632,6 +634,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
 
+        queryset = queryset.annotate(
+            _has_non_demo_project=Exists(Team.objects.filter(organization_id=OuterRef("pk"), is_demo=False))
+        )
         return annotate_signed_baa(queryset)
 
     def safely_get_object(self, queryset):

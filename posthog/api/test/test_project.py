@@ -302,6 +302,40 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(duplicate_demo_response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(second_project_response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand([("patch", True), ("put", True), ("patch", False)])
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_cannot_convert_demo_to_regular_project(self, method, has_regular_project):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        if has_regular_project:
+            demo = self.client.post("/api/projects/", {"name": "Demo", "is_demo": True}, format="json")
+            self.assertEqual(demo.status_code, status.HTTP_201_CREATED)
+            demo_id = demo.json()["id"]
+        else:
+            self.team.is_demo = True
+            self.team.save(update_fields=["is_demo"])
+            demo_id = self.project.id
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{demo_id}/", {"name": "Demo", "is_demo": False}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Team.objects.get(pk=demo_id).is_demo)
+
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_can_rename_demo_project(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        demo = self.client.post("/api/projects/", {"name": "Demo", "is_demo": True}, format="json")
+        self.assertEqual(demo.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.patch(f"/api/projects/{demo.json()['id']}/", {"name": "Renamed demo"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
         if with_member_create_entitlement:
