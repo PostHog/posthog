@@ -91,6 +91,14 @@ pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
 pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
 /// File count in a freshly-taken checkpoint directory (histogram).
 pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
+/// Free bytes on the checkpoint volume minus the size of the newest local checkpoint (gauge, bytes).
+/// A PVC restore copies that checkpoint next to itself, so a negative value means the restore does
+/// not fit on the volume.
+pub const CHECKPOINT_RESTORE_HEADROOM_BYTES: &str = "checkpoint_restore_headroom_bytes";
+/// Final checkpoints taken on shutdown, labelled by `result` (`uploaded`|`failed`) (counter).
+pub const CHECKPOINT_FINAL_TOTAL: &str = "checkpoint_final_total";
+/// Wall-clock duration of the final shutdown checkpoint, upload included (histogram, seconds).
+pub const CHECKPOINT_FINAL_DURATION_SECONDS: &str = "checkpoint_final_duration_seconds";
 /// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`); when
 /// `result=cancelled`, an additional `cause` label (`rebalance`|`shutdown`|`unknown`) (counter).
 pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
@@ -754,6 +762,15 @@ mod tests {
         assert_eq!(CHECKPOINT_DURATION_SECONDS, "checkpoint_duration_seconds");
         assert_eq!(CHECKPOINT_SIZE_BYTES, "checkpoint_size_bytes");
         assert_eq!(CHECKPOINT_FILE_COUNT, "checkpoint_file_count");
+        assert_eq!(
+            CHECKPOINT_RESTORE_HEADROOM_BYTES,
+            "checkpoint_restore_headroom_bytes",
+        );
+        assert_eq!(CHECKPOINT_FINAL_TOTAL, "checkpoint_final_total");
+        assert_eq!(
+            CHECKPOINT_FINAL_DURATION_SECONDS,
+            "checkpoint_final_duration_seconds",
+        );
         assert_eq!(CHECKPOINT_UPLOADS_TOTAL, "checkpoint_uploads_total");
         assert_eq!(
             CHECKPOINT_UPLOAD_DURATION_SECONDS,
