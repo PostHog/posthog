@@ -24,10 +24,12 @@ describe('recentLoginsLogic', () => {
     const originalLocation = window.location
     const originalVendor = window.navigator.vendor
     let assignMock: jest.Mock
+    let precheckResponse: Record<string, unknown>
 
     beforeEach(() => {
         Object.defineProperty(window.navigator, 'vendor', { value: WEBKIT_VENDOR, configurable: true }) // skip passkey auto-trigger
-        useMocks({ post: { '/api/login/precheck': () => [200, { saml_available: false }] } })
+        precheckResponse = { saml_available: false }
+        useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse] } })
         initKeaTests()
         router.actions.push('/login')
         // initKeaTests loads a mock user, and userLogic records that user
@@ -99,5 +101,27 @@ describe('recentLoginsLogic', () => {
         await expectLogic(login).toDispatchActions([login.actionCreators.precheck({ email: 'user@example.com' })])
         expect(assignMock).not.toHaveBeenCalled()
         expect(login.values.login.email).toEqual('user@example.com')
+    })
+
+    it.each([
+        ['with recent logins', true, { hasRows: true, linkClicked: false, hasPassword: true }],
+        ['after the link click', false, { hasRows: true, linkClicked: true, hasPassword: true }],
+        ['for an account without a password', false, { hasRows: true, linkClicked: false, hasPassword: false }],
+        ['without recent logins', false, { hasRows: false, linkClicked: false, hasPassword: true }],
+    ])('other login methods %s are collapsed: %s', async (_, collapsed, { hasRows, linkClicked, hasPassword }) => {
+        if (hasRows) {
+            record('user@example.com', 'password')
+        }
+        precheckResponse = { saml_available: false, password_login_available: hasPassword }
+        const login = loginLogic()
+        login.mount()
+        recentLoginsLogic.mount()
+        login.actions.precheck({ email: 'user@example.com' })
+        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+        if (linkClicked) {
+            recentLoginsLogic.actions.showOtherLoginMethods()
+        }
+
+        expect(recentLoginsLogic.values.isOtherLoginMethodsCollapsed).toBe(collapsed)
     })
 })

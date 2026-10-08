@@ -36,6 +36,7 @@ const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => strin
     resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
     recentLoginSelected: () => recentLoginsLogic.actionTypes.selectRecentLogin,
     recentLoginRemoved: () => recentLoginsLogic.actionTypes.removeRecentLogin,
+    otherLoginMethodsShown: () => recentLoginsLogic.actionTypes.showOtherLoginMethods,
 }
 
 describe('loginTelemetryLogic', () => {

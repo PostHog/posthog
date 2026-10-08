@@ -33,6 +33,7 @@ import { LoginMethod, Region, SSOProvider } from '~/types'
 
 import { loginLogic } from './loginLogic'
 import { RecentLogins } from './RecentLogins'
+import { recentLoginsLogic } from './recentLoginsLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -127,6 +128,8 @@ export function LoginForm(): JSX.Element {
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
+    const { hasRecentLogins, isOtherLoginMethodsCollapsed } = useValues(recentLoginsLogic)
+    const { showOtherLoginMethods } = useActions(recentLoginsLogic)
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -134,6 +137,21 @@ export function LoginForm(): JSX.Element {
     const greeting = loginGreeting(lastLoginMethod !== null)
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const prevEmail = usePrevious(login.email)
+    // Normally SAML replaces this row, but when the account has no password we need to show whatever it does have.
+    const showSocialLogin =
+        !isCodeSent &&
+        !precheckResponse.sso_enforcement &&
+        (!precheckResponse.saml_available || isPasswordLoginUnavailable)
+    const socialLoginButtons = (
+        <SocialLoginButtons
+            topDivider
+            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+            captionLocation="top"
+            restrictToProviders={restrictToProviders}
+            // Once the precheck knows the account's methods, offer a passkey only if the account has one
+            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+        />
+    )
 
     useEffect(() => {
         const charDelta = login.email.length - (prevEmail?.length ?? 0)
@@ -423,21 +441,7 @@ export function LoginForm(): JSX.Element {
                         )}
                     </Form>
                 )}
-                {/* Normally SAML replaces this row, but when the account has no password we need to
-                    show whatever it does have. */}
-                {!isCodeSent &&
-                    !precheckResponse.sso_enforcement &&
-                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
-                        <SocialLoginButtons
-                            topDivider
-                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
-                            captionLocation="top"
-                            restrictToProviders={restrictToProviders}
-                            // Once we know the account's methods, only offer a passkey if it actually has
-                            // one — otherwise this is the same dead button we're removing.
-                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
-                        />
-                    )}
+                {showSocialLogin && !hasRecentLogins && socialLoginButtons}
                 {!isCodeSent && (
                     <RecentLogins
                         onSelect={({ method }) => {
@@ -447,6 +451,21 @@ export function LoginForm(): JSX.Element {
                         }}
                     />
                 )}
+                {showSocialLogin &&
+                    hasRecentLogins &&
+                    (isOtherLoginMethodsCollapsed ? (
+                        <p className="mt-4 mb-0 text-sm text-center">
+                            <Link
+                                onClick={showOtherLoginMethods}
+                                data-attr="login-other-methods"
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                            >
+                                Log in another way
+                            </Link>
+                        </p>
+                    ) : (
+                        socialLoginButtons
+                    ))}
             </AuthSceneCard>
         </AuthScene>
     )
