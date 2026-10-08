@@ -8215,14 +8215,14 @@ export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMet
     matchType: string | null
     currency: string | null
     previous?: MarketingAnalyticsSearchMetrics | null
-    posthogConversions?: MarketingAnalyticsSearchConversion[]
+    posthogConversions?: MarketingAnalyticsSearchConversion[] | null
 }
 
 export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsSearchRow[]
-    posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[]
-    posthogConversionsWarning?: string
-    posthogAttributionMode?: AttributionMode
+    posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null
+    posthogConversionsWarning?: string | null
+    posthogAttributionMode?: AttributionMode | null
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>

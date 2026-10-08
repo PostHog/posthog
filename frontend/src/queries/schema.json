@@ -13054,16 +13054,30 @@
                     "type": "string"
                 },
                 "posthogAttributionMode": {
-                    "$ref": "#/definitions/AttributionMode"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "posthogConversionGoals": {
-                    "items": {
-                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "posthogConversionsWarning": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "query_metadata": {
                     "type": "object"
@@ -36492,16 +36506,30 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "posthogAttributionMode": {
-                    "$ref": "#/definitions/AttributionMode"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "posthogConversionGoals": {
-                    "items": {
-                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "posthogConversionsWarning": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36597,10 +36625,17 @@
                     "type": ["number", "null"]
                 },
                 "posthogConversions": {
-                    "items": {
-                        "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "previous": {
                     "anyOf": [
@@ -44918,16 +44953,30 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "posthogAttributionMode": {
-                            "$ref": "#/definitions/AttributionMode"
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/AttributionMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         },
                         "posthogConversionGoals": {
-                            "items": {
-                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
-                            },
-                            "type": "array"
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         },
                         "posthogConversionsWarning": {
-                            "type": "string"
+                            "type": ["string", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
