@@ -21,6 +21,10 @@ from products.alerts_platform.backend.facade.enums import (
 )
 
 
+def single_instance_grouping() -> dict[str, object]:
+    return {"mode": "single", "keys": []}
+
+
 # nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
 def source_kind_choices() -> list[tuple[str, str]]:
     # A callable, so a new source does not write a state-only migration for its choice.
@@ -55,6 +59,8 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
 
     source_kind = models.CharField(max_length=32, choices=source_kind_choices)
     source_config = models.JSONField(default=dict)
+    # The stored form of the facade's `Grouping`.
+    grouping = models.JSONField(default=single_instance_grouping, db_default={"mode": "single", "keys": []})
 
     # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
     threshold_count = models.PositiveIntegerField(null=True, blank=True)
@@ -74,6 +80,8 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     schedule_restriction = models.JSONField(null=True, blank=True)
 
     next_check_at = models.DateTimeField(null=True, blank=True)
+    # Mutes every instance. An instance's own snooze mutes one group, and the later of the two holds.
+    snooze_until = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
     check_status = models.CharField(
         max_length=16, choices=CheckStatus.choices, default=CheckStatus.OK.value, db_default="ok"

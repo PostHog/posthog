@@ -63,7 +63,7 @@ def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAler
         .filter(configuration_id=configuration_id, grouping_key=grouping_key)
         .first()
     )
-    return None if row is None else instance_view(row, row.configuration.check_status)
+    return None if row is None else instance_view(row, row.configuration)
 
 
 def undeclared_policy_divergences(correspondence: SourceCorrespondence) -> frozenset[str]:

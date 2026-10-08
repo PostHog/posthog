@@ -22,6 +22,8 @@ from products.alerts_platform.backend.facade.api import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     FiringEpisode,
+    Grouping,
+    GroupingMode,
     GroupOutcome,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
@@ -126,7 +128,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         assert (stored.state, stored.firing_started_at) == ("firing", self.cutoff)
         assert shown is not None and shown.state == "errored"
         (check,) = due_checks(self.team.id, SourceKind.LOGS.value, slot_of(due, due), due)
-        assert check.state == "errored"
+        assert check.instance().state == "errored"
 
         self._record(at=due, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
 
@@ -192,6 +194,38 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.id, "configuration_id": self.configuration.id},
         )
         assert rows == [("api", api.id, "firing", 40.0), ("web", web.id, "not_firing", None)]
+
+    def test_a_check_reads_each_group_composed_with_the_configuration(self) -> None:
+        self._record(
+            groups=(
+                GroupOutcome(
+                    grouping_key="api",
+                    kind=AlertEventKind.FIRING,
+                    new_state="firing",
+                    notified=True,
+                    firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
+                ),
+                GroupOutcome(grouping_key="web", kind=AlertEventKind.CHECK, new_state="not_firing", notified=False),
+            )
+        )
+        due = self._next_due()
+        muted_until = due + timedelta(hours=1)
+        with team_scope(self.team.id):
+            PlatformAlert.objects.filter(configuration=self.configuration, grouping_key="web").update(
+                snooze_until=due + timedelta(hours=2)
+            )
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(snooze_until=muted_until)
+
+        (check,) = due_checks(self.team.id, SourceKind.LOGS.value, slot_of(due, due), due)
+
+        assert {
+            key: (check.instance(key).state, check.instance(key).snooze_until) for key in ("api", "web", "new")
+        } == {
+            "api": ("firing", muted_until),
+            "web": ("not_firing", due + timedelta(hours=2)),
+            "new": ("not_firing", muted_until),
+        }
+        assert check.instance("api").firing_started_at == self.cutoff
 
     def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
         # The alert row clears the firing on a resolve, so history is the only place left holding
@@ -287,14 +321,16 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 for c in due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff)
                 if c.legacy_configuration_id == legacy_id
             ]
-            return check.state, check.snooze_until
+            instance = check.instance()
+            return instance.state, instance.snooze_until
 
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
         assert snooze_seen_by_check() == ("not_firing", snoozed_until)
 
         with team_scope(self.team.id):
-            PlatformAlert.objects.filter(configuration__legacy_configuration_id=legacy_id).update(state="firing")
+            copied = PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_id)
+            PlatformAlert.objects.create(team=self.team, configuration=copied, state="firing")
         with time_machine.travel(self.cutoff, tick=False):
             copy(snoozed_until)
         assert snooze_seen_by_check() == ("firing", snoozed_until)
@@ -305,6 +341,19 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
 def _group(grouping_key: str) -> GroupOutcome:
     return GroupOutcome(grouping_key=grouping_key, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"mode": GroupingMode.SINGLE, "keys": ("service",)},
+        {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ()},
+        {"mode": GroupingMode.BY_RESULT_LABELS, "keys": ("service", "service")},
+    ],
+)
+def test_a_grouping_rejects_keys_its_mode_cannot_use(fields: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        Grouping(**fields)
 
 
 @pytest.mark.parametrize(

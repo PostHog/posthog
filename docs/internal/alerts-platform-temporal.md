@@ -277,12 +277,18 @@ The failure case goes through `evaluate_alert_check` with an errored `CheckInput
 transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
 disable every alert that ran during it.
 
-`suppressed` is the single definition of what holds a configuration back, and it is BROKEN alone.
+`suppressed` is the single definition of what holds a configuration back, and it is a BROKEN `check_status` alone.
 Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert that still mints
 a batch key spends the manifest bound on work its own evaluation then drops.
-It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
-lookup into a subquery per leaf, which would let the conditions match different alert rows once a source writes
-a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`check_status` lives on the configuration, not on an instance, for grouped and ungrouped configurations alike,
+because a failed check returns no group to attribute the failure to.
+`record_outcomes` moves an ERRORED or BROKEN group verdict onto it and leaves the instance's firing state alone.
+The check input hands the shared machine the configuration's status in place of each instance's state while it is not OK,
+so the machine reads what it read when both shared one field.
+
+A configuration's `snooze_until` mutes every instance, and an instance's own `snooze_until` mutes one group.
+The check input and the read API show each instance the later of the two.
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 

@@ -17,6 +17,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertCheckStatus, PlatformAlertState
+
 if TYPE_CHECKING:
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
@@ -101,12 +103,57 @@ def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
     return condition if isinstance(condition, dict) else {}
 
 
+class GroupingMode(StrEnum):
+    SINGLE = "single"
+    BY_RESULT_LABELS = "by_result_labels"
+
+
+@frozen
+class Grouping:
+    """How a configuration splits its results into instances.
+
+    `keys` names the result labels whose values make a group's key, so it is empty for a single
+    instance and required for grouping by labels.
+    """
+
+    mode: GroupingMode = GroupingMode.SINGLE
+    keys: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.mode == GroupingMode.SINGLE and self.keys:
+            raise ValueError("a single-instance grouping takes no keys")
+        if self.mode == GroupingMode.BY_RESULT_LABELS and not self.keys:
+            raise ValueError("grouping by result labels needs at least one key")
+        if len(set(self.keys)) != len(self.keys):
+            raise ValueError("a grouping names each key once")
+
+    @classmethod
+    def from_stored(cls, stored: Mapping[str, Any]) -> Grouping:
+        return cls(mode=GroupingMode(stored.get("mode", GroupingMode.SINGLE)), keys=tuple(stored.get("keys", ())))
+
+    def to_stored(self) -> dict[str, Any]:
+        return {"mode": self.mode.value, "keys": list(self.keys)}
+
+
+@frozen
+class InstanceCheckState:
+    """One instance's runtime state, as the shared machine reads it for that group."""
+
+    grouping_key: str
+    state: str
+    last_notified_at: datetime | None = None
+    snooze_until: datetime | None = None
+    firing_started_at: datetime | None = None
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
-    Flat rather than nested, because a source never holds the rows and has nothing to do with
-    the split between what belongs to the configuration and what belongs to the instance.
+    `instances` holds every instance the configuration has, already composed with what belongs to
+    the configuration: a failing check status replaces each state, and a configuration mute
+    extends each snooze. A grouped source reads one per group it evaluates, and an open instance
+    whose key a successful check does not return has gone and resolves.
     """
 
     id: UUID
@@ -121,10 +168,23 @@ class PlatformAlertCheckInput:
     next_check_at: datetime | None
     consecutive_failures: int
     legacy_configuration_id: UUID | None
-    state: str
-    last_notified_at: datetime | None
+    check_status: str
     snooze_until: datetime | None
-    firing_started_at: datetime | None = None
+    instances: tuple[InstanceCheckState, ...] = ()
+    grouping: Grouping = field(default_factory=Grouping)
+
+    def instance(self, grouping_key: str = "") -> InstanceCheckState:
+        """The instance for a group, or the state a group with no instance starts from."""
+        for instance in self.instances:
+            if instance.grouping_key == grouping_key:
+                return instance
+        return InstanceCheckState(
+            grouping_key=grouping_key,
+            state=PlatformAlertState.NOT_FIRING.value
+            if self.check_status == PlatformAlertCheckStatus.OK
+            else self.check_status,
+            snooze_until=self.snooze_until,
+        )
 
     @property
     def filters(self) -> dict[str, Any]:
