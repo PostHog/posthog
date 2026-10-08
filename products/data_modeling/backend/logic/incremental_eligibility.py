@@ -26,7 +26,6 @@ from posthog.hogql.database.models import (
     FloatArrayDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
-    SavedQuery,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -62,8 +61,6 @@ NON_DETERMINISTIC_FUNCTIONS = {
 }
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
-
-_SUBQUERY_LOCATION = "a subquery or CTE"
 
 _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.DateTimeType: "datetime",
@@ -159,7 +156,10 @@ def check_incremental_eligibility(
     # Shape is purely structural, so the raw AST is enough — no need for the resolved copy.
     for select in raw_selects:
         _check_shape(select, blockers)
-        _check_nested_shapes(select, blockers, database)
+    # The resolved copy has every saved query this one reads inlined as a subquery, so the nested
+    # walk sees view bodies too. A LIMIT in a view moves rows under the watermark like an inline one.
+    for select in selects:
+        _check_nested_shapes(select, blockers)
 
     if config is None:
         # Editor preflight: no config chosen yet, so report only what is true of the query itself.
@@ -361,7 +361,7 @@ def _check_set_operators(node: ast.SelectQuery | ast.SelectSetQuery, blockers: l
 
 
 def _check_shape(
-    select: ast.SelectQuery, blockers: list[str], *, nested: bool = False, location: str = _SUBQUERY_LOCATION
+    select: ast.SelectQuery, blockers: list[str], *, nested: bool = False, location: str = "a subquery or CTE"
 ) -> None:
     if select.limit is not None:
         blockers.append(
@@ -417,86 +417,17 @@ def _row_slice_blocker(construct: str, outer_reason: str, nested: bool, location
     return f"{construct} cannot be incremental. {outer_reason}"
 
 
-def _check_nested_shapes(
-    select: ast.SelectQuery,
-    blockers: list[str],
-    database: Optional["Database"] = None,
-    *,
-    cte_names: frozenset[str] = frozenset(),
-    seen_views: frozenset[str] = frozenset(),
-) -> None:
+def _check_nested_shapes(select: ast.SelectQuery, blockers: list[str]) -> None:
     """Row sources feed the outer result one for one, so a shape that breaks incremental at the top
     breaks it just as well any number of levels down. Only row sources: a scalar or IN subquery in
     an expression contributes a value, not rows — its hazard is that the value drifts as data
-    arrives, which holds with or without a LIMIT inside it and is the same class as ``now()``.
-
-    A saved query read by name is a row source too. It is rebuilt in full on its own schedule, so a
-    LIMIT in its body moves rows out from under this query's watermark exactly as an inlined one
-    would. ``cte_names`` keeps a CTE that shadows a view name from being read as that view."""
-    cte_names = cte_names | set(select.ctes or {})
+    arrives, which holds with or without a LIMIT inside it and is the same class as ``now()``."""
     for source in _source_nodes(select):
-        _check_source_shapes(source, blockers, database, cte_names=cte_names, seen_views=seen_views)
-
-    if database is None:
-        return
-    for name in _table_references(select):
-        if name in cte_names or name in seen_views:
-            continue
-        body = _saved_query_body(name, database)
-        if body is None:
-            continue
-        view_blockers: list[str] = []
-        # The view body has its own CTE scope, so the outer query's CTE names do not carry in.
-        _check_source_shapes(
-            body, view_blockers, database, seen_views=seen_views | {name}, location=f'the view "{name}"'
-        )
-        blockers.extend(
-            blocker if 'the view "' in blocker else f'{blocker} This comes from the view "{name}".'
-            for blocker in view_blockers
-        )
-
-
-def _check_source_shapes(
-    source: ast.SelectQuery | ast.SelectSetQuery,
-    blockers: list[str],
-    database: Optional["Database"],
-    *,
-    cte_names: frozenset[str] = frozenset(),
-    seen_views: frozenset[str] = frozenset(),
-    location: str = _SUBQUERY_LOCATION,
-) -> None:
-    _check_set_operators(source, blockers)
-    for leaf in _leaf_selects(source):
-        _check_shape(leaf, blockers, nested=True, location=location)
-        _check_nested_shapes(leaf, blockers, database, cte_names=cte_names, seen_views=seen_views)
-
-
-def _table_references(select: ast.SelectQuery) -> list[str]:
-    """Names this select reads from directly in FROM or a JOIN: a table, a CTE, or a saved query."""
-    names: list[str] = []
-    join: Optional[ast.JoinExpr] = select.select_from
-    while join is not None:
-        if isinstance(join.table, ast.Field) and join.table.chain:
-            names.append(".".join(str(part) for part in join.table.chain))
-        join = join.next_join
-    return names
-
-
-def _saved_query_body(name: str, database: "Database") -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
-    """The parsed body of the saved query ``name`` refers to, or None when it is not one.
-
-    A name that does not resolve or a body that does not parse is skipped rather than reported:
-    full validation already says so with a better message."""
-    try:
-        table = database.get_table(name)
-    except Exception:
-        return None
-    if not isinstance(table, SavedQuery):
-        return None
-    try:
-        return parse_select(table.query)
-    except (ExposedHogQLError, ValueError):
-        return None
+        _check_set_operators(source, blockers)
+        for leaf in _leaf_selects(source):
+            location = f'the view "{leaf.view_name}"' if leaf.view_name else "a subquery or CTE"
+            _check_shape(leaf, blockers, nested=True, location=location)
+            _check_nested_shapes(leaf, blockers)
 
 
 def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: list[str], warnings: list[str]) -> None:
