@@ -2669,12 +2669,12 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert enabled.status_code == status.HTTP_200_OK, enabled.json()
         assert enabled.json()["result"] == {"flag_id": flag.id, "flag_key": "beta-checkout", "active": True}
         flag.refresh_from_db()
-        assert flag.active is True
+        self.assertEqual(flag.active, True)
 
         disabled = self._invoke(canvas_id, "feature_flags.disable", {"flag_key": "beta-checkout"})
         assert disabled.status_code == status.HTTP_200_OK, disabled.json()
         flag.refresh_from_db()
-        assert flag.active is False
+        self.assertEqual(flag.active, False)
 
         missing = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "no-such-flag"})
         assert missing.status_code == status.HTTP_404_NOT_FOUND, missing.json()
@@ -2697,7 +2697,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         refused = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "beta-checkout"})
         assert refused.status_code == status.HTTP_403_FORBIDDEN, refused.json()
         flag.refresh_from_db()
-        assert flag.active is False
+        self.assertEqual(flag.active, False)
 
     def test_cohorts_add_persons_adds_to_a_static_cohort_only(self):
         canvas_id = self._actions_canvas(verbs=("cohorts.add_persons",))
