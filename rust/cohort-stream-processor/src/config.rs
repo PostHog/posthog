@@ -1,5 +1,6 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
+use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -1044,6 +1045,15 @@ impl Config {
         self.pod_index.unwrap_or(0)
     }
 
+    /// The partitions this pod owns under static ownership: pod `i` of `N` owns each partition `p`
+    /// with `p mod N = i`. At one pod this is every partition. A restore rewinds only these.
+    pub fn owned_partitions(&self) -> BTreeSet<i32> {
+        (0..self.cohort_partition_count)
+            .filter(|partition| partition % self.cohort_pod_count == self.pod_ordinal())
+            .map(|partition| partition as i32)
+            .collect()
+    }
+
     /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
     ///
     /// Auto-commit and auto-offset-store are off: the consume loop marks offsets only after a
@@ -1453,6 +1463,11 @@ mod tests {
         split_child.pod_index = Some(1);
         split_child.checkpoint_restore_source_ordinal = Some(0);
         assert!(split_child.validate_startup().is_ok());
+        assert_eq!(
+            split_child.owned_partitions(),
+            (0..64).filter(|partition| partition % 2 == 1).collect(),
+        );
+        assert_eq!(test_config().owned_partitions(), (0..64).collect());
         let durability = split_child.durability_config();
         assert_eq!(durability.identity().ordinal(), 1);
         assert_eq!(
