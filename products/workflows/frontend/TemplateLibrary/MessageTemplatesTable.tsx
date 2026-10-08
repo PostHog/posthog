@@ -13,8 +13,11 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
@@ -30,6 +33,11 @@ export function MessageTemplatesTable(): JSX.Element {
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
+    // Same check as the "New template" button in the header: the template API needs Editor access.
+    const newTemplateDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Workflow,
+        AccessControlLevel.Editor
+    )
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
@@ -72,13 +80,22 @@ export function MessageTemplatesTable(): JSX.Element {
                     {!showProductIntroduction && (
                         <button
                             type="button"
-                            className="MessageTemplateItem cursor-pointer"
+                            className={
+                                newTemplateDisabledReason
+                                    ? 'MessageTemplateItem cursor-not-allowed'
+                                    : 'MessageTemplateItem cursor-pointer'
+                            }
                             onClick={startNewTemplate}
+                            disabled={!!newTemplateDisabledReason}
+                            title={newTemplateDisabledReason ?? undefined}
                             data-attr="message-templates-new-card"
                         >
-                            <div className="MessageTemplateItemInner flex flex-col items-center justify-center gap-2 rounded border border-dashed bg-surface-primary text-secondary hover:text-primary">
+                            <div className="MessageTemplateItemInner flex flex-col items-center justify-center gap-2 rounded border border-dashed bg-surface-primary px-4 text-center text-secondary hover:text-primary">
                                 <IconPlus className="text-3xl" />
                                 <span className="font-semibold">New template</span>
+                                {newTemplateDisabledReason && (
+                                    <span className="text-xs">{newTemplateDisabledReason}</span>
+                                )}
                             </div>
                         </button>
                     )}
