@@ -8,6 +8,7 @@ import pytest
 from unittest.mock import patch
 
 from products.dashboards.evals.scorers import SavedDashboardContents
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.creation_scorers import CreatedFlagConfiguration
 
 
@@ -19,6 +20,9 @@ from products.feature_flags.evals.creation_scorers import CreatedFlagConfigurati
         ({"rollout_percentage": 100}, 0.0),
         ({"property_value": ["business/standard", "free"]}, 0.0),
         ({"extra_group": True}, 0.0),
+        ({"super_groups": [{"properties": [], "rollout_percentage": 100}]}, 0.0),
+        ({"aggregation_group_type_index": 0}, 0.0),
+        ({"holdout": {"id": 1, "exclusion_percentage": 10}}, 0.0),
         ({"variants": [{"key": "control", "rollout_percentage": 100}]}, 0.0),
         ({"active": False}, 0.0),
         ({"archived": True}, 0.0),
@@ -30,14 +34,17 @@ def test_flag_creation_scores_saved_configuration(change: dict[str, Any], expect
     spec = {"key": "bulk-file-export-preview", "rollout_percentage": 25, "property": deepcopy(property_filter)}
     property_filter["value"] = change.get("property_value", property_filter["value"])
     group = {"properties": [property_filter], "rollout_percentage": change.get("rollout_percentage", 25)}
-    flag = {
-        "active": change.get("active", True),
-        "archived": change.get("archived", False),
-        "filters": {
+    flag = FeatureFlag(
+        active=change.get("active", True),
+        archived=change.get("archived", False),
+        filters={
             "groups": [group, {"properties": [], "rollout_percentage": 100}] if change.get("extra_group") else [group],
             "multivariate": {"variants": change.get("variants", [])},
+            "super_groups": change.get("super_groups", []),
+            "aggregation_group_type_index": change.get("aggregation_group_type_index"),
+            "holdout": change.get("holdout"),
         },
-    }
+    )
     with patch.object(
         CreatedFlagConfiguration, "_read_flags", return_value=[] if change.get("missing_flag") else [flag]
     ):
