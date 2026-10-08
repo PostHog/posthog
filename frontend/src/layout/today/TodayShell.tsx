@@ -36,7 +36,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 )
 
 const PANE_LABELS = {
-    home: 'Work',
+    home: 'Today',
     spaces: 'Spaces',
     views: 'Views',
     products: 'Products',
