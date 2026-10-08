@@ -208,6 +208,8 @@ class PostHogPreviewStack:
     # Pass image=None to fall back to the build-from-checkout escape hatch.
     IMAGE = "ghcr.io/posthog/posthog:master"
     CDP_IMAGE = "ghcr.io/posthog/posthog-node:master"
+    SQLX_MIGRATE_IMAGE = "ghcr.io/posthog/posthog/sqlx-migrate:master"
+    CYCLOTRON_NODE_DATABASE_URL = "postgres://posthog:posthog@db:5432/cyclotron_node"
     STATIC_PROXY_IMAGE = "caddy:2-alpine"
     STATIC_PROXY_CADDYFILE = "preview-static.Caddyfile"
     OTEL_COLLECTOR_CONFIG = "preview-otel-collector.yaml"
@@ -572,7 +574,7 @@ class PostHogPreviewStack:
             # The checkout mount from dev-full masks the compiled code in the published image.
             "    volumes: !override []",
             "    environment:",
-            "      - CYCLOTRON_NODE_DATABASE_URL=postgres://posthog:posthog@db:5432/cyclotron_node",
+            f"      - CYCLOTRON_NODE_DATABASE_URL={self.CYCLOTRON_NODE_DATABASE_URL}",
             "      - CDP_REDIS_HOST=redis7",
             "      - CDP_VALKEY_HOST=valkey",
             "      - CDP_VALKEY_PORT=6379",
@@ -580,6 +582,15 @@ class PostHogPreviewStack:
             "      - PERSONHOG_ADDR=personhog-router:50052",
             "      - PERSONHOG_ENABLED=true",
             *_OTEL_ENV,
+            "  cyclotron-node-migrate:",
+            f"    image: {self.SQLX_MIGRATE_IMAGE}",
+            "    profiles:",
+            "      - migrate",
+            "    command: cyclotron-node",
+            "    environment:",
+            f"      - CYCLOTRON_NODE_DATABASE_URL={self.CYCLOTRON_NODE_DATABASE_URL}",
+            "    volumes:",
+            "      - ./rust/cyclotron-node-migrations:/migrations/cyclotron-node-migrations:ro",
         ]
         lines += self._self_capture_services() + self._telemetry_services() + self._celery_worker_service()
         # Mirror the bake script's personhog service definitions (hogland
@@ -933,6 +944,12 @@ class PostHogPreviewStack:
         self.backend.run_long(
             self._compose(f'exec -T db psql -U posthog -d posthog -v ON_ERROR_STOP=1 -c "{index}"'),
             name="person-uuid-index",
+            timeout=900,
+        )
+        self.backend.run_long(
+            f"{self._compose('run --rm -T cyclotron-node-migrate')} || "
+            'echo "WARN: cyclotron node migrations failed, so plugins cannot dequeue jobs in this preview" >&2',
+            name="migrate-cyclotron-node",
             timeout=900,
         )
         self.backend.run_long(

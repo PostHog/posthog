@@ -305,13 +305,41 @@ describe('sourceSettingsLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        logic.actions.setSourceConfigValue('description', 'edited description')
+
         await expectLogic(logic, () => {
             logic.actions.submitSourceConfig()
         }).toDispatchActions([formAction])
 
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(successToastSpy).toHaveBeenCalledTimes(successToasts)
+        // A rejected save must keep the edits so that the person can retry.
+        expect(logic.values.sourceConfig.description).toEqual('edited description')
     })
+
+    it.each([
+        { case: 'a warning toast', connection_warning: 'Source saved, but the connection check failed.', warnings: 1 },
+        { case: 'the success toast', connection_warning: null, warnings: 0 },
+    ])(
+        'shows $case after a save, from the connection warning in the response',
+        async ({ connection_warning, warnings }) => {
+            const source = { ...makeSource([makeSchema()]), connection_warning }
+            jest.spyOn(api.externalDataSources, 'update').mockResolvedValue(source)
+            const warningToastSpy = jest.spyOn(lemonToast, 'warning')
+            const successToastSpy = jest.spyOn(lemonToast, 'success')
+
+            logic = sourceSettingsLogic({ id: 'source-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.submitSourceConfig()
+            }).toDispatchActions(['submitSourceConfigSuccess'])
+
+            expect(warningToastSpy).toHaveBeenCalledTimes(warnings)
+            expect(successToastSpy).toHaveBeenCalledTimes(1 - warnings)
+        }
+    )
 
     it('keys the logic by source id', () => {
         expect(sourceSettingsLogic({ id: 'source-1' }).key).toEqual('source-1')

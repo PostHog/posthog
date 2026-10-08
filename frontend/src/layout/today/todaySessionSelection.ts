@@ -9,12 +9,11 @@ export interface TodaySessionSelection {
 
 export type TodaySelectionClick = 'toggle' | 'range' | 'open'
 
-export type TodayBulkVerb = 'pin' | 'unpin' | 'file' | 'archive' | 'restore'
+export type TodayBulkVerb = 'pin' | 'unpin' | 'archive' | 'restore'
 
 const PAST_TENSE: Record<TodayBulkVerb, string> = {
     pin: 'pinned',
     unpin: 'unpinned',
-    file: 'filed',
     archive: 'archived',
     restore: 'restored',
 }
