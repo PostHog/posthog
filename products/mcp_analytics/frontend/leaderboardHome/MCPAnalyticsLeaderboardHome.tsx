@@ -2,15 +2,20 @@ import { useActions, useValues } from 'kea'
 import { type ReactNode, useCallback, useMemo } from 'react'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
+import { ActivityChart } from '../dashboard/ActivityChart'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
+import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { modelColor } from '../dashboard/modelColors'
+import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
 import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
@@ -32,15 +37,22 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         modelRows,
+        kpis,
         kpisLoading,
+        users,
         usersLoading,
+        intentClusterCount,
+        kpiIncompleteTail,
+        activityIncompleteTail,
+        notableSessions,
+        toolRows,
         sessionRowsLoading,
         modelRowsLoading,
         protocolVersionRowsLoading,
         toolDailyRowsLoading,
         toolRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
     const {
         facets,
         facetsLoading,
@@ -55,6 +67,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     } = useValues(mcpLeaderboardHomeLogic)
     const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
     const { timezone } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const theme = useChartTheme()
 
     const modelColorOf = useCallback((label: string) => modelColor(theme, label), [theme])
@@ -116,6 +129,28 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     dataAttr="mcp-dashboard-date-filter"
                 />
             </McpSharedFilters>
+
+            <Section title="Key metrics">
+                <KpiTiles
+                    kpis={kpis}
+                    users={users}
+                    intentClusterCount={intentClusterCount}
+                    kpisLoading={kpisLoading}
+                    usersLoading={usersLoading}
+                    showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
+                    theme={theme}
+                    interval={interval}
+                    incompleteTail={kpiIncompleteTail}
+                />
+                <ActivityChart
+                    daily={dailyActivity}
+                    loading={activityRowsLoading}
+                    theme={theme}
+                    timezone={timezone}
+                    interval={interval}
+                    incompleteTail={activityIncompleteTail}
+                />
+            </Section>
 
             <Section title="Models">
                 <LabScoreboard
@@ -239,6 +274,15 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Error rate by harness"
                         emptyMessage="No harness data yet."
                     />
+                </TwoColumns>
+                <TwoColumns>
+                    <ToolErrorRateChart
+                        rows={toolRows}
+                        loading={toolRowsLoading}
+                        theme={theme}
+                        onToolClick={openToolReport}
+                    />
+                    <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
                 </TwoColumns>
             </Section>
         </div>
