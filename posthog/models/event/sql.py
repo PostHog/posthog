@@ -1,7 +1,6 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
-from posthog.hogql.functions.udfs import JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -96,13 +95,9 @@ def json_property_presence_expr(column: str, prop: str) -> str:
         head_document = head if subcolumns[parts[0]] in ("String", "Nullable(String)") else f"toJSONString({head})"
         tail = ", ".join(escape_clickhouse_string(part) for part in parts[1:])
         return f"JSONHas(ifNull({head_document}, ''), {tail})"
-    # The sub-object serializes the '' default of every declared path under it, so strip empty
-    # values before the emptiness check.
+    # No declared path is nested, so the sub-object text holds only values the SDK sent.
     sub_object = f"{column_sql}.^{path_sql}"
-    return (
-        f"(notEmpty(ifNull(toString({scalar}), '')) "
-        f"OR {JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({sub_object})) != '{{}}')"
-    )
+    return f"(notEmpty(ifNull(toString({scalar}), '')) OR toJSONString({sub_object}) != '{{}}')"
 
 
 def TRUNCATE_EVENTS_TABLE_SQL():
