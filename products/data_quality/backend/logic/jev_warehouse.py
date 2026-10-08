@@ -60,7 +60,7 @@ class WarehouseQuestionExecutor:
         authorize_warehouse_question_subject(self.team, self.user, self.subject, self.config, self.column_name)
 
     def _evaluate(self, inputs: list[str]) -> list[float]:
-        self.reserve_inference_inputs(len(inputs))
+        # The reservation has no release callback, so it is spent only once inference can actually run.
         if self.gateway is None:
             self.gateway = QuestionGatewayEvaluator(
                 team=self.team,
@@ -70,6 +70,7 @@ class WarehouseQuestionExecutor:
                 run_id=self.run_id,
                 distinct_id=self.user.distinct_id,
             )
+        self.reserve_inference_inputs(len(inputs))
         return self.gateway(inputs)
 
     def _manifest(self, key: str | None, save_manifest: Callable[[str], str]) -> QuestionManifest:

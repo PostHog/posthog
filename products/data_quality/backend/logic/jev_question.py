@@ -174,9 +174,13 @@ class QuestionChunkEvaluator:
         self.inference_inputs = 0
         self.run_deadline = clock() + max_run_seconds
 
-    def run(self, inputs: Sequence[WeightedInput]) -> QuestionChunkResult:
+    def check_deadline(self) -> None:
+        """Every path that can advance coverage checks this, including ones that never call inference."""
         if self.clock() >= self.run_deadline:
             raise RuntimeError("Question evaluation timed out with incomplete coverage.")
+
+    def run(self, inputs: Sequence[WeightedInput]) -> QuestionChunkResult:
+        self.check_deadline()
         if len(inputs) > self.max_chunk_inputs:
             raise ValueError("Question manifest chunk exceeds its input limit.")
         requests: dict[str, DecisionRequest] = {}
@@ -241,6 +245,7 @@ class QuestionChunkEvaluator:
                 self.cache.release(list(leases.values()))
             if len(decisions) != len(requests):
                 self.wait(min(0.25, max(0, deadline - self.clock())))
+        self.check_deadline()
         return QuestionChunkResult(
             examined_row_count=null_rows + sum(weights.values()),
             failed_row_count=null_rows

@@ -1,5 +1,6 @@
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -53,6 +54,7 @@ from products.data_quality.backend.logic.jev_question import (
     WeightedInput,
     question_input_query,
 )
+from products.data_quality.backend.logic.jev_warehouse import WarehouseQuestionExecutor
 
 
 def request(text: str = "input") -> DecisionRequest:
@@ -633,3 +635,225 @@ def test_gateway_access_and_attribution(enabled: bool) -> None:
     assert gateway_request.headers["X-PostHog-Distinct-Id"] == "example-user"
     assert "example input" not in str(gateway_request.headers)
     assert json.loads(gateway_request.content)["model"] == "example-model"
+
+
+WAREHOUSE = "products.data_quality.backend.logic.jev_warehouse"
+
+
+def _manifest(**overrides: object) -> QuestionManifest:
+    created_at = datetime.now(UTC)
+    fields: dict[str, object] = {
+        "prefix": "data_quality/jev/1/example",
+        "team_id": 1,
+        "run_id": "example-run",
+        "subject_uuid": "example-table",
+        "model_id": "example-model",
+        "model_revision": "immutable-revision-1",
+        "evaluator_version": EVALUATOR_VERSION,
+        "question_config": QuestionConfig(question="Is this valid?"),
+        "column_name": "description",
+        "chunk_count": 3,
+        "examined_row_count": 3,
+        "unique_input_count": 3,
+        "created_at": created_at,
+        "expires_at": created_at + timedelta(hours=1),
+    }
+    return QuestionManifest(**(fields | overrides))  # type: ignore[arg-type]
+
+
+def test_run_deadline_stops_replaying_checkpoints() -> None:
+    clock = [0.0]
+
+    def load_checkpoint(index: int) -> QuestionChunkResult:
+        clock[0] += 600
+        return QuestionChunkResult(
+            examined_row_count=1,
+            failed_row_count=0,
+            unique_input_count=1,
+            reused_decision_count=1,
+            new_decision_count=0,
+        )
+
+    def refuse(inputs: list[str]) -> list[float]:
+        raise AssertionError("A replayed checkpoint must not reach inference.")
+
+    runner = QuestionChunkEvaluator(
+        cache=JevDecisionCache(fakeredis.FakeRedis(), team_id=1),
+        config=QuestionConfig(question="Is this valid?"),
+        model_id="example-model",
+        model_revision="immutable-revision-1",
+        evaluate=refuse,
+        max_run_seconds=900,
+        clock=lambda: clock[0],
+    )
+    with pytest.raises(RuntimeError, match="timed out with incomplete coverage"):
+        evaluate_question_manifest(
+            manifest=_manifest(),
+            store=QuestionManifestStore(),
+            evaluator=runner,
+            authorize=lambda: None,
+            load_checkpoint=load_checkpoint,
+            save_checkpoint=lambda index, result: result,
+        )
+    assert clock[0] == 1200
+
+
+def test_run_deadline_stops_a_chunk_served_entirely_from_cache() -> None:
+    clock = [0.0]
+    cache = JevDecisionCache(fakeredis.FakeRedis(), team_id=1)
+    inputs = [WeightedInput(text="input", row_count=1)]
+    assert evaluator(cache, lambda texts: [0.9] * len(texts)).run(inputs).new_decision_count == 1
+
+    def refuse(texts: list[str]) -> list[float]:
+        raise AssertionError("A cached decision must not reach inference.")
+
+    runner = QuestionChunkEvaluator(
+        cache=cache,
+        config=QuestionConfig(question="Is this valid?"),
+        model_id="example-model",
+        model_revision="immutable-revision-1",
+        evaluate=refuse,
+        max_run_seconds=900,
+        clock=lambda: clock[0],
+    )
+    read = cache.read
+
+    def slow_read(requests: list[DecisionRequest]) -> dict[str, float]:
+        clock[0] += 1000
+        return read(requests)
+
+    with patch.object(cache, "read", side_effect=slow_read):
+        with pytest.raises(RuntimeError, match="timed out with incomplete coverage"):
+            runner.run(inputs)
+
+
+def _executor(reserve: Callable[[int], None]) -> WarehouseQuestionExecutor:
+    return WarehouseQuestionExecutor(
+        team=cast("Team", SimpleNamespace(id=1, pk=1)),
+        user=cast("User", SimpleNamespace(distinct_id="example-user")),
+        subject=SubjectRef(SubjectType.TABLE, "example-table", "orders", "orders", exists=True),
+        config=QuestionConfig(question="Is this valid?"),
+        column_name="description",
+        model_id="example-model",
+        model_revision="immutable-revision-1",
+        check_id="example-check",
+        run_id="example-run",
+        reserve_inference_inputs=reserve,
+    )
+
+
+@contextmanager
+def _warehouse_question_environment(
+    objects: dict[str, str], redis: fakeredis.FakeRedis, build_gateway: Callable[..., object]
+) -> Iterator[None]:
+    async def source() -> AsyncIterator[WeightedInput]:
+        yield WeightedInput(text="input", row_count=10)
+        yield WeightedInput(text=None, row_count=1)
+
+    with (
+        patch(
+            "posthog.storage.object_storage.write", side_effect=lambda key, content: objects.__setitem__(key, content)
+        ),
+        patch("posthog.storage.object_storage.read", side_effect=lambda key: objects.get(key)),
+        patch("posthog.storage.object_storage.delete", side_effect=lambda key: objects.pop(key, None)),
+        patch(
+            "posthog.storage.object_storage.delete_objects",
+            side_effect=lambda keys: [objects.pop(key, None) for key in keys],
+        ),
+        patch(f"{WAREHOUSE}.authorize_warehouse_question_subject"),
+        patch(f"{WAREHOUSE}.warehouse_question_inputs", side_effect=lambda **arguments: source()),
+        patch(f"{WAREHOUSE}.get_client", return_value=redis),
+        patch(f"{WAREHOUSE}.QuestionGatewayEvaluator", side_effect=build_gateway),
+    ):
+        yield
+
+
+def _gateway(calls: list[str]) -> Callable[..., Callable[[list[str]], list[float]]]:
+    def build(**arguments: object) -> Callable[[list[str]], list[float]]:
+        def evaluate(inputs: list[str]) -> list[float]:
+            calls.extend(inputs)
+            return [0.9] * len(inputs)
+
+        return evaluate
+
+    return build
+
+
+def test_executor_freezes_reuses_and_discards_a_losing_manifest() -> None:
+    objects: dict[str, str] = {}
+    redis = fakeredis.FakeRedis()
+    calls: list[str] = []
+    reserved: list[int] = []
+    won: list[str] = []
+    lost: list[str] = []
+
+    def run(manifest_key: str | None, save_manifest: Callable[[str], str]) -> QuestionResult:
+        return _executor(reserved.append).run(
+            manifest_key=manifest_key,
+            save_manifest=save_manifest,
+            load_checkpoint=lambda index: None,
+            save_checkpoint=lambda index, result: result,
+        )
+
+    def win(key: str) -> str:
+        won.append(key)
+        return key
+
+    def lose(key: str) -> str:
+        lost.append(key)
+        return won[0]
+
+    with _warehouse_question_environment(objects, redis, _gateway(calls)):
+        first = run(None, win)
+        # The null row fails without inference, which exceeds the default allowed failure rate.
+        assert first.status == CheckRunStatus.FAILED
+        assert (first.examined_row_count, first.failed_row_count, first.new_decision_count) == (11, 1, 1)
+        replayed = run(won[0], win)
+        assert (replayed.examined_row_count, replayed.reused_decision_count, replayed.new_decision_count) == (11, 1, 0)
+        discarded = run(None, lose)
+        assert discarded.examined_row_count == 11
+    assert won == [won[0]]
+    assert calls == ["input"]
+    assert reserved == [1]
+    losing_prefix = lost[0].removesuffix("/manifest.json")
+    assert [key for key in objects if key.startswith(losing_prefix)] == []
+    assert won[0] in objects
+
+
+@pytest.mark.parametrize("callback", ["save_manifest", "save_checkpoint"])
+def test_executor_hides_persistence_failures_behind_incomplete_coverage(callback: str) -> None:
+    reserved: list[int] = []
+
+    def fail(*arguments: object) -> str:
+        raise RuntimeError("durable store names a row")
+
+    callbacks: dict[str, object] = {
+        "save_manifest": lambda key: key,
+        "load_checkpoint": lambda index: None,
+        "save_checkpoint": lambda index, result: result,
+        callback: fail,
+    }
+    with _warehouse_question_environment({}, fakeredis.FakeRedis(), _gateway([])):
+        with pytest.raises(RuntimeError) as failure:
+            _executor(reserved.append).run(manifest_key=None, **callbacks)  # type: ignore[arg-type]
+    assert str(failure.value) == "Question execution failed with incomplete coverage."
+    assert failure.value.__cause__ is None
+    assert "durable store names a row" not in str(failure.value)
+    assert reserved == ([] if callback == "save_manifest" else [1])
+
+
+def test_executor_reserves_no_inference_when_the_gateway_refuses_the_run() -> None:
+    reserved: list[int] = []
+
+    def refuse(**arguments: object) -> object:
+        raise QueryError("Jev is not enabled for this project.")
+
+    with _warehouse_question_environment({}, fakeredis.FakeRedis(), refuse):
+        with pytest.raises(RuntimeError, match="incomplete coverage"):
+            _executor(reserved.append).run(
+                manifest_key=None,
+                save_manifest=lambda key: key,
+                load_checkpoint=lambda index: None,
+                save_checkpoint=lambda index, result: result,
+            )
+    assert reserved == []

@@ -74,6 +74,8 @@ Finalization counts each checkpoint once and verifies total row and input covera
 Before enabling this path in the checks system, persist manifest references and chunk checkpoints through the checks models, reserve the inference budget durably across activity retries, and add object-store lifecycle cleanup for expired or abandoned prefixes.
 The caller must resolve an immutable model revision, or configure a deployment revision that changes with the served model.
 Authorization must run before replaying any checkpoint or reading decisions.
+The run deadline is checked before every chunk and before the final result, so a replayed checkpoint or a fully cached chunk cannot outlast it.
+An inference reservation is spent only after the gateway accepts the run, so a disabled flag, an exhausted credit budget, or a missing gateway leaves the allowance untouched.
 Staged views, PostHog tables, warning-only authoring, and results UI require the subsequent integration.
 
 ## Lookback window

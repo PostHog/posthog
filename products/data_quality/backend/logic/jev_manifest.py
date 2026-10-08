@@ -317,12 +317,15 @@ def evaluate_question_manifest(
         raise ValueError("The frozen run and decision evaluator do not match.")
     examined = failed = unique = reused = new = completed = 0
     authorize()
+    evaluator.check_deadline()
     if manifest.expires_at <= datetime.now(UTC):
         raise ValueError("Question manifest expired with incomplete coverage.")
     for index in range(manifest.chunk_count):
         if manifest.expires_at <= datetime.now(UTC):
             raise ValueError("Question manifest expired with incomplete coverage.")
         authorize()
+        # Replaying a checkpoint skips the evaluator, so the run deadline is enforced here too.
+        evaluator.check_deadline()
         result = load_checkpoint(index)
         if result is None:
             result = save_checkpoint(index, evaluator.run(store.read_chunk(manifest, index)))
@@ -332,6 +335,7 @@ def evaluate_question_manifest(
         reused += result.reused_decision_count
         new += result.new_decision_count
         completed += 1
+    evaluator.check_deadline()
     if examined != manifest.examined_row_count or unique != manifest.unique_input_count:
         raise ValueError("Question manifest coverage is incomplete.")
     rate = failed / examined if examined else None
