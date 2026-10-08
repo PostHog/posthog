@@ -339,7 +339,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             posthog.capture('workflows onboarding wizard step completed', {
                 path: values.wizardPath,
                 step,
-                skipped: !values.stepDone?.[step],
+                skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
             })
             if (values.isLastStep) {
                 actions.finish()

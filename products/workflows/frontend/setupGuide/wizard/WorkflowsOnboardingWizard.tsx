@@ -4,6 +4,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
+import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
 import { OnboardingWizardStepper } from './OnboardingWizardStepper'
 import { WIZARD_STEP_COPY } from './onboardingWizardSteps'
@@ -57,7 +58,12 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
             <LemonCard hoverEffect={false} className="p-6">
                 {currentStep === 'channel' && <WizardChannelStep />}
                 {currentStep === 'domain' && <WizardDomainStep />}
-                {currentStep === 'opt-outs' && <OptOutCategories />}
+                {currentStep === 'opt-outs' && (
+                    <>
+                        <OptOutCategories />
+                        <CustomerIOImportModal />
+                    </>
+                )}
                 {currentStep === 'push' && <WizardPushStep />}
                 {(currentStep === 'journey' || currentStep === 'template') && <WizardTemplateStep />}
                 {currentStep === 'connect' && <WizardConnectStep />}

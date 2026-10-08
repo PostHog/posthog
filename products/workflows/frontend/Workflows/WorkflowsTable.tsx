@@ -132,6 +132,7 @@ export function WorkflowsTable(): JSX.Element {
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
+        newNavigationEnabled &&
         guidedOnboardingEnabled &&
         filters.type === 'automation' &&
         !filters.search &&
