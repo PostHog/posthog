@@ -41,6 +41,8 @@ export type CanvasDashboardActionType =
     | 'build_pin'
     | 'build_unpin'
     | 'fix_request'
+    | 'make_public_opened'
+    | 'visibility_change'
 
 /** Captures a canvas action from the scene or its side panel. Never pass prompt, comment, or source text. */
 export function captureCanvasAction(
@@ -63,6 +65,10 @@ export function captureCanvasAction(
         method?: 'click' | 'drag'
         /** edit_conflict_resolve: whether the author kept their edits over the newer version. */
         keep_local?: boolean
+        /** visibility_change: who can see the canvas after the change. */
+        visibility?: 'private' | 'public'
+        /** visibility_change: whether the change undid the one before. */
+        undo?: boolean
     }
 ): void {
     posthog.capture(CANVAS_EVENTS.dashboardAction, {

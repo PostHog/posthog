@@ -19018,7 +19018,7 @@ export namespace Schemas {
      * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
      */
     export interface BulkDeleteFilters {
-      /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+      /** 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
        *
        * * `true` - true
        * * `false` - false
@@ -43047,6 +43047,57 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    export type ExperimentApiBreakdownAttributionType = typeof ExperimentApiBreakdownAttributionType[keyof typeof ExperimentApiBreakdownAttributionType];
+
+
+    export const ExperimentApiBreakdownAttributionType = {
+      FirstTouch: 'first_touch',
+      LastTouch: 'last_touch',
+      Step: 'step',
+    } as const;
+
+    export type ExperimentApiPropertyBreakdownType = typeof ExperimentApiPropertyBreakdownType[keyof typeof ExperimentApiPropertyBreakdownType];
+
+
+    export const ExperimentApiPropertyBreakdownType = {
+      Event: 'event',
+      Person: 'person',
+      Session: 'session',
+    } as const;
+
+    export interface ExperimentApiPropertyBreakdown {
+      /** Property name to break down by. */
+      property: string;
+      /** Where the property lives. Defaults to 'event'. */
+      type?: ExperimentApiPropertyBreakdownType | null;
+    }
+
+    export type GroupTypeIndex = typeof GroupTypeIndex[keyof typeof GroupTypeIndex];
+
+
+    export const GroupTypeIndex = {
+      Number0: 0,
+      Number1: 1,
+      Number2: 2,
+      Number3: 3,
+      Number4: 4,
+    } as const;
+
+    export interface ExperimentApiGroupBreakdown {
+      /** Which group type the property belongs to. */
+      group_type_index: GroupTypeIndex;
+      /** Property name to break down by. */
+      property: string;
+      type?: 'group';
+    }
+
+    export interface ExperimentApiBreakdownFilter {
+      /** Maximum number of breakdown values to compute results for. */
+      breakdown_limit?: number | null;
+      /** Properties to break the metric results down by. */
+      breakdowns?: (ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown)[] | null;
+    }
+
     export type Kind1 = typeof Kind1[keyof typeof Kind1];
 
 
@@ -43112,6 +43163,12 @@ export namespace Schemas {
     }
 
     export interface ExperimentApiMetric {
+      /** For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels. */
+      breakdownAttributionType?: ExperimentApiBreakdownAttributionType | null;
+      /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+      breakdownAttributionValue?: number | null;
+      /** Break the metric results down by up to 3 event, person, session or group properties. */
+      breakdownFilter?: ExperimentApiBreakdownFilter | null;
       /** For retention metrics: completion event. */
       completion_event?: ExperimentApiEventSource | null;
       /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */
@@ -50157,7 +50214,7 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagRolloutSummary {
-      /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+      /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
       /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list. */
       has_targeting_conditions: boolean;
@@ -112568,6 +112625,8 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
+      /** Set only when the query returned no points: what to check before querying again. */
+      hint?: string;
     }
 
     export interface _MetricSamplesBody {
@@ -120099,7 +120158,7 @@ export namespace Schemas {
 
     export type FeatureFlagsListParams = {
     /**
-     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
+     * 'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.
      */
     active?: FeatureFlagsListActive;
     /**
