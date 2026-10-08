@@ -12,6 +12,8 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     REVIEW_MODEL,
@@ -109,6 +111,7 @@ class TestTrackReviewCompleted(BaseTest):
         marker: ReviewHogMarker | None = None,
         flash_turn: FlashTurnStats | None = None,
         flash_sessions: FlashSessionStats | None = None,
+        review_design: str = REVIEW_DESIGN_PIPELINE,
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -123,6 +126,7 @@ class TestTrackReviewCompleted(BaseTest):
             marker=marker,
             flash_turn=flash_turn,
             flash_sessions=flash_sessions,
+            review_design=review_design,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -259,20 +263,25 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["reviewhog_fingerprint"] is None
 
     @parameterized.expand([("completed",), ("failed",), ("started",)])
-    def test_event_uuid_is_stable_across_retries_and_separate_for_each_mode(self, event: str) -> None:
+    def test_event_uuid_is_stable_across_retries_and_separate_for_each_mode_and_design(self, event: str) -> None:
+        # A failed turn keeps its run index, so a Flash turn on the other design can reuse it. A shared
+        # id there makes PostHog drop the second turn's event.
         report_id = self._review_report()
         emit = {
-            "completed": lambda mode: _track_review_completed(self._tracking_input(report_id, review_mode=mode)),
-            "failed": lambda mode: _track_review_failed(
+            "completed": lambda mode, design: _track_review_completed(
+                self._tracking_input(report_id, review_mode=mode, review_design=design)
+            ),
+            "failed": lambda mode, design: _track_review_failed(
                 TrackReviewFailedInput(
                     team_id=self.team.id,
                     report_id=report_id,
                     run_index=1,
                     turn_trigger_source="manual",
                     review_mode=mode,
+                    review_design=design,
                 )
             ),
-            "started": lambda mode: _track_review_started(
+            "started": lambda mode, design: _track_review_started(
                 TrackReviewStartedInput(
                     team_id=self.team.id,
                     report_id=report_id,
@@ -280,21 +289,26 @@ class TestTrackReviewCompleted(BaseTest):
                     run_index=1,
                     turn_trigger_source="manual",
                     review_mode=mode,
+                    review_design=design,
                 )
             ),
         }[event]
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            emit(REVIEW_MODE_FULL)
-            emit(REVIEW_MODE_FULL)
-            emit(REVIEW_MODE_FLASH)
-            emit(REVIEW_MODE_FLASH)
+            emit(REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE)
+            emit(REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT)
 
-        full, full_retry, flash, flash_retry = capture.call_args_list
+        full, full_retry, flash, flash_retry, single_agent = capture.call_args_list
         assert full.kwargs["uuid"] == str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_{event}:{report_id}:1"))
+        assert flash.kwargs["uuid"] == str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_{event}:{report_id}:1:flash")
+        )
         assert full.kwargs["uuid"] == full_retry.kwargs["uuid"]
         assert flash.kwargs["uuid"] == flash_retry.kwargs["uuid"]
-        assert full.kwargs["uuid"] != flash.kwargs["uuid"]
+        assert len({full.kwargs["uuid"], flash.kwargs["uuid"], single_agent.kwargs["uuid"]}) == 3
 
     def test_a_skipped_push_rests_the_report_and_counts_once_per_head(self) -> None:
         # A skipped turn ends before any stage that returns the report to rest, and a skipped turn

@@ -1838,6 +1838,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             report_id=input.report_id,
             run_index=input.run_index,
             review_mode=input.review_mode,
+            review_design=input.review_design,
         ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
@@ -1965,6 +1966,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             report_id=input.report_id,
             run_index=input.run_index,
             review_mode=input.review_mode,
+            review_design=input.review_design,
         ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
@@ -2025,6 +2027,7 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
             report_id=input.report_id,
             run_index=input.run_index,
             review_mode=input.review_mode,
+            review_design=input.review_design,
         ),
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),

@@ -35,11 +35,17 @@ class _FindingModelContext(BaseModel):
     validation_arm: ReviewArm | None
 
 
-def review_event_uuid(event_name: str, *, report_id: str, run_index: int, review_mode: str) -> str:
-    """Preserve legacy Full event IDs while separating retry histories by review mode."""
+def review_event_uuid(event_name: str, *, report_id: str, run_index: int, review_mode: str, review_design: str) -> str:
+    """Preserve legacy Full event IDs while separating retry histories by review mode and design.
+
+    A failed turn keeps its run index, so a Flash turn on another design can reuse it, for example
+    after the kill switch flips. Pipeline IDs stay as they were.
+    """
     identity = f"{event_name}:{report_id}:{run_index}"
     if review_mode != REVIEW_MODE_FULL:
         identity = f"{identity}:{review_mode}"
+    if review_design != REVIEW_DESIGN_PIPELINE:
+        identity = f"{identity}:{review_design}"
     return str(uuid5(NAMESPACE_URL, identity))
 
 
