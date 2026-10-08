@@ -36,23 +36,23 @@ export function QuillComposerLayout({
                     // LemonTextArea puts the composer's padding on both its wrapper and the textarea. The wrapper keeps it, so the textarea drops it. The textarea keeps 2px on the left because it clips the caret at x=0.
                     '[&_[data-slot=composer-placeholder]]:top-2 [&_[data-slot=composer-placeholder]]:left-2.5 [&_textarea]:p-0 [&_textarea]:pl-0.5 ' +
                     // One line tall at rest: the field is only as tall as the send button and its ledge need, then grows with the text.
-                    '[&_:has(>textarea)]:min-h-11 [&_textarea]:min-h-0'
+                    '[&_:has(>textarea)]:min-h-10 [&_textarea]:min-h-0'
                 }
             >
                 {chips && (
-                    <InputGroupAddon align="block-start" className="flex-wrap">
+                    <InputGroupAddon align="block-start" className="flex-wrap gap-2 empty:hidden">
                         {chips}
                     </InputGroupAddon>
                 )}
                 <div className="relative w-full">
                     {field}
-                    <span className="absolute right-1.5 bottom-1.5 flex items-center">{send}</span>
+                    <span className="absolute right-1 bottom-1 flex items-center">{send}</span>
                 </div>
             </InputGroup>
             {(controls || meta) && (
                 <div
                     data-quill
-                    className="@container/composer flex flex-wrap items-center gap-1 px-1 text-[var(--foreground)]"
+                    className="@container/composer flex flex-wrap items-center gap-1 px-1 text-[var(--muted-foreground)]"
                 >
                     {controls}
                     <div className="ml-auto">{meta}</div>
