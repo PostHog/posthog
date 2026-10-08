@@ -36,6 +36,10 @@ class ShopifyEndpointConfig:
     partition_keys: list[str] = field(default_factory=lambda: [CREATED_AT])
     incremental_field_resolver: Callable | None = None
     partition_key_resolver: Callable | None = None
+    # The search field that filters this resource on its creation time, or None when Shopify has
+    # none. Shopify ignores a search on a field it does not know and returns every row, so set
+    # this only to a field the resource's `query` argument documents.
+    created_at_search_field: str | None = None
 
 
 ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
@@ -49,6 +53,7 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=CREATED_AT,
+        created_at_search_field="created_at",
     ),
     ARTICLES: ShopifyEndpointConfig(
         fields=[
@@ -60,6 +65,7 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=UPDATED_AT,
+        created_at_search_field="created_at",
     ),
     BLOGS: ShopifyEndpointConfig(
         fields=[],
@@ -105,6 +111,7 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=UPDATED_AT,
+        created_at_search_field="customer_date",
     ),
     DISCOUNT_NODES: ShopifyEndpointConfig(
         fields=[
@@ -116,6 +123,7 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=UPDATED_AT,
+        created_at_search_field="created_at",
         incremental_field_resolver=lambda row: safe_set(
             row, path="updatedAt", value=unwrap(row, path="discount.updatedAt")
         ),
@@ -133,6 +141,7 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=UPDATED_AT,
+        created_at_search_field="created_at",
     ),
     PRODUCTS: ShopifyEndpointConfig(
         fields=[
@@ -144,5 +153,6 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=UPDATED_AT,
+        created_at_search_field="created_at",
     ),
 }

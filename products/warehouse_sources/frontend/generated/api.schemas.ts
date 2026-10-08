@@ -257,6 +257,15 @@ export const IncrementalSyncBlockedReasonEnumApi = {
     DuplicatePrimaryKey: 'duplicate_primary_key',
 } as const
 
+export interface RowFilterColumnApi {
+    /** Column name to use as `column` in a row filter. */
+    name: string
+    /** Column type, which decides the format of the filter value. */
+    data_type: string
+    /** Operators a row filter on this column may use. */
+    operators: string[]
+}
+
 export interface ExternalDataSourceApiVersionDeprecationApi {
     /** The deprecated vendor API version this source is pinned to. */
     version: string
@@ -421,6 +430,11 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
+    /**
+     * Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.
+     * @nullable
+     */
+    readonly row_filter_columns: readonly RowFilterColumnApi[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
     /** Whether exact source-side column metadata is available for safe source-query projection. */
@@ -606,6 +620,11 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
+    /**
+     * Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.
+     * @nullable
+     */
+    readonly row_filter_columns?: readonly RowFilterColumnApi[] | null
     /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /** Whether exact source-side column metadata is available for safe source-query projection. */

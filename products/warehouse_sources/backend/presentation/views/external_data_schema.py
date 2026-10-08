@@ -64,6 +64,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
     AnySource,
+    RowFilterColumn,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -120,6 +121,16 @@ def source_supports_row_filters(source_type: str) -> bool:
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
     return bool(source.supports_row_filters)
+
+
+def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[RowFilterColumn, ...] | None:
+    """The columns a row filter on this schema may use, or None when any column of the table may."""
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return source.row_filter_columns_for_schema(schema_name)
 
 
 def source_requires_exact_column_metadata(source_type: str) -> bool:
@@ -430,6 +441,14 @@ def redact_schema_error(schema: ExternalDataSchema, context: dict[str, Any]) -> 
     return source_helpers.redact_error_message(schema.latest_error, secret_values)
 
 
+class RowFilterColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Column name to use as `column` in a row filter.")
+    data_type = serializers.CharField(help_text="Column type, which decides the format of the filter value.")
+    operators = serializers.ListField(
+        child=serializers.CharField(), help_text="Operators a row filter on this column may use."
+    )
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -557,6 +576,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Applied on the next sync — not retroactive to already-synced rows."
         ),
     )
+    row_filter_columns = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Columns a row filter on this schema may use, with the operators each accepts. `null` means "
+            "any column in `available_columns` with any operator, which is the case for SQL sources. "
+            "A list means the source can filter on these columns only; an empty list means this "
+            "schema accepts no row filter."
+        ),
+    )
     api_version = serializers.CharField(
         required=False,
         allow_null=True,
@@ -621,6 +649,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "incremental_sync_blocked",
             "enabled_columns",
             "row_filters",
+            "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
             "source",
@@ -640,6 +669,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "incremental_sync_blocked",
             "next_full_refresh_at",
             "description",
+            "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
             "source",
@@ -744,6 +774,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if uac is None:
             return None
         return uac.get_user_access_level(schema.table or schema.source)
+
+    @extend_schema_field(RowFilterColumnSerializer(many=True, allow_null=True))
+    def get_row_filter_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]] | None:
+        columns = source_row_filter_columns(schema.source.source_type, schema.name)
+        if columns is None:
+            return None
+        return [
+            {"name": column.name, "data_type": column.data_type, "operators": list(column.operators)}
+            for column in columns
+        ]
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
@@ -984,7 +1024,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             ):
                 raise ValidationError(reason)
             try:
-                validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
+                validate_and_coerce_row_filters(
+                    validated_data["row_filters"],
+                    instance.schema_metadata,
+                    source_row_filter_columns(instance.source.source_type, instance.name),
+                )
             except RowFilterValidationError as e:
                 raise ValidationError(f"Invalid row filter: {e}")
 

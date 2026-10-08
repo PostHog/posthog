@@ -568,8 +568,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         # Re-validate against current metadata so a stale filter (dropped column, changed type)
         # fails here with an actionable message rather than emitting a broken query downstream.
+        filterable_columns = (
+            SourceRegistry.get_source(source_type).row_filter_columns_for_schema(schema.name)
+            if schema.row_filters and SourceRegistry.is_registered(source_type)
+            else None
+        )
         try:
-            row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+            row_filters = validate_and_coerce_row_filters(
+                schema.row_filters, schema.schema_metadata, filterable_columns
+            )
         except RowFilterValidationError as e:
             raise RowFilterValidationError(
                 f"Row filter on schema '{schema.name}' no longer matches the current table schema ({e}). "
