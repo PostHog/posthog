@@ -12,9 +12,9 @@ import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorL
 import { getChartTypeOptions } from 'products/business_intelligence/frontend/biEditorOptions'
 
 /** Chart picker that highlights the chart types that suit the fields on the shelves. */
-export function BIShowMe({ docked }: { docked: boolean }): JSX.Element {
+export function BIChartTypes({ docked }: { docked: boolean }): JSX.Element {
     const { chartFits, config, hoveredChartType } = useValues(biEditorLogic)
-    const { setChartType, setShowMeOpen, setHoveredChartType } = useActions(biEditorLogic)
+    const { setChartType, setChartTypesOpen, setHoveredChartType } = useActions(biEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const options = getChartTypeOptions(featureFlags)
@@ -26,7 +26,7 @@ export function BIShowMe({ docked }: { docked: boolean }): JSX.Element {
     return (
         <div className={cn('flex flex-col', docked ? 'w-full' : 'w-44')}>
             <div className="flex min-h-7 items-center justify-between px-2 pt-2">
-                <span className="text-sm font-semibold">Show me</span>
+                <span className="text-sm font-semibold">Chart types</span>
                 {docked ? (
                     <LemonButton
                         icon={<IconX />}
@@ -34,7 +34,7 @@ export function BIShowMe({ docked }: { docked: boolean }): JSX.Element {
                         type="tertiary"
                         tooltip="Hide chart picker"
                         aria-label="Hide chart picker"
-                        onClick={() => setShowMeOpen(false)}
+                        onClick={() => setChartTypesOpen(false)}
                     />
                 ) : null}
             </div>
