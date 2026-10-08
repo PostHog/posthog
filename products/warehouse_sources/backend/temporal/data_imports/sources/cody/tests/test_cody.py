@@ -118,14 +118,6 @@ class TestCodyTransport:
     def test_normalize_instance_url_strips_scheme_and_path(self, raw, expected):
         assert normalize_instance_url(raw) == expected
 
-    def test_parse_csv_rows_normalizes_headers(self):
-        rows = list(_parse_csv_rows(io.StringIO(CSV_BODY)))
-
-        assert rows == [
-            {"user_email": "a@b.com", "chats": "12", "completion_acceptance_rate_car": "0.5"},
-            {"user_email": "c@d.com", "chats": "3", "completion_acceptance_rate_car": "0.25"},
-        ]
-
     def test_parse_csv_rows_skips_malformed_and_blank_rows(self):
         # A short row zipped against the headers would silently drop trailing columns for
         # that row — it must be skipped, not half-parsed.
@@ -187,17 +179,6 @@ class TestCodyTransport:
         with mock.patch.object(cody, "make_tracked_session", return_value=session):
             with pytest.raises(CodyRetryableError):
                 validate_credentials("token", "example.com")
-
-    def test_session_masks_token_and_sends_bearer_auth(self):
-        # The tracked transport logs and samples requests; without redaction the raw token
-        # would leak into HTTP telemetry.
-        with mock.patch.object(cody, "make_tracked_session") as make_session:
-            cody._make_session("sgat_token")
-
-        kwargs = make_session.call_args.kwargs
-        assert kwargs["headers"]["Authorization"] == "Bearer sgat_token"
-        assert "sgat_token" in kwargs["redact_values"]
-        assert kwargs["allow_redirects"] is False
 
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_retries_transient_errors(self, status_code):

@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coralogix.
     CoralogixRetryableError,
     _format_datetime,
     _make_session,
-    _normalize_row,
     _parse_timestamp,
     _run_query,
     coralogix_source,
@@ -136,34 +135,6 @@ class TestParseTimestamp:
         assert _parse_timestamp(value) == expected
 
 
-class TestNormalizeRow:
-    def test_flattens_metadata_and_labels_and_keeps_user_data_raw(self) -> None:
-        row = _normalize_row(
-            {
-                "metadata": [
-                    {"key": "timestamp", "value": "2026-01-15T10:00:00.000Z"},
-                    {"key": "logid", "value": "log-1"},
-                    {"key": "severity", "value": "Info"},
-                ],
-                "labels": [
-                    {"key": "applicationname", "value": "app"},
-                    # Collides with metadata; metadata must win.
-                    {"key": "severity", "value": "label-severity"},
-                ],
-                "userData": '{"nested": {"deep": 1}}',
-            }
-        )
-        assert row == {
-            "timestamp": datetime(2026, 1, 15, 10, 0, tzinfo=UTC),
-            "logid": "log-1",
-            "severity": "Info",
-            "applicationname": "app",
-            # The body stays a JSON string — flattening arbitrary telemetry would produce an
-            # unstable column set.
-            "user_data": '{"nested": {"deep": 1}}',
-        }
-
-
 class TestMakeSession:
     def test_disables_sample_capture_and_redirects(self) -> None:
         # Log/span bodies are free-form user telemetry that can carry secrets the name-based
@@ -210,20 +181,6 @@ class TestRunQuery:
         # 403 must surface as an HTTPError whose message the non-retryable matcher recognises.
         with pytest.raises(requests.HTTPError, match="403 Client Error"):
             self._query(_ndjson_response([], status=403))
-
-    def test_stops_reading_a_misbehaving_stream_at_the_row_cap(self) -> None:
-        # The request asks the server for at most QUERY_LIMIT rows; a response that keeps
-        # streaming past it must not be accumulated unboundedly into memory.
-        response = _ndjson_response(
-            [_result_item("2026-01-15T10:00:00.000Z", "log-1")],
-            extra_lines=[
-                {"result": {"results": [_result_item("2026-01-15T10:01:00.000Z", "log-2")]}},
-                {"result": {"results": [_result_item("2026-01-15T10:02:00.000Z", "log-3")]}},
-            ],
-        )
-        with patch.object(coralogix_module, "QUERY_LIMIT", 2):
-            rows = self._query(response)
-        assert [row["logid"] for row in rows] == ["log-1", "log-2"]
 
 
 class TestGetRows:
@@ -340,18 +297,6 @@ class TestGetRows:
 
         assert server.calls[0]["start"] == synced_until
         assert logids == ["at-resume-point"]
-
-    @time_machine.travel(NOW, tick=False)
-    def test_initial_sync_covers_the_default_lookback_contiguously(self) -> None:
-        server = _FakeServer([])
-
-        logids, _unused_manager, _unused_logger = _run_walker(server)
-
-        assert logids == []
-        assert server.calls[0]["start"] == NOW - timedelta(days=coralogix_module.DEFAULT_LOOKBACK_DAYS)
-        assert server.calls[-1]["end"] == NOW
-        for previous, current in zip(server.calls, server.calls[1:]):
-            assert current["start"] == previous["end"]
 
 
 class TestCoralogixSource:

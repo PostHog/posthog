@@ -3931,6 +3931,49 @@ class TestShutdown:
         main_conn.close.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error,conn_closed,expected_calls",
+        [
+            (None, False, 1),
+            (psycopg.OperationalError("server closed the connection unexpectedly"), False, 1),
+            (TimeoutError(), False, 1),
+            (None, True, 0),
+        ],
+    )
+    async def test_close_releases_gauge_slot_once_and_survives_failure(self, error, conn_closed, expected_calls):
+        consumer = _make_consumer()
+        recovery_conn = _make_healthy_conn(closed=conn_closed)
+        consumer._recovery_conn = recovery_conn
+
+        with (
+            patch.object(
+                consumer._adapter, "release_queue_gauges_slot", new_callable=AsyncMock, side_effect=error
+            ) as mock_release,
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock),
+        ):
+            await consumer._close()
+
+        assert mock_release.await_count == expected_calls
+        if expected_calls:
+            mock_release.assert_awaited_once_with(recovery_conn)
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_wait_on_a_slow_gauge_slot_release(self):
+        consumer = _make_consumer()
+
+        async def hang(conn):
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(batch_consumer_module, "GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS", 0.01),
+            patch.object(consumer._adapter, "release_queue_gauges_slot", side_effect=hang),
+            patch.object(consumer._adapter, "release_all_owned", new_callable=AsyncMock) as mock_release_all,
+        ):
+            await asyncio.wait_for(consumer._close(), timeout=5.0)
+
+        mock_release_all.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_close_drains_in_flight_tasks(self):
         consumer = _make_consumer()
         consumer._poll_conn = _make_healthy_conn()

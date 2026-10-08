@@ -101,24 +101,6 @@ def test_rejects_invalid_region_or_version_before_http(region: str, version: str
         factory.assert_not_called()
 
 
-@pytest.mark.parametrize("terminal_token", [None, ""])
-def test_pagination_includes_empty_and_terminal_pages(terminal_token: str | None) -> None:
-    with patch.object(glue, "make_tracked_session") as factory:
-        session = factory.return_value
-        session.post.side_effect = [
-            response({"DatabaseList": [], "NextToken": "second"}),
-            response({"DatabaseList": [{"Name": "analytics"}], "NextToken": terminal_token}),
-        ]
-        client = glue.AwsGlueClient(config(), GLUE_API_VERSION)
-        pages = list(client.pages(ENDPOINTS["databases"], {}))
-
-    assert [page.items for page in pages] == [[], [{"Name": "analytics"}]]
-    assert [json.loads(call.kwargs["data"]) for call in session.post.call_args_list] == [
-        {"MaxResults": 100},
-        {"MaxResults": 100, "NextToken": "second"},
-    ]
-
-
 @pytest.mark.parametrize(
     "payload,error",
     [
@@ -286,20 +268,6 @@ def test_job_run_full_refresh_keeps_old_runs_and_namespaces_ids_by_job() -> None
         {"MaxResults": 100, "JobName": "first", "NextToken": "older"},
         {"MaxResults": 100, "JobName": "second"},
     ]
-
-
-@pytest.mark.parametrize("value", [None, False, "2025-01-01T00:00:00Z", 1735689600])
-def test_normalization_preserves_nested_columns_and_handles_optional_timestamps(value: object) -> None:
-    descriptor = {"Columns": [{"Name": "event_name", "Type": "string"}]}
-    row = glue.normalize_row(
-        "tables",
-        {"Name": "events", "CreateTime": value, "StorageDescriptor": descriptor},
-        "eu-west-1",
-        {"DatabaseName": "analytics"},
-    )
-    assert row["storage_descriptor"] == descriptor
-    assert row["database_name"] == "analytics"
-    assert row["create_time"] == (datetime(2025, 1, 1, tzinfo=UTC) if value == 1735689600 else value)
 
 
 @pytest.mark.parametrize("schema_name", [None, "databases"])

@@ -1,7 +1,10 @@
-import { TOOL_FILE_SYSTEM_TYPES } from 'scenes/library/libraryUtils'
+import { libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
+import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
+import { FileSystemImport, ProductItemCategory } from '~/queries/schema/schema-general'
+import { ActivityTab } from '~/types'
 
 export interface ToolGroup {
     category: string
@@ -11,6 +14,22 @@ export interface ToolGroup {
 // Workspaces for building queries come first, apart from the product pages.
 const PINNED_TOOL_ICONS = ['sql_editor']
 export const PINNED_TOOLS_CATEGORY = 'Workspace'
+
+/** The static pages the Products list can show. The current nav links Persons, Cohorts and Activity outside its product list. */
+export function getToolSourceItems(): FileSystemImport[] {
+    return [
+        ...getTreeItemsProducts(),
+        ...getTreeItemsMetadata(),
+        ...getDefaultTreePersons(),
+        {
+            path: 'Activity',
+            category: ProductItemCategory.ANALYTICS,
+            iconType: 'activity',
+            href: urls.activity(ActivityTab.ExploreEvents),
+            sceneKey: 'Activity',
+        },
+    ]
+}
 
 export function toolLabel(tool: FileSystemImport): string {
     return tool.displayLabel || tool.path
@@ -25,15 +44,30 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
     return !query || `${toolLabel(tool)} ${toolCategory(tool)}`.toLowerCase().includes(query)
 }
 
-// Saved object types live in Library, except the ones that are working pages.
 export function isToolItem(item: FileSystemImport): boolean {
-    const type = item.type?.split('/')[0] || item.iconType || ''
-    return !!item.href && !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type))
+    return !!item.href && !libraryRowOpensProduct(item)
+}
+
+let productLabelsByLibraryType: Map<string, string[]> | null = null
+
+/** The names of the products a Library type row opens, so a search for "Product analytics" finds Insights. */
+export function libraryRowProductLabels(type: string): string[] {
+    if (!productLabelsByLibraryType) {
+        const labels = new Map<string, string[]>()
+        for (const item of getToolSourceItems()) {
+            if (libraryRowOpensProduct(item)) {
+                const itemType = productObjectType(item)
+                labels.set(itemType, [...(labels.get(itemType) ?? []), toolLabel(item)])
+            }
+        }
+        productLabelsByLibraryType = labels
+    }
+    return productLabelsByLibraryType.get(type) ?? []
 }
 
 export function toolHrefForPath(
     path: string,
-    tools: Pick<FileSystemImport, 'href'>[] = [...getTreeItemsProducts(), ...getTreeItemsMetadata()].filter(isToolItem)
+    tools: Pick<FileSystemImport, 'href'>[] = getToolSourceItems().filter(isToolItem)
 ): string | null {
     let match: { href: string; toolPath: string } | null = null
     for (const { href } of tools) {

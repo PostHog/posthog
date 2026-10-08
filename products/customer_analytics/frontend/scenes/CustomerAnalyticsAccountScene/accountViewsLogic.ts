@@ -25,6 +25,7 @@ import type {
     AccountViewVisibilityEnumApi,
     UserCustomerAnalyticsConfigApi,
 } from '../../generated/api.schemas'
+import { getAccountWidgetProperties } from './accountPropertiesWidgetConfig'
 import {
     createAccountViewContent,
     createAccountViewComponentInstance,
@@ -46,6 +47,8 @@ export interface AccountViewTileEditor {
     viewId: string
     nodeId: string
     name: string
+    propertiesConfig?: AccountViewTileConfig
+    accountId?: string
 }
 
 const EMPTY_TABS_CONFIG: AccountDetailTabsConfigApi = {
@@ -140,10 +143,16 @@ export interface accountViewsLogicActions {
     openTileEditor: (
         viewId: string,
         nodeId: string,
-        name: string
+        name: string,
+        properties?: {
+            accountId: string
+            propertiesConfig: AccountViewTileConfig
+        }
     ) => {
+        accountId?: string | undefined
         name: string
         nodeId: string
+        propertiesConfig?: AccountViewTileConfig | undefined
         viewId: string
     }
     reloadEditor: () => {
@@ -230,6 +239,9 @@ export interface accountViewsLogicActions {
     }
     setTileEditorName: (name: string) => {
         name: string
+    }
+    setTileEditorPropertiesConfig: (propertiesConfig: AccountViewTileConfig) => {
+        propertiesConfig: AccountViewTileConfig
     }
     updateViewComponentConfig: (
         viewId: string,
@@ -335,7 +347,13 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         duplicateEditorComponent: (nodeId: string) => ({ nodeId }),
         removeEditorComponent: (nodeId: string) => ({ nodeId }),
         reorderEditorComponent: (activeNodeId: string, overNodeId: string) => ({ activeNodeId, overNodeId }),
-        openTileEditor: (viewId: string, nodeId: string, name: string) => ({ viewId, nodeId, name }),
+        openTileEditor: (
+            viewId: string,
+            nodeId: string,
+            name: string,
+            properties?: { propertiesConfig: AccountViewTileConfig; accountId: string }
+        ) => ({ viewId, nodeId, name, ...properties }),
+        setTileEditorPropertiesConfig: (propertiesConfig: AccountViewTileConfig) => ({ propertiesConfig }),
         closeTileEditor: true,
         setTileEditorName: (name: string) => ({ name }),
         saveTileEditor: true,
@@ -530,7 +548,11 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         tileEditor: [
             null as AccountViewTileEditor | null,
             {
-                openTileEditor: (_, { viewId, nodeId, name }: AccountViewTileEditor) => ({ viewId, nodeId, name }),
+                openTileEditor: (_, editor: AccountViewTileEditor) => editor,
+                setTileEditorPropertiesConfig: (
+                    state,
+                    { propertiesConfig }: { propertiesConfig: AccountViewTileConfig }
+                ) => (state ? { ...state, propertiesConfig } : state),
                 closeTileEditor: () => null,
                 setTileEditorName: (state, { name }: { name: string }) => (state ? { ...state, name } : state),
             },
@@ -705,7 +727,10 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                 actions.deleteViewFailure()
             }
         },
-        saveTileEditor: async () => {
+        saveTileEditor: async (_, __, ___, previousState) => {
+            if (accountViewsLogic({ projectId: props.projectId }).selectors.tileSaving(previousState)) {
+                return
+            }
             const tileEditor = values.tileEditor
             if (!tileEditor) {
                 posthog.capture(AccountsEvents.AccountViewTileRenameFailed, { failure_type: 'validation' })
@@ -715,18 +740,29 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             await queueViewWrite(cache, tileEditor.viewId, async () => {
                 const view = values.views.find((candidate) => candidate.id === tileEditor.viewId)
                 const name = tileEditor.name.trim()
-                if (!view || !name) {
+                if (!view || !view.can_edit || !name) {
                     posthog.capture(AccountsEvents.AccountViewTileRenameFailed, { failure_type: 'validation' })
                     actions.saveViewComponentFailure()
                     return
                 }
                 const components = parseAccountViewContent(view.content).map((component) =>
-                    component.nodeId === tileEditor.nodeId ? { ...component, title: name } : component
+                    component.nodeId === tileEditor.nodeId
+                        ? {
+                              ...component,
+                              title: name,
+                              ...(tileEditor.propertiesConfig ? { config: tileEditor.propertiesConfig } : {}),
+                          }
+                        : component
                 )
                 try {
                     const updatedView = await updateAccountViewComponents(props.projectId, view, components)
                     posthog.capture(AccountsEvents.AccountViewTileRenamed, { component_count: components.length })
                     actions.saveEditorSuccess(updatedView)
+                    if (tileEditor.propertiesConfig) {
+                        posthog.capture(AccountsEvents.PropertiesWidgetConfigured, {
+                            property_count: getAccountWidgetProperties(tileEditor.propertiesConfig).length,
+                        })
+                    }
                     actions.closeTileEditor()
                 } catch (error) {
                     const failureType = getAccountViewFailureType(error)
@@ -736,7 +772,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     lemonToast.error(
                         failureType === 'conflict'
                             ? 'This view changed. Refresh and try again.'
-                            : "Couldn't rename the tile. Try again."
+                            : "Couldn't save the tile. Try again."
                     )
                     actions.saveViewComponentFailure()
                     actions.loadViews()

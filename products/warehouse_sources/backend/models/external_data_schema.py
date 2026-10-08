@@ -896,6 +896,10 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return None
 
     @property
+    def pending_scheme_for_table_replacement(self) -> dict[str, Any] | None:
+        return pending_scheme_for_table_replacement(self.sync_type_config or {})
+
+    @property
     def repartition_swap(self) -> dict[str, Any] | None:
         if self.sync_type_config:
             swap = self.sync_type_config.get("repartition_swap", None)
@@ -1285,7 +1289,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             slack = min(slack, self.sync_frequency_interval / 2)
         return (now or timezone.now()) >= self.next_full_refresh_at - slack
 
-    def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
+    def update_sync_type_config_for_reset_pipeline(
+        self, *, clear_initial_sync_complete: bool = True, promote_pending_repartition: bool = False
+    ) -> None:
+        """Clear the settings that describe the table a reset deleted.
+
+        `promote_pending_repartition` is for a caller that loads the table again in the same run. A
+        queued repartition target then becomes the scheme of the new table (see
+        `promote_pending_repartition_for_replaced_table`), so no rewrite of the new table is necessary.
+        """
         removes = [
             "reset_pipeline",
             # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
@@ -1331,6 +1343,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             self.id,
             self.team_id,
             removes=removes,
+            mutate=promote_pending_repartition_for_replaced_table if promote_pending_repartition else None,
             extra_model_fields=extra_model_fields,
             restart_full_refresh_clock=True,
         )
@@ -1829,6 +1842,44 @@ def save_repartition_checkpoint_if_claimed(
     return claimed
 
 
+def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> None:
+    """Stop an abandoned rewrite checkpoint from holding the import (see `repartition_holds_import`).
+
+    The checkpoint stays as the record of the temp table that still must be deleted.
+    """
+
+    def _write(config: dict[str, Any]) -> None:
+        claim = config.get("repartition_claim")
+        checkpoint = config.get("repartition_rewrite")
+        if claim and claim.get("token") == claim_token and isinstance(checkpoint, dict):
+            checkpoint.pop("held_at", None)
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+
+
+def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
+    """Remove the rewrite checkpoint for `temp_uri` while `claim_token` still owns the schema.
+
+    Row-locked for the same reason as `save_repartition_checkpoint_if_claimed`. A checkpoint that a
+    newer attempt wrote names a different temp table and stays.
+    """
+    cleared = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal cleared
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        checkpoint = config.get("repartition_rewrite")
+        if not isinstance(checkpoint, dict) or checkpoint.get("temp_uri") != temp_uri:
+            return
+        config.pop("repartition_rewrite", None)
+        cleared = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return cleared
+
+
 def finalize_repartition_scheme(
     schema: ExternalDataSchema,
     *,
@@ -1888,6 +1939,43 @@ def finalize_repartition_scheme(
     return wrote
 
 
+PARTITION_SCHEME_OVERRIDE_KEYS = (
+    "partitioning_keys_override",
+    "partition_count_override",
+    "partition_size_override",
+    "partition_mode_override",
+)
+
+
+def _stage_partition_scheme(
+    config: dict[str, Any],
+    *,
+    partitioning_keys: list[str] | None,
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+) -> None:
+    """Pin a scheme in `config` for the load that writes the table again, and retire the repartition markers."""
+    overrides: dict[str, Any] = {
+        "partitioning_keys_override": partitioning_keys or None,
+        "partition_count_override": partition_count,
+        "partition_size_override": partition_size,
+        "partition_mode_override": partition_mode,
+    }
+    for key, value in overrides.items():
+        if value is None:
+            config.pop(key, None)
+        else:
+            config[key] = value
+    if partition_format is not None:
+        config["partition_format"] = partition_format
+    # The cooldown stops detection from flagging the old layout again before the sync rewrites it.
+    config["last_repartition_at"] = timezone.now().isoformat()
+    for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
+        config.pop(key, None)
+
+
 def stage_partition_scheme_for_full_refresh(
     schema: ExternalDataSchema,
     *,
@@ -1906,13 +1994,6 @@ def stage_partition_scheme_for_full_refresh(
     sync to consume (see `update_sync_type_config_for_reset_pipeline` and `set_partitioning_enabled`).
     `partition_format` survives the reset on its own.
     """
-    overrides: dict[str, Any] = {
-        "partitioning_keys_override": partitioning_keys or None,
-        "partition_count_override": partition_count,
-        "partition_size_override": partition_size,
-        "partition_mode_override": partition_mode,
-    }
-
     wrote = False
 
     def _write(config: dict[str, Any]) -> None:
@@ -1923,21 +2004,63 @@ def stage_partition_scheme_for_full_refresh(
                 return
         if config.get("repartition_swap") is not None:
             return
-        for key, value in overrides.items():
-            if value is None:
-                config.pop(key, None)
-            else:
-                config[key] = value
-        if partition_format is not None:
-            config["partition_format"] = partition_format
-        # The cooldown stops detection from flagging the old layout again before the sync rewrites it.
-        config["last_repartition_at"] = timezone.now().isoformat()
-        for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
-            config.pop(key, None)
+        _stage_partition_scheme(
+            config,
+            partitioning_keys=partitioning_keys,
+            partition_count=partition_count,
+            partition_size=partition_size,
+            partition_mode=partition_mode,
+            partition_format=partition_format,
+        )
         wrote = True
 
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
     return wrote
+
+
+def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, Any] | None:
+    """The queued repartition target that a load which replaces the table must write, or None.
+
+    None while a swap is staged, because the temp table can then be the only intact copy and the
+    swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    """
+    pending = config.get("repartition_pending")
+    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+        return None
+    if config.get("repartition_swap") is not None:
+        return None
+    if any(config.get(key) is not None for key in PARTITION_SCHEME_OVERRIDE_KEYS):
+        return None
+    return pending
+
+
+def promote_pending_repartition_for_replaced_table(config: dict[str, Any]) -> None:
+    """Make a queued repartition target the scheme of the table that a reset is about to load again.
+
+    The load writes every row again, so it can write the target layout directly. A rewrite of the
+    old table before the reset is work that the reset deletes. The target is staged the same way as
+    for a full-refresh table (see `stage_partition_scheme_for_full_refresh`).
+
+    A target that cannot be promoted is removed with its checkpoint: it describes a table that no
+    longer exists, and post-load detection measures the new table. A staged swap stays, because its
+    recovery owns those markers.
+    """
+    if config.get("repartition_swap") is not None:
+        return
+    pending = pending_scheme_for_table_replacement(config)
+    if pending is None:
+        for key in ("repartition_pending", "repartition_rewrite"):
+            config.pop(key, None)
+        return
+    _stage_partition_scheme(
+        config,
+        partitioning_keys=pending.get("partition_keys"),
+        partition_count=pending.get("partition_count"),
+        partition_size=pending.get("partition_size"),
+        partition_mode=pending.get("partition_mode"),
+        partition_format=pending.get("partition_format"),
+    )
 
 
 def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
