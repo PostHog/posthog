@@ -259,11 +259,11 @@ def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str
     absorbed a P0 ranks as a P0 although its own `reported_priority` stays what its session reported.
     """
     levels = group_levels or {}
-
-    def order_key(issue: Issue) -> tuple[int, int]:
-        return priority_rank(issue.priority), levels.get(issue.id, _reported_level(issue))
-
-    return sorted([*main, *lens], key=order_key, reverse=True)
+    return sorted(
+        [*main, *lens],
+        key=lambda issue: (priority_rank(issue.priority), levels.get(issue.id, _reported_level(issue))),
+        reverse=True,
+    )
 
 
 def compose_flash_findings(
