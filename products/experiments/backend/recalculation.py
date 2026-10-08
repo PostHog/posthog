@@ -27,6 +27,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
@@ -57,6 +58,7 @@ _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
+RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -309,9 +311,18 @@ def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
             pass
 
 
-def _refresh_window_enforced() -> bool:
-    # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
-    return not settings.DEBUG or settings.TEST
+def _refresh_window_enforced(experiment: Experiment) -> bool:
+    organization_id = str(experiment.team.organization_id)
+    # Evaluated locally: this sits on the POST path, and a miss would otherwise block the request on a call
+    # to /flags. The flag has to target the organization id sent here, or it reads false for everyone.
+    return feature_enabled_or_false(
+        RECALCULATION_RATE_LIMIT_FEATURE_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 def request_recalculation(experiment: Experiment, user: User | None, trigger: str = "manual") -> dict:
@@ -320,7 +331,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     If an active (pending or in_progress) run already exists for this experiment, returns the existing run's
     serialized payload with ``is_existing=True`` — the caller should NOT start a new workflow in that case.
     A user-driven trigger inside ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished
-    raises ``RecalculationRateLimited``. Otherwise creates a fresh pending row.
+    raises ``RecalculationRateLimited`` when the organization has the rate-limit flag on. Otherwise creates a
+    fresh pending row.
     """
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
@@ -351,7 +363,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             _recalculation_reuse_counter.inc()
             return build_job_payload(existing, is_existing=True)
 
-        if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced():
+        if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced(experiment):
             # get the latest terminal run and check against the rate limiting rules
             # if matched, increment counter and raise so the API answers 429 with Retry-After
             latest = _terminal_recalculations(experiment).order_by("-created_at").first()

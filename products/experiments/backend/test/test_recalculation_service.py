@@ -5,7 +5,6 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -116,6 +115,7 @@ class TestRecalculationService(BaseTest):
             ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
         ]
     )
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_user_refresh_window(
         self,
         name: str,
@@ -124,6 +124,7 @@ class TestRecalculationService(BaseTest):
         latest_trigger: str,
         minutes_since_completed: int,
         expects_new_run: bool,
+        _mock_flag,
     ):
         exp = self._launched_experiment(flag_key=f"window-{name}")
         now = timezone.now()
@@ -151,9 +152,9 @@ class TestRecalculationService(BaseTest):
         assert 170 <= exc_info.value.wait <= 180
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
-    @override_settings(DEBUG=True, TEST=False)
-    def test_request_recalculation_skips_the_refresh_window_in_local_development(self):
-        exp = self._launched_experiment(flag_key="window-debug")
+    @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=False)
+    def test_request_recalculation_skips_the_refresh_window_when_the_flag_is_off(self, _mock_flag):
+        exp = self._launched_experiment(flag_key="window-flag-off")
         ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,

@@ -4,10 +4,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -135,8 +133,6 @@ describe('experimentMetricsLogic', () => {
         // Default handlers so every afterMount-driven load/trigger has a mock; tests override per-case.
         useMocks({
             get: {
-                // The fixture is a dev preflight, which never blocks a reload; the window tests need production.
-                '/_preflight': [200, { ...preflightJson, is_debug: false }],
                 '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
             },
             post: {
@@ -145,9 +141,13 @@ describe('experimentMetricsLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-            [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION, FEATURE_FLAGS.EXPERIMENTS_RECALCULATION_RATE_LIMIT],
+            {
+                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                [FEATURE_FLAGS.EXPERIMENTS_RECALCULATION_RATE_LIMIT]: true,
+            }
+        )
         // Wait for the bootstrap to populate currentProjectId — the loader guards on it.
         await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
     })
@@ -893,7 +893,7 @@ describe('experimentMetricsLogic', () => {
                 expect(createMock.mock.calls.length > 0).toBe(posts)
             })
 
-            it('never blocks a reload in local development', async () => {
+            it('never blocks a reload when the rate limit flag is off', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])
                 useMocks({
                     get: {
@@ -904,9 +904,9 @@ describe('experimentMetricsLogic', () => {
                     },
                     post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
-                // The mount-time preflight load must land first, or it overwrites the dev preflight.
-                await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-                preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, is_debug: true } as any)
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
                 expect(logic.values.isManualRefreshBlocked).toBe(false)
