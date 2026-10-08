@@ -5,6 +5,7 @@ import { THINKING_ACTIVITIES } from "@posthog/core/sessions/thinkingActivities";
 import type { CloudTaskUpdatePayload, StoredLogEntry } from "@posthog/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  agentUp,
   applyUpdate,
   CloudRuns,
   deliveryFailure,
@@ -141,6 +142,48 @@ describe("CloudRuns.agentRestarted", () => {
     });
 
     await expect(restarted).rejects.toThrow("Sandbox failed to start");
+  });
+});
+
+describe("agentUp", () => {
+  it.each([
+    [
+      "pi's start marker is in the window",
+      [{ type: "pi_run_started" }],
+      0,
+      true,
+    ],
+    [
+      "Claude Code's start marker is in the window",
+      [
+        {
+          type: "notification",
+          notification: { method: "_posthog/run_started" },
+        },
+      ],
+      0,
+      true,
+    ],
+    [
+      "a long log has the marker before the window",
+      [{ type: "notification" }],
+      300,
+      true,
+    ],
+    [
+      "only the backend's setup has arrived",
+      [{ type: "notification" }],
+      0,
+      false,
+    ],
+  ])("is up when %s", (_, entries, windowStart, up) => {
+    expect(
+      agentUp({
+        ...emptyRunView,
+        entries: entries as StoredLogEntry[],
+        windowStart,
+      }),
+    ).toBe(up);
   });
 });
 

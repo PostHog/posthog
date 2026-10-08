@@ -65,6 +65,11 @@ export function runStarted(entry: StoredLogEntry): boolean {
   );
 }
 
+// A cloud run's agent is up: its start marker is in the window, or a long log has it before the window.
+export function agentUp(view: RunView): boolean {
+  return view.windowStart > 0 || view.entries.some(runStarted);
+}
+
 export function applyUpdate(
   view: RunView,
   update: CloudTaskUpdatePayload,
