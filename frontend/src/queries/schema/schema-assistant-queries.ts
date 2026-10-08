@@ -462,12 +462,25 @@ export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter
     breakdown_path_cleaning?: boolean
 }
 
-// Remove deprecated display types, and the proportion bar while the `proportion-bar-chart` flag gates it in the
-// pickers, so agents cannot create one for people who cannot see the option.
-export type AssistantTrendsDisplayType = Exclude<
-    TrendsFilterLegacy['display'],
-    'ActionsStackedBar' | 'ActionsProportionBar'
->
+// An allow list, so a new ChartDisplayType (often SQL-only) does not reach agents unless someone adds it here.
+// ActionsProportionBar stays out while the `proportion-bar-chart` flag gates it in the pickers.
+export type AssistantTrendsDisplayType =
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsUnstackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.ActionsLineGraphCumulative
+    | ChartDisplayType.SlopeGraph
+    | ChartDisplayType.BoxPlot
+    | ChartDisplayType.Metric
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.ActionsBarValue
+    | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.WorldMap
+    // Not in the `display` description: the MCP chart app cannot show calendar_heatmap_data yet.
+    | ChartDisplayType.CalendarHeatmap
 
 export interface AssistantTrendsFilter {
     /**
@@ -493,14 +506,18 @@ export interface AssistantTrendsFilter {
      * Visualization type. Available values:
      * `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time.
      * `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that.
+     * `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval.
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
+     * `SlopeGraph` - net change from the first to the last interval, one line per series.
+     * `BoxPlot` - quartiles of a numeric `math_property` for each interval.
      * `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison ("how many X in the last 30 days", "what's our conversion rate this month", "how does this month compare to last"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown.
      * `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series.
      * `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason".
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
+     * `ActionsDonut` - total value donut chart; same use as `ActionsPie`.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
-     * `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.
+     * `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.
      * @default ActionsLineGraph
      */
     display?: AssistantTrendsDisplayType
