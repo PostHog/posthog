@@ -236,13 +236,19 @@ describe('inboxSceneLogic routing', () => {
     })
 
     // A report link only resolves in the URL's project, so a link opened under another project 404s.
-    it.each<[string, number | null, string | null, boolean]>([
-        ['sends the person to the project that owns the report', 2001, 'redirected', true],
-        ['shows not found when no project the person can read owns it', null, 'not_accessible', false],
-    ])('a 404 on a report link %s', async (_name, owningTeamId, outcome, redirects) => {
+    it.each<[string, number | null, boolean, string | null, boolean]>([
+        ['sends the person to the project that owns the report', 2001, false, 'redirected', true],
+        ['shows not found when no project the person can read owns it', null, false, 'not_accessible', false],
+        ['leaves the person in place when they close the report during the lookup', 2001, true, null, false],
+    ])('a 404 on a report link %s', async (_name, owningTeamId, closesDuringLookup, outcome, redirects) => {
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/locate/': { team_id: owningTeamId },
+                '/api/projects/:team_id/signals/reports/locate/': () => {
+                    if (closesDuringLookup) {
+                        logic.actions.setSelectedReportId(null)
+                    }
+                    return { team_id: owningTeamId }
+                },
                 '/api/projects/:team_id/signals/reports/:id/': () => [404, { detail: 'Not found.' }],
             },
         })
@@ -275,11 +281,10 @@ describe('inboxSceneLogic routing', () => {
                 redirects ? [[`/project/${owningTeamId}${urls.inboxReport('reports', 'r-missing')}?view=all`]] : []
             )
             expect(window.location.href).toBe(originalLocation.href)
-            expect(captureSpy).toHaveBeenCalledWith(
-                'Inbox report not found',
-                expect.objectContaining({ report_id: 'r-missing', outcome }),
-                undefined
-            )
+            const notFoundEvents = captureSpy.mock.calls
+                .filter(([event]) => event === 'Inbox report not found')
+                .map(([, properties]) => ({ report_id: properties?.report_id, outcome: properties?.outcome }))
+            expect(notFoundEvents).toEqual(outcome ? [{ report_id: 'r-missing', outcome }] : [])
         } finally {
             Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation })
             captureSpy.mockRestore()
