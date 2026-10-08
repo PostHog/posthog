@@ -12,7 +12,6 @@ import {
     getWorkflowTreeBranchSummary,
     getWorkflowTreeContinuationPath,
     getWorkflowTreeOccurrenceKey,
-    getWorkflowTreeStepId,
     getWorkflowTreeStepIds,
 } from './workflowTreePresentation'
 
@@ -266,11 +265,11 @@ describe('buildWorkflowTree', () => {
             'followup',
         ])
         const innerPath = [edge('outer', 'trial', 'branch', 0), edge('inner', 'guided', 'branch', 0)]
-        expect(getWorkflowTreeContinuationPath(tree, innerPath, 'followup')).toEqual(innerPath.slice(0, 1))
-        expect(getWorkflowTreeContinuationPath(tree, innerPath, 'shared')).toEqual([])
+        expect(getWorkflowTreeContinuationPath(tree, 'followup')).toEqual(innerPath.slice(0, 1))
+        expect(getWorkflowTreeContinuationPath(tree, 'shared')).toEqual([])
     })
 
-    it('keeps the selected occurrence when paths share a branching action', () => {
+    it('shows a step that several paths share once and links to it from the other paths', () => {
         const tree = buildWorkflowTree(
             workflow(
                 [
@@ -294,14 +293,59 @@ describe('buildWorkflowTree', () => {
             )
         )
         const firstPath = [edge('outer', 'wait', 'branch', 0), edge('wait', 'matched', 'branch', 0)]
-        const secondPath = [edge('outer', 'wait', 'branch', 1), edge('wait', 'matched', 'branch', 0)]
+        const [, secondRoute] = tree.nodes[1].branches
 
-        for (const path of [firstPath, secondPath]) {
-            expect(findWorkflowTreePath(tree, path).map(({ branch }) => branch.edge)).toEqual(path)
-            expect(getWorkflowTreeContinuationPath(tree, path, 'matched')).toEqual(path)
+        expect(findWorkflowTreePath(tree, firstPath).map(({ branch }) => branch.edge)).toEqual(firstPath)
+        expect(getWorkflowTreeContinuationPath(tree, 'matched')).toEqual(firstPath)
+        expect(secondRoute.sequence.nodes).toEqual([])
+        expect(secondRoute.sequence.continueTo?.id).toBe('wait')
+        expect(secondRoute.sequence.trailingEdge).toEqual(edge('outer', 'wait', 'branch', 1))
+        expect(getWorkflowTreeBranchSummary(tree.nodes[1], secondRoute)).toBe('0 steps · Continue to: wait')
+        expect(
+            findWorkflowTreePath(tree, [edge('outer', 'wait', 'branch', 1), edge('wait', 'matched', 'branch', 0)])
+        ).toEqual([])
+    })
+
+    it('shows each step once when nested branches merge only some of their paths', () => {
+        const levels = 12
+        const actions = [action('trigger', 'trigger'), action('exit', 'exit')]
+        const edges = [edge('trigger', 'split-0')]
+        for (let level = 0; level < levels; level++) {
+            const next = level + 1 < levels ? `split-${level + 1}` : 'exit'
+            actions.push(
+                action(`split-${level}`, 'conditional_branch'),
+                action(`a-${level}`),
+                action(`b-${level}`),
+                action(`merge-${level}`)
+            )
+            edges.push(
+                edge(`split-${level}`, `a-${level}`, 'branch', 0),
+                edge(`split-${level}`, `b-${level}`, 'branch', 1),
+                edge(`split-${level}`, 'exit'),
+                edge(`a-${level}`, `merge-${level}`),
+                edge(`b-${level}`, `merge-${level}`),
+                edge(`merge-${level}`, next)
+            )
         }
-        expect(getWorkflowTreeStepId('matched', firstPath)).not.toBe(getWorkflowTreeStepId('matched', secondPath))
-        expect(findWorkflowTreePath(tree, [edge('wait', 'matched', 'branch', 0)])).toEqual([])
+        const tree = buildWorkflowTree(workflow(actions, edges))
+
+        const placements: string[] = []
+        const collect = (sequence: typeof tree): void => {
+            for (const node of sequence.nodes) {
+                placements.push(node.action.id)
+                node.branches.forEach((branch) => collect(branch.sequence))
+            }
+        }
+        collect(tree)
+
+        expect(placements).toHaveLength(actions.length)
+        expect(new Set(placements).size).toBe(actions.length)
+        const lastSplit = findWorkflowTreePath(
+            tree,
+            Array.from({ length: levels }, (_, level) => edge(`split-${level}`, `a-${level}`, 'branch', 0))
+        ).at(-1)
+        expect(lastSplit?.node.branches[1].sequence.continueTo?.id).toBe(`merge-${levels - 1}`)
+        expect(isWorkflowTreeComplete(workflow(actions, edges))).toBe(true)
     })
 
     it.each([
