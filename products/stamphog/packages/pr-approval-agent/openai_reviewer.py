@@ -18,6 +18,7 @@ import tempfile
 import threading
 import subprocess
 from dataclasses import asdict, dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -210,7 +211,11 @@ class RepoTools:
     def _is_ignored(self, target: Path) -> bool:
         relative = target.relative_to(self.root).as_posix()
         command = ["git", "check-ignore", "-q", "--", relative]
-        result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        try:
+            result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            # Without an answer the file could be an ignored secret, so the read is refused.
+            raise ToolError(f"could not check whether {relative} is ignored by git; try again") from None
         return result.returncode == 0
 
     def read_file(self, path: str, offset: int | None, limit: int | None) -> str:
@@ -240,6 +245,8 @@ class RepoTools:
         if glob and target.is_dir():
             prefix = "" if relative == "." else f"{relative}/"
             pathspec = f":(glob){prefix}{glob}" if "/" in glob else f":(glob){prefix}**/{glob}"
+        elif glob and not fnmatch(relative if "/" in glob else target.name, glob):
+            return "(no matches)"
         else:
             pathspec = relative
         # git grep reads the checkout's own index, so it is fast on a large repository, and it never

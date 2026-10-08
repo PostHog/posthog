@@ -657,7 +657,7 @@ def test_familiarity_computed_on_every_tier_but_prompted_only_on_t1(
     ],
 )
 def test_capture_review_completed_includes_familiarity_and_provenance(
-    monkeypatch: pytest.MonkeyPatch, populated: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, populated: bool
 ) -> None:
     # Downstream HogQL queries key on these property names and null/empty
     # defaults; a rename or a crash on the early-exit paths (bot author, WAIT —
@@ -687,6 +687,8 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
             top_prior_authors=("Alice",),
         )
         pipeline.familiarity_source = "server"
+        monkeypatch.delenv("STAMPHOG_REVIEWER_ENGINE", raising=False)
+        pipeline._new_reviewer(tmp_path)
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
@@ -710,6 +712,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
         assert props["stamphog_review_trigger"] == "manual"
+        assert props["stamphog_reviewer_engine"] == "openai"
     else:
         assert props["stamphog_owner_teams"] == []
         assert props["stamphog_familiarity_band"] == ""
@@ -719,6 +722,8 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_generated_by"] == []
         assert props["stamphog_task_ids"] == []
         assert props["stamphog_review_trigger"] == ""
+        # A gate-only verdict ran no reviewer, so it must not name one.
+        assert props["stamphog_reviewer_engine"] == ""
 
 
 def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:

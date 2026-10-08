@@ -77,12 +77,32 @@ def test_tools_never_reveal_content_outside_the_checkout(checkout: Path, tool: s
             id="ignored-pipeline-diff",
         ),
         pytest.param({"pattern": "(unclosed", "path": None, "glob": None}, "error:", id="bad-pattern"),
+        pytest.param(
+            {"pattern": "handler", "path": "src/app.py", "glob": "*.ts"}, "(no matches)", id="file-outside-glob"
+        ),
+        pytest.param(
+            {"pattern": "handler", "path": "src/app.py", "glob": "src/*.py"},
+            "src/app.py:1:def handler():",
+            id="file-in-glob",
+        ),
     ],
 )
 def test_grep_finds_untracked_files_and_reports_bad_patterns(checkout: Path, arguments: dict, expected: str) -> None:
     output = RepoTools(checkout).call("grep", json.dumps(arguments))
 
     assert output.startswith(expected)
+
+
+def test_read_file_refuses_when_the_ignore_check_times_out(checkout: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def slow_git(command: list[str], **kwargs: Any) -> None:
+        raise subprocess.TimeoutExpired(command, timeout=10)
+
+    monkeypatch.setattr(openai_reviewer.subprocess, "run", slow_git)
+
+    output = RepoTools(checkout).call("read_file", json.dumps({"path": ".env", "offset": None, "limit": None}))
+
+    assert output.startswith("error:")
+    assert SECRET not in output
 
 
 def test_grep_returns_clipped_output_when_a_broad_pattern_matches_too_much(checkout: Path) -> None:

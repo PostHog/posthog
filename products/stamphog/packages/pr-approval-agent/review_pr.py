@@ -259,6 +259,8 @@ class Pipeline:
         self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
+        # Empty until an LLM reviewer starts, so a gate-only verdict names no engine.
+        self.reviewer_engine = ""
         self.final_verdict: str = ""
 
     def run(self) -> str:
@@ -928,8 +930,9 @@ class Pipeline:
         raise AssertionError("review retry loop exhausted without a verdict")
 
     def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        self.reviewer_engine = reviewer_engine()
         # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
-        if reviewer_engine() == CLAUDE_ENGINE:
+        if self.reviewer_engine == CLAUDE_ENGINE:
             from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
 
             return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
@@ -1052,7 +1055,7 @@ class Pipeline:
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
                 "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
-                "stamphog_reviewer_engine": reviewer_engine(),
+                "stamphog_reviewer_engine": self.reviewer_engine,
                 **_llm_usage_properties(self.reviewer_output),
             },
         )
