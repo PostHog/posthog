@@ -14,8 +14,19 @@
 //! on an error channel; the consumer turns them into a process failure, so
 //! the failure decision stays in the consumer loop.
 
+mod driver;
+pub mod in_flight;
+pub mod key_queues;
+pub mod request;
+pub mod retry_policy;
+pub mod state_machine;
+#[cfg(test)]
+pub(crate) mod test_support;
+pub mod worker_assigner;
+pub mod worker_pool;
+
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,10 +37,12 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
+use self::driver::StateMachineDriver;
+use self::state_machine::BatcherStateMachine;
+use self::worker_pool::WorkerPoolSource;
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::order_sentinel::KeyOrderSentinel;
-use crate::scheduler::SchedulerKind;
 use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::types::SerializedKafkaMessage;
@@ -82,7 +95,6 @@ struct BatcherInner {
     /// Stamped on each submitted batch's completions; bumped on partition
     /// assignment by the consumer's rebalance context.
     assignment_epoch: AssignmentEpoch,
-    accepted_messages: AtomicU64,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
 }
@@ -123,23 +135,189 @@ fn send_group_completions(
     }
 }
 
-/// Owns the dispatch orchestration: the dispatcher, the scatter tasks, and
-/// the deferred-flush driver. Holds shared handles to the transport; the
-/// transport, router, and registry keep their construction and ownership in
-/// `main.rs`.
+/// Submits polls, and receives completions and fatal errors back, through
+/// either the dispatcher or the batcher state machine, as
+/// `INGESTION_SCHEDULER` selects.
 pub struct Batcher {
-    inner: Arc<BatcherInner>,
-    flush_queue: mpsc::UnboundedSender<FlushTicket>,
-    parked_retry_pump: Option<JoinHandle<()>>,
+    backend: Backend,
+}
+
+enum Backend {
+    Dispatcher(DispatcherBatcher),
+    StateMachine(StateMachineDriver),
 }
 
 impl Batcher {
+    /// Drive the dispatcher's pin-stash scheduler.
     pub fn new(
         dispatcher: Arc<Dispatcher>,
         transport: Arc<GrpcTransport>,
         handle: Handle,
         deferred_flush_timeout: Duration,
-        parked_retry_interval: Duration,
+    ) -> (Self, BatcherOutputs) {
+        let (inner, outputs) =
+            DispatcherBatcher::new(dispatcher, transport, handle, deferred_flush_timeout);
+        (
+            Self {
+                backend: Backend::Dispatcher(inner),
+            },
+            outputs,
+        )
+    }
+
+    /// Drive the batcher state machine, the `key_table` scheduler.
+    pub fn with_state_machine(
+        state_machine: BatcherStateMachine,
+        pool_source: WorkerPoolSource,
+        transport: Arc<GrpcTransport>,
+    ) -> (Self, BatcherOutputs) {
+        let (driver, outputs) = StateMachineDriver::new(state_machine, pool_source, transport);
+        (
+            Self {
+                backend: Backend::StateMachine(driver),
+            },
+            outputs,
+        )
+    }
+
+    /// The per-key order sentinel, so the consumer can enable it.
+    pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
+        match &self.backend {
+            Backend::Dispatcher(inner) => inner.key_order_sentinel(),
+            Backend::StateMachine(driver) => driver.key_order_sentinel(),
+        }
+    }
+
+    /// The batcher's half of the consumer's revocation hook.
+    pub fn revoker(&self) -> Revoker {
+        match &self.backend {
+            Backend::Dispatcher(inner) => {
+                Revoker(RevokeTarget::Dispatcher(inner.key_order_sentinel()))
+            }
+            Backend::StateMachine(driver) => {
+                Revoker(RevokeTarget::StateMachine(driver.revoke_sender()))
+            }
+        }
+    }
+
+    /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
+    /// order. Returns the assignment epoch stamped on the poll's completions.
+    pub fn submit(&self, accumulator: Accumulator) -> u64 {
+        match &self.backend {
+            Backend::Dispatcher(inner) => inner.submit(accumulator),
+            Backend::StateMachine(driver) => driver.submit(accumulator),
+        }
+    }
+
+    /// A read-only view of the batcher's load, for the drain reaper and
+    /// tests.
+    pub fn observer(&self) -> BatcherObserver {
+        match &self.backend {
+            Backend::Dispatcher(inner) => BatcherObserver(ObserverTarget::Dispatcher(Arc::clone(
+                &inner.inner.dispatcher,
+            ))),
+            Backend::StateMachine(driver) => {
+                BatcherObserver(ObserverTarget::StateMachine(driver.load()))
+            }
+        }
+    }
+
+    /// The consumer stopped polling. The state machine takes no new groups
+    /// and stops once nothing is pending or in flight.
+    pub fn begin_shutdown(&self) {
+        if let Backend::StateMachine(driver) = &self.backend {
+            driver.begin_shutdown();
+        }
+    }
+}
+
+/// A read-only view of the batcher's load.
+#[derive(Clone)]
+pub struct BatcherObserver(ObserverTarget);
+
+#[derive(Clone)]
+enum ObserverTarget {
+    Dispatcher(Arc<Dispatcher>),
+    StateMachine(Arc<driver::Load>),
+}
+
+impl BatcherObserver {
+    /// Whether the worker has sent, unresolved work. The reaper completes a
+    /// draining worker's drain only when it has none.
+    pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
+        match &self.0 {
+            ObserverTarget::Dispatcher(dispatcher) => dispatcher.has_in_flight(worker),
+            ObserverTarget::StateMachine(load) => {
+                load.busy_workers.lock().unwrap().contains(worker)
+            }
+        }
+    }
+
+    /// Messages held for a later send: the pin-stash's stash, or the
+    /// state machine's queued, packed and unplaced messages.
+    pub fn held_messages(&self) -> usize {
+        match &self.0 {
+            ObserverTarget::Dispatcher(dispatcher) => dispatcher.stashed_messages(),
+            ObserverTarget::StateMachine(load) => load.pending_messages.load(Ordering::Relaxed),
+        }
+    }
+
+    pub fn total_in_flight(&self) -> usize {
+        match &self.0 {
+            ObserverTarget::Dispatcher(dispatcher) => dispatcher.total_in_flight(),
+            ObserverTarget::StateMachine(load) => load.in_flight_messages.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Live sticky pins; the state machine keeps none.
+    pub fn pin_count(&self) -> usize {
+        match &self.0 {
+            ObserverTarget::Dispatcher(dispatcher) => dispatcher.pin_count(),
+            ObserverTarget::StateMachine(_) => 0,
+        }
+    }
+}
+
+/// Purges revoked partitions from the batcher. Runs on the rebalance
+/// callback.
+pub struct Revoker(RevokeTarget);
+
+enum RevokeTarget {
+    /// The pin-stash scheduler keeps nothing to purge.
+    Dispatcher(Arc<KeyOrderSentinel>),
+    StateMachine(driver::RevokeSender),
+}
+
+impl Revoker {
+    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
+        match &self.0 {
+            RevokeTarget::Dispatcher(key_sentinel) => key_sentinel.clear(),
+            RevokeTarget::StateMachine(sender) => sender.purge_revoked(partitions),
+        }
+    }
+
+    /// Whether purged messages never complete, so the consumer must drop the
+    /// in-flight polls that hold a revoked partition.
+    pub fn drops_revoked_polls(&self) -> bool {
+        matches!(self.0, RevokeTarget::StateMachine(_))
+    }
+}
+
+/// Owns the dispatch orchestration: the dispatcher, the scatter tasks, and
+/// the deferred-flush driver. Holds shared handles to the transport; the
+/// transport, router, and registry keep their construction and ownership in
+/// `main.rs`.
+struct DispatcherBatcher {
+    inner: Arc<BatcherInner>,
+    flush_queue: mpsc::UnboundedSender<FlushTicket>,
+}
+
+impl DispatcherBatcher {
+    fn new(
+        dispatcher: Arc<Dispatcher>,
+        transport: Arc<GrpcTransport>,
+        handle: Handle,
+        deferred_flush_timeout: Duration,
     ) -> (Self, BatcherOutputs) {
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
@@ -148,19 +326,10 @@ impl Batcher {
             dispatcher,
             transport,
             assignment_epoch,
-            accepted_messages: AtomicU64::new(0),
             completions: completions_tx,
             errors: errors_tx,
         });
         let (flush_queue, flush_rx) = mpsc::unbounded_channel();
-        let parked_retry_pump = (inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| {
-                tokio::spawn(run_parked_retry_pump(
-                    Arc::clone(&inner),
-                    parked_retry_interval,
-                    deferred_flush_timeout,
-                ))
-            });
         tokio::spawn(run_flush_driver(
             Arc::clone(&inner),
             flush_rx,
@@ -168,11 +337,7 @@ impl Batcher {
             deferred_flush_timeout,
         ));
         (
-            Self {
-                inner,
-                flush_queue,
-                parked_retry_pump,
-            },
+            Self { inner, flush_queue },
             BatcherOutputs {
                 completions: completions_rx,
                 errors: errors_rx,
@@ -180,15 +345,8 @@ impl Batcher {
         )
     }
 
-    /// The dispatcher's per-key order sentinel, shared with the consumer's
-    /// rdkafka context so rebalances can reset its baselines.
-    pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
+    fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
         self.inner.dispatcher.key_order_sentinel()
-    }
-
-    /// The dispatcher, for the consumer's revocation hook.
-    pub fn dispatcher(&self) -> Arc<Dispatcher> {
-        Arc::clone(&self.inner.dispatcher)
     }
 
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
@@ -204,7 +362,7 @@ impl Batcher {
     /// at assignment. Send order is also established here, under the
     /// dispatcher's lock: `begin_send` is synchronous, so a key's sub-batches
     /// enter its worker's stream in assignment order.
-    pub fn submit(&self, accumulator: Accumulator) -> u64 {
+    fn submit(&self, accumulator: Accumulator) -> u64 {
         let assignment_epoch = self.inner.assignment_epoch.current();
         let batch_id = make_batch_id();
         self.inner.dispatcher.register_batch(&batch_id);
@@ -235,14 +393,6 @@ impl Batcher {
             scatter,
         });
         assignment_epoch
-    }
-}
-
-impl Drop for Batcher {
-    fn drop(&mut self) {
-        if let Some(pump) = self.parked_retry_pump.take() {
-            pump.abort();
-        }
     }
 }
 
@@ -332,11 +482,6 @@ async fn await_settled(
 
     match pending.wait().await {
         Ok(accepted) => {
-            if accepted > 0 {
-                inner
-                    .accepted_messages
-                    .fetch_add(accepted as u64, Ordering::Relaxed);
-            }
             // Advance ACK high-water marks before the settle, which
             // may evict the keys' sentinel state.
             inner.dispatcher.on_sub_batch_acked(&key_offsets);
@@ -426,66 +571,6 @@ fn spawn_followups(
             false,
             batch_epoch,
         )));
-    }
-}
-
-/// The key table's retry driver: fire the parked-retry deadline on an
-/// interval. Parked keys are the ones no settlement can release, so the
-/// pump is their only retry path. Its stall watchdog matches the flush
-/// driver's: acceptance resets the deadline, and pending work with zero
-/// acceptance for a full window fails the process, so a wedged key table
-/// restarts loudly instead of growing lag silently.
-async fn run_parked_retry_pump(
-    inner: Arc<BatcherInner>,
-    interval: Duration,
-    stall_timeout: Duration,
-) {
-    let mut ticker = tokio::time::interval(interval);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut seen_accepted = 0u64;
-    let mut stall_deadline = Instant::now() + stall_timeout;
-    loop {
-        ticker.tick().await;
-
-        // Check the stall before this tick's retries. Acceptance or full
-        // idleness resets the clock. Once the deadline expires, stop starting
-        // parked retries so overlapping failures must converge to zero
-        // outstanding; then report the stall. An already in-flight send may
-        // still be healthy but slow, so let it settle: acceptance resets the
-        // deadline, while failure leaves queued work with nothing outstanding
-        // and trips the watchdog on the next tick.
-        let accepted = inner.accepted_messages.load(Ordering::Relaxed);
-        let (queued, outstanding) = inner.dispatcher.key_work().unwrap_or((0, 0));
-        let now = Instant::now();
-        if accepted != seen_accepted || (queued == 0 && outstanding == 0) {
-            seen_accepted = accepted;
-            stall_deadline = now + stall_timeout;
-        } else if now >= stall_deadline {
-            if queued > 0 && outstanding == 0 {
-                inner.report_error(
-                    "key-table work made no progress within the stall timeout".to_string(),
-                );
-                return;
-            }
-            continue;
-        }
-
-        // A retried send may replay a failed run, so it goes on the wire
-        // with the replay flag, like a deferred flush.
-        let settle_id = make_batch_id();
-        let pending = inner.dispatcher.parked_retry_and_send(|sub_batch| {
-            begin_send(&inner.transport, &settle_id, sub_batch, true)
-        });
-        let epoch = inner.assignment_epoch.current();
-        for sub_batch in pending {
-            drop(tokio::spawn(await_settled(
-                Arc::clone(&inner),
-                settle_id.clone(),
-                sub_batch,
-                false,
-                epoch,
-            )));
-        }
     }
 }
 
