@@ -92,11 +92,12 @@ export function railPaneForPath(pathname: string, warehouseEnabled: boolean): To
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
+    // Each notebook and dashboard is a view, but their list pages are rows in the Products list.
     if (
         isUnder(path, urls.views()) ||
         isUnder(path, '/canvases') ||
-        isUnder(path, urls.notebooks()) ||
-        isUnder(path, urls.dashboards())
+        path.startsWith(`${urls.notebooks()}/`) ||
+        path.startsWith(`${urls.dashboards()}/`)
     ) {
         return 'views'
     }

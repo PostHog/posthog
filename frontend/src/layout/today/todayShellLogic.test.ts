@@ -3,7 +3,13 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { toolHrefForPath } from 'scenes/tools/toolsUtils'
+import {
+    getToolSourceItems,
+    isToolItem,
+    libraryRowProductLabels,
+    toolHrefForPath,
+    toolLabel,
+} from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
 
@@ -40,13 +46,16 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/sources/abc/schemas', 'warehouse', true],
         ['/project/1/data-warehouse/new-source', 'warehouse', true],
         ['/project/1/models/abc', 'warehouse', true],
-        ['/project/1/notebooks', 'views', true],
+        ['/project/1/notebooks', 'products', true],
         ['/project/1/warehouses', null, true],
         ['/project/1/views', 'views', true],
         ['/project/1/canvases/abc', 'views', true],
         ['/project/1/canvases/new', 'views', true],
         ['/project/1/notebooks/abc', 'views', true],
         ['/project/1/dashboard/12', 'views', true],
+        ['/project/1/dashboard', 'products', true],
+        ['/project/1/persons', 'products', true],
+        ['/project/1/activity/events', 'products', true],
         ['/project/1/airplane', null, true],
         ['/project/1/homework', null, true],
         ['/project/1/endpoints/my-endpoint', 'products', true],
@@ -59,7 +68,7 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/sources/abc/schemas', 'products', false],
         ['/project/1/models/abc', 'products', false],
         ['/project/1/warehouse', null, false],
-        ['/project/1/notebooks', 'views', false],
+        ['/project/1/notebooks', 'products', false],
     ])('puts %s under %s with the warehouse flag %s', (pathname, pane, warehouseEnabled) => {
         expect(railPaneForPath(pathname, warehouseEnabled)).toBe(pane)
     })
@@ -72,6 +81,25 @@ describe('todayShellLogic', () => {
     ])('selects the tool for %s', (path, href) => {
         const tools = [{ href: '/data-management' }, { href: '/data-management/destinations?tab=all' }]
         expect(toolHrefForPath(path, tools)).toBe(href)
+    })
+
+    test.each([
+        ['Notebooks', true],
+        ['Dashboards', true],
+        ['Session replay', true],
+        ['Persons', true],
+        ['Activity', true],
+        ['SQL editor', true],
+        ['Feature flags', false],
+        ['Product analytics', false],
+        ['Cohorts', false],
+    ])('gives %s its own row in the Products list: %s', (label, ownRow) => {
+        const rows = getToolSourceItems().filter(isToolItem).map(toolLabel)
+        expect(rows.includes(label)).toBe(ownRow)
+    })
+
+    it('finds the Insights row with a search for the Product analytics name', () => {
+        expect(libraryRowProductLabels('insight')).toContain('Product analytics')
     })
 
     test.each([
