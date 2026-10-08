@@ -559,6 +559,7 @@ SETTINGS
     max_replica_delay_for_distributed_queries=60,
     fallback_to_stale_replicas_for_distributed_queries=0,
     optimize_aggregation_in_order=1,
-    json_type_escape_dots_in_keys=1
+    json_type_escape_dots_in_keys=1,
+    output_format_json_escape_forward_slashes=0
 {", log_comment={log_comment}" if s3_function else ""}
 """
