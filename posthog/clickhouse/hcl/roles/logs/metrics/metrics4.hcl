@@ -71,7 +71,7 @@ database "posthog" {
   }
 
   table "metrics4_names" {
-    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name", "metric_type"]
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -95,8 +95,12 @@ database "posthog" {
     column "service_name" {
       type = "LowCardinality(String)"
     }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
     column "metric_type" {
-      type = "LowCardinality(String)"
+      type  = "String"
+      alias = "metric_types[1]"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"

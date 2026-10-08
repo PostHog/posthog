@@ -5,8 +5,8 @@ SELECT
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
   maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
   service_name,
-  metric_type
+  groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name, metric_type
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name

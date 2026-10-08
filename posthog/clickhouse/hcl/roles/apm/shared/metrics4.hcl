@@ -143,7 +143,7 @@ database "posthog" {
     column "original_expiry_time_bucket" { type = "DateTime64(0)" }
     column "original_expiry_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
     column "service_name" { type = "LowCardinality(String)" }
-    column "metric_type" { type = "LowCardinality(String)" }
+    column "metric_types" { type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))" }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -255,7 +255,7 @@ database "posthog" {
     column "original_expiry_time_bucket" { type = "DateTime64(0)" }
     column "original_expiry_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
     column "service_name" { type = "LowCardinality(String)" }
-    column "metric_type" { type = "LowCardinality(String)" }
+    column "metric_types" { type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))" }
   }
 
   materialized_view "metrics4_input_to_metrics4_attributes" {
