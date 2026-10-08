@@ -25,8 +25,7 @@ const EVENTS_HIDDEN_IN_QUERY_BUILDERS: { name: string; searchTerms: string[] }[]
             .map((term) => term.toLowerCase()),
     }))
 
-/** Pass these in a picker's `excludedProperties` to hide them on every mode, where the API rejects a new use. */
-export const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => name)
+const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => name)
 
 /**
  * Names the Events group adds to its own exclusions.

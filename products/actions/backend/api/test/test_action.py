@@ -18,6 +18,8 @@ from posthog.models import Tag, User
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -298,16 +300,30 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
 
-    def test_create_action_rejects_step_on_hidden_event(self, *args):
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    @parameterized.expand(
+        [
+            ("events_mode", FlagEvaluationsMode.EVENTS, status.HTTP_201_CREATED),
+            ("read_flag_evaluations_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_action_with_step_on_hidden_event(self, _name, mode, expected_status):
+        self._set_flag_evaluations_mode(mode)
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
             data={"name": "flag checks", "steps": [{"event": "$pageview"}, {"event": "$feature_flag_called"}]},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "hidden_event"
-        assert response.json()["attr"] == "steps"
-        assert not Action.objects.filter(team=self.team, name="flag checks").exists()
+        assert response.status_code == expected_status, response.json()
+        created = Action.objects.filter(team=self.team, name="flag checks").exists()
+        assert created == (expected_status == status.HTTP_201_CREATED)
+        if not created:
+            assert (response.json()["code"], response.json()["attr"]) == ("hidden_event", "steps")
 
     @parameterized.expand(
         [
@@ -337,6 +353,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_update_action_steps_on_hidden_event(self, _name, stored_steps, steps, expected_status):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         action = Action.objects.create(name="flag checks", team=self.team, steps_json=stored_steps)
 
         response = self.client.patch(

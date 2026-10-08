@@ -24,13 +24,9 @@ export function EventName({
     disabled,
     placeholder = 'Select an event',
     allEventsOption,
-    excludedProperties,
     ...props
 }: (EventNamePropsWithAllEvents | EventNamePropsWithoutAllEvents) &
-    Pick<
-        TaxonomicPopoverProps,
-        'placement' | 'groupTypes' | 'includeHiddenEvents' | 'excludedProperties'
-    >): JSX.Element {
+    Pick<TaxonomicPopoverProps, 'placement' | 'groupTypes' | 'includeHiddenEvents'>): JSX.Element {
     return (
         <TaxonomicPopover
             groupType={TaxonomicFilterGroupType.Events}
@@ -44,11 +40,7 @@ export function EventName({
                 v !== null ? <PropertyKeyInfo value={v} disablePopover type={TaxonomicFilterGroupType.Events} /> : null
             }
             allowClear={allEventsOption === 'clear'}
-            excludedProperties={
-                allEventsOption !== 'explicit'
-                    ? { ...excludedProperties, events: [null, ...(excludedProperties?.events ?? [])] }
-                    : excludedProperties
-            }
+            excludedProperties={allEventsOption !== 'explicit' ? { events: [null] } : undefined}
             size="small"
             selectingKeyOnly
             {...props}

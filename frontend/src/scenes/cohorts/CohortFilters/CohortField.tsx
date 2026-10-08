@@ -8,12 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import {
-    ExcludedProperties,
-    TaxonomicFilterGroupType,
-    TaxonomicFilterValue,
-} from 'lib/components/TaxonomicFilter/types'
-import { HIDDEN_EVENT_NAMES } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
@@ -157,9 +152,6 @@ export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.El
     return <CohortSelectorField {...props} fieldOptionGroupTypes={fieldOptionGroupTypes} />
 }
 
-// "All events" isn't supported by Cohorts currently
-const EXCLUDED_EVENTS: ExcludedProperties = { [TaxonomicFilterGroupType.Events]: [null, ...HIDDEN_EVENT_NAMES] }
-
 export function CohortTaxonomicField({
     fieldKey,
     groupTypeFieldKey = 'event_type',
@@ -191,7 +183,9 @@ export function CohortTaxonomicField({
             onChange={(v, g) => {
                 onChange({ [fieldKey]: v, [groupTypeFieldKey]: g })
             }}
-            excludedProperties={EXCLUDED_EVENTS}
+            excludedProperties={{
+                [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
+            }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}

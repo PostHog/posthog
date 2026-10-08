@@ -42,6 +42,7 @@ from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS,
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
 from products.product_analytics.backend.facade.models import Insight
 
 _PropertyFilterUnion = PolymorphicProxySerializer(
@@ -239,7 +240,7 @@ class ActionSerializer(
                 (step.get("event") for step in attrs["steps"]),
                 instance.get_step_events() if instance else [],
             )
-            if hidden_event:
+            if hidden_event and hides_flag_calls_from_query_builders(self.context["get_team"]().organization_id):
                 raise serializers.ValidationError(
                     {"steps": f"You can't add a new step on {hidden_event}. {HIDDEN_EVENT_REASON}"},
                     code="hidden_event",

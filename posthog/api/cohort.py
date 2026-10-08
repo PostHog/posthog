@@ -113,6 +113,7 @@ from products.cohorts.backend.realtime_state import (
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
+from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -1404,7 +1405,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
             _behavioral_event_names(_flat_properties(existing)),
         )
-        if hidden_event:
+        if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):
             raise ValidationError(
                 {"filters": f"You can't add a new criterion on {hidden_event}. {HIDDEN_EVENT_REASON}"},
                 code="hidden_event",

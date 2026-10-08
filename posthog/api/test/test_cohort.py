@@ -51,7 +51,9 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.clickhouse.materialized_columns.analyze import materialize
@@ -4426,9 +4428,19 @@ email@example.org,
             "Missing required keys for behavioral filter: event_type",
         )
 
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
     @parameterized.expand(
         [
-            ("event", {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}}),
+            (
+                "event",
+                {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}},
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                400,
+            ),
             (
                 "sequence_event",
                 {
@@ -4452,19 +4464,38 @@ email@example.org,
                         }
                     }
                 },
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                400,
             ),
-            ("legacy_groups", {"groups": [{"event_id": "$feature_flag_called", "days": 30}]}),
+            (
+                "legacy_groups",
+                {"groups": [{"event_id": "$feature_flag_called", "days": 30}]},
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                400,
+            ),
+            (
+                "events_mode",
+                {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}},
+                FlagEvaluationsMode.EVENTS,
+                201,
+            ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
-    def test_create_cohort_rejects_criterion_on_hidden_event(self, _name, definition, patch_capture):
+    def test_create_cohort_with_criterion_on_hidden_event(
+        self, _name, definition, mode, expected_status, patch_capture
+    ):
+        self._set_flag_evaluations_mode(mode)
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", **definition}
         )
 
-        self.assertEqual(response.status_code, 400, response.json())
-        self.assertEqual(response.json()["code"], "hidden_event")
-        self.assertFalse(Cohort.objects.filter(team=self.team, name="flag callers").exists())
+        self.assertEqual(response.status_code, expected_status, response.json())
+        created = Cohort.objects.filter(team=self.team, name="flag callers").exists()
+        self.assertEqual(created, expected_status == 201)
+        if not created:
+            self.assertEqual(response.json()["code"], "hidden_event")
 
     @parameterized.expand(
         [
@@ -4477,6 +4508,7 @@ email@example.org,
     def test_update_cohort_criteria_on_hidden_event(
         self, _name, stored_criteria, criteria, expected_status, patch_capture
     ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         cohort = Cohort.objects.create(
             team=self.team,
             name="flag callers",
