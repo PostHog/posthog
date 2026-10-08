@@ -15,6 +15,7 @@ import {
     type TooltipContext,
 } from '@posthog/quill-charts'
 
+import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
     buildTrendsBarValueConfig,
@@ -112,7 +113,11 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
             <div>
                 <ChartHeader title={TITLE} />
                 <div className="flex flex-col w-full justify-center p-4">
-                    <ProportionBar series={buildProportionBarSeries(results, colorAt)} theme={theme} />
+                    <ProportionBar
+                        series={buildProportionBarSeries(results, colorAt)}
+                        theme={theme}
+                        valueFormatter={buildYTickFormatter(trendsFilterToYFormatterConfig(query?.trendsFilter, false))}
+                    />
                 </div>
             </div>
         )
