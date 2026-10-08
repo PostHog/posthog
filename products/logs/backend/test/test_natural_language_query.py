@@ -9,11 +9,15 @@ from parameterized import parameterized
 from products.logs.backend.natural_language_query import (
     FilterCandidate,
     FilterContext,
+    NaturalLanguageQueryResult,
     _ProposedCandidate,
     rank_candidates,
     validate_candidate,
 )
-from products.logs.backend.presentation.views.natural_language_api import LogsNaturalLanguageQueryRequestSerializer
+from products.logs.backend.presentation.views.natural_language_api import (
+    LogsNaturalLanguageQueryRequestSerializer,
+    LogsNaturalLanguageQueryResponseSerializer,
+)
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionGatewayError, DecisionResult
 
 CONTEXT = FilterContext(
@@ -140,24 +144,26 @@ class TestRankCandidates(SimpleTestCase):
     def test_orders_by_decision_model_probability(self, decide: Any) -> None:
         decide.return_value = DecisionResult(
             model="jevk5",
-            answers={"best": ChoiceAnswer(choice="c2", confidence=0.8, probabilities={"c1": 0.2, "c2": 0.8})},
+            answers={"best": ChoiceAnswer(choice="c2", confidence=0.6, probabilities={"c1": 0.2, "c2": 0.8})},
             input_tokens=10,
         )
 
-        ranked, confidence, ranked_by = rank_candidates("warnings", self.CANDIDATES, team_id=1, distinct_id="u")
+        ranking = rank_candidates("warnings", self.CANDIDATES, team_id=1, distinct_id="u")
 
-        assert [c.label for c in ranked] == ["Second proposed", "First proposed"]
-        assert [c.probability for c in ranked] == [0.8, 0.2]
-        assert (confidence, ranked_by) == (0.8, "decision_model")
+        assert [c.label for c in ranking.candidates] == ["Second proposed", "First proposed"]
+        assert [c.probability for c in ranking.candidates] == [0.8, 0.2]
+        assert ranking.ranked_by == "decision_model"
+        # The winner's probability, not the decision model's margin, drives auto-apply.
+        assert ranking.confidence == 0.8
 
     @patch("products.logs.backend.natural_language_query.ml_inference.decide_when_available")
     def test_falls_back_to_proposal_order_when_the_decision_model_fails(self, decide: Any) -> None:
         decide.side_effect = DecisionGatewayError(503, "unavailable")
 
-        ranked, confidence, ranked_by = rank_candidates("warnings", self.CANDIDATES, team_id=1, distinct_id="u")
+        ranking = rank_candidates("warnings", self.CANDIDATES, team_id=1, distinct_id="u")
 
-        assert [c.label for c in ranked] == ["First proposed", "Second proposed"]
-        assert (confidence, ranked_by) == (None, "proposal_order")
+        assert [c.label for c in ranking.candidates] == ["First proposed", "Second proposed"]
+        assert (ranking.confidence, ranking.ranked_by) == (None, "proposal_order")
 
 
 class TestRequestSerializer(SimpleTestCase):
@@ -180,3 +186,33 @@ class TestRequestSerializer(SimpleTestCase):
         )
 
         assert serializer.is_valid() is valid
+
+
+class TestResponseSerializer(SimpleTestCase):
+    def test_renders_a_result_with_a_valueless_filter(self) -> None:
+        query = {
+            "dateRange": {"date_from": "-2h"},
+            "severityLevels": ["error"],
+            "serviceNames": ["checkout"],
+            "filterGroup": [
+                {"key": "message", "type": "log", "operator": "icontains", "value": "timeout"},
+                {"key": "user.id", "type": "log_attribute", "operator": "is_set"},
+            ],
+        }
+        result = NaturalLanguageQueryResult(
+            candidates=(FilterCandidate(label="Checkout errors", query=query, probability=0.8),),
+            confidence=0.8,
+            ranked_by="decision_model",
+            dropped_count=1,
+        )
+
+        data = LogsNaturalLanguageQueryResponseSerializer(instance=result).data
+
+        # The serializer fills the nullable date_to the dataclass left out, so the wire shape matches the schema.
+        rendered_query = {**query, "dateRange": {"date_from": "-2h", "date_to": None}}
+        assert data == {
+            "candidates": [{"label": "Checkout errors", "query": rendered_query, "probability": 0.8}],
+            "confidence": 0.8,
+            "ranked_by": "decision_model",
+            "dropped_count": 1,
+        }

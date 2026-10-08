@@ -102,7 +102,9 @@ class _LogsNaturalLanguageCandidateQuerySerializer(serializers.Serializer):
 
 
 class _LogsNaturalLanguageCandidateSerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Short plain-language summary of this reading of the request.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        help_text="Short plain-language summary of this reading of the request."
+    )
     query = _LogsNaturalLanguageCandidateQuerySerializer(help_text="Viewer filters for this reading.")
     probability = serializers.FloatField(
         allow_null=True, help_text="How likely the decision model thinks this reading is. Null when not ranked."
@@ -115,7 +117,7 @@ class LogsNaturalLanguageQueryResponseSerializer(serializers.Serializer):
     )
     confidence = serializers.FloatField(
         allow_null=True,
-        help_text="The decision model's confidence in the first candidate. Null when it did not rank them.",
+        help_text="The first candidate's probability from the decision model. Null when it did not rank them.",
     )
     ranked_by = serializers.ChoiceField(
         choices=["decision_model", "proposal_order"],
@@ -187,14 +189,4 @@ class LogsNaturalLanguageQueryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
             team=self.team,
             request=request,
         )
-        return Response(
-            {
-                "candidates": [
-                    {"label": c.label, "query": c.query, "probability": c.probability} for c in result.candidates
-                ],
-                "confidence": result.confidence,
-                "ranked_by": result.ranked_by,
-                "dropped_count": result.dropped_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(LogsNaturalLanguageQueryResponseSerializer(instance=result).data, status=status.HTTP_200_OK)

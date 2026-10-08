@@ -16,7 +16,6 @@ import datetime as dt
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -56,6 +55,8 @@ logger = structlog.get_logger(__name__)
 AI_PRODUCT = "logs_natural_language_search"
 PROPOSAL_MODEL = "gpt-4.1-mini"
 PROPOSAL_TIMEOUT_SECONDS = 15
+# Five candidates with a few filters each fit well inside this. A cut-off reply fails validation.
+PROPOSAL_MAX_COMPLETION_TOKENS = 4096
 DECISION_TIMEOUT_SECONDS = 5
 MAX_CANDIDATES = 5
 MAX_REQUEST_CHARS = 500
@@ -165,6 +166,15 @@ class FilterCandidate:
 
 
 @frozen
+class CandidateRanking:
+    """Best first. `confidence` is the first candidate's probability, the number the viewer auto-applies on."""
+
+    candidates: tuple[FilterCandidate, ...]
+    confidence: float | None
+    ranked_by: Literal["decision_model", "proposal_order"]
+
+
+@frozen
 class NaturalLanguageQueryResult:
     # Best first.
     candidates: tuple[FilterCandidate, ...]
@@ -241,6 +251,7 @@ def propose_candidates(
             model=PROPOSAL_MODEL,
             temperature=0.2,
             timeout=PROPOSAL_TIMEOUT_SECONDS,
+            max_completion_tokens=PROPOSAL_MAX_COMPLETION_TOKENS,
             user=distinct_id,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -347,9 +358,10 @@ def validate_candidate(proposed: _ProposedCandidate, context: FilterContext) -> 
 
 def rank_candidates(
     request_text: str, candidates: list[FilterCandidate], *, team_id: int, distinct_id: str
-) -> tuple[list[FilterCandidate], float | None, Literal["decision_model", "proposal_order"]]:
+) -> CandidateRanking:
+    unranked = CandidateRanking(candidates=tuple(candidates), confidence=None, ranked_by="proposal_order")
     if len(candidates) < 2:
-        return candidates, None, "proposal_order"
+        return unranked
 
     option_ids = [f"c{index + 1}" for index in range(len(candidates))]
     # The candidates carry text derived from the user's request, so they ride in the state and the
@@ -375,8 +387,6 @@ def rank_candidates(
                 team_id=team_id,
                 state=state,
                 questions={"best": question},
-                # The same model as the HogQL jev() function, so both move together when it changes.
-                model=settings.HOGQL_PROMPT_JEV_MODEL,
                 ai_product=AI_PRODUCT,
                 distinct_id=distinct_id,
                 privacy_mode=True,
@@ -390,11 +400,11 @@ def rank_candidates(
         GatewayNotConfiguredError,
     ) as error:
         logger.warning("logs_nl_query_ranking_skipped", team_id=team_id, error_type=type(error).__name__)
-        return candidates, None, "proposal_order"
+        return unranked
 
     answer = result.answers.get("best")
     if not isinstance(answer, ChoiceAnswer):
-        return candidates, None, "proposal_order"
+        return unranked
 
     scored = [
         FilterCandidate(label=c.label, query=c.query, probability=answer.probabilities.get(option_id, 0.0))
@@ -402,7 +412,9 @@ def rank_candidates(
     ]
     # A stable sort keeps the proposal order between equal probabilities.
     scored.sort(key=lambda c: c.probability or 0.0, reverse=True)
-    return scored, answer.confidence, "decision_model"
+    # `answer.confidence` measures how far the winner stands out from the rest, so a clear leader can
+    # still be an unlikely reading. The winner's own probability is what the auto-apply threshold needs.
+    return CandidateRanking(candidates=tuple(scored), confidence=scored[0].probability, ranked_by="decision_model")
 
 
 def translate_natural_language_query(
@@ -426,16 +438,19 @@ def translate_natural_language_query(
         seen.add(fingerprint)
         candidates.append(FilterCandidate(label=proposal.label.strip()[:120], query=query, probability=None))
 
-    ranked, confidence, ranked_by = rank_candidates(request_text, candidates, team_id=team.pk, distinct_id=distinct_id)
+    ranking = rank_candidates(request_text, candidates, team_id=team.pk, distinct_id=distinct_id)
     logger.info(
         "logs_nl_query_translated",
         team_id=team.pk,
         proposed=len(proposed),
-        kept=len(ranked),
+        kept=len(ranking.candidates),
         dropped=dropped,
-        ranked_by=ranked_by,
-        confidence=confidence,
+        ranked_by=ranking.ranked_by,
+        confidence=ranking.confidence,
     )
     return NaturalLanguageQueryResult(
-        candidates=tuple(ranked), confidence=confidence, ranked_by=ranked_by, dropped_count=dropped
+        candidates=ranking.candidates,
+        confidence=ranking.confidence,
+        ranked_by=ranking.ranked_by,
+        dropped_count=dropped,
     )

@@ -560,6 +560,7 @@ depends_on = [
     "products.apm",
     "products.cdp",
     "products.exports",
+    "products.ml_inference",
     "products.signals", "products.access_control",
 ]
 layer = "modules"
