@@ -41,8 +41,10 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
-def _move_notices(payload: dict) -> FeatureFlagResult:
-    return FeatureFlagResult(key="flag-called-move-notices", enabled=True, variant=None, payload=payload, reason=None)
+def _move_notices(payload: dict, enabled: bool = True) -> FeatureFlagResult:
+    return FeatureFlagResult(
+        key="flag-called-move-notices", enabled=enabled, variant=None, payload=payload, reason=None
+    )
 
 
 _MOVE_NOTICES_WITHOUT_URL = _move_notices({"url": None})
@@ -395,7 +397,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 0,
             ),
-            ("move_notices_off", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, None),
+            (
+                "move_notices_off",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                True,
+                0,
+                _move_notices({"url": None}, enabled=False),
+            ),
+            ("move_notices_missing", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, None),
             (
                 "announcement_url",
                 "SELECT count() FROM events WHERE event = '$feature_flag_called'",
