@@ -468,6 +468,9 @@ export class ActionMatcher {
             part.uniqueOrder = parts.filter((p) => equal(p.requirements, part.requirements)).length
             parts.push(part)
         }
+        if (parts.some((part) => part.unsatisfiable)) {
+            return false
+        }
         // Matching elements against selector parts
         // Initial base element is the imaginary parent of the outermost known element
         let baseElementIndex = elements.length
@@ -554,6 +557,7 @@ class SelectorPart {
     directDescendant: boolean
     uniqueOrder: number
     requirements: Partial<Element>
+    unsatisfiable: boolean
 
     constructor(tag: string, directDescendant: boolean, escapeSlashes: boolean) {
         // Non-greedy and quote-balanced, so two attribute selectors on one element are
@@ -565,6 +569,7 @@ class SelectorPart {
         this.directDescendant = directDescendant
         this.uniqueOrder = 0
         this.requirements = {}
+        this.unsatisfiable = false
 
         let attributeSelector = tag.match(ATTRIBUTE_SELECTOR_REGEX)
         while (attributeSelector) {
@@ -575,15 +580,18 @@ class SelectorPart {
             const attributeValue = attributeSelector[3]
             switch (attribute) {
                 case 'id':
+                    this.noteConflict(this.requirements.attr_id, attributeValue.toLowerCase())
                     this.requirements.attr_id = attributeValue.toLowerCase()
                     break
                 case 'href':
+                    this.noteConflict(this.requirements.href, attributeValue)
                     this.requirements.href = attributeValue
                     break
                 default:
                     if (!this.requirements.attributes) {
                         this.requirements.attributes = {}
                     }
+                    this.noteConflict(this.requirements.attributes[attribute], attributeValue)
                     this.requirements.attributes[attribute] = attributeValue
                     break
             }
@@ -603,9 +611,11 @@ class SelectorPart {
             }
             switch (colonSelector[1]) {
                 case 'nth-child':
+                    this.noteConflict(this.requirements.nth_child, parsedArgument)
                     this.requirements.nth_child = parsedArgument
                     break
                 case 'nth-of-type':
+                    this.noteConflict(this.requirements.nth_of_type, parsedArgument)
                     this.requirements.nth_of_type = parsedArgument
                     break
                 default:
@@ -624,6 +634,13 @@ class SelectorPart {
         const finalTag = tag.match(FINAL_TAG_REGEX)
         if (finalTag) {
             this.requirements.tag_name = finalTag[1]
+        }
+    }
+
+    /** No element carries two values for one key, so [type="button"][type="submit"] matches nothing. */
+    private noteConflict(current: string | number | undefined, next: string | number): void {
+        if (current !== undefined && current !== next) {
+            this.unsatisfiable = true
         }
     }
 

@@ -274,6 +274,24 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 False,
             ),
             (
+                "the same id attribute with two different values",
+                '[id="a"][id="b"]',
+                [Element(tag_name="div", attr_id="b")],
+                False,
+            ),
+            (
+                "an id and an id attribute with different values",
+                '#a[id="b"]',
+                [Element(tag_name="div", attr_id="a")],
+                False,
+            ),
+            (
+                "the same position with two different values",
+                "li:nth-child(1):nth-child(2)",
+                [Element(tag_name="li", nth_child=2)],
+                False,
+            ),
+            (
                 "two attributes with an escaped quote in a value",
                 "[title='it\\'s'][data-x='a']",
                 [Element(tag_name="div", attributes={"attr__data-x": "a", "attr__title": "it's"})],

@@ -75,8 +75,8 @@ class SelectorPart:
         # also matches the end of a longer key (label inside aria-label), and its value
         # keeps backslashes such as the hex escape in \31. Two or more attributes without
         # an id never matched under the earlier parser, so no saved count depends on
-        # their reading, and they take the strict one: unescaped values, the full chain
-        # key, and no match when a key repeats with another value.
+        # their reading, and they take the strict one: unescaped values and the full
+        # chain key.
         self.strict_attributes = len(attribute_matches) >= 2 and all(
             match.group(1) != "id" for match in attribute_matches
         )
@@ -86,14 +86,12 @@ class SelectorPart:
                 value = match.group(3)
                 if self.strict_attributes:
                     value = re.sub(r"\\(.)", r"\1", value)
-                    if self.ch_attributes.get(key, value) != value:
-                        self.unsatisfiable = True
                 if key == "id":
                     self.data["attr_id"] = value
-                    self.ch_attributes["attr_id"] = value
+                    self._require("attr_id", value)
                 else:
                     self.data[f"attributes__attr__{key}"] = value
-                    self.ch_attributes[key] = value
+                    self._require(key, value)
             # Excise the attribute spans and keep the rest, so a class, id or
             # nth-child written after an attribute selector is not discarded.
             for match in reversed(attribute_matches):
@@ -102,7 +100,7 @@ class SelectorPart:
         for match in positional_matches:
             pseudo_class, position = match.group(1), match.group(2)
             self.data["nth_child" if pseudo_class == "nth-child" else "nth_of_type"] = position
-            self.ch_attributes[pseudo_class] = position
+            self._require(pseudo_class, position)
         for match in reversed(positional_matches):
             tag = tag[: match.start()] + tag[match.end() :]
         if "." in tag:
@@ -120,8 +118,9 @@ class SelectorPart:
         if "#" in tag:
             parts = tag.split("#")
             if len(parts) > 1:
-                self.data["attr_id"] = self._unescape_class(parts[1]) if escape_slashes else parts[1]
-                self.ch_attributes["attr_id"] = self.data["attr_id"]
+                attr_id = self._unescape_class(parts[1]) if escape_slashes else parts[1]
+                self.data["attr_id"] = attr_id
+                self._require("attr_id", attr_id)
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
@@ -140,6 +139,13 @@ class SelectorPart:
                     where.append(f"{key} = %s")
             params.append(value)
         return {"where": where, "params": params}
+
+    def _require(self, key: str, value: str) -> None:
+        # No element carries two values for one key, so a selector such as
+        # [type="button"][type="submit"] or :nth-child(1):nth-child(2) matches nothing.
+        if self.ch_attributes.get(key, value) != value:
+            self.unsatisfiable = True
+        self.ch_attributes[key] = value
 
     def _unescape_class(self, class_name):
         r"""Separate all double slashes "\\" (replace them with "\") and remove all single slashes between them."""
