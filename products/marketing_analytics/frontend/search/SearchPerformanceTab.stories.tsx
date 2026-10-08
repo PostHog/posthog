@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
@@ -698,8 +698,10 @@ export const PostHogConversions: Story = {
         })
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
         await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
-        await expect(canvas.queryByRole('columnheader', { name: /Cost per Purchases/ })).not.toBeInTheDocument()
-        await expect(canvas.getByRole('columnheader', { name: /Reported conversions/ })).toBeVisible()
+        await waitFor(() =>
+            expect(canvas.queryByRole('columnheader', { name: /Cost per Purchases/ })).not.toBeInTheDocument()
+        )
+        await expect(canvas.findByRole('columnheader', { name: /Reported conversions/ })).resolves.toBeVisible()
         await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
     },
