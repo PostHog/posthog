@@ -50,7 +50,7 @@ class TestApplyRun(BaseTest):
     def _context(self, *view_ids: UUID, recent_days_with_data: int = 7) -> CandidateContext:
         return context(
             team_reads({}, recent_days_with_data=recent_days_with_data),
-            views=[view(view_id, is_materialized=True) for view_id in view_ids],
+            views=[view(view_id, materializes=True) for view_id in view_ids],
             team_id=self.team.pk,
         )
 

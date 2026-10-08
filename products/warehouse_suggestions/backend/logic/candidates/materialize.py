@@ -3,8 +3,10 @@ from datetime import timedelta
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.facade.api import (
+    MissingDagNodeError,
     SavedQueryFrequencyBounds,
     check_incremental_eligibility,
     saved_query_target_bounds,
@@ -73,14 +75,10 @@ class MaterializeCandidate(Candidate):
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        return saved_query is None or saved_query.is_materialized or saved_query.sync_frequency_interval is not None
+        return saved_query is None or saved_query.materializes
 
     def _is_unmaterialized(self, context: CandidateContext, saved_query: SavedQueryDefinition) -> bool:
-        return (
-            not saved_query.is_materialized
-            and saved_query.sync_frequency_interval is None
-            and context.is_suggestible_view(saved_query)
-        )
+        return not saved_query.materializes and context.is_suggestible_view(saved_query)
 
     def _propose(
         self, context: CandidateContext, saved_query: SavedQueryDefinition, reads: SubjectReads
@@ -95,6 +93,7 @@ class MaterializeCandidate(Candidate):
             return "its query cannot refresh incrementally"
         frequency = saved_query_target_bounds(context.team_id, saved_query.id)
         if frequency is None:
+            capture_exception(MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node"))
             return "it has no node in a DAG"
         intervals = allowed_intervals(context, frequency.bounds.allowed, reads)
         if not intervals:

@@ -25,7 +25,7 @@ class DeprecateCandidate(Candidate):
         unread = [
             saved_query
             for saved_query in context.inventory.saved_queries.values()
-            if _is_refreshed(saved_query)
+            if saved_query.materializes
             and context.is_suggestible_view(saved_query)
             and not _is_read(context, _subject(saved_query))
         ]
@@ -58,7 +58,7 @@ class DeprecateCandidate(Candidate):
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        return saved_query is None or not _is_refreshed(saved_query) or _is_read(context, subject)
+        return saved_query is None or not saved_query.materializes or _is_read(context, subject)
 
     def _rejection(
         self, context: CandidateContext, saved_query: SavedQueryDefinition, *, has_dependents: bool
@@ -83,10 +83,6 @@ def _is_read(context: CandidateContext, subject: Subject) -> bool:
     if reads is None:
         return False
     return context.rules.deprecate.counts_background_reads or reads.human_requests > 0
-
-
-def _is_refreshed(saved_query: SavedQueryDefinition) -> bool:
-    return saved_query.is_materialized or saved_query.sync_frequency_interval is not None
 
 
 def _subject(saved_query: SavedQueryDefinition) -> Subject:

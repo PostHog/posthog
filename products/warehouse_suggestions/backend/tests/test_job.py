@@ -27,7 +27,6 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             team=self.team,
             name=name,
             query={"kind": "HogQLQuery", "query": "SELECT timestamp, event FROM events"},
-            is_materialized=materialized,
         )
         DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(created_at=created_at)
         node = Node.objects.create(

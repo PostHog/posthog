@@ -125,7 +125,7 @@ class TestMaterializeRules(SimpleTestCase):
 
 class TestDeprecateCandidate(SimpleTestCase):
     def test_waits_for_a_full_window_of_read_data(self) -> None:
-        materialized = view(VIEW_ID, is_materialized=True)
+        materialized = view(VIEW_ID, materializes=True)
 
         result = DeprecateCandidate().evaluate(context(team_reads({}, days_with_data=29), views=[materialized]))
 
@@ -141,9 +141,7 @@ class TestDeprecateBackgroundReads(BaseTest):
         reads = team_reads(
             {view_subject(VIEW_ID): busy_reads(human_requests=0, human_users=0, human_days=0, background_requests=40)}
         )
-        candidate_context = context(
-            reads, views=[view(VIEW_ID, is_materialized=True)], team_id=self.team.pk, rules=rules
-        )
+        candidate_context = context(reads, views=[view(VIEW_ID, materializes=True)], team_id=self.team.pk, rules=rules)
 
         result = DeprecateCandidate().evaluate(candidate_context)
 

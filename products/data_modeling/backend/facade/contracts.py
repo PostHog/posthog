@@ -50,13 +50,12 @@ class SavedQuerySummary:
 
 @dataclass(frozen=True)
 class SavedQueryDefinition:
-    """A saved query with its HogQL and materialization settings."""
+    """A saved query with its HogQL and whether its DAG node materializes."""
 
     id: UUID
     name: str
     hogql: str
-    is_materialized: bool
-    sync_frequency_interval: timedelta | None
+    materializes: bool
     is_test: bool
     is_managed: bool
     origin: str | None
