@@ -183,6 +183,7 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
 ]
 
 const MOCKS: Mocks = {
+    delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
         '/api/environments/:team_id/external_data_sources/wizard/': {
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads', iconPath: IconGoogleAds, fields: [] },
@@ -294,6 +295,11 @@ const meta: Meta<typeof SearchPerformanceTab> = {
     component: SearchPerformanceTab,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+        const originalNow = performance.now
+        performance.now = () => 0
+        return () => {
+            performance.now = originalNow
+        }
     },
     render: () => (
         <>
