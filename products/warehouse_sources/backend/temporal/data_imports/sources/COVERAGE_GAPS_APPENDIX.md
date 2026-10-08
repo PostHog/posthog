@@ -6971,6 +6971,15 @@ Diffed against: <https://developer.productboard.com/reference/listentityfieldval
 
 Note: The source uses the v2 API where companies/features/components/objectives etc. are all entity types on GET /v2/entities, so those 14 tables come from one endpoint. The uncovered surface is the field-value, configuration and relationship sub-resources, which is where most of the analytical detail lives.
 
+## Profound — gaps
+
+Today (10): `Assets`, `Categories`, `CitationCategories`, `CitationTags`, `Citations`, `Domains`, `Models`, `Personas`, `Regions`, `Visibility`
+
+Diffed against: <https://docs.tryprofound.com/rest-api/changelog>
+
+- [x] `/v1/org/categories/{category_id}/citation-categories` — lookup for the `citation_category` filter values per category, built-in and custom (low)
+- [x] `/v1/org/categories/{category_id}/citation-tags` — lookup for the custom `citation_tag` filter values per category (low)
+
 ## PulumiCloud — gaps
 
 Today (5): `audit_logs`, `deployments`, `resources`, `stack_updates`, `stacks`
