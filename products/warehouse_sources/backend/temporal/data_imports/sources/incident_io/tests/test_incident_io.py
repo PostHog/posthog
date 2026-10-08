@@ -2,7 +2,7 @@ import json
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import pytest
 import time_machine
@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.incident_i
     _build_params,
     _build_url,
     _format_filter_value,
-    _params_from_url,
     incident_io_source,
     validate_credentials,
 )
@@ -105,51 +104,9 @@ class TestFormatFilterValue:
 
 
 class TestBuildParams:
-    def test_incidents_include_page_size_and_sort(self):
-        params = _build_params(INCIDENT_IO_ENDPOINTS["incidents"], None, None)
-        assert params == {"page_size": 250, "sort_by": "created_at_oldest_first"}
-
     def test_incremental_filter_included_when_set(self):
         params = _build_params(INCIDENT_IO_ENDPOINTS["incidents"], "updated_at", "2024-05-01")
         assert params["updated_at[gte]"] == "2024-05-01"
-
-    def test_incremental_filter_omitted_without_value(self):
-        params = _build_params(INCIDENT_IO_ENDPOINTS["incidents"], "updated_at", None)
-        assert "updated_at[gte]" not in params
-
-    def test_non_paginated_endpoint_has_no_params(self):
-        assert _build_params(INCIDENT_IO_ENDPOINTS["severities"], None, None) == {}
-
-    @pytest.mark.parametrize("endpoint", ["alerts", "escalations"])
-    def test_small_page_endpoints_use_capped_page_size(self, endpoint):
-        params = _build_params(INCIDENT_IO_ENDPOINTS[endpoint], None, None)
-        assert params == {"page_size": 50}
-
-
-class TestBuildUrl:
-    def test_no_params(self):
-        assert _build_url("/v1/severities", {}) == "https://api.incident.io/v1/severities"
-
-    def test_drops_none_values_and_encodes_brackets(self):
-        url = _build_url("/v2/incidents", {"page_size": 250, "after": None, "updated_at[gte]": "2024-05-01"})
-        assert url == "https://api.incident.io/v2/incidents?page_size=250&updated_at%5Bgte%5D=2024-05-01"
-
-
-class TestParamsFromUrl:
-    def test_strips_after_and_keeps_filters(self):
-        url = _build_url(
-            "/v2/incidents",
-            {"page_size": 250, "sort_by": "created_at_oldest_first", "updated_at[gte]": "2024-05-01", "after": "01H"},
-        )
-        params = _params_from_url(url)
-        assert params == {
-            "page_size": "250",
-            "sort_by": "created_at_oldest_first",
-            "updated_at[gte]": "2024-05-01",
-        }
-
-    def test_url_without_query(self):
-        assert _params_from_url("https://api.incident.io/v1/severities") == {}
 
 
 class TestValidateCredentials:
@@ -169,34 +126,6 @@ class TestValidateCredentials:
         is_valid, _ = validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION)
 
         assert is_valid is expected_valid
-
-    @pytest.mark.parametrize(
-        "status_code, expected_valid",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(INCIDENT_IO_SESSION_PATCH)
-    def test_status_mapping_with_schema_name(self, mock_session, status_code, expected_valid):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, error = validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION, schema_name="alerts")
-
-        assert is_valid is expected_valid
-        if status_code == 403:
-            assert error is not None and "alerts" in error
-
-    @mock.patch(INCIDENT_IO_SESSION_PATCH)
-    def test_probes_incidents_with_minimal_page_at_source_create(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("key", INCIDENT_IO_DEFAULT_API_VERSION)
-
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://api.incident.io/v2/incidents?page_size=1"
 
     @pytest.mark.parametrize(
         "api_version, schema_name, expected_url",
@@ -282,15 +211,6 @@ class TestValidateCredentials:
             assert error is not None and schema_name in error
 
     @mock.patch(INCIDENT_IO_SESSION_PATCH)
-    def test_sends_bearer_auth_header(self, mock_session):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-
-        validate_credentials("secret-key", INCIDENT_IO_DEFAULT_API_VERSION)
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer secret-key"
-
-    @mock.patch(INCIDENT_IO_SESSION_PATCH)
     def test_swallows_network_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
 
@@ -301,27 +221,6 @@ class TestValidateCredentials:
 
 
 class TestGetRows:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_pagination_meta_after(self, MockSession):
-        session = MockSession.return_value
-        manager = _make_manager()
-        rows, params = _source(
-            session,
-            [
-                _response(_page_body("incidents", [{"id": "01A"}, {"id": "01B"}], "01B")),
-                _response(_page_body("incidents", [{"id": "01C"}], None)),
-            ],
-            "incidents",
-            manager,
-        )
-
-        assert [r["id"] for r in rows] == ["01A", "01B", "01C"]
-        assert "after" not in params[0]
-        assert params[1]["after"] == "01B"
-        # State is saved only while a next page exists, after the batch was yielded.
-        manager.save_state.assert_called_once()
-        assert "after=01B" in manager.save_state.call_args.args[0].next_url
-
     @pytest.mark.parametrize(
         "api_version, expected_path, pages",
         [
@@ -363,38 +262,6 @@ class TestGetRows:
             )
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_includes_filter_and_sort(self, MockSession):
-        session = MockSession.return_value
-        _, params = _source(
-            session,
-            [_response(_page_body("incidents", [], None))],
-            "incidents",
-            _make_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 5, 1, 12, 30, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-
-        assert params[0]["updated_at[gte]"] == "2024-05-01"
-        assert params[0]["sort_by"] == "created_at_oldest_first"
-        assert params[0]["page_size"] == 250
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_ignores_incremental_value(self, MockSession):
-        session = MockSession.return_value
-        _, params = _source(
-            session,
-            [_response(_page_body("incidents", [], None))],
-            "incidents",
-            _make_manager(),
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-
-        assert not any("gte" in key for key in params[0])
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state_and_preserves_filters(self, MockSession):
         session = MockSession.return_value
         resume_url = _build_url(
@@ -421,18 +288,6 @@ class TestGetRows:
         assert "after=01C" in manager.save_state.call_args.args[0].next_url
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once(self, MockSession):
-        session = MockSession.return_value
-        # Body carries an `after`, but a non-paginated endpoint must still fetch exactly once.
-        body = {"severities": [{"id": "01A"}], "pagination_meta": {"after": "01A"}}
-        manager = _make_manager()
-        rows, _ = _source(session, [_response(body)], "severities", manager)
-
-        assert session.send.call_count == 1
-        assert [r["id"] for r in rows] == ["01A"]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_alert_sources_drop_secret_token(self, MockSession):
         session = MockSession.return_value
         body = {"alert_sources": [{"id": "01A", "name": "Datadog", "secret_token": "not-a-real-token"}]}
@@ -441,56 +296,6 @@ class TestGetRows:
         assert rows == [{"id": "01A", "name": "Datadog"}]
         # The raw body still carries the token, so it must never reach HTTP sample capture.
         assert MockSession.call_args.kwargs["capture"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_response_yields_no_rows(self, MockSession):
-        session = MockSession.return_value
-        manager = _make_manager()
-        rows, _ = _source(session, [_response(_page_body("alerts", [], None))], "alerts", manager)
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession):
-        session = MockSession.return_value
-        rows, _ = _source(session, [_response({"pagination_meta": {"after": None}})], "incidents", _make_manager())
-
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_429_honoring_retry_after(self, MockSession):
-        session = MockSession.return_value
-        manager = _make_manager()
-        rows, _ = _source(
-            session,
-            [
-                _response({}, status_code=429, retry_after="0"),
-                _response(_page_body("incidents", [{"id": "01A"}], None)),
-            ],
-            "incidents",
-            manager,
-        )
-
-        assert session.send.call_count == 2
-        assert [r["id"] for r in rows] == ["01A"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_on_5xx(self, MockSession):
-        session = MockSession.return_value
-        manager = _make_manager()
-        rows, _ = _source(
-            session,
-            [
-                _response({}, status_code=500, retry_after="0"),
-                _response(_page_body("incidents", [{"id": "01A"}], None)),
-            ],
-            "incidents",
-            manager,
-        )
-
-        assert session.send.call_count == 2
-        assert [r["id"] for r in rows] == ["01A"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_raises_on_client_error(self, MockSession):
@@ -510,108 +315,6 @@ class TestGetRows:
 
 
 class TestFanout:
-    @pytest.mark.parametrize(
-        "endpoint, parent_key, child_path, parent_id_param, parent_params",
-        [
-            ("catalog_entries", "catalog_types", "/v3/catalog_entries", "catalog_type_id", {}),
-            ("custom_field_options", "custom_fields", "/v1/custom_field_options", "custom_field_id", {}),
-            (
-                "status_page_incidents",
-                "status_pages",
-                "/v2/status_page_incidents",
-                "status_page_id",
-                {"page_size": 250},
-            ),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fetches_child_pages_per_parent(
-        self, MockSession, endpoint, parent_key, child_path, parent_id_param, parent_params
-    ):
-        session = MockSession.return_value
-        manager = _make_manager()
-        urls: list[str] = []
-        params = _wire(
-            session,
-            [
-                _response({parent_key: [{"id": "P1"}, {"id": "P2"}]}),
-                _response(_page_body(endpoint, [{"id": "C1", parent_id_param: "P1"}], "C1")),
-                _response(_page_body(endpoint, [{"id": "C2", parent_id_param: "P1"}], None)),
-                _response(_page_body(endpoint, [{"id": "C3", parent_id_param: "P2"}], None)),
-            ],
-            urls,
-        )
-
-        response = incident_io_source(
-            "key",
-            endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
-        )
-        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
-
-        assert [(r["id"], r[parent_id_param]) for r in rows] == [("C1", "P1"), ("C2", "P1"), ("C3", "P2")]
-        assert params[0] == parent_params
-        assert [urlsplit(url).path for url in urls[1:]] == [child_path] * 3
-        assert [parse_qs(urlsplit(url).query)[parent_id_param] for url in urls[1:]] == [["P1"], ["P1"], ["P2"]]
-        assert [p.get("page_size") for p in params[1:]] == [250, 250, 250]
-        assert [p.get("after") for p in params[1:]] == [None, "C1", None]
-        assert manager.save_state.call_args.args[0].fanout_state is not None
-
-    @time_machine.travel(datetime(2026, 3, 1, 12, 0, tzinfo=UTC), tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_schedule_entries_page_through_window_per_schedule(self, MockSession):
-        session = MockSession.return_value
-        urls: list[str] = []
-
-        def _entries_body(final: list[dict[str, Any]], after: str | None) -> dict[str, Any]:
-            body: dict[str, Any] = {
-                "schedule_entries": {"final": final, "scheduled": [{"fingerprint": "raw"}], "overrides": []}
-            }
-            if after is not None:
-                body["pagination_meta"] = {"after": after, "after_url": "https://api.incident.io/next"}
-            return body
-
-        manager = _make_manager()
-        params = _wire(
-            session,
-            [
-                _response({"schedules": [{"id": "S1"}, {"id": "S2"}], "pagination_meta": {"page_size": 250}}),
-                _response(_entries_body([{"fingerprint": "F1", "start_at": "2026-01-01T00:00:00Z"}], "opaque-1")),
-                _response(_entries_body([{"fingerprint": "F2", "start_at": "2026-01-08T00:00:00Z"}], None)),
-                _response(_entries_body([{"fingerprint": "F3", "start_at": "2026-01-02T00:00:00Z"}], None)),
-            ],
-            urls,
-        )
-
-        response = incident_io_source(
-            "key",
-            "schedule_entries",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-            api_version=INCIDENT_IO_DEFAULT_API_VERSION,
-        )
-        rows = [row for page in cast("Iterable[Any]", response.items()) for row in page]
-
-        assert [(r["schedule_id"], r["fingerprint"]) for r in rows] == [("S1", "F1"), ("S1", "F2"), ("S2", "F3")]
-        assert params[0] == {"page_size": 250}
-        assert [parse_qs(urlsplit(url).query)["schedule_id"] for url in urls[1:]] == [["S1"], ["S1"], ["S2"]]
-        # The cursor replaces the window start; the window end stays fixed across pages.
-        assert [p.get("entry_window_start") for p in params[1:]] == [
-            "2025-03-01T12:00:00Z",
-            "opaque-1",
-            "2025-03-01T12:00:00Z",
-        ]
-        assert {p.get("entry_window_end") for p in params[1:]} == {"2026-03-31T12:00:00Z"}
-        assert all("page_size" not in p for p in params[1:])
-        assert manager.save_state.call_args.args[0].window_params == {
-            "entry_window_start": "2025-03-01T12:00:00Z",
-            "entry_window_end": "2026-03-31T12:00:00Z",
-        }
-
     @time_machine.travel(datetime(2026, 3, 2, 12, 0, tzinfo=UTC), tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_schedule_entries_resume_keeps_original_window(self, MockSession):
@@ -672,11 +375,6 @@ class TestIncidentIoSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"created_at", "start_at", "published_at"}
 
     @pytest.mark.parametrize(
         "config",

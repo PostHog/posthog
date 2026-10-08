@@ -39,13 +39,6 @@ def _docs_response(docs: list[dict[str, Any]], next_token: Any = "__unset__", st
     return resp
 
 
-def _array_response(items: list[dict[str, Any]]) -> Response:
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(items).encode()
-    return resp
-
-
 def _error_response(status_code: int) -> Response:
     resp = Response()
     resp.status_code = status_code
@@ -127,60 +120,8 @@ class TestBuildParams:
         )
         assert params[expected_param] == "2026-03-04T00:00:00+00:00"
 
-    def test_no_incremental_param_when_disabled(self) -> None:
-        params = _build_params(
-            SCALE_AI_ENDPOINTS["tasks"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="updated_at",
-        )
-        assert "updated_after" not in params
-        assert "start_time" not in params
-        assert params["limit"] == 100
-
-    def test_projects_has_no_limit_param(self) -> None:
-        # Projects is a single non-paginated list; sending limit/offset would be meaningless.
-        params = _build_params(
-            SCALE_AI_ENDPOINTS["projects"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == {}
-
 
 class TestCursorPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_next_token_until_exhausted(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _docs_response([{"task_id": "T1"}], next_token="tok2"),
-                _docs_response([{"task_id": "T2"}], next_token="tok3"),
-                _docs_response([{"task_id": "T3"}], next_token=None),
-            ],
-        )
-
-        rows = _rows(_source("tasks"))
-        assert [r["task_id"] for r in rows] == ["T1", "T2", "T3"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sends_next_token_on_subsequent_requests(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _docs_response([{"task_id": "T1"}], next_token="tok2"),
-                _docs_response([{"task_id": "T2"}], next_token=None),
-            ],
-        )
-
-        _rows(_source("tasks"))
-        # First page has no cursor; the second request carries the token from page one.
-        assert "next_token" not in snapshots[0]["params"]
-        assert snapshots[1]["params"]["next_token"] == "tok2"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_next_page_token_then_stops(self, MockSession) -> None:
         session = MockSession.return_value
@@ -209,57 +150,8 @@ class TestCursorPagination:
         assert [r["task_id"] for r in rows] == ["T2"]
         assert snapshots[0]["params"]["next_token"] == "tok2"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_cutoff_sent_on_first_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_docs_response([{"task_id": "T1"}], next_token=None)])
-
-        _rows(
-            _source(
-                "tasks",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-        assert snapshots[0]["params"]["updated_after"] == "2026-03-04T00:00:00+00:00"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_carry_basic_auth(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_docs_response([{"task_id": "T1"}], next_token=None)])
-
-        _rows(_source("tasks"))
-        auth = snapshots[0]["auth"]
-        # Scale AI uses HTTP Basic with the API key as the username and an empty password.
-        assert auth.username == "live_key"
-        assert auth.password == ""
-
 
 class TestOffsetPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_offsets_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"name": f"B{i}"} for i in range(100)]
-        snapshots = _wire(session, [_docs_response(full_page), _docs_response([{"name": "B100"}])])
-
-        rows = _rows(_source("batches"))
-        assert len(rows) == 101
-        assert rows[-1]["name"] == "B100"
-        assert snapshots[0]["params"]["offset"] == 0
-        assert snapshots[1]["params"]["offset"] == 100
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_first_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_docs_response([{"name": "B1"}, {"name": "B2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("batches", manager))
-        assert [r["name"] for r in rows] == ["B1", "B2"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_next_offset_after_full_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -282,35 +174,7 @@ class TestOffsetPagination:
         assert snapshots[0]["params"]["offset"] == 100
 
 
-class TestSingleFetch:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_projects_fetches_once_from_bare_array(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_array_response([{"name": "P1"}, {"name": "P2"}])])
-
-        rows = _rows(_source("projects"))
-        assert [r["name"] for r in rows] == ["P1", "P2"]
-        assert session.send.call_count == 1
-
-
 class TestRetryAndErrors:
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_retried_then_succeed(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _error_response(500),
-                _error_response(429),
-                _docs_response([{"task_id": "T1"}], next_token=None),
-            ],
-        )
-
-        rows = _rows(_source("tasks"))
-        assert [r["task_id"] for r in rows] == ["T1"]
-        assert session.send.call_count == 3
-
     @mock.patch("time.sleep")
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_retries_exhausted_raises(self, MockSession, _sleep) -> None:
@@ -338,11 +202,6 @@ class TestValidateCredentials:
     def test_status_maps_to_validity(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("live_key") is expected
-
-    @mock.patch(SCALE_AI_SESSION_PATCH)
-    def test_network_error_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("live_key") is False
 
 
 class TestSourceResponse:

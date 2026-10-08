@@ -31,9 +31,9 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
-    it('offers replay tiles without adding a system tab', () => {
-        expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain('session_replays')
-        expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain('session_replays')
+    it.each(['properties', 'session_replays'])('offers %s tiles without adding a system tab', (kind) => {
+        expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain(kind)
+        expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain(kind)
     })
 
     it('falls back from an unavailable system route but keeps an unknown view route', () => {
