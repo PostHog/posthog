@@ -2621,6 +2621,30 @@ class SignalReportViewSet(
         read_serializer = SignalReportArtefactSerializer(new_artefact, context=self.get_serializer_context())
         return Response(read_serializer.data)
 
+    @extend_schema(
+        summary="Step off a report's suggested reviewers",
+        description=(
+            "Take the calling user off this report's suggested reviewers, leaving the other reviewers "
+            "as they are. The report itself is untouched: it stays open for whoever is left, and for "
+            "the project. Succeeds whether or not the caller was on the list."
+        ),
+        request=None,
+        responses={
+            204: OpenApiResponse(description="The caller is no longer a suggested reviewer."),
+            400: OpenApiResponse(description="A reviewer who stays no longer resolves to a member of this team."),
+        },
+    )
+    @action(detail=True, methods=["delete"], url_path="reviewers/me", required_scopes=["task:write"])
+    def leave_reviewers(self, request, **kwargs):
+        report = cast(SignalReport, self.get_object())
+        try:
+            remove_suggested_reviewer(
+                team=self.team, report_id=str(report.id), user=cast(User, request.user), request=request
+            )
+        except ReviewerWriteError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
         report = cast(SignalReport, self.get_object())
@@ -4792,6 +4816,156 @@ def append_suggested_reviewers(
         )
 
     return new_artefact
+
+
+def _reviewer_entry_names(entry: dict, *, user_uuid: str, github_login: str | None) -> bool:
+    """Whether a stored reviewer entry routes to this person.
+
+    A login only stands in for an entry that carries no uuid of its own, the same rule the reviewer
+    filter applies. GitHub reassigns logins, so matching one against an entry that names someone else
+    by uuid would let the caller take that person off the report.
+    """
+    stored_uuid = str(entry.get("user_uuid") or "")
+    if stored_uuid:
+        return stored_uuid == user_uuid
+    return bool(github_login) and str(entry.get("github_login") or "").strip().lower() == github_login
+
+
+def _stored_reviewer_entry(entry: dict) -> dict:
+    """A stored reviewer entry in the canonical shape, carried over field for field.
+
+    A reviewer the caller did not touch keeps whatever their entry already holds. Re-resolving them
+    would make an unrelated stale entry, for someone who has since left the organization, reject a
+    write that is only about the caller.
+    """
+    commits = entry.get("relevant_commits")
+    return {
+        "github_login": entry.get("github_login"),
+        "user_uuid": entry.get("user_uuid"),
+        "github_name": entry.get("github_name") if isinstance(entry.get("github_name"), str) else None,
+        "relevant_commits": commits if isinstance(commits, list) else [],
+        "reason": bounded_reviewer_reason(entry.get("reason")) or None,
+        "source_skill": entry.get("source_skill"),
+        "is_skill_owner": bool(entry.get("is_skill_owner")),
+    }
+
+
+def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request: Request) -> bool:
+    """Take one person off a report's suggested reviewers and leave everyone else as they are.
+
+    Returns whether the person was on the list. This is deliberately not routed through
+    `append_suggested_reviewers`, which exists to add: it merges a caller-supplied list forward and
+    re-resolves every entry, and it lets the write re-evaluate auto-start. A removal needs the
+    opposite of all three.
+
+    The read, the filter and the write sit in one transaction behind the report lock, so a reviewer
+    added between them is not dropped, and not recorded as removed by the person stepping off.
+
+    `reevaluate_autostart=False`: the new row is attributed to the caller, and auto-start runs an
+    implementation task as the user a reviewers edit is attributed to. Stepping off a report must
+    never start work, least of all under the credentials of the person who just declined it.
+    """
+    user_id = request.user.id
+    if user_id is None:  # unreachable behind authentication, but keeps attribution honest
+        raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
+    attribution = ArtefactAttribution.from_user(user_id)
+    # Read off the request here: scout note forwarding runs after commit, where there is no request.
+    scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+    scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
+    was_impersonated = is_impersonated_session(request)
+    github_login = user.get_github_login()
+    github_login = github_login.lower() if github_login else None
+
+    with transaction.atomic():
+        report = (
+            SignalReport.objects.select_for_update()
+            .filter(id=report_id, team_id=team.id)
+            .exclude(status=SignalReport.Status.DELETED)
+            .first()
+        )
+        if report is None:
+            raise NotFound()
+
+        current = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        try:
+            prior_content = json.loads(current.content) if current else []
+        except (json.JSONDecodeError, ValueError):
+            prior_content = []
+        if not isinstance(prior_content, list):
+            return False
+
+        prior = [entry for entry in prior_content if isinstance(entry, dict)]
+        kept = [
+            entry
+            for entry in prior
+            if not _reviewer_entry_names(entry, user_uuid=str(user.uuid), github_login=github_login)
+        ]
+        if len(kept) == len(prior):
+            return False
+
+        new_content = [_stored_reviewer_entry(entry) for entry in kept]
+        SignalReportArtefact.append_status(
+            team_id=team.id,
+            report_id=str(report_id),
+            content=SuggestedReviewers.model_validate(new_content),
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+
+        log_activity(
+            organization_id=None,
+            team_id=team.id,
+            user=cast(User, request.user),
+            was_impersonated=was_impersonated,
+            item_id=report_id,
+            scope="SignalReport",
+            activity="suggested_reviewers_changed",
+            detail=Detail(
+                name=report.title,
+                changes=[
+                    Change(
+                        type="SignalReport",
+                        action="changed",
+                        field="suggested_reviewers",
+                        before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
+                        after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
+                    )
+                ],
+            ),
+        )
+        correction = (
+            None
+            if was_impersonated or not github_login
+            else ReviewerCorrection(
+                report_id=str(report_id),
+                added_logins=(),
+                removed_logins=(github_login,),
+                actor_user_id=user_id,
+                scoped_team_ids=scoped_team_id_tuple,
+            )
+        )
+        # on_commit so a rolled-back edit steers nothing. No notification: a removal adds no
+        # reviewer and assigns no pull request.
+        transaction.on_commit(
+            partial(
+                _record_reviewer_edit,
+                team=team,
+                report_id=str(report_id),
+                github_logins=[entry["github_login"] for entry in new_content if entry["github_login"]],
+                user_uuids=[
+                    entry["user_uuid"] for entry in new_content if entry["user_uuid"] and not entry["github_login"]
+                ],
+                correction=correction,
+            )
+        )
+    return True
 
 
 def _record_reviewer_edit(
