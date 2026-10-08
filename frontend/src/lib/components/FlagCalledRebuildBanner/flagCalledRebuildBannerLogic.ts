@@ -79,22 +79,29 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
                 !!featureFlags[FEATURE_FLAGS.FLAG_CALLED_REBUILD_BANNERS] && readsFlagEvaluationsTable(currentTeam),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         // Fetches only the actions a banner references. The full actions list can hold thousands of actions.
         // Insight and dashboard view modes do not load it.
         loadReferencedActions: async ({ actionIds }) => {
+            // Dashboard tiles stream in one at a time, so a later call can name actions an earlier call still fetches.
+            const pendingIds: Set<number> = (cache.pendingActionIds ??= new Set<number>())
             const loadedIds = new Set(values.referencedActions.map((action) => action.id))
-            const missingIds = [...new Set(actionIds)].filter((id) => !loadedIds.has(id))
+            const missingIds = [...new Set(actionIds)].filter((id) => !loadedIds.has(id) && !pendingIds.has(id))
             if (!missingIds.length) {
                 return
             }
-            const results = await Promise.allSettled(
-                missingIds.map((id) => actionsRetrieve(String(values.currentProjectId), id))
-            )
-            // A deleted action no longer matches events, so a failed fetch leaves it out.
-            actions.addReferencedActions(
-                results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-            )
+            missingIds.forEach((id) => pendingIds.add(id))
+            try {
+                const results = await Promise.allSettled(
+                    missingIds.map((id) => actionsRetrieve(String(values.currentProjectId), id))
+                )
+                // A deleted action no longer matches events, so a failed fetch leaves it out.
+                actions.addReferencedActions(
+                    results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+                )
+            } finally {
+                missingIds.forEach((id) => pendingIds.delete(id))
+            }
         },
         reportBannerShown: ({ artifactType }) => {
             // pinned: analytics event name and property. Renaming them breaks the insights that count banner views.
