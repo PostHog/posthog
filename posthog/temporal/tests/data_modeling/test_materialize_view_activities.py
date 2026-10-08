@@ -50,7 +50,9 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     hogql_table,
 )
 from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+    ManagedWarehouseShadowEligibilityInputs,
     ManagedWarehouseShadowInputs,
+    check_managed_warehouse_shadow_eligibility_activity,
     materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
@@ -115,11 +117,38 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
+    @pytest.mark.parametrize("flag_enabled,target_ready", [(False, True), (True, False), (True, True)])
+    async def test_shadow_eligibility_does_not_require_translation(
+        self, activity_environment, ateam, anode, adag, flag_enabled: bool, target_ready: bool
+    ) -> None:
+        inputs = ManagedWarehouseShadowEligibilityInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse._is_managed_warehouse_shadow_flag_enabled",
+                return_value=flag_enabled,
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.is_data_modeling_shadow_ready",
+                return_value=target_ready,
+            ) as is_ready,
+        ):
+            assert await activity_environment.run(check_managed_warehouse_shadow_eligibility_activity, inputs) is (
+                flag_enabled and target_ready
+            )
+        if flag_enabled:
+            is_ready.assert_called_once_with(organization_id=ateam.organization_id)
+        else:
+            is_ready.assert_not_called()
+
     @pytest.mark.parametrize(
-        "stale,alias_dispatch_fails",
+        "compile_fails,alias_dispatch_fails",
         [(False, False), (True, False), (False, True)],
     )
-    async def test_trino_shadow_records_result_without_recompiling(
+    async def test_trino_shadow_records_execution_or_compilation_result(
         self,
         activity_environment,
         ateam,
@@ -127,7 +156,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         ajob,
         adag,
         asaved_query,
-        stale: bool,
+        compile_fails: bool,
         alias_dispatch_fails: bool,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -149,7 +178,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_trino_model",
                 return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
-                side_effect=ValueError("No current Trino conversion") if stale else None,
+                side_effect=ValueError("Trino compilation failed") if compile_fails else None,
             ) as execute,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
@@ -169,9 +198,9 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
-        if stale:
+        if compile_fails:
             reconcile_aliases.assert_not_awaited()
-            assert result.error == "No current Trino conversion"
+            assert result.error == "Trino compilation failed"
             assert ajob.status == DataModelingJobStatus.FAILED
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))

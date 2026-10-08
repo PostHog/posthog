@@ -211,7 +211,7 @@ describe('todayLogic', () => {
                 if (reportLogic) {
                     reportLogic.actions.askAboutReport('Why is signup broken?')
                 } else {
-                    logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'ask_box', report)
+                    logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'walk_through', report)
                 }
             })
                 .toFinishAllListeners()

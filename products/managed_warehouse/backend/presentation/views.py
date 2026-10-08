@@ -996,9 +996,10 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
             status_code=resp.status_code,
         )
         return
-    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED:
+    if resp.status_code == status.HTTP_501_NOT_IMPLEMENTED and not hogtower.is_configured():
         # Neither HOGTOWER_API_URL nor DUCKGRES_API_URL is configured (e.g. a
         # dev/env-var-backed DuckgresServer row): there is no control plane to deprovision against.
+        # A 501 from the hogtower adapter means an unmapped route instead, and must not skip.
         logger.warning(
             "Managed warehouse deprovisioning skipped: provisioning API not configured",
             organization_id=org_id,

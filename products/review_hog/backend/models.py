@@ -6,6 +6,7 @@ from posthog.models.utils import UUIDModel
 
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
+    DroppedFindingArtefact,
     FindingOutcomeArtefact,
     ResolutionRunArtefact,
     ReviewArtefactContent,
@@ -177,6 +178,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
+        # A single-agent finding the turn did not keep, with the reason. Only analysis reads it.
+        DROPPED_FINDING = "dropped_finding"
         VALIDATION_VERDICT = "validation_verdict"
         # The classified fate of a published finding, written by the outcome-telemetry batch after
         # the PR merged (one per finding); its presence marks the finding already classified.
@@ -276,6 +279,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ReviewIssueFinding, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append an `issue_finding` (latest row per `issue_key` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def append_dropped_finding(
+        cls, *, team_id: int, report_id: str, content: DroppedFindingArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `dropped_finding` (one per finding a single-agent turn did not keep)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
