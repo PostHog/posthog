@@ -621,6 +621,24 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
+        it('should keep structured tool calls on the appended assistant message even without text', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Weather?' }])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('', [
+                { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+            ])
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Weather?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' }],
+                },
+                { role: 'user', content: '' },
+            ])
+        })
+
         it('should append a result to the targeted prompt without changing other prompt columns', () => {
             llmPlaygroundPromptsLogic.actions.setPromptConfigs([
                 createPromptConfig({
@@ -633,7 +651,7 @@ describe('llmPlaygroundLogic', () => {
                 }),
             ])
 
-            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', 'prompt-two')
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', undefined, 'prompt-two')
 
             expect(llmPlaygroundPromptsLogic.values.promptConfigs).toMatchObject([
                 {
@@ -1695,13 +1713,55 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual([])
         })
 
-        it('should set system prompt and model from fetched evaluation', async () => {
+        it('should restore the whole panel from a prompt saved with playground config', async () => {
+            await expectLogic(runLogic).toFinishAllListeners()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
+                        id: 'prompt-full',
+                        name: 'full-prompt',
+                        prompt: 'You help {{customer}}.',
+                        config: {
+                            model: 'gpt-5',
+                            provider: 'openai',
+                            // A key this team does not have: model matching should still land on gpt-5
+                            provider_key_id: 'key-from-another-team',
+                            temperature: 0.7,
+                            max_tokens: 1024,
+                            thinking: true,
+                            reasoning_effort: 'high',
+                            tools: [{ type: 'function', function: { name: 'lookup' } }],
+                            messages: [{ role: 'user', content: 'Hi {{name}}' }],
+                        },
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptName: 'full-prompt',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You help {{customer}}.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([{ role: 'user', content: 'Hi {{name}}' }])
+            expect(llmPlaygroundPromptsLogic.values.temperature).toBe(0.7)
+            expect(llmPlaygroundPromptsLogic.values.maxTokens).toBe(1024)
+            expect(llmPlaygroundPromptsLogic.values.thinking).toBe(true)
+            expect(llmPlaygroundPromptsLogic.values.reasoningLevel).toBe('high')
+            expect(llmPlaygroundPromptsLogic.values.tools).toEqual([{ type: 'function', function: { name: 'lookup' } }])
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
+        })
+
+        it.each(['boolean', 'numeric'])('loads a %s evaluation into Playground', async (outputType) => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/evaluations/:id/': {
                         id: 'eval-1',
                         name: 'judge-eval',
                         evaluation_type: 'llm_judge',
+                        output_type: outputType,
                         evaluation_config: { prompt: 'Rate the response.' },
                         model_configuration: { model: 'gpt-5', provider_key_id: null },
                     },
@@ -1716,6 +1776,8 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('Rate the response.')
+            expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
+            expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-1')
         })
 
         it('should show error toast when prompt fetch fails', async () => {
@@ -1795,34 +1857,60 @@ describe('llmPlaygroundLogic', () => {
     })
 
     describe('save actions', () => {
-        it('saveAsNewPrompt should call create API', async () => {
-            let createCalled = false
+        it('saveAsNewPrompt should call create API with the full panel in config', async () => {
+            let createBody: Record<string, any> | undefined
             useMocks({
                 post: {
-                    '/api/projects/:team_id/llm_prompts/': () => {
-                        createCalled = true
+                    '/api/projects/:team_id/llm_prompts/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, any>
                         return [201, { id: 'new-1', name: 'saved-prompt', prompt: 'test' }]
                     },
                 },
             })
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('My system prompt')
+            llmPlaygroundPromptsLogic.actions.setTemperature(0.3)
+            llmPlaygroundPromptsLogic.actions.addMessage({ role: 'user', content: 'Hi {{name}}' })
             const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
-            llmPlaygroundPromptsLogic.actions.saveAsNewPrompt(promptId, 'saved-prompt')
+            llmPlaygroundPromptsLogic.actions.saveAsNewPrompt(promptId, 'saved-prompt', {
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
-            expect(createCalled).toBe(true)
+            expect(createBody).toMatchObject({
+                name: 'saved-prompt',
+                prompt: 'My system prompt',
+                config: {
+                    model: 'gpt-5',
+                    provider: 'openai',
+                    temperature: 0.3,
+                    messages: [{ role: 'user', content: 'Hi {{name}}' }],
+                },
+            })
             expect(router.values.searchParams).toHaveProperty('source_prompt_name', 'saved-prompt')
             expect(router.values.searchParams).not.toHaveProperty('source_evaluation_id')
         })
 
-        it('saveAsNewEvaluation should call create API', async () => {
-            let createCalled = false
+        it.each([
+            { output_type: 'boolean', output_config: undefined },
+            { output_type: 'boolean', output_config: { allows_na: true, true_is_failure: true } },
+            {
+                output_type: 'numeric',
+                output_config: { min: 0, max: 100, allows_na: true, passing_rule: { operator: 'gte', threshold: 70 } },
+            },
+            { output_type: 'sentiment', output_config: { aggregate: 'mean' } },
+        ])('saveAsNewEvaluation preserves output settings: %j', async ({ output_type, output_config }) => {
+            let createdBody: Record<string, unknown> | undefined
             useMocks({
+                get: {
+                    '/api/projects/:team_id/evaluations/:id/': { output_type, output_config },
+                },
                 post: {
-                    '/api/environments/:team_id/evaluations/': () => {
-                        createCalled = true
+                    '/api/environments/:team_id/evaluations/': async ({ request }) => {
+                        createdBody = (await request.json()) as Record<string, unknown>
                         return [201, { id: 'eval-new', name: 'saved-eval' }]
                     },
                 },
@@ -1830,6 +1918,15 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('Judge prompt')
             const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            if (output_config) {
+                llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+                    {
+                        ...llmPlaygroundPromptsLogic.values.promptConfigs[0],
+                        sourceType: 'evaluation',
+                        sourceEvaluationId: 'eval-source',
+                    },
+                ])
+            }
             llmPlaygroundPromptsLogic.actions.saveAsNewEvaluation(promptId, 'saved-eval', {
                 model: 'gpt-5',
                 provider: 'openai',
@@ -1838,27 +1935,58 @@ describe('llmPlaygroundLogic', () => {
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
-            expect(createCalled).toBe(true)
+            expect(createdBody).toMatchObject({
+                evaluation_config: { prompt: 'Judge prompt' },
+                output_type: output_type === 'sentiment' ? 'boolean' : output_type,
+                enabled: false,
+            })
+            expect(createdBody?.output_config).toEqual(output_type === 'sentiment' ? undefined : output_config)
             expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-new')
             expect(router.values.searchParams).not.toHaveProperty('source_prompt_name')
         })
 
-        it('saveToLinkedPrompt should call update API with current system prompt', async () => {
-            let updatedPrompt: string | undefined
+        it('does not create a boolean copy when the source evaluation cannot be loaded', async () => {
+            const createEvaluation = jest.fn(() => [201, { id: 'eval-new', name: 'saved-eval' }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/evaluations/:id/': () => [404, { detail: 'Not found' }],
+                },
+                post: {
+                    '/api/environments/:team_id/evaluations/': createEvaluation,
+                },
+            })
+            const prompt = llmPlaygroundPromptsLogic.values.promptConfigs[0]
+            llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+                { ...prompt, sourceType: 'evaluation', sourceEvaluationId: 'eval-missing' },
+            ])
+            llmPlaygroundPromptsLogic.actions.saveAsNewEvaluation(prompt.id, 'saved-eval', {
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(createEvaluation).not.toHaveBeenCalled()
+            expect(llmPlaygroundPromptsLogic.values.saving).toBe(false)
+        })
+
+        it('saveToLinkedPrompt publishes the panel config and preserves config keys it does not own', async () => {
+            let updateBody: Record<string, any> | undefined
             useMocks({
                 get: {
                     '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-linked',
                         name: 'linked',
                         prompt: 'Old prompt.',
+                        config: { custom_pipeline: { stage: 2 }, temperature: 0.9 },
                         latest_version: 3,
                     },
                 },
                 patch: {
                     '/api/projects/:team_id/llm_prompts/name/:name/': async ({ request }) => {
-                        const body = (await request.json()) as Record<string, any>
-                        updatedPrompt = body.prompt
-                        return [200, { id: 'prompt-linked', name: 'linked', prompt: body.prompt }]
+                        updateBody = (await request.json()) as Record<string, any>
+                        return [200, { id: 'prompt-linked', name: 'linked', prompt: updateBody.prompt }]
                     },
                 },
             })
@@ -1871,28 +1999,42 @@ describe('llmPlaygroundLogic', () => {
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
             llmPlaygroundPromptsLogic.actions.setSystemPrompt('Updated prompt.')
+            llmPlaygroundPromptsLogic.actions.setTemperature(0.1)
             const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
-            llmPlaygroundPromptsLogic.actions.saveToLinkedPrompt(promptId)
+            llmPlaygroundPromptsLogic.actions.saveToLinkedPrompt(promptId, {
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
-            expect(updatedPrompt).toBe('Updated prompt.')
+            expect(updateBody).toMatchObject({
+                prompt: 'Updated prompt.',
+                base_version: 3,
+                config: {
+                    custom_pipeline: { stage: 2 },
+                    model: 'gpt-5',
+                    temperature: 0.1,
+                },
+            })
         })
 
-        it('saveToLinkedEvaluation should call update API', async () => {
-            let updateCalled = false
+        it.each(['boolean', 'numeric'])('saveToLinkedEvaluation preserves %s output settings', async (outputType) => {
+            let updatedBody: Record<string, unknown> | undefined
             useMocks({
                 get: {
                     '/api/environments/:team_id/evaluations/:id/': {
                         id: 'eval-linked',
                         name: 'linked-eval',
                         evaluation_type: 'llm_judge',
+                        output_type: outputType,
                         evaluation_config: { prompt: 'Old eval prompt.' },
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/evaluations/:id/': () => {
-                        updateCalled = true
+                    '/api/environments/:team_id/evaluations/:id/': async ({ request }) => {
+                        updatedBody = (await request.json()) as Record<string, unknown>
                         return [200, { id: 'eval-linked', name: 'linked-eval' }]
                     },
                 },
@@ -1915,7 +2057,10 @@ describe('llmPlaygroundLogic', () => {
 
             await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
 
-            expect(updateCalled).toBe(true)
+            expect(updatedBody).toEqual({
+                evaluation_config: { prompt: 'New eval prompt.' },
+                model_configuration: { model: 'gpt-5', provider: 'openai', provider_key_id: null },
+            })
         })
     })
 })

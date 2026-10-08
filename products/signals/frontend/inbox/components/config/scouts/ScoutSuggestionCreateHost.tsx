@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+
 import type { ScoutSuggestionSurface } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
@@ -17,9 +19,9 @@ export function ScoutSuggestionCreateHost({ surface }: { surface: ScoutSuggestio
     const { closeCreateFromSuggestion, suggestionCreated } = useActions(scoutSuggestionsLogic)
     const { loadScoutConfigs } = useActions(scoutFleetLogic)
 
-    const handleDone = (): void => {
+    const handleDone = (config: SignalScoutConfigApi): void => {
         if (createFromSuggestion) {
-            suggestionCreated(createFromSuggestion.item, surface)
+            suggestionCreated(createFromSuggestion.item, surface, config)
         }
         loadScoutConfigs()
     }
@@ -32,7 +34,7 @@ export function ScoutSuggestionCreateHost({ surface }: { surface: ScoutSuggestio
                     : null
             }
             onClose={closeCreateFromSuggestion}
-            onCreated={handleDone}
+            onCreated={(scout) => handleDone(scout.config)}
             onEnabled={handleDone}
         />
     )

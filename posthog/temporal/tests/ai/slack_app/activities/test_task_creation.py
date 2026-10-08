@@ -163,6 +163,35 @@ def test_build_description_attributes_an_attachment_posted_without_a_word():
     assert "<@U_GEORGIY|georgiy>:\n  [Attached file(s): costs.png]" in out
 
 
+def test_build_description_keeps_the_initiator_message_when_no_prompt_survived():
+    # The placeholder is only safe because the prompt below the divider repeats the
+    # message. A mention whose words never reached `initiator_text` has the fallback
+    # string as its prompt, so substituting the placeholder and then dropping it as the
+    # trailing entry handed the agent the fallback and no record of what arrived. Here
+    # the screenshot is the whole message and the ask is the file.
+    out = _build_posthog_code_task_description(
+        "",
+        [
+            SlackThreadMessage(
+                user="georgiy",
+                user_id="U_GEORGIY",
+                text="",
+                ts="1.000",
+                files_json=encode_slack_file_refs([SlackFileRef(name="dashboard.png")]),
+            )
+        ],
+        "1.000",
+        mentioner_slack_user_id="U_GEORGIY",
+    )
+    assert out != "Task from Slack"
+    assert _INITIATOR_PLACEHOLDER not in out
+    assert "[Attached file(s): dashboard.png]" in out
+    # Nothing below the divider is the ask here, so the header and the role annotation
+    # must send the agent into the block rather than past it.
+    assert "The mention carried no text of its own." in out
+    assert "(their message inside this tag is the actual request)" in out
+
+
 def test_build_description_for_a_fork_keeps_every_message_and_claims_none_as_the_request():
     # A fork's context is a thread the requester never spoke in: no message in it is
     # the ask, so none may be replaced by the placeholder, and the "tagged the PostHog

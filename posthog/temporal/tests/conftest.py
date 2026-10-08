@@ -137,7 +137,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
+        from products.batch_exports.backend.facade.temporal import WORKFLOWS
 
         return WORKFLOWS
 
@@ -152,7 +152,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
+        from products.batch_exports.backend.facade.temporal import ACTIVITIES
 
         return ACTIVITIES
 

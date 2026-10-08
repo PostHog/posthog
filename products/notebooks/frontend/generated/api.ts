@@ -13,10 +13,18 @@ import type {
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
     NotebookComputeOptionsResponseApi,
+    NotebookKernelCompleteRequestApi,
+    NotebookKernelCompleteResponseApi,
     NotebookKernelConfigApi,
     NotebookKernelConfigResponseApi,
+    NotebookKernelInspectRequestApi,
+    NotebookKernelInspectResponseApi,
     NotebookKernelStatusResponseApi,
     NotebookMarkdownSaveApi,
+    NotebookRunInterruptResponseApi,
+    NotebookRunStartRequestApi,
+    NotebookRunStartResponseApi,
+    NotebookRunStatusResponseApi,
     NotebookSQLV2InterruptResponseApi,
     NotebookSQLV2RunRequestApi,
     NotebookSQLV2RunResponseApi,
@@ -24,6 +32,7 @@ import type {
     NotebookSQLV2StateResponseApi,
     NotebooksListParams,
     NotebooksWidgetFrameParams,
+    NotebooksWidgetSnapshotFrameParams,
     NotebooksWidgetSourceParams,
     NotebooksWidgetVersionsParams,
     PaginatedNotebookMinimalListApi,
@@ -46,6 +55,9 @@ import type {
     WidgetGenerateRequestApi,
     WidgetPinRequestApi,
     WidgetRevertRequestApi,
+    WidgetSnapshotApi,
+    WidgetSnapshotPublishApi,
+    WidgetSnapshotRequestApi,
     WidgetSourceApi,
     WidgetStatusApi,
     WidgetVersionPageApi,
@@ -532,6 +544,27 @@ export const notebooksCollabStreamRetrieve = async (
     })
 }
 
+export const getNotebooksKernelCompleteCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/complete/`
+}
+
+/**
+ * Completions for the cursor position in a Python cell, from the notebook's running kernel. Returns no matches when no kernel is running or the kernel is busy, and never starts one.
+ */
+export const notebooksKernelCompleteCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookKernelCompleteRequestApi: NotebookKernelCompleteRequestApi,
+    options?: RequestInit
+): Promise<NotebookKernelCompleteResponseApi> => {
+    return apiMutator<NotebookKernelCompleteResponseApi>(getNotebooksKernelCompleteCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookKernelCompleteRequestApi),
+    })
+}
+
 export const getNotebooksKernelConfigCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/kernel/config/`
 }
@@ -571,6 +604,27 @@ export const notebooksKernelExecuteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
+    })
+}
+
+export const getNotebooksKernelInspectCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/kernel/inspect/`
+}
+
+/**
+ * The signature and docstring of the name at the cursor in a Python cell, from the notebook's running kernel. Returns found=false when no kernel is running or the kernel is busy.
+ */
+export const notebooksKernelInspectCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookKernelInspectRequestApi: NotebookKernelInspectRequestApi,
+    options?: RequestInit
+): Promise<NotebookKernelInspectResponseApi> => {
+    return apiMutator<NotebookKernelInspectResponseApi>(getNotebooksKernelInspectCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookKernelInspectRequestApi),
     })
 }
 
@@ -655,6 +709,65 @@ export const notebooksKernelStopCreate = async (
     })
 }
 
+export const getNotebooksRunsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/runs/`
+}
+
+/**
+ * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookRunStartRequestApi?: NotebookRunStartRequestApi,
+    options?: RequestInit
+): Promise<NotebookRunStartResponseApi> => {
+    return apiMutator<NotebookRunStartResponseApi>(getNotebooksRunsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookRunStartRequestApi),
+    })
+}
+
+export const getNotebooksRunsRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/runs/${runId}/`
+}
+
+/**
+ * Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. Carries no result rows — fetch a cell's result from the cell run result endpoint. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookRunStatusResponseApi> => {
+    return apiMutator<NotebookRunStatusResponseApi>(getNotebooksRunsRetrieveUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksRunsInterruptCreateUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/runs/${runId}/interrupt/`
+}
+
+/**
+ * Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsInterruptCreate = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookRunInterruptResponseApi> => {
+    return apiMutator<NotebookRunInterruptResponseApi>(getNotebooksRunsInterruptCreateUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/run/`
 }
@@ -732,6 +845,109 @@ export const notebooksSqlV2StateRetrieve = async (
     return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetSnapshotCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotCreate = async (
+    projectId: string,
+    shortId: string,
+    widgetSnapshotRequestApi: WidgetSnapshotRequestApi,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetSnapshotRequestApi),
+    })
+}
+
+export const getNotebooksWidgetSnapshotRetrieveUrl = (projectId: string, shortId: string, snapshotId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/${snapshotId}/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotRetrieve = async (
+    projectId: string,
+    shortId: string,
+    snapshotId: string,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotRetrieveUrl(projectId, shortId, snapshotId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksWidgetSnapshotFrameUrl = (
+    projectId: string,
+    shortId: string,
+    snapshotId: string,
+    frameName: string,
+    params?: NotebooksWidgetSnapshotFrameParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/${snapshotId}/frames/${frameName}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/${snapshotId}/frames/${frameName}/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotFrame = async (
+    projectId: string,
+    shortId: string,
+    snapshotId: string,
+    frameName: string,
+    params?: NotebooksWidgetSnapshotFrameParams,
+    options?: RequestInit
+): Promise<WidgetFrameApi> => {
+    return apiMutator<WidgetFrameApi>(
+        getNotebooksWidgetSnapshotFrameUrl(projectId, shortId, snapshotId, frameName, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getNotebooksWidgetSnapshotPublishUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/widget_snapshots/publish/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksWidgetSnapshotPublish = async (
+    projectId: string,
+    shortId: string,
+    widgetSnapshotPublishApi: WidgetSnapshotPublishApi,
+    options?: RequestInit
+): Promise<WidgetSnapshotApi> => {
+    return apiMutator<WidgetSnapshotApi>(getNotebooksWidgetSnapshotPublishUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(widgetSnapshotPublishApi),
     })
 }
 

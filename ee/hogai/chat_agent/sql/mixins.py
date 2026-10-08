@@ -43,6 +43,7 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.warehouse import serialize_database_schema
 
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
+from .errors import hogql_validation_message
 from .prompts import (
     HOGQL_GENERATOR_SYSTEM_PROMPT,
     SQL_EXPRESSIONS_DOCS,
@@ -187,22 +188,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
-            err_msg = str(err)
-            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
-            # terse low-level error wording on syntax failures ("no viable alternative…",
-            # "trailing tokens after expression…", "unexpected token in expression…",
-            # "mismatched input … expecting …"). Replace any of them with a single
-            # human/LLM-friendly message.
-            if err_msg.startswith(
-                (
-                    "no viable alternative",
-                    "trailing tokens after expression",
-                    "unexpected token in expression",
-                    "mismatched input",
-                )
-            ):
-                err_msg = "HogQL parsing error: this query isn't valid HogQL."
-            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+            raise PydanticOutputParserException(
+                llm_output=cleaned_query, validation_message=hogql_validation_message(err, cleaned_query)
+            )
 
         return AssistantHogQLQuery(query=cleaned_query)
 

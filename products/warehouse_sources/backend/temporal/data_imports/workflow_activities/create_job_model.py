@@ -4,24 +4,27 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
-from django.db import close_old_connections
+from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    mark_schema_running_unless_halted,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
@@ -37,9 +40,18 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    repartition_activity_has_work,
+    repartition_import_hold_reason,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
+    billing_limit_reached,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -73,6 +85,29 @@ def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
 
 
 LOGGER = get_logger(__name__)
+
+
+class SourceOrSchemaDeletedError(NonReportableError):
+    """The source or schema was deleted while its sync schedule was still live.
+
+    Deletion cancels the schedule, but a run Temporal already started keeps going, so this
+    activity can find the rows gone. The run must still fail, because there is no schema left
+    to create a job for. It is not a defect either, so subclassing ``NonReportableError`` keeps
+    the race out of error tracking instead of opening an issue per orphaned run.
+
+    Also raised when the deletion happens in the narrower window between the existence check
+    above and the job insert (e.g. a team torn down mid-run cascades the source/schema away),
+    which surfaces as an ``IntegrityError`` on the FK to the now-gone row instead.
+    """
+
+
+class V3PipelineLockLostError(NonReportableError):
+    """Another run's lock takeover (see acquire_v3_lock.py) reassigned the v3 pipeline lock
+    away from this run before it reached job creation. The takeover path only steals from a
+    holder whose Temporal workflow already looks terminal, so a resumed run landing here is
+    the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
+    it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
+    """
 
 
 def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
@@ -127,17 +162,30 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
     if holder is None:
         return
     if holder != run_id:
-        raise ApplicationError(
-            "v3 pipeline lock lost to another run before job creation",
-            non_retryable=True,
-        )
+        raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
+
+
+# `schema_metadata` is the source table's column list, not configuration. Copying it onto every
+# job row would be most of the snapshot's storage cost.
+_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"schema_metadata"})
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
+    """The schema as it was when this job started, for debugging a run after the fact.
+
+    `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
+    `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
+    """
+    sync_type_config = {
+        key: value
+        for key, value in (schema.sync_type_config or {}).items()
+        if key not in _SNAPSHOT_EXCLUDED_CONFIG_KEYS
+    }
     return {
         "name": schema.name,
         "sync_type": schema.sync_type,
-        "sync_type_config": schema.sync_type_config,
+        "sync_type_config": sync_type_config,
         "sync_frequency_interval": schema.sync_frequency_interval.total_seconds()
         if schema.sync_frequency_interval
         else None,
@@ -180,13 +228,15 @@ def _create_job(
 # TODO: remove dependency
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CreateExternalDataJobModelActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
     is_v3: bool = False
+    # Admin resyncs and non-billable resumes start the workflow directly and must not become a full refresh.
+    started_by_schedule: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -243,14 +293,8 @@ def _fast_return_eligible(
     if data_quality_checks_needed_for(team_id, schema.table_id):
         return False
 
-    last_full_run_at = schema.last_full_run_at
-    if last_full_run_at is None:
-        return False
-    try:
-        stamped = dt.datetime.fromisoformat(last_full_run_at)
-    except (TypeError, ValueError):
-        return False
-    if stamped.tzinfo is None:
+    stamped = schema.last_full_run
+    if stamped is None:
         return False
     return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
 
@@ -284,6 +328,21 @@ class CreateExternalDataJobModelActivityOutputs:
     # Computed here because this activity already resolves the repair gates the decision needs.
     # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
+    # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
+    # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.
+    scheduled_full_refresh: bool = False
+    # True when the pre-extraction repartition activity has a rewrite, swap or on-disk measurement to
+    # do. Defaults True so a payload from a worker that predates the field still schedules it.
+    repartition_needed: bool = True
+    # True when this activity already answered the billing-limit question, so the workflow reads
+    # `hit_billing_limit` instead of scheduling the separate check. Defaults False so a payload
+    # recorded before the field existed still replays the check activity it recorded.
+    billing_limit_checked: bool = False
+    hit_billing_limit: bool = False
+    # True when the post-import source-templates activity has anything to create: only a Stripe
+    # source's first completed sync does. Defaults True so a payload that predates the field still
+    # schedules the activity its history recorded.
+    source_templates_needed: bool = True
 
 
 @activity.defn
@@ -295,14 +354,16 @@ def create_external_data_job_model_activity(
 
     close_old_connections()
 
+    # Kept out of the try below so the generic handler does not log a stack trace for a
+    # deletion race that the activity handles.
+    source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
+    schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
+    if not source_exists or not schema_exists:
+        delete_external_data_schedule(str(inputs.schema_id))
+        logger.info("Source or schema no longer exists, deleted the sync schedule")
+        raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
+
     try:
-        source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
-        schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
-
-        if not source_exists or not schema_exists:
-            delete_external_data_schedule(str(inputs.schema_id))
-            raise Exception("Source or schema no longer exists - deleted temporal schedule")
-
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
 
         source: ExternalDataSource = schema.source
@@ -312,26 +373,47 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Persist the Running status only after the job row exists: a Running schema with no job
-        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
-        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
-        schema.status = ExternalDataSchema.Status.RUNNING
         # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
         if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
             inputs.team_id, source.source_type
         ):
             destination_ids = destination_ids_for_run(schema)
-        job = _create_job(
-            team_id=inputs.team_id,
-            source_id=inputs.source_id,
-            schema_id=inputs.schema_id,
-            pipeline_version=pipeline_version,
-            billable=inputs.billable,
-            schema_snapshot=_build_schema_snapshot(schema),
-            destination_ids=destination_ids,
+        # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
+        # the import. A refresh while the import is held never wipes the table or restarts the clock,
+        # so the refresh waits until the repartition resolves.
+        scheduled_full_refresh = (
+            inputs.started_by_schedule
+            and not schema.reset_pipeline
+            and schema.scheduled_full_refresh_due()
+            and repartition_import_hold_reason(schema, logger) is None
         )
-        schema.save(update_fields=["status", "updated_at"])
+        schema_snapshot = _build_schema_snapshot(schema)
+        if scheduled_full_refresh:
+            schema_snapshot["scheduled_full_refresh"] = True
+            logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
+
+        try:
+            job = _create_job(
+                team_id=inputs.team_id,
+                source_id=inputs.source_id,
+                schema_id=inputs.schema_id,
+                pipeline_version=pipeline_version,
+                billable=inputs.billable,
+                schema_snapshot=schema_snapshot,
+                destination_ids=destination_ids,
+            )
+        except IntegrityError:
+            # The source or schema can still be deleted (or its team torn down, cascading to
+            # both) between the existence check above and this insert. Same race as
+            # SourceOrSchemaDeletedError, just found a step later.
+            delete_external_data_schedule(str(inputs.schema_id))
+            logger.info("Source or schema was deleted before the job could be created, deleted the sync schedule")
+            raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule") from None
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        mark_schema_running_unless_halted(schema)
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -353,13 +435,8 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
-        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
-            statistics_enabled,
-        )
-
-        statistics_should_run = bool(team is not None and statistics_enabled(team))
+        # Column-statistics profiling needs no consent term, only a team to attribute it to.
+        statistics_should_run = team is not None
 
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
@@ -371,11 +448,27 @@ def create_external_data_job_model_activity(
         # customer_analytics via external_product_hooks; not imported here).
         person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
-        fast_return_eligible = _fast_return_eligible(
+        fast_return_eligible = not scheduled_full_refresh and _fast_return_eligible(
             schema=schema,
             team_id=inputs.team_id,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,
+        )
+
+        # The repartition activity re-checks this itself; deciding here lets the workflow skip
+        # scheduling it at all, which for most syncs is its whole cost.
+        repartition_needed = repartition_activity_has_work(schema)
+
+        # Answered here, after the job row exists, in the order the separate activity ran it. A
+        # transient app-DB failure is retried in place: this activity has one Temporal attempt.
+        hit_billing_limit = retry_internal_db_operation(
+            lambda: billing_limit_reached(job, source, inputs.team_id, logger)
+        )
+
+        source_templates_needed = source.source_type == ExternalDataSourceType.STRIPE and not (
+            ExternalDataJob.objects.filter(
+                team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
+            ).exists()
         )
 
         return CreateExternalDataJobModelActivityOutputs(
@@ -391,7 +484,19 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
+            scheduled_full_refresh=scheduled_full_refresh,
+            repartition_needed=repartition_needed,
+            billing_limit_checked=True,
+            hit_billing_limit=hit_billing_limit,
+            source_templates_needed=source_templates_needed,
         )
+    except V3PipelineLockLostError:
+        # The takeover race the guard handles, not a defect — skip the generic handler's
+        # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
+        raise
+    except SourceOrSchemaDeletedError:
+        # Raised (and already logged) from the IntegrityError handler around _create_job above.
+        raise
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

@@ -79,6 +79,7 @@ class TestBingAdsSource:
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.valid_config, self.team_id)
+        assert next(schema for schema in schemas if schema.name == "keyword_performance_report").should_sync_default
 
         assert len(schemas) > 0
 
@@ -408,6 +409,7 @@ class TestBingAdsSource:
         ):
             original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
             manager.save_state(original)
+            manager.commit()
             loaded = manager.load_state()
 
         assert isinstance(loaded, BingAdsResumeConfig)

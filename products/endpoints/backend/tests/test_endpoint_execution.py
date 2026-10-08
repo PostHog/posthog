@@ -13,10 +13,11 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
-from posthog.exceptions import APIQueriesBudgetExceeded
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -225,6 +226,37 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         mock_counter.labels.assert_not_called()
         mock_signal.assert_not_called()
         mock_capture.assert_not_called()
+
+    def test_capacity_error_preserves_retry_after(self):
+        endpoint = create_endpoint_with_version(
+            name="at_capacity",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = ClickHouseAtCapacity()
+        error.wait = 37
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "query_capacity",
+                "detail": (
+                    "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
+                    "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
+                ),
+                "attr": None,
+            },
+        )
+        self.assertEqual(response.get("Retry-After"), "37")
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(
@@ -913,8 +945,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("greaterorequals", query_sql)
             self.assertIn("less(", query_sql)
 
-    def test_materialized_count_with_range_variables_reaggregates(self):
-        """When range variables exist, read-time SQL should re-aggregate with sum()."""
+    @parameterized.expand(
+        [
+            ("bare_aggregate", "count()", "sum(`count()`) AS `count()`"),
+            ("aliased_aggregate", "count() AS impressions", "sum(impressions) AS impressions"),
+        ]
+    )
+    def test_materialized_count_with_range_variables_reaggregates(self, _name, select_expr, expected_select):
+        """When range variables exist, read-time SQL should re-aggregate with sum()
+        and keep the column name the endpoint declares."""
         start_var = InsightVariable.objects.create(
             team=self.team,
             name="Start Timestamp",
@@ -942,7 +981,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} AND properties.$host = {variables.host}",
+                "query": f"SELECT {select_expr} FROM events WHERE timestamp >= {{variables.start_ts}} AND timestamp < {{variables.end_ts}} AND properties.$host = {{variables.host}}",
                 "variables": {
                     str(start_var.id): {
                         "variableId": str(start_var.id),
@@ -977,11 +1016,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_exec.assert_called()
-            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
-            # Re-aggregation: count() column should be wrapped with sum()
-            self.assertIn("sum(", query_sql)
+            query_sql = mock_exec.call_args[0][0]["query"]["query"]
+            # Re-aggregation wraps the column with sum(), then aliases it back to the name
+            # the endpoint declares, so a typed client can still parse the rows.
+            self.assertIn(expected_select, query_sql)
             # Range variable values should be wrapped with toStartOfDay
-            self.assertIn("tostartofday", query_sql)
+            self.assertIn("tostartofday", query_sql.lower())
 
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
@@ -1064,6 +1104,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(

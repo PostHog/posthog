@@ -10,7 +10,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
+import { hogql, isActionsNode, isInsightQueryWithSeries, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
@@ -31,17 +31,26 @@ export const TaxonomicBreakdownPopover = ({
     breakdownType,
     breakdownValue,
 }: TaxonomicBreakdownPopoverProps): JSX.Element => {
-    // allEventNames resolves action series through actionsModel, which the shared insight logic does not mount
-    useMountedLogic(actionsModel)
     const { insightProps } = useValues(insightLogic)
     const {
         allEventNames,
+        querySource,
         query,
         hasDataWarehouseSeries,
         hasOnlyDataWarehouseSeries,
         dataWarehouseSeriesTableNames,
         isTrends,
+        isFunnels,
     } = useValues(insightVizDataLogic(insightProps))
+    useMountedLogic(
+        actionsModel({
+            shouldLoad:
+                open &&
+                !!querySource &&
+                isInsightQueryWithSeries(querySource) &&
+                querySource.series.some(isActionsNode),
+        })
+    )
     const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -86,6 +95,7 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
             TaxonomicFilterGroupType.EventMetadata,
+            ...(isTrends || isFunnels ? [TaxonomicFilterGroupType.Elements] : []),
             ...groupsTaxonomicTypes,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             ...(includeSessions ? [TaxonomicFilterGroupType.SessionProperties] : []),
@@ -93,6 +103,14 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.DataWarehouseProperties,
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ]
+    }
+
+    // A selector filter is a regex over the whole elements chain, so no per-event breakdown
+    // value can agree with it. Hide it in breakdowns only; property filters still offer it.
+    // Hide element suggestions for insight types that cannot use element breakdowns.
+    const excludedElementBreakdownProperties = {
+        [TaxonomicFilterGroupType.Elements]:
+            isTrends || isFunnels ? ['selector'] : ['selector', 'text', 'href', 'tag_name'],
     }
 
     return (
@@ -123,6 +141,7 @@ export const TaxonomicBreakdownPopover = ({
                     }}
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    excludedProperties={excludedElementBreakdownProperties}
                     metadataSource={
                         // Without this the SQL expression editor validates against the events table
                         // and marks every warehouse column as unknown.

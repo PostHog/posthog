@@ -14,6 +14,7 @@ from products.feature_flags.backend.facade.config_validation import (
     RolloutMissPolicy,
     ValidatedConfig,
     ValidatedRule,
+    canonical_value,
 )
 from products.feature_flags.backend.facade.rule_warnings import (
     ConfigReview,
@@ -44,14 +45,16 @@ PLAN_SET_NEGATED = Predicate(key="plan", operator="is_set", value="null", negati
 COUNTRY_NOT_SET = Predicate(key="country", operator="is_not_set", value="null", negation=False)
 
 
-def targeted(rule_id: str, value: bool = True, *predicates: Predicate) -> ValidatedRule:
-    return ValidatedRule(id=rule_id, rule_type="targeted_release", predicates=frozenset(predicates), value=value)
+def targeted(rule_id: str, value: Any = True, *predicates: Predicate) -> ValidatedRule:
+    return ValidatedRule(
+        id=rule_id, rule_type="targeted_release", predicates=frozenset(predicates), value=canonical_value(value)
+    )
 
 
 def rollout(
     rule_id: str,
     percentage: int | float | str,
-    value: bool = True,
+    value: Any = True,
     *predicates: Predicate,
     seed: str = SEED,
     miss: RolloutMissPolicy = "continue",
@@ -60,15 +63,15 @@ def rollout(
         id=rule_id,
         rule_type="percentage_rollout",
         predicates=frozenset(predicates),
-        value=value,
+        value=canonical_value(value),
         rollout_percentage=Decimal(str(percentage)),
         on_rollout_miss=miss,
         seed=seed,
     )
 
 
-def cfg(*rules: ValidatedRule, default: bool | None = False) -> ValidatedConfig:
-    return ValidatedConfig(default_value=default, rules=rules)
+def cfg(*rules: ValidatedRule, default: Any = False) -> ValidatedConfig:
+    return ValidatedConfig(default_value=None if default is None else canonical_value(default), rules=rules)
 
 
 def codes(warnings: tuple[ManagementWarning, ...]) -> list[tuple[str, str | None]]:
@@ -465,6 +468,32 @@ class TestReviewConfig:
             True,
             True,
         ]
+
+    @parameterized.expand(
+        [
+            ("string_same", "string", "compact", "compact", True),
+            ("string_different", "string", "compact", "wide", False),
+            ("number_integral_float", "number", 2, 2.0, True),
+            ("number_different", "number", 2, 2.5, False),
+            ("object_key_order", "object", {"a": 1, "b": [True]}, {"b": [True], "a": 1.0}, True),
+            ("object_true_is_not_one", "object", {"a": True}, {"a": 1}, False),
+        ]
+    )
+    def test_typed_values_are_compared_as_json(
+        self, _name: str, return_type: str, upper: Any, lower: Any, same_value: bool
+    ) -> None:
+        document = {**deepcopy(ROLLOUT_DOCUMENT), "return_type": return_type, "default_value": None}
+        document["rules"] = document["rules"][:2]
+        document["rules"][0]["value"] = upper
+        document["rules"][1]["value"] = lower
+        assert codes(review_config(document, limits=LIMITS).warnings) == (
+            [(EXTENDS, "filters.rules[1]")] if same_value else []
+        )
+        reordered = {**document, "rules": document["rules"][::-1]}
+        current = review_config(document, limits=LIMITS).config
+        assert (
+            REORDER in [code for code, _ in codes(review_config(reordered, limits=LIMITS, current=current).warnings)]
+        ) != same_value
 
     def test_invalid_candidate_raises_before_any_warning(self) -> None:
         with pytest.raises(ConfigValidationError):

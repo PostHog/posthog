@@ -32,6 +32,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
@@ -48,6 +49,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RecordTurnMarkerInput,
     RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
@@ -74,6 +76,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -86,10 +89,13 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
 from products.review_hog.backend.temporal.types import (
+    TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
     ResolvePRWorkflowInputs,
+    ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
     resolve_pr_workflow_id,
 )
@@ -190,6 +196,7 @@ class ReviewPerspectivesWorkflow:
                         branch=inputs.branch,
                         run_index=inputs.run_index,
                         review_mode=inputs.review_mode,
+                        flash_reasoning_effort=inputs.flash_reasoning_effort,
                         perspectives=ordered,
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -220,6 +227,7 @@ class ReviewPerspectivesWorkflow:
                         branch=inputs.branch,
                         run_index=inputs.run_index,
                         review_mode=inputs.review_mode,
+                        flash_reasoning_effort=inputs.flash_reasoning_effort,
                         chunk_id=chunk_id,
                         pass_number=pass_number,
                         skill_name=skill_name,
@@ -336,6 +344,7 @@ class ValidateIssuesWorkflow:
                         branch=inputs.branch,
                         run_index=inputs.run_index,
                         review_mode=inputs.review_mode,
+                        flash_reasoning_effort=inputs.flash_reasoning_effort,
                         chunk_id=chunk_id,
                         issue_ids=chunk_issue_ids,
                         skill_name=skill.skill_name,
@@ -359,6 +368,14 @@ class ValidateIssuesWorkflow:
 @temporalio.workflow.defn(name="review-pr")
 class ReviewPRWorkflow:
     """Single-turn PR review: setup → split → review → dedup (incl. combine) → validate → build → publish."""
+
+    @workflow.init
+    def __init__(self, inputs: ReviewPRWorkflowInputs) -> None:
+        self._requests = ReviewRequestQueue(active=inputs)
+
+    @workflow.signal
+    def request_review(self, request: ReviewPRWorkflowInputs) -> None:
+        self._requests.add(request)
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ReviewPRWorkflowInputs:
@@ -397,6 +414,11 @@ class ReviewPRWorkflow:
                     )
                 except Exception:
                     workflow.logger.warning("Could not remove the ReviewHog trigger label")
+            if self._requests.pending:
+                requests = list(self._requests.pending.values())
+                if not completed and not terminal:
+                    requests.insert(0, inputs)
+                workflow.continue_as_new(ReviewPRQueueInputs(requests=requests), workflow=ReviewPRQueueWorkflow.run)
 
     async def _run(self, inputs: ReviewPRWorkflowInputs) -> str:
         repository = inputs.repository
@@ -454,6 +476,9 @@ class ReviewPRWorkflow:
                 f"Branch '{branch}' has no reviewable diff against its base (pushed nothing); skipping"
             )
             return report_id
+        if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
+            workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
+            return report_id
 
         # Resolve the acting user whose enabled perspectives apply: the PR author, or the explicit
         # override the CLI and inbox triggers set. The label trigger falls back to the default run
@@ -491,6 +516,9 @@ class ReviewPRWorkflow:
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
+        if inputs.trigger_source == TRIGGER_AUTOMATIC and not acting.review_authored_prs:
+            workflow.logger.info("Automatic reviews are disabled for the author; skipping review")
+            return report_id
         acting_user_id = acting.acting_user_id
 
         # The turn passed every gate and is about to spend sandboxes: one started event per turn,
@@ -506,6 +534,7 @@ class ReviewPRWorkflow:
                         run_index=meta.run_index,
                         turn_trigger_source=inputs.trigger_source,
                         review_mode=inputs.review_mode,
+                        flash_reasoning_effort=acting.flash_reasoning_effort,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -533,6 +562,7 @@ class ReviewPRWorkflow:
                 workflow.logger.warning("Could not post the status comment; continuing without it")
 
         publish_result: PublishResult | None = None
+        marker: ReviewHogMarker | None = None
         try:
             await workflow.execute_activity(
                 sync_review_skills_activity,
@@ -546,6 +576,25 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
+            if workflow.patched("record-turn-marker-2026-10"):
+                try:
+                    marker = await workflow.execute_activity(
+                        record_turn_marker_activity,
+                        RecordTurnMarkerInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            head_sha=head_sha,
+                            run_index=meta.run_index,
+                            acting_user_id=acting_user_id,
+                            review_mode=inputs.review_mode,
+                            flash_reasoning_effort=acting.flash_reasoning_effort,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning("Could not record the turn marker; continuing without it")
 
             stage = SandboxStageInput(
                 team_id=inputs.team_id,
@@ -556,6 +605,7 @@ class ReviewPRWorkflow:
                 branch=branch,
                 run_index=meta.run_index,
                 review_mode=inputs.review_mode,
+                flash_reasoning_effort=acting.flash_reasoning_effort,
             )
 
             workflow.logger.info("STAGE 2/7 · Split into chunks")
@@ -581,6 +631,7 @@ class ReviewPRWorkflow:
                     branch=stage.branch,
                     run_index=stage.run_index,
                     review_mode=stage.review_mode,
+                    flash_reasoning_effort=stage.flash_reasoning_effort,
                     chunk_ids=chunk_ids,
                     acting_user_id=acting_user_id,
                 ),
@@ -612,6 +663,7 @@ class ReviewPRWorkflow:
                     branch=stage.branch,
                     run_index=stage.run_index,
                     review_mode=stage.review_mode,
+                    flash_reasoning_effort=stage.flash_reasoning_effort,
                     issue_ids=dedup.issue_ids,
                     acting_user_id=acting_user_id,
                 ),
@@ -653,6 +705,7 @@ class ReviewPRWorkflow:
                         pr_number=meta.pr_number,
                         urgency_threshold=acting.urgency_threshold,
                         review_mode=inputs.review_mode,
+                        trigger_source=inputs.trigger_source,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -693,6 +746,7 @@ class ReviewPRWorkflow:
                             run_index=meta.run_index,
                             turn_trigger_source=inputs.trigger_source,
                             review_mode=inputs.review_mode,
+                            flash_reasoning_effort=acting.flash_reasoning_effort,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -716,6 +770,8 @@ class ReviewPRWorkflow:
                     workflow_started_at=workflow.info().start_time.isoformat(),
                     turn_trigger_source=inputs.trigger_source,
                     review_mode=inputs.review_mode,
+                    flash_reasoning_effort=acting.flash_reasoning_effort,
+                    marker=marker,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -737,6 +793,8 @@ class ReviewPRWorkflow:
                         review_url=publish_result.review_url if publish_result is not None else None,
                         resolved_from=acting.resolved_from,
                         review_mode=inputs.review_mode,
+                        celebrate_clean_reviews=acting.celebrate_clean_reviews,
+                        marker=marker,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

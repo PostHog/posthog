@@ -5,7 +5,7 @@ import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
 import type {
     ChartSettings,
-    DataVisualizationNode,
+    VisualizationNode,
     ErrorTrackingQueryResponse,
     HogQLAutocompleteResponse,
     HogQLMetadataResponse,
@@ -19,6 +19,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
@@ -81,14 +82,6 @@ const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis)
 
     try {
         const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
-
-        if (selectedYAxis.settings.formatting?.decimalPlaces) {
-            const parsed = parseFloat(
-                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
-            )
-            return Number.isNaN(parsed) ? null : parsed
-        }
-
         const parsed = Number.isInteger(value)
             ? parseInt(String(value), 10) * multiplier
             : parseFloat(String(value)) * multiplier
@@ -107,7 +100,7 @@ export interface seriesBreakdownLogicValues {
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     chartSettings: ChartSettings // dataVisualizationLogic
     columns: Column[] // dataVisualizationLogic
-    query: DataVisualizationNode // dataVisualizationLogic
+    query: VisualizationNode // dataVisualizationLogic
     response:
         | ErrorTrackingQueryResponse
         | HogQLAutocompleteResponse
@@ -122,6 +115,7 @@ export interface seriesBreakdownLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataVisualizationLogic
     selectedXAxis: string | null // dataVisualizationLogic
     selectedYAxis: (SelectedYAxis | null)[] | null // dataVisualizationLogic
@@ -136,8 +130,8 @@ export interface seriesBreakdownLogicActions {
     clearAxis: () => {
         value: true
     } // dataVisualizationLogic
-    setQuery: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => {
-        setter: (node: DataVisualizationNode) => DataVisualizationNode
+    setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
+        setter: (node: VisualizationNode) => VisualizationNode
     } // dataVisualizationLogic
     addSeriesBreakdown: (columnName: string | null) => {
         columnName: string | null
@@ -155,6 +149,7 @@ export interface seriesBreakdownLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
     }
     deleteSeriesBreakdown: () => {}
@@ -164,7 +159,7 @@ export interface seriesBreakdownLogicActions {
 export interface seriesBreakdownLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        selectedSeriesBreakdownColumn: (query: DataVisualizationNode) => string | null | undefined
+        selectedSeriesBreakdownColumn: (query: VisualizationNode) => string | null | undefined
         showSeriesBreakdown: (selectedSeriesBreakdownColumn: string | null | undefined) => boolean
         breakdownColumnValues: (
             selectedSeriesBreakdownColumn: string | null | undefined,
@@ -182,6 +177,7 @@ export interface seriesBreakdownLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => string[]
@@ -204,6 +200,7 @@ export interface seriesBreakdownLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[],
             chartSettings: ChartSettings,

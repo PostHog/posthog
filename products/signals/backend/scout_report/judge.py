@@ -172,6 +172,29 @@ def _reviewer_reasons_signal(reviewer_reasons: Sequence[str]) -> SignalData | No
     )
 
 
+def _link_reasons_signal(link_reasons: Sequence[str]) -> SignalData | None:
+    """Wrap the scout-authored report-link `reason` strings as one `SignalData` for the judge.
+
+    A link reason is persisted in the report-link artefact and rendered in the report's work log,
+    which action-capable report agents read before acting, so it reaches the same run a reviewer
+    reason does. Returns None when no link carries a reason, so an edit without them produces a
+    judge prompt byte-identical to before."""
+    if not link_reasons:
+        return None
+    # Labeled for the same reason as `_reviewer_reasons_signal`: the rendering drops `source_id`,
+    # and the judge needs to know these explain a relationship between two reports.
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Report-link reasons (why the report is linked to another report):\n\n" + "\n\n".join(link_reasons),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_link_reasons",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     """Adapt the authored-report signals into the `SignalData` shape the safety judge renders."""
     return [
@@ -189,6 +212,27 @@ def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     ]
 
 
+def _decision_explanations_signal(decision_explanations: Sequence[str]) -> SignalData | None:
+    """Wrap the scout-authored actionability and priority explanations as one `SignalData` for the judge.
+
+    Auto-start copies the priority explanation into the implementation task it opens, so an edit
+    that rewrites it reaches an action-capable run. Returns None when the edit sets no decision, so
+    every other edit produces a judge prompt byte-identical to before."""
+    if not decision_explanations:
+        return None
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Report decision explanations (why the report is or is not actionable, and its priority):\n\n"
+        + "\n\n".join(decision_explanations),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_decision_explanations",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 async def judge_scout_report(
     *,
     team_id: int,
@@ -200,11 +244,12 @@ async def judge_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
+    link_reasons: Sequence[str] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
 
     The judge sees the authored `title`/`summary`, the backing observations, any attached charts,
-    any suggested prompts, *and* any reviewer reasons — so prompt-injection anywhere the agent
+    any suggested prompts, any reviewer reasons, *and* any link reasons — so prompt-injection anywhere the agent
     authored (not just the evidence) is caught before the report can surface or feed autostart. The
     safety judge is a plain LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox — so
     this runs inline on whatever worker is authoring the report.
@@ -213,12 +258,14 @@ async def judge_scout_report(
     metric_signal = _metric_signal(metrics)
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
+    link_signal = _link_reasons_signal(link_reasons)
     safety_input = [
         _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
         *([metric_signal] if metric_signal is not None else []),
         *([prompts_signal] if prompts_signal is not None else []),
         *([reasons_signal] if reasons_signal is not None else []),
+        *([link_signal] if link_signal is not None else []),
         *_to_signal_data(signals),
     ]
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
@@ -241,6 +288,8 @@ async def judge_edited_report_content(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
+    link_reasons: Sequence[str] = (),
+    decision_explanations: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -249,9 +298,9 @@ async def judge_edited_report_content(
     unjudged door for the exact content the emit judge exists to stop. Suggested prompts carry
     furthest: a reader clicks one and its wording is handed to an agent run that is told to act on
     it. Judges only the pieces the edit supplies — an edit that only clears fields, or only names
-    reviewers without a `reason`, adds no new content and returns safe without an LLM call. Notes
-    and reviewer reasons are included because action-capable report agents read the full work log
-    before acting.
+    reviewers without a `reason`, adds no new content and returns safe without an LLM call. Notes,
+    reviewer reasons and report-link reasons are included because action-capable report agents read
+    the full work log before acting.
     """
     safety_input: list[SignalData] = []
     if title is not None or summary is not None:
@@ -273,6 +322,12 @@ async def judge_edited_report_content(
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     if reasons_signal is not None:
         safety_input.append(reasons_signal)
+    link_signal = _link_reasons_signal(link_reasons)
+    if link_signal is not None:
+        safety_input.append(link_signal)
+    decision_signal = _decision_explanations_signal(decision_explanations)
+    if decision_signal is not None:
+        safety_input.append(decision_signal)
     if not safety_input:
         return SafetyJudgment(choice=True, explanation=None)
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)

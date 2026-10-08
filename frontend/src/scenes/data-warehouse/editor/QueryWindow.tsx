@@ -4,36 +4,28 @@ import type { editor as importedEditor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
+import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
-import { BIEditor } from './bi/BIEditor'
-import { biEditorLogic } from './bi/biEditorLogic'
-import { BIEditorView } from './bi/biEditorTypes'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -42,6 +34,7 @@ import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
+import { RunButton } from './RunButton'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
@@ -92,7 +85,6 @@ export function QueryWindow({
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
-    const biLogic = biEditorLogic({ tabId })
 
     const {
         queryInput,
@@ -106,7 +98,6 @@ export function QueryWindow({
         sendRawQueryEnabled,
         selectedConnectionSupportsHogQL,
     } = useValues(logic)
-    const { config: biConfig, editorView } = useValues(biLogic)
 
     const {
         setQueryInput,
@@ -119,17 +110,14 @@ export function QueryWindow({
         openMaterializationModal,
         setSourceQuery,
     } = useActions(logic)
-    const { setEditorView } = useActions(biLogic)
 
-    const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(logic)
-    const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
+    const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
-    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
-    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
+    const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
+    const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
-    const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -231,8 +219,8 @@ export function QueryWindow({
                       custom: true,
                       label: () => (
                           <LemonSwitch
-                              checked={editorVimModeEnabled}
-                              onChange={setEditorVimModeEnabled}
+                              checked={vimModeEnabled}
+                              onChange={setVimModeEnabled}
                               label="Vim mode"
                               size="small"
                               fullWidth
@@ -240,6 +228,16 @@ export function QueryWindow({
                           />
                       ),
                   },
+                  ...(vimModeEnabled
+                      ? [
+                            {
+                                label: 'Edit vimrc',
+                                onClick: () => openVimrcModal(codeEditorKey),
+                                size: 'small' as const,
+                                'data-attr': 'sql-editor-vimrc-edit',
+                            },
+                        ]
+                      : []),
               ]
             : []),
         ...(canSendRawQuery
@@ -277,41 +275,23 @@ export function QueryWindow({
                             mode={mode}
                             hostProduct={hostProduct}
                         />
-                        {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
-                            <LemonSegmentedButton
-                                value={editorView}
-                                onChange={setEditorView}
-                                options={[
-                                    { value: BIEditorView.SQL, label: 'SQL' },
-                                    { value: BIEditorView.BI, label: 'BI' },
-                                ]}
-                                size="small"
-                            />
-                        ) : null}
                         {hideRunButton ? null : (
                             <RunButton
                                 onRunQuery={onRunQuery}
                                 runQueryLoading={runQueryLoading}
-                                runQueryDisabledReason={
-                                    runQueryDisabledReason ??
-                                    (showBIEditor && !biConfig.source
-                                        ? 'Drag a field into the BI editor before running'
-                                        : undefined)
-                                }
+                                runQueryDisabledReason={runQueryDisabledReason}
                                 runQueryTooltip={runQueryTooltip}
                                 onCancelQuery={onCancelQuery}
                                 cancelQueryLoading={cancelQueryLoading}
                             />
                         )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
-                        {!showBIEditor ? <LemonDivider vertical /> : null}
-                        {!showBIEditor ? (
-                            <QueryVariablesMenu
-                                disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
-                            />
-                        ) : null}
-                        {!showBIEditor ? <QueryFiltersMenu /> : null}
-                        {editingView && !showBIEditor ? (
+                        <LemonDivider vertical />
+                        <QueryVariablesMenu
+                            disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                        />
+                        <QueryFiltersMenu />
+                        {editingView ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -332,7 +312,13 @@ export function QueryWindow({
                     <div className="ml-auto flex items-center gap-2">
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
                         {editorSettingsItems.length > 0 ? (
-                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
+                            <LemonMenu
+                                items={editorSettingsItems}
+                                closeOnClickInside={false}
+                                placement="bottom-end"
+                                visible={editorSettingsMenuKey === codeEditorKey}
+                                onVisibilityChange={(open) => setEditorSettingsMenuOpen(codeEditorKey, open)}
+                            >
                                 <LemonButton
                                     icon={<IconGear />}
                                     type="secondary"
@@ -342,6 +328,7 @@ export function QueryWindow({
                                 />
                             </LemonMenu>
                         ) : null}
+                        {vimModeFeatureEnabled ? <VimrcModal editorKey={codeEditorKey} /> : null}
                         {mode === SQLEditorMode.Embedded && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
@@ -352,16 +339,15 @@ export function QueryWindow({
                 </div>
             ) : null}
 
-            {showQueryPanel && showBIEditor ? <BIEditor tabId={tabId} /> : null}
-
-            {showQueryPanel && !showBIEditor ? (
+            {showQueryPanel ? (
                 <QueryPane
                     originalValue={originalQueryInput ?? ''}
                     queryInput={(suggestedQueryInput || queryInput) ?? ''}
                     sourceQuery={sourceQuery.source}
                     promptError={null}
                     onRun={runQuery}
-                    editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
+                    editorVimModeEnabled={vimModeFeatureEnabled && vimModeEnabled}
+                    editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
@@ -377,6 +363,7 @@ export function QueryWindow({
                         // that mounts against an existing model never runs that path, and would then
                         // ask for metadata without the index report.
                         indexUsage: true,
+                        onFixWithAI: (prompt) => fixIndexUsageWithAI(prompt),
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
@@ -416,9 +403,7 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? (
-                <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
-            ) : null}
+            {showOutputPanel ? <InternalQueryWindow tabId={tabId} biMode={false} onShareTab={onShareTab} /> : null}
         </div>
     )
 }
@@ -463,118 +448,6 @@ function ExpandDatabaseTreeButton({
                 toggleDatabaseTreeCollapsed()
             }}
         />
-    )
-}
-
-function RunButton({
-    onRunQuery,
-    runQueryLoading,
-    runQueryDisabledReason,
-    runQueryTooltip,
-    onCancelQuery,
-    cancelQueryLoading,
-}: {
-    onRunQuery?: () => void
-    runQueryLoading?: boolean
-    runQueryDisabledReason?: string
-    runQueryTooltip?: string
-    onCancelQuery?: () => void
-    cancelQueryLoading?: boolean
-}): JSX.Element {
-    const { runQuery, runSubquery } = useActions(sqlEditorLogic)
-    const { cancelQuery } = useActions(dataNodeLogic)
-    const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
-
-    const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
-    // The external-run path shows a cancel affordance only when a canceller is provided.
-    const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
-
-    const [iconColor, tooltipContent] = useMemo(() => {
-        if (onRunQuery) {
-            if (isRunning && onCancelQuery) {
-                return ['var(--success)', 'Stop the running query']
-            }
-            return ['var(--success)', runQueryTooltip ?? 'Run query']
-        }
-
-        if (isSourceQueryLastRun) {
-            return ['var(--primary)', 'No changes to run']
-        }
-
-        // No index verdict colors this button. The per-filter report counts filters, and a count does
-        // not track what a query costs: one selective filter bounds the read however many others scan,
-        // and nothing here yet looks at the time range, which is what really decides how much is read.
-        return ['var(--success)', 'New changes to run']
-    }, [metadata, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip, isRunning, onCancelQuery])
-
-    const sideAction = useMemo(
-        () =>
-            responseLoading || onRunQuery
-                ? undefined
-                : {
-                      dropdown: {
-                          placement: 'bottom-end' as const,
-                          overlay: (
-                              <>
-                                  <LemonButton
-                                      fullWidth
-                                      onClick={() => runQuery()}
-                                      sideIcon={<span className="text-muted text-xs">⌘↵</span>}
-                                  >
-                                      Run query at cursor
-                                  </LemonButton>
-                                  <LemonButton
-                                      fullWidth
-                                      onClick={() => runSubquery()}
-                                      sideIcon={<span className="text-muted text-xs">⌘⇧↵</span>}
-                                  >
-                                      Run innermost subquery at cursor
-                                  </LemonButton>
-                              </>
-                          ),
-                      },
-                  },
-        [onRunQuery, responseLoading, runQuery, runSubquery]
-    )
-
-    return (
-        <Shortcut
-            name="SQLEditorRun"
-            keybind={[keyBinds.run]}
-            intent={showCancel ? 'Cancel query' : 'Run query'}
-            interaction="click"
-            scope={Scene.SQLEditor}
-        >
-            <LemonButton
-                data-attr="sql-editor-run-button"
-                onClick={() => {
-                    if (onRunQuery) {
-                        if (runQueryLoading) {
-                            // Guard against double submission: one cancel request at a time.
-                            if (onCancelQuery && !cancelQueryLoading) {
-                                onCancelQuery()
-                            }
-                        } else {
-                            onRunQuery()
-                        }
-                    } else if (responseLoading) {
-                        cancelQuery()
-                    } else {
-                        runQuery()
-                    }
-                }}
-                icon={showCancel ? <IconCancel /> : <IconPlayFilled color={iconColor} />}
-                type="primary"
-                size="small"
-                tooltip={tooltipContent}
-                sideAction={sideAction}
-                loading={onRunQuery ? (onCancelQuery ? !!cancelQueryLoading : isRunning) : false}
-                disabledReason={runQueryDisabledReason}
-            >
-                {showCancel ? 'Cancel' : 'Run'}
-            </LemonButton>
-        </Shortcut>
     )
 }
 

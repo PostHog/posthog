@@ -7,7 +7,16 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { parseScopes, parseType, docsLabelApplies, labelsForTitle, loadRules } = require('./label-pr-from-title')
+const {
+    parseScopes,
+    parseType,
+    docsLabelApplies,
+    labelsForTitle,
+    loadRules,
+    isFlagsLowHangingFruitCandidate,
+    isFlagsLowHangingFruit,
+    flagsWithoutGeneratedFiles,
+} = require('./label-pr-from-title')
 
 // Mirrors the rule shape in .github/auto-assign-labels.json so the logic is
 // exercised against the real structure without reading the file.
@@ -149,3 +158,180 @@ for (const scope of ['desktop', 'tasks', 'agent-proxy', 'canvas']) {
         )
     })
 }
+
+// ---------------------------------------------------------------------------
+// Feature flags team only: the `review/low-hanging-fruit` label.
+// ---------------------------------------------------------------------------
+
+const FLAGS_LABELS = ['feature/feature-flags', 'team/feature-flags']
+
+const FLAGS_CANDIDATE_CASES = [
+    {
+        author: 'posthog[bot]',
+        labels: FLAGS_LABELS,
+        expected: true,
+        description: 'AI PR for the flags team is a candidate',
+    },
+    {
+        author: 'someuser',
+        labels: FLAGS_LABELS,
+        expected: false,
+        description: 'human PR for the flags team is not a candidate',
+    },
+    {
+        author: 'posthog[bot]',
+        labels: ['feature/desktop'],
+        expected: false,
+        description: 'AI PR for another team is not a candidate',
+    },
+]
+
+test('isFlagsLowHangingFruitCandidate', async (t) => {
+    for (const { author, labels, expected, description } of FLAGS_CANDIDATE_CASES) {
+        await t.test(description, () => {
+            assert.equal(isFlagsLowHangingFruitCandidate(author, labels), expected)
+        })
+    }
+})
+
+const file = (filename, additions, deletions = 0) => ({ filename, additions, deletions })
+const generatedFiles = (count) =>
+    Array.from({ length: count }, (_, i) => file(`frontend/src/generated/core/file${i}.ts`, 10))
+
+const FLAGS_LOW_HANGING_FRUIT_CASES = [
+    {
+        files: [file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 20, 5)],
+        expected: true,
+        description: 'small single-file change',
+    },
+    {
+        files: [file('a.py', 30, 5), file('b.py', 15)],
+        expected: true,
+        description: 'exactly at the line and file limits',
+    },
+    {
+        files: [file('a.py', 30, 5), file('b.py', 16)],
+        expected: false,
+        description: 'one line over the line limit',
+    },
+    {
+        files: [file('a.tsx', 1), file('b.tsx', 1), file('c.tsx', 1)],
+        expected: false,
+        description: 'one file over the file limit',
+    },
+    {
+        files: [file('posthog/migrations/1234_add_column.py', 20)],
+        expected: false,
+        description: 'small Django migration',
+    },
+    {
+        files: [file('rust/feature-flags/migrations/0001_init.sql', 10)],
+        expected: false,
+        description: 'small Rust migration',
+    },
+    {
+        files: [file('.github/workflows/ci-rust.yml', 2, 2)],
+        expected: false,
+        description: 'small workflow change',
+    },
+    {
+        files: [file('.github/actions/paths-filter/dist/index.js', 2, 2)],
+        expected: false,
+        description: 'small change to a generated file under .github/',
+    },
+    {
+        files: [
+            file('posthog/api/test/test_feature_flag.py', 400),
+            file('frontend/src/scenes/feature-flags/featureFlagLogic.test.ts', 300),
+            file('rust/feature-flags/src/flags/test_flag_matching.rs', 200),
+            file('rust/feature-flags/tests/test_flags.rs', 100),
+        ],
+        expected: true,
+        description: 'large tests-only change',
+    },
+    {
+        files: [
+            file('products/feature_flags/backend/local_evaluation.py', 30),
+            file('posthog/utils.py', 20),
+            file('products/feature_flags/backend/test/test_local_evaluation.py', 300),
+            file('frontend/src/scenes/feature-flags/featureFlagLogic.test.ts', 100),
+        ],
+        expected: true,
+        description: 'small source change with large tests',
+    },
+    {
+        files: [file('frontend/src/scenes/feature-flags/FeatureFlagTestingTab.tsx', 200)],
+        expected: false,
+        description: 'large change to a component with "Testing" in its name',
+    },
+    {
+        files: [
+            file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 30),
+            file('frontend/src/scenes/feature-flags/FeatureFlagSchedule.tsx', 30),
+            file('frontend/src/scenes/feature-flags/FeatureFlag.scss', 20),
+            file('products/feature_flags/frontend/FlagsTable.tsx', 10),
+            file('frontend/src/scenes/feature-flags/FlagCard.tsx', 10),
+        ],
+        expected: true,
+        description: 'UI tweak exactly at the line and file limits',
+    },
+    {
+        files: [file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 50), file('a.scss', 1), file('b.css', 40)],
+        expected: false,
+        description: 'UI tweak with a style file outside the frontend directories',
+    },
+    {
+        files: [
+            file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 50),
+            file('frontend/src/scenes/feature-flags/FeatureFlag.scss', 51),
+        ],
+        expected: false,
+        description: 'UI tweak one line over the line limit',
+    },
+    {
+        files: Array.from({ length: 6 }, (_, i) => file(`frontend/src/scenes/feature-flags/C${i}.tsx`, 1)),
+        expected: false,
+        description: 'UI tweak one file over the file limit',
+    },
+    {
+        files: [
+            file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 20),
+            file('frontend/src/scenes/feature-flags/featureFlagLogic.ts', 20),
+            file('frontend/src/scenes/feature-flags/flagsLogic.tsx', 20),
+        ],
+        expected: false,
+        description: 'UI tweak that also changes kea logics',
+    },
+    {
+        files: [...generatedFiles(98), file('a.tsx', 10)],
+        expected: true,
+        description: 'generated files below a full page do not count',
+    },
+    {
+        files: [...generatedFiles(99), file('a.tsx', 10)],
+        expected: false,
+        description: 'a full page withholds the label, because later pages go unchecked',
+    },
+]
+
+test('isFlagsLowHangingFruit', async (t) => {
+    for (const { files, expected, description } of FLAGS_LOW_HANGING_FRUIT_CASES) {
+        await t.test(description, () => {
+            assert.equal(isFlagsLowHangingFruit(files), expected)
+        })
+    }
+})
+
+// Runs against the shipped .gitattributes, so it also fails if the generated
+// API types stop being marked as `linguist-generated`.
+test('flagsWithoutGeneratedFiles drops generated files and keeps hand-written ones', () => {
+    const files = [
+        file('frontend/src/generated/core/api.schemas.ts', 300),
+        file('products/feature_flags/frontend/generated/api.ts', 120),
+        file('products/desktop/packages/ui/src/router/routeTree.gen.ts', 40),
+        file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
+    ]
+    assert.deepEqual(flagsWithoutGeneratedFiles(files), [
+        file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
+    ])
+})

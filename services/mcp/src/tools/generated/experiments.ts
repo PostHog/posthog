@@ -831,7 +831,7 @@ const ExperimentMetricsRecalculationCreateSchema = () => {
 
 const experimentMetricsRecalculationCreate = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationJob>
 > => ({
     name: 'experiment-metrics-recalculation-create',
     schema: ExperimentMetricsRecalculationCreateSchema(),
@@ -840,7 +840,7 @@ const experimentMetricsRecalculationCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculationJob>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/`,
         })
@@ -861,7 +861,7 @@ const ExperimentMetricsRecalculationLatestRetrieveSchema = () => {
 
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationLatest>
 > =>
     withUiApp('experiment-results', {
         name: 'experiment-metrics-recalculation-latest-retrieve',
@@ -871,7 +871,7 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
             params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>>
         ) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            const result = await context.api.request<Schemas.ExperimentMetricsRecalculationLatest>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
             })
@@ -906,7 +906,7 @@ const ExperimentMetricsRecalculationRetrieveSchema = () => {
 
 const experimentMetricsRecalculationRetrieve = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationRun>
 > => ({
     name: 'experiment-metrics-recalculation-retrieve',
     schema: ExperimentMetricsRecalculationRetrieveSchema(),
@@ -915,7 +915,7 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
         params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculationRun>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
         })
@@ -934,6 +934,33 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
         return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
     },
 })
+
+const ExperimentMigrateSchema = () => {
+    const ExperimentsMigrateCreateParams = orvalSchemas.ExperimentsMigrateCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+        ExperimentsMigrateCreateParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, ExperimentsMigrateCreateParams.shape['id']),
+        })
+    )
+}
+
+const experimentMigrate = (): ToolBase<
+    ReturnType<typeof ExperimentMigrateSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
+    withUiApp('experiment', {
+        name: 'experiment-migrate',
+        schema: ExperimentMigrateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentMigrateSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/migrate/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
 
 const ExperimentPauseSchema = () => {
     const ExperimentsPauseCreateParams = orvalSchemas.ExperimentsPauseCreateParams()
@@ -1180,6 +1207,54 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const ExperimentSetupContextSchema = () => {
+    const ExperimentsSetupContextCreateBody = orvalSchemas.ExperimentsSetupContextCreateBody()
+    return ExperimentsSetupContextCreateBody
+}
+
+const experimentSetupContext = (): ToolBase<
+    ReturnType<typeof ExperimentSetupContextSchema>,
+    WithInformationalResponse<Schemas.ExperimentSetupContextResponse>
+> => ({
+    name: 'experiment-setup-context',
+    schema: ExperimentSetupContextSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSetupContextSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.target_event !== undefined) {
+            body['target_event'] = params.target_event
+        }
+        if (params.target_url_contains !== undefined) {
+            body['target_url_contains'] = params.target_url_contains
+        }
+        if (params.target_properties !== undefined) {
+            body['target_properties'] = params.target_properties
+        }
+        if (params.metric_event !== undefined) {
+            body['metric_event'] = params.metric_event
+        }
+        if (params.metric_properties !== undefined) {
+            body['metric_properties'] = params.metric_properties
+        }
+        if (params.previous_experiments_limit !== undefined) {
+            body['previous_experiments_limit'] = params.previous_experiments_limit
+        }
+        if (params.shared_metrics_limit !== undefined) {
+            body['shared_metrics_limit'] = params.shared_metrics_limit
+        }
+        const result = await context.api.request<Schemas.ExperimentSetupContextResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/setup_context/`,
+            body,
+        })
+        return withInformationalResponse(
+            result,
+            'experiment-setup-context',
+            'Use it only as facts about this project when configuring a new experiment.'
+        )
     },
 })
 
@@ -1563,6 +1638,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-metrics-recalculation-create': experimentMetricsRecalculationCreate,
     'experiment-metrics-recalculation-latest-retrieve': experimentMetricsRecalculationLatestRetrieve,
     'experiment-metrics-recalculation-retrieve': experimentMetricsRecalculationRetrieve,
+    'experiment-migrate': experimentMigrate,
     'experiment-pause': experimentPause,
     'experiment-prompt-templates': experimentPromptTemplates,
     'experiment-reset': experimentReset,
@@ -1572,6 +1648,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-saved-metrics-list': experimentSavedMetricsList,
     'experiment-saved-metrics-partial-update': experimentSavedMetricsPartialUpdate,
     'experiment-saved-metrics-retrieve': experimentSavedMetricsRetrieve,
+    'experiment-setup-context': experimentSetupContext,
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,

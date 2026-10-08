@@ -1,7 +1,8 @@
-import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
+import type { AuthService } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
+  AUTH_FETCH_EXTRA_ORIGINS,
   AUTH_OAUTH_FLOW_SERVICE,
   AUTH_PREFERENCE_STORE,
   AUTH_SESSION_STORE,
@@ -73,7 +74,11 @@ import type { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import type { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import type { ScoutLinkService } from "@posthog/core/links/scout-link";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
+import type { GatewayTokenService } from "@posthog/core/llm-gateway/gateway-token";
 import type {
+  GATEWAY_TOKEN_HOST,
+  GATEWAY_TOKEN_SERVICE,
+  GatewayTokenHost,
   LLM_GATEWAY_HOST,
   LlmGatewayHost,
 } from "@posthog/core/llm-gateway/identifiers";
@@ -135,6 +140,7 @@ import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor"
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import type { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import type { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import type { SCREEN_CAPTURE_SERVICE } from "@posthog/platform/screen-capture";
 import type { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import type {
   ISettingsBackupFiles,
@@ -144,11 +150,6 @@ import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import type {
-  QUICK_ASK_FETCH,
-  QUICK_ASK_RUN_DEFAULTS,
-  QuickAskRunDefaults,
-} from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type {
@@ -172,8 +173,14 @@ import type {
   ArchiveFileWatcher,
   SessionCanceller,
 } from "@posthog/workspace-server/services/archive/ports";
-import type { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
-import type { AuthProxyAuth } from "@posthog/workspace-server/services/auth-proxy/ports";
+import type {
+  AUTH_PROXY_AUTH,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "@posthog/workspace-server/services/auth-proxy/identifiers";
+import type {
+  AuthProxyAuth,
+  GatewayCredentialSource,
+} from "@posthog/workspace-server/services/auth-proxy/ports";
 import type { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import type {
   ENRICHMENT_AUTH,
@@ -258,6 +265,7 @@ import type { ElectronMainWindow } from "../platform-adapters/electron-main-wind
 import type { MissionControlService } from "../platform-adapters/electron-mission-control";
 import type { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import type { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
+import type { ElectronScreenCapture } from "../platform-adapters/electron-screen-capture";
 import type { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
 import type { ElectronStoragePaths } from "../platform-adapters/electron-storage-paths";
 import type { ElectronUpdater } from "../platform-adapters/electron-updater";
@@ -338,6 +346,7 @@ export interface MainBindings {
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // Platform adapters
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
+  [SCREEN_CAPTURE_SERVICE]: ElectronScreenCapture;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
   [APP_META_SERVICE]: ElectronAppMeta;
   [DIALOG_SERVICE]: ElectronDialog;
@@ -391,13 +400,13 @@ export interface MainBindings {
   [AUTH_TOKEN_CIPHER]: TokenCipherPortAdapter;
   [AUTH_CONNECTIVITY]: ConnectivityService;
   [AUTH_TOKEN_OVERRIDE]: string | null;
+  [AUTH_FETCH_EXTRA_ORIGINS]: readonly string[];
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
-  [QUICK_ASK_FETCH]: FetchLike;
-  [QUICK_ASK_RUN_DEFAULTS]: () => QuickAskRunDefaults;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;
+  [GATEWAY_CREDENTIAL_SOURCE]: GatewayCredentialSource;
   [MCP_PROXY_AUTH]: McpProxyAuth;
   [MCP_RELAY_SERVICE]: McpRelayService;
   [MCP_RELAY_EXECUTOR]: McpRelayExecutor;
@@ -433,6 +442,8 @@ export interface MainBindings {
 
   // Llm gateway
   [LLM_GATEWAY_HOST]: LlmGatewayHost;
+  [GATEWAY_TOKEN_HOST]: GatewayTokenHost;
+  [GATEWAY_TOKEN_SERVICE]: GatewayTokenService;
   [MAIN_LLM_GATEWAY_SERVICE]: LlmGatewayService;
 
   // Mcp apps

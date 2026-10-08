@@ -15,7 +15,7 @@ from rest_framework import status
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
-from posthog.models import Tag, TaggedItem
+from posthog.models import PropertyDefinition, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -65,7 +65,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.contracts import WorkflowSummary
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -661,6 +662,43 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json(), [{"user_id": teammate.id, "display_name": "Alex Rivera"}])
 
+    def test_presence_list_returns_viewers_for_requested_accessible_accounts(self) -> None:
+        first_account = self._create_account(name="First account")
+        second_account = self._create_account(name="Second account")
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        teammate.first_name = "Alex"
+        teammate.last_name = "Rivera"
+        teammate.save(update_fields=["first_name", "last_name"])
+
+        self.client.force_login(teammate)
+        self.client.post(f"{self.endpoint_base}{first_account.id}/presence/", format="json")
+        self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json")
+
+        self.client.force_login(self.user)
+        expected_teammate = [{"user_id": teammate.id, "display_name": "Alex Rivera"}]
+        self.assertEqual(
+            self.client.post(f"{self.endpoint_base}{first_account.id}/presence/", format="json").json(),
+            expected_teammate,
+        )
+        self.assertEqual(
+            self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json").json(),
+            expected_teammate,
+        )
+        response = self.client.post(
+            f"{self.endpoint_base}presence_list/",
+            {"account_ids": [str(first_account.id), str(second_account.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            {item["account_id"]: item["viewers"] for item in response.json()},
+            {
+                str(first_account.id): expected_teammate,
+                str(second_account.id): expected_teammate,
+            },
+        )
+
     @patch("products.customer_analytics.backend.logic.account_presence.time")
     def test_presence_removes_expired_viewers(self, mock_time: MagicMock) -> None:
         account = self._create_account()
@@ -949,7 +987,7 @@ class TestAccountViewSet(APIBaseTest):
             ["enterprise", "priority"],
         )
         self.assertEqual(
-            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
+            sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True)),
             ["enterprise", "priority"],
         )
 
@@ -2038,9 +2076,9 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
             organization_member=membership,
         )
 
-    def _create_workflow_reference(self, *, name: str) -> HogFlow:
-        return HogFlow.objects.create(
-            team=self.team,
+    def _create_workflow_reference(self, *, name: str) -> WorkflowSummary:
+        return create_workflow_for_test(
+            team_id=self.team.id,
             name=name,
             status="active",
             actions=[
@@ -2378,7 +2416,16 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [s["id"] for s in listed.json()["results"]] == [source_id]
 
-        toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        detail_endpoint = f"{self.endpoint}{source_id}/"
+        retrieved = self.client.get(detail_endpoint)
+        assert retrieved.status_code == status.HTTP_200_OK
+        assert retrieved.json()["column_property_map"] is None
+        assert retrieved.json()["column_descriptions"] is None
+
+        round_tripped = self.client.patch(detail_endpoint, retrieved.json(), format="json")
+        assert round_tripped.status_code == status.HTTP_200_OK, round_tripped.content
+
+        toggled = self.client.patch(detail_endpoint, {"is_enabled": False}, format="json")
         assert toggled.status_code == status.HTTP_200_OK
         assert toggled.json()["is_enabled"] is False
 
@@ -2411,6 +2458,30 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["external_data_schema"] == str(schema.id)
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
+
+    def test_patch_person_source_mapping_round_trip_and_validation(self):
+        source_id = self._create_person_source()
+
+        patched = self.client.patch(
+            f"{self.endpoint}{source_id}/",
+            {
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "column_descriptions": {"seats": " Seat count "},
+            },
+            format="json",
+        )
+
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == source_id
+        assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
+        assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+
+        invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
+        assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
+
+        cleared = self.client.patch(f"{self.endpoint}{source_id}/", {"column_descriptions": None}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.content
+        assert cleared.json()["column_descriptions"] == {}
 
     @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
     def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
@@ -2488,7 +2559,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_person_source_actions_when_enabled(self, _flag, mock_trigger_sync, mock_start_backfill):
         # Wiring guard: the actions route through the facade to the temporal seam, return the typed
-        # response, and the backfill pre-creates a running run the runs feed then surfaces.
+        # response, and an in-flight sync still sends the manual latest-revision follow-up.
         source_id = self._create_person_source()
 
         synced = self.client.post(f"{self.endpoint}{source_id}/sync/")
@@ -2498,7 +2569,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
 
         backfilled = self.client.post(f"{self.endpoint}{source_id}/backfill/")
         assert backfilled.status_code == status.HTTP_202_ACCEPTED, backfilled.content
-        assert backfilled.json() == {"status": "started", "already_running": False}
+        assert backfilled.json() == {"status": "already_running", "already_running": True}
         mock_start_backfill.assert_called_once()
 
         runs = self.client.get(f"{self.endpoint}{source_id}/runs/")
@@ -2527,13 +2598,46 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             {
                 "definition": definition.json()["id"],
                 "external_data_schema": str(schema.id),
-                "column_property_map": {"plan": "plan_tier"},
+                "column_property_map": {"plan": "plan_tier_pending"},
                 "key_column": "org_id",
             },
             format="json",
         )
         assert created.status_code == status.HTTP_201_CREATED, created.content
         assert created.json()["external_data_schema"] == str(schema.id)
+
+        # Settle the mapping to its tested value via an update. Provenance is stamped as soon as an
+        # enabled source's effective mapping changes, without waiting for a value backfill.
+        settled = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "plan_tier"}},
+            format="json",
+        )
+        assert settled.status_code == status.HTTP_200_OK, settled.content
+        old_definition = PropertyDefinition.objects.get(
+            team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="plan_tier"
+        )
+        assert old_definition.warehouse_origin is not None
+        assert old_definition.warehouse_origin["custom_property_source_id"] == created.json()["id"]
+
+        patched = self.client.patch(
+            f"{self.endpoint}{created.json()['id']}/",
+            {"column_property_map": {"plan": "group_plan_tier"}},
+            format="json",
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.content
+        assert patched.json()["id"] == created.json()["id"]
+        assert patched.json()["column_property_map"] == {"plan": "group_plan_tier"}
+
+        # Regression: renaming a mapped column must not leave the old property definition claiming
+        # this source indefinitely once it no longer produces that property.
+        old_definition.refresh_from_db()
+        assert old_definition.warehouse_origin is None
+        new_definition = PropertyDefinition.objects.get(
+            team_id=self.team.id, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="group_plan_tier"
+        )
+        assert new_definition.warehouse_origin is not None
+        assert new_definition.warehouse_origin["custom_property_source_id"] == created.json()["id"]
 
     @parameterized.expand(
         [
@@ -3490,6 +3594,46 @@ class TestCalendarSyncViewSet(APIBaseTest):
             },
         )
 
+    def test_sync_interval_defaults_and_is_scoped_to_one_account(self):
+        self._become_admin()
+        first = self._create_syncable_integration()
+        second = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="second-account")
+        endpoint = f"/api/environments/{self.team.id}/calendar_sync/"
+        initial = self.client.get(endpoint)
+        self.assertEqual({row["sync_interval_minutes"] for row in initial.json()}, {60})
+
+        response = self.client.post(f"{endpoint}interval/", {"integration_id": first.id, "sync_interval_minutes": 15})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["integration_id"]: row["sync_interval_minutes"] for row in self.client.get(endpoint).json()},
+            {first.id: 15, second.id: 60},
+        )
+
+    def test_sync_interval_rejects_invalid_or_unowned_integrations(self):
+        self._become_admin()
+        integration = self._create_syncable_integration()
+        endpoint = f"/api/environments/{self.team.id}/calendar_sync/interval/"
+        self.assertEqual(
+            self.client.post(endpoint, {"integration_id": integration.id, "sync_interval_minutes": 10}).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other = self._create_syncable_integration(team=other_team)
+        wrong_kind = Integration.objects.create(team=self.team, kind="slack", integration_id="wrong-kind")
+        for integration_id in (other.id, wrong_kind.id):
+            self.assertEqual(
+                self.client.post(endpoint, {"integration_id": integration_id, "sync_interval_minutes": 5}).status_code,
+                status.HTTP_404_NOT_FOUND,
+            )
+
+    def test_sync_interval_requires_project_admin(self):
+        integration = self._create_syncable_integration()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/interval/",
+            {"integration_id": integration.id, "sync_interval_minutes": 5},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
         self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
@@ -3771,6 +3915,43 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
         self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
+
+    @time_machine.travel("2026-08-10T12:00:00Z", tick=False)
+    def test_list_collapses_upcoming_occurrences_of_a_recurring_series(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-recurring")
+
+        def occurrence(start: str, status: str = "confirmed") -> Meeting:
+            return Meeting.objects.unscoped().create(
+                team=self.team,
+                account=account,
+                ical_uid="uid-weekly",
+                recurrence_instance_id=start,
+                start_time=start,
+                status=status,
+                title="Weekly sync",
+            )
+
+        past_1 = occurrence("2026-08-03T15:00:00Z")
+        past_2 = occurrence("2026-08-06T15:00:00Z")
+        occurrence("2026-08-13T15:00:00Z", status="cancelled")
+        next_up = occurrence("2026-08-20T15:00:00Z")
+        occurrence("2026-08-27T15:00:00Z")
+        one_off = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-one-off", start_time="2026-09-01T15:00:00Z"
+        )
+
+        payload = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/").json()
+
+        self.assertEqual(payload["count"], 4)
+        self.assertEqual(
+            [(m["id"], m["is_recurring"]) for m in payload["results"]],
+            [
+                (str(one_off.id), False),
+                (str(next_up.id), True),
+                (str(past_2.id), True),
+                (str(past_1.id), True),
+            ],
+        )
 
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")

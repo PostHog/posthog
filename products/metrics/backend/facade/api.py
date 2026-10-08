@@ -47,7 +47,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
@@ -186,7 +186,7 @@ def _evaluate_formula_point(
 
 
 def _evaluate_formula(
-    formula_text: str, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
+    node: Any, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
 ) -> list[MetricSeries]:
     """Combine clause results point-by-point on the shared grid.
 
@@ -195,8 +195,6 @@ def _evaluate_formula(
     single ungrouped series is broadcast to every label-set instead. A
     label-set missing from any non-broadcast clause is dropped.
     """
-    node = parse_formula(formula_text, frozenset(series_by_clause))
-
     broadcasts: dict[str, MetricSeries] = {}
     grouped: dict[str, dict[tuple[tuple[str, str], ...], MetricSeries]] = {}
     for name, series_list in series_by_clause.items():
@@ -240,10 +238,15 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
+    formula_node_checked = (
+        parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
+        if request.formula is not None
+        else None
+    )
     rows_by_clause: dict[str, list[dict[str, Any]]] = {}
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
-        runner = MetricQueryRunner(
+        runner = build_metric_query_runner(
             team=team,
             metric_name=clause.metric_name,
             aggregation=runner_aggregation,
@@ -256,11 +259,6 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
         )
         rows_by_clause[clause.name] = runner.run()
-
-    # Validate the formula before any early return so bad formulas always 400.
-    formula_node_checked = (
-        parse_formula(request.formula, frozenset(rows_by_clause)) if request.formula is not None else None
-    )
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
@@ -287,8 +285,8 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         for clause in request.clauses
     }
 
-    if request.formula is not None:
-        return _evaluate_formula(request.formula, series_by_clause, grid)
+    if formula_node_checked is not None:
+        return _evaluate_formula(formula_node_checked, series_by_clause, grid)
 
     return [series for clause in request.clauses for series in series_by_clause[clause.name]]
 
@@ -303,8 +301,7 @@ def list_metric_names(
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
-    most-recently-seen, with exact-name matches floated to the top.
+    Returns a list of `{"name": str, "metric_type": str}` dicts.
     Passing `services` narrows the list to names those services reported.
     Raises `ValueError` for an out-of-range limit or too many services.
 
@@ -354,14 +351,14 @@ def list_metric_attribute_keys(
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List attribute keys by distinct series count, from highest to lowest.
+    """List attribute keys by distinct value count, from highest to lowest.
 
     When a metric name is provided, only series that emitted that metric in the
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
-    The window defaults to the last 7 days. Returns `{"name": str,
-    "series_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    The window defaults to the last 24 hours. Returns `{"name": str,
+    "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
     """
     runner = MetricAttributeKeysQueryRunner(
@@ -388,7 +385,7 @@ def list_metric_attribute_values(
     for the filter bar's value autocomplete.
 
     `service_name`/`service.name` read the first-class column, matching how
-    filters on it execute. The window defaults to the last 7 days. Returns
+    filters on it execute. The window defaults to the last 24 hours. Returns
     `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
     empty key, an out-of-range limit, or an inverted window.
     """

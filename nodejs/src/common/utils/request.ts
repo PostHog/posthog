@@ -2,12 +2,13 @@ import { LookupAddress } from 'dns'
 import dns from 'dns/promises'
 import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
     Dispatcher,
     type HeadersInit,
+    Pool,
     ProxyAgent,
     RequestInfo,
     RequestInit,
@@ -19,6 +20,7 @@ import {
 import { URL } from 'url'
 
 import { getExternalRequestConfig } from '~/common/config'
+import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 
 import { ColdStartGate } from './cold-start-gate'
 import { isProdEnv } from './env-utils'
@@ -37,6 +39,14 @@ const unsafeRequestCounter = new Counter({
     labelNames: ['reason'],
 })
 
+// The only signal on this side that says which way a request left the pod. Smokescreen records the destination of a
+// tunnel it carries, but nothing here otherwise separates a proxied request from a direct one.
+const externalRequestRouteCounter = new Counter({
+    name: 'node_external_request_route_total',
+    help: 'Third-party requests by egress route, proxy or direct',
+    labelNames: ['route'],
+})
+
 // Gauge tracking the number of external HTTP requests currently in flight.
 // This is the primary scaling signal for the cdp-cyclotron-worker: it directly
 // measures I/O saturation rather than CPU (which stays low while waiting on responses)
@@ -44,6 +54,23 @@ const unsafeRequestCounter = new Counter({
 const inflightExternalRequests = new Gauge({
     name: 'cdp_http_inflight_requests',
     help: 'Number of currently inflight external HTTP requests (undici). Use as HPA scaling metric for cdp-cyclotron-worker.',
+})
+
+// The connect timeout is a single budget covering DNS resolution, TCP and TLS, and only the total request duration is
+// measured elsewhere, so a connect timeout does not say which phase consumed the budget. Resolution is the phase that
+// runs in this process, so it is the one that can be measured here. The duration separates a slow resolver path from a
+// fast one, and the in-flight gauge separates lookups that queue behind other lookups from lookups that are themselves
+// slow. Neither carries the hostname as a label, because destination hostnames are customer-supplied and unbounded.
+const dnsLookupDuration = new Histogram({
+    name: 'node_dns_lookup_duration_ms',
+    help: 'Duration of dns.lookup() for an external hostname, in milliseconds',
+    labelNames: ['outcome'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
+const dnsLookupsInFlight = new Gauge({
+    name: 'node_dns_lookups_in_flight',
+    help: 'Number of dns.lookup() calls currently awaiting a result',
 })
 
 // NOTE: This isn't exactly fetch - it's meant to be very close but limited to only options we actually want to expose
@@ -197,10 +224,16 @@ function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
 async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
     const validAddrinfo: LookupAddress[] = []
+    const lookupStartedAt = performance.now()
+    dnsLookupsInFlight.inc()
     try {
         addrinfo = await dns.lookup(hostname, { all: true })
+        dnsLookupDuration.observe({ outcome: 'success' }, performance.now() - lookupStartedAt)
     } catch {
+        dnsLookupDuration.observe({ outcome: 'failure' }, performance.now() - lookupStartedAt)
         throw new ResolutionError('Invalid hostname')
+    } finally {
+        dnsLookupsInFlight.dec()
     }
     const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
@@ -277,23 +310,69 @@ class InsecureAgent extends Agent {
     }
 }
 
-// When a proxy URL is available, external requests go through a CONNECT tunnel.
-// The proxy handles SSRF blocking (private IP rejection) at the network level,
-// so we skip the DNS lookup (httpStaticLookup) which would be redundant.
+const proxyUrl =
+    process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || ''
+
+// The percentage form rolls per call rather than per team, so a destination that fails through the proxy gets a fresh
+// draw on its next retry.
+const proxyTeamMatcher = buildIntegerMatcherWithPercentage(requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS)
+
+// The parser takes a fraction, so '*:10' reads as "always" rather than the ten percent an operator means by it, and
+// '*:bad' reads as "never" while the rollout looks live. Both defeat the staged rollout silently, so fail at startup
+// the way EXTERNAL_REQUEST_H2_CONNECTIONS does below. The parser keeps the last '*:' token it reads, so every one of
+// them has to hold rather than only the first.
+const proxyRolloutPercentages = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith('*:'))
+    .map((part) => part.slice(2))
+for (const rolloutPercentage of proxyRolloutPercentages) {
+    const percentage = Number(rolloutPercentage)
+    if (rolloutPercentage === '' || !Number.isFinite(percentage) || percentage < 0 || percentage > 1) {
+        throw new Error(
+            `EXTERNAL_REQUEST_PROXY_TEAMS takes a fraction between 0 and 1 after '*:', got '${rolloutPercentage}'`
+        )
+    }
+}
+
+const proxyRolloutConfigured = requestConfig.EXTERNAL_REQUEST_PROXY_TEAMS.trim().length > 0
+
+// Only a deployment in the rollout sets EXTERNAL_REQUEST_PROXY_TEAMS. Everywhere else keeps the behavior from before
+// the rollout existed, which the session replay image lane depends on to send customer URLs through the proxy.
+// A deployment in the rollout takes the team from the attribution context the URL-validation logs already use, rather
+// than from FetchOptions, so that routing stays out of the request shape every caller and its tests assert on.
+function useProxyForTeam(): boolean {
+    if (!proxyUrl) {
+        return false
+    }
+    if (!proxyRolloutConfigured) {
+        return true
+    }
+    const teamId = fetchAttribution.getStore()?.teamId
+    // A caller with no team never matches a team in the list, but a percentage rollout still covers it.
+    return proxyTeamMatcher(typeof teamId === 'number' ? teamId : 0)
+}
+
+type SecureRoute = 'proxy' | 'direct'
+
+const routeOf = (useProxy: boolean): SecureRoute => (useProxy ? 'proxy' : 'direct')
+
+// A proxied request goes through a CONNECT tunnel. The proxy handles SSRF blocking (private IP rejection) at the
+// network level, so we skip the DNS lookup (httpStaticLookup) which would be redundant. NOTE: undici's ProxyAgent
+// does not read NO_PROXY, so a carve-out set in the environment does not apply here.
 function makeSecureDispatcher({
+    useProxy,
     allowH2,
     keepAliveTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
 }: {
+    useProxy: boolean
     allowH2: boolean
     keepAliveTimeoutMs?: number
 }): Dispatcher {
-    const proxyUrl =
-        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
     const connections = allowH2
         ? requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS
         : requestConfig.EXTERNAL_REQUEST_CONNECTIONS
 
-    if (proxyUrl) {
+    if (useProxy) {
         return new ProxyAgent({
             uri: proxyUrl,
             keepAliveTimeout: keepAliveTimeoutMs,
@@ -303,6 +382,10 @@ function makeSecureDispatcher({
             proxyTunnel: true,
             allowH2,
             requestTls: { allowH2 },
+            connectTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            // undici ignores the abort signal of a request until the request has a connection. So the proxy client needs its own limit on the wait for a CONNECT answer. This limit is the connect timeout of the direct route.
+            clientFactory: (origin, options) =>
+                new Pool(origin, { ...options, headersTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS }),
         })
     }
     return new Agent({
@@ -316,7 +399,8 @@ function makeSecureDispatcher({
     })
 }
 
-const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
+const sharedSecureAgent = makeSecureDispatcher({ useProxy: false, allowH2: false })
+const sharedSecureProxyAgent = proxyUrl ? makeSecureDispatcher({ useProxy: true, allowH2: false }) : null
 const sharedInsecureAgent = new InsecureAgent()
 
 // undici only reads the value when the first HTTP/2 request builds its pool, and treats 0 as unbounded, so a bad
@@ -332,39 +416,56 @@ if (
 
 type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null }
 
-// undici sets the idle timeout per dispatcher, so each distinct idle timeout gets its own HTTP/2 dispatcher.
-const sharedSecureH2Agents = new Map<number, SecureDispatcher>()
+// undici sets the idle timeout per dispatcher, so each distinct idle timeout gets its own HTTP/2 dispatcher. The two
+// routes keep separate maps so a caller cannot exhaust one route's budget with timeouts it only ever uses on the other.
+const sharedSecureH2Agents: Record<SecureRoute, Map<number, SecureDispatcher>> = {
+    direct: new Map(),
+    proxy: new Map(),
+}
 const MAX_SECURE_H2_AGENTS = 8
 // Node clamps a setTimeout delay above this value to 1 ms. A session would then close as soon as it goes idle.
 const MAX_H2_IDLE_TIMEOUT_MS = 2_147_483_647
 let sharedAgentsClosed = false
 
-function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): SecureDispatcher {
+function getSecureH2Agent(
+    useProxy: boolean,
+    idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS
+): SecureDispatcher {
     // InvalidRequestError is not retriable in cdp-fetch, so a value that can never work fails once.
     if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
         throw new InvalidRequestError(`http2IdleTimeoutMs must be a number between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
     }
-    let agent = sharedSecureH2Agents.get(idleTimeoutMs)
+    const agents = sharedSecureH2Agents[routeOf(useProxy)]
+    let agent = agents.get(idleTimeoutMs)
     if (!agent) {
         if (sharedAgentsClosed) {
             throw new undiciErrors.ClientDestroyedError()
         }
-        if (sharedSecureH2Agents.size >= MAX_SECURE_H2_AGENTS) {
+        if (agents.size >= MAX_SECURE_H2_AGENTS) {
             throw new InvalidRequestError(`http2IdleTimeoutMs takes at most ${MAX_SECURE_H2_AGENTS} distinct values`)
         }
         agent = {
-            dispatcher: makeSecureDispatcher({ allowH2: true, keepAliveTimeoutMs: idleTimeoutMs }),
+            dispatcher: makeSecureDispatcher({ useProxy, allowH2: true, keepAliveTimeoutMs: idleTimeoutMs }),
             gate: new ColdStartGate(idleTimeoutMs),
         }
-        sharedSecureH2Agents.set(idleTimeoutMs, agent)
+        agents.set(idleTimeoutMs, agent)
     }
     return agent
 }
 
 function getSecureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: number }): SecureDispatcher {
-    return options.allowH2
-        ? getSecureH2Agent(options.http2IdleTimeoutMs)
-        : { dispatcher: sharedSecureAgent, gate: null }
+    const useProxy = useProxyForTeam()
+    // useProxyForTeam only returns true when a proxy URL was configured, so the agent exists whenever it is needed.
+    const secure = options.allowH2
+        ? getSecureH2Agent(useProxy, options.http2IdleTimeoutMs)
+        : {
+              dispatcher: useProxy && sharedSecureProxyAgent ? sharedSecureProxyAgent : sharedSecureAgent,
+              gate: null,
+          }
+    // Counted here because every route decision passes through this function. A throw from getSecureH2Agent leaves
+    // the request uncounted, which is right: it never picked a route.
+    externalRequestRouteCounter.inc({ route: routeOf(useProxy) })
+    return secure
 }
 
 // The timer only bounds the wait in closeSharedAgents. When close finishes first, an unref'd timer does not keep the
@@ -383,8 +484,9 @@ export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
     sharedAgentsClosed = true
     const agents = [
         sharedSecureAgent,
+        ...(sharedSecureProxyAgent ? [sharedSecureProxyAgent] : []),
         sharedInsecureAgent,
-        ...[...sharedSecureH2Agents.values()].map((h2) => h2.dispatcher),
+        ...Object.values(sharedSecureH2Agents).flatMap((route) => [...route.values()].map((h2) => h2.dispatcher)),
     ]
     const stillOpen = new Set(agents)
     const closed = Promise.allSettled(agents.map((agent) => agent.close().finally(() => stillOpen.delete(agent)))).then(
@@ -753,7 +855,7 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
 
     const requestOptions = options ?? {}
-    requestOptions.dispatcher = sharedSecureAgent
+    requestOptions.dispatcher = getSecureDispatcher({}).dispatcher
     requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, InsightModel } from '~/types'
 
 import __dataTableEvents from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import __dataTableHogQL from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -21,12 +21,12 @@ import __userPaths from '../../../../mocks/fixtures/api/projects/team_id/insight
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
 interface StoryArgs {
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
 }
 
-function withOwnProperties(properties: AnyPropertyFilter[]): QueryBasedInsightModel {
+function withOwnProperties(properties: AnyPropertyFilter[]): InsightModel {
     const insight = structuredClone(__trendsLine) as any
     insight.query.source.properties = properties
     return insight

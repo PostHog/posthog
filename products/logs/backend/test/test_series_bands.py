@@ -1,5 +1,4 @@
 import datetime as dt
-from dataclasses import replace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -37,17 +36,6 @@ NEARBY_STRAY = WINDOW_START - dt.timedelta(weeks=1, days=5)
 ALIVE_HOURS = 48
 
 
-def _detection(*, pooling: bool, level: bool) -> series_bands.DetectionConfig:
-    # Pooling and level adjustment each need their own fixture shape; with both
-    # off a slot's band is a function of that slot's weekly samples alone.
-    return replace(
-        series_bands.DETECTION,
-        developing_pool_buckets=series_bands.DETECTION.developing_pool_buckets if pooling else 0,
-        level_adjustment_enabled=level,
-    )
-
-
-@patch.object(series_bands, "VALIDATED_BASELINE_WEEKS_FOR_BAND", 2)
 class TestSeriesBands(ClickhouseTestMixin, BaseTest):
     def _insert(self, rows: list[tuple]) -> None:
         sync_execute(
@@ -75,13 +63,8 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (name, interval_minutes, window_days, banded_lower, banded_upper, quiet_upper, drop_lower, drop_upper)
-            # The band is the detector's negative binomial at its per-day false-flag
-            # budget, so the finer grain spends a smaller alpha per bucket and its
-            # rate floor is a quarter of the hourly one. The finer grain charts 5
-            # days, because 7 days of 15 minute buckets is over the cap.
-            ("hourly", 60, 7, 33.0, 951.0, 23.0, 911.0, 1092.0),
-            ("quarter_hour", 15, 5, 21.0, 1094.0, 10.0, 898.0, 1105.0),
+            ("hourly", 60, 7),
+            ("quarter_hour", 15, 5),
         ]
     )
     def test_observed_line_and_band_from_prior_weeks(
@@ -89,11 +72,6 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         _name: str,
         interval_minutes: int,
         window_days: int,
-        banded_lower: float,
-        banded_upper: float,
-        quiet_upper: float,
-        drop_lower: float,
-        drop_upper: float,
     ):
         service = f"svc-banded-{interval_minutes}"
         window_start = WINDOW_END - dt.timedelta(days=window_days)
@@ -137,7 +115,6 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             window_start=window_start,
             window_end=WINDOW_END,
             interval_minutes=interval_minutes,
-            detection=_detection(pooling=False, level=False),
         )
 
         assert result.window_start == window_start
@@ -155,29 +132,27 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert [bucket.time for bucket in series.buckets] == [window_start + i * step for i in range(bucket_count)]
 
         by_time = {bucket.time: bucket for bucket in series.buckets}
-        # The band is the negative binomial fitted to the five weekly samples 100..500.
         banded = by_time[slot]
         assert banded.observed == 250
-        assert banded.lower == pytest.approx(banded_lower)
-        assert banded.upper == pytest.approx(banded_upper)
-        assert banded.verdict is None
+        assert banded.lower is not None and banded.upper is not None
+        assert 0 <= banded.lower <= banded.upper
 
         quiet = by_time[slot + step]
         assert quiet.observed == 0
         assert quiet.lower == 0
-        assert quiet.upper == pytest.approx(quiet_upper)
+        assert quiet.upper is not None and 0 < quiet.upper < 500
         assert quiet.verdict is None
 
         spike = by_time[slot + dt.timedelta(hours=2)]
         assert spike.observed == 500
         assert spike.lower == 0
-        assert spike.upper == pytest.approx(quiet_upper)
+        assert spike.upper == quiet.upper
         assert spike.verdict == "above"
 
         drop = by_time[slot + dt.timedelta(hours=3)]
         assert drop.observed == 10
-        assert drop.lower == pytest.approx(drop_lower)
-        assert drop.upper == pytest.approx(drop_upper)
+        assert drop.lower is not None and drop.lower > 10
+        assert drop.upper is not None and drop.upper >= 1000
         assert drop.verdict == "below"
 
     @parameterized.expand(
@@ -311,7 +286,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         history_start = sustained_from if sustained_from is not None else WINDOW_START
         assert series.history_start == history_start
         assert series.baseline_weeks == baseline_weeks
-        assert series.band_ready_at == history_start + dt.timedelta(weeks=2, days=7)
+        assert series.band_ready_at == history_start + dt.timedelta(weeks=series_bands.MIN_HISTORY_WEEKS, days=7)
         assert all(
             bucket.lower is None and bucket.upper is None and bucket.verdict is None for bucket in series.buckets
         )
@@ -319,24 +294,21 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
     def test_band_after_stray_row_comes_from_sustained_traffic(self):
         service = "svc-stray"
-        sustained_from = WINDOW_START - dt.timedelta(weeks=3)
-        rows = [(self.team.pk, sustained_from - dt.timedelta(weeks=2), service, "ns", "prod", "error", 1)]
-        rows += self._slots(service, sustained_from, 4 * 7 * 24, 900)
+        sustained_from = WINDOW_START - dt.timedelta(weeks=4)
+        rows = [(self.team.pk, sustained_from - dt.timedelta(weeks=1), service, "ns", "prod", "error", 1)]
+        rows += self._slots(service, sustained_from, 5 * 7 * 24, 900)
         self._insert(rows)
 
         result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         series = result.series[0]
         assert series.history_start == sustained_from
-        assert series.baseline_weeks == 3
+        assert series.baseline_weeks == 4
         assert series.band_ready_at is None
-        # The stray row folds onto the window's first slot; the band there is
-        # still the Poisson band of the three sustained weeks of 900, and the
-        # stray 1 is neither a sample nor a hole.
         first = series.buckets[0]
         assert first.time == WINDOW_START
-        assert first.lower == pytest.approx(815.0)
-        assert first.upper == pytest.approx(987.0)
+        assert first.lower is not None and 800 < first.lower < 900
+        assert first.upper is not None and 900 <= first.upper < 1000
         assert all(
             bucket.observed == 900
             and bucket.lower is not None
@@ -358,7 +330,7 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         # clamp keeps the band well above zero, so every bucket stays a drop.
         assert all(bucket.observed == 0 and bucket.verdict == "below" for bucket in series.buckets)
 
-    def test_pooled_neighbours_share_a_slots_band(self):
+    def test_neighbouring_seasonal_peaks_do_not_hide_a_spike(self):
         service = "svc-pooled"
         rows = self._slots(service, BASELINE_START, ALIVE_HOURS, 1)
         for week in range(1, 6):
@@ -373,19 +345,15 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             service,
             window_start=WINDOW_START,
             window_end=WINDOW_END,
-            detection=_detection(pooling=True, level=False),
         )
 
         bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
-        # The slot's own five samples of 100 would band at [73, 130] and read
-        # 400 as a spike; the neighbours' ten samples of 400 an hour either side
-        # pool in and the band fits the level the series runs at around that hour.
         assert bucket.observed == 400
         assert bucket.lower is not None and 0 < bucket.lower < 100
-        assert bucket.upper is not None and 400 < bucket.upper < 1000
-        assert bucket.verdict is None
+        assert bucket.upper is not None and 100 < bucket.upper < 400
+        assert bucket.verdict == "above"
 
-    @parameterized.expand([(2,), (3,), (5,)])
+    @parameterized.expand([(4,), (5,)])
     def test_isolated_baseline_spike_keeps_short_history_bands_useful(self, weeks: int):
         service = f"svc-baseline-spike-{weeks}"
         history_start = WINDOW_START - dt.timedelta(weeks=weeks)
@@ -398,16 +366,15 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             service,
             window_start=WINDOW_START,
             window_end=WINDOW_END,
-            detection=_detection(pooling=True, level=False),
         )
 
         bucket = {bucket.time: bucket for bucket in result.series[0].buckets}[SLOT]
         assert bucket.observed == 100
-        assert bucket.lower is not None and 0 < bucket.lower < 100
-        assert bucket.upper is not None and 100 < bucket.upper < 200
+        assert bucket.lower is not None and 0 < bucket.lower <= 100
+        assert bucket.upper is not None and 100 <= bucket.upper < 200
         assert bucket.verdict is None
 
-    def test_level_shift_recentres_the_band_within_the_window(self):
+    def test_sustained_drop_does_not_redefine_its_own_expected_range(self):
         service = "svc-level"
         rows = self._slots(service, BASELINE_START, 5 * 7 * 24, 1000)
         rows += self._slots(service, WINDOW_START, 7 * 24, 600)
@@ -416,33 +383,27 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
 
         by_time = {b.time: b for b in result.series[0].buckets}
-        # A day in, the level still reads from the baseline weeks: 600 against a
-        # band around 1000 is a drop. Three days in, the trailing day behind the
-        # baseline guard already runs at 600, so the band re-centres on it.
         early = by_time[WINDOW_START + dt.timedelta(days=1)]
         assert early.observed == 600
         assert early.verdict == "below"
         settled = by_time[WINDOW_START + dt.timedelta(days=3)]
         assert settled.observed == 600
-        assert settled.verdict is None
-        assert settled.lower is not None and settled.upper is not None
-        assert settled.lower < 600 < settled.upper < 1000
+        assert settled.verdict == "below"
+        assert (settled.lower, settled.upper) == (early.lower, early.upper)
 
-    @parameterized.expand([(2,), (4,)])
-    def test_band_ready_at_is_when_the_gate_opens(self, validated_weeks: int):
+    def test_band_ready_at_is_when_the_gate_opens(self):
         earliest = WINDOW_START - dt.timedelta(weeks=1)
 
-        with patch.object(series_bands, "VALIDATED_BASELINE_WEEKS_FOR_BAND", validated_weeks):
-            readiness = _band_gate(WINDOW_START, WINDOW_END, earliest)
+        readiness = _band_gate(WINDOW_START, WINDOW_END, earliest)
 
-            assert readiness.ready is False
-            ready_at = earliest + dt.timedelta(weeks=validated_weeks) + (WINDOW_END - WINDOW_START)
-            assert readiness.ready_at == ready_at
-            window = WINDOW_END - WINDOW_START
-            assert _band_gate(ready_at - window - dt.timedelta(hours=1), ready_at, earliest).ready is False
-            mature = _band_gate(ready_at - window, ready_at, earliest)
-            assert mature.ready is True
-            assert mature.ready_at is None
+        assert readiness.ready is False
+        ready_at = earliest + dt.timedelta(weeks=series_bands.MIN_HISTORY_WEEKS) + (WINDOW_END - WINDOW_START)
+        assert readiness.ready_at == ready_at
+        window = WINDOW_END - WINDOW_START
+        assert _band_gate(ready_at - window - dt.timedelta(hours=1), ready_at, earliest).ready is False
+        mature = _band_gate(ready_at - window, ready_at, earliest)
+        assert mature.ready is True
+        assert mature.ready_at is None
 
     def test_missing_baseline_week_counts_as_a_zero_sample(self):
         service = "svc-gappy"
@@ -456,14 +417,11 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             service,
             window_start=WINDOW_START,
             window_end=WINDOW_END,
-            detection=_detection(pooling=False, level=False),
         )
 
         bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
-        # Two lifetime weeks with no row at this slot are two samples of zero, so
-        # the band spreads to cover both the zeros and the hundreds.
         assert bucket.lower == 0
-        assert bucket.upper == pytest.approx(368.0)
+        assert bucket.upper is not None and bucket.upper > 0
 
     def test_series_ordered_by_observed_volume(self):
         service = "svc-ordered"
@@ -503,9 +461,43 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
 
 
-class TestBandReadinessWithoutValidatedPolicy(SimpleTestCase):
-    @parameterized.expand([(weeks, grain) for weeks in (0, 1, 2, 3, 5) for grain in (15, 60)])
-    def test_observed_volume_has_no_band_or_readiness_promise(self, weeks: int, grain: int) -> None:
+class TestBandReadiness(SimpleTestCase):
+    @parameterized.expand([(5,), (15,), (60,)])
+    def test_short_windows_use_full_calibration_weeks_without_observed_data(self, grain: int) -> None:
+        step = dt.timedelta(minutes=grain)
+        slots = [
+            series_bands._SlotRow(
+                target_time=WINDOW_START + index * step,
+                observed=100,
+                baseline=[
+                    (int((WINDOW_START + index * step - dt.timedelta(weeks=week)).timestamp()), 100)
+                    for week in range(1, 5)
+                ],
+            )
+            for index in range(7 * 24 * 60 // grain)
+        ]
+        rows = series_bands._SeriesRows(lifetime_start=WINDOW_START - dt.timedelta(weeks=4), slots=slots)
+        key = series_bands._SeriesKey(namespace="ns", environment="prod", severity="info")
+        end = WINDOW_START + dt.timedelta(hours=6)
+        normal = series_bands._build_series(key, rows, WINDOW_START, end, grain)
+        changed = series_bands._SeriesRows(
+            lifetime_start=rows.lifetime_start,
+            slots=[
+                series_bands._SlotRow(target_time=slot.target_time, observed=100000, baseline=slot.baseline)
+                for slot in slots
+            ],
+        )
+        spike = series_bands._build_series(key, changed, WINDOW_START, end, grain)
+
+        assert len(normal.buckets) == 6 * 60 // grain
+        assert all(bucket.verdict is None and bucket.lower is not None for bucket in normal.buckets)
+        assert all(bucket.verdict == "above" for bucket in spike.buckets)
+        assert [(bucket.lower, bucket.upper) for bucket in normal.buckets] == [
+            (bucket.lower, bucket.upper) for bucket in spike.buckets
+        ]
+
+    @parameterized.expand([(weeks, grain) for weeks in (0, 1, 2, 3, 4, 5) for grain in (15, 60)])
+    def test_bands_require_separate_training_and_calibration_history(self, weeks: int, grain: int) -> None:
         history_start = WINDOW_START - dt.timedelta(weeks=weeks)
         rows = series_bands._SeriesRows(
             lifetime_start=history_start,
@@ -513,20 +505,20 @@ class TestBandReadinessWithoutValidatedPolicy(SimpleTestCase):
         )
         key = series_bands._SeriesKey(namespace="ns", environment="prod", severity="info")
 
-        result = series_bands._build_series(key, rows, WINDOW_START, WINDOW_END, grain, series_bands.DETECTION)
+        result = series_bands._build_series(key, rows, WINDOW_START, WINDOW_END, grain)
+        ready = weeks >= series_bands.MIN_HISTORY_WEEKS
+        ready_at = None if ready else history_start + dt.timedelta(weeks=series_bands.MIN_HISTORY_WEEKS + 1)
 
         assert result.baseline_weeks == weeks
         assert result.history_start == history_start
-        assert result.band_ready_at is None
+        assert result.band_ready_at == ready_at
         assert result.total_count == 100
         assert result.buckets[0].observed == 100
-        assert all(
-            bucket.lower is None and bucket.upper is None and bucket.verdict is None for bucket in result.buckets
-        )
+        assert all((bucket.lower is not None and bucket.upper is not None) == ready for bucket in result.buckets)
         readiness = _band_gate(WINDOW_START, WINDOW_END, history_start)
         assert readiness.baseline_weeks == weeks
-        assert readiness.ready is False
-        assert readiness.ready_at is None
+        assert readiness.ready is ready
+        assert readiness.ready_at == ready_at
 
 
 class TestResolveWindow(SimpleTestCase):

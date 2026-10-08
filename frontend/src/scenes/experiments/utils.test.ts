@@ -1,27 +1,22 @@
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
-import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
-import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
-import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
-import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
-import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import {
     Breakdown,
     CachedNewExperimentQueryResponse,
     ExperimentEventExposureConfig,
-    ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
-    ExperimentTrendsQuery,
     NodeKind,
     ProductKey,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
+    BreakdownAttributionType,
     Experiment,
     ExperimentMetricMathType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -29,6 +24,7 @@ import {
 import { filterToMetricConfig } from './metricQueryUtils'
 import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
+    type ExperimentSavedMetric,
     FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
     FUNNEL_SERVER_SIDE_COMPLETION_REASON,
     NOT_A_FUNNEL_REASON,
@@ -36,16 +32,17 @@ import {
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     getBaselineVariantKey,
+    getDisplayOrderedIndices,
     getEventCountQuery,
     getFunnelDropoffReason,
     getOrderedMetricsWithResults,
     getSessionLinkabilityEventNames,
-    getViewRecordingFiltersLegacy,
     isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
     metricResults,
     percentageDistribution,
+    resolveSharedMetric,
     toConcurrencyPayload,
     toExperimentWritePayload,
     withoutProjectedFlagConfig,
@@ -273,180 +270,8 @@ describe('getFunnelDropoffReason', () => {
     })
 })
 
-describe('getViewRecordingFiltersLegacy', () => {
-    const featureFlagKey = 'jan-16-running'
-
-    it('returns the correct filters for an experiment query', () => {
-        const filters = getViewRecordingFiltersLegacy(
-            EXPERIMENT_WITH_MEAN_METRIC.metrics[0] as ExperimentMetric,
-            featureFlagKey,
-            'control'
-        )
-        expect(filters).toEqual([
-            {
-                id: '$pageview',
-                name: '$pageview',
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: ['control'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ])
-    })
-
-    it('returns the correct filters for a funnel metric', () => {
-        const filters = getViewRecordingFiltersLegacy(
-            metricFunnelEventsJson as ExperimentFunnelsQuery,
-            featureFlagKey,
-            'control'
-        )
-        expect(filters).toEqual([
-            {
-                id: '[jan-16-running] seen',
-                name: '[jan-16-running] seen',
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: ['control'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-            {
-                id: '[jan-16-running] payment',
-                name: '[jan-16-running] payment',
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: ['control'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ])
-    })
-    it('returns the correct filters for a trend metric', () => {
-        const filters = getViewRecordingFiltersLegacy(
-            metricTrendFeatureFlagCalledJson as ExperimentTrendsQuery,
-            featureFlagKey,
-            'test'
-        )
-        expect(filters).toEqual([
-            {
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
-                type: 'events',
-                properties: [
-                    {
-                        key: '$feature_flag_response',
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$feature_flag',
-                        type: PropertyFilterType.Event,
-                        value: 'jan-16-running',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-            {
-                id: '[jan-16-running] event one',
-                name: '[jan-16-running] event one',
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ])
-    })
-    it('returns the correct filters for a trend metric with custom exposure', () => {
-        const filters = getViewRecordingFiltersLegacy(
-            metricTrendCustomExposureJson as ExperimentTrendsQuery,
-            featureFlagKey,
-            'test'
-        )
-        expect(filters).toEqual([
-            {
-                id: '[jan-16-running] event zero',
-                name: '[jan-16-running] event zero',
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-            {
-                id: '[jan-16-running] event one',
-                name: '[jan-16-running] event one',
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ])
-    })
-    it('returns the correct filters for a trend metric with an action', () => {
-        const filters = getViewRecordingFiltersLegacy(
-            metricTrendActionJson as ExperimentTrendsQuery,
-            featureFlagKey,
-            'test'
-        )
-        expect(filters).toEqual([
-            {
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
-                type: 'events',
-                properties: [
-                    {
-                        key: '$feature_flag_response',
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                    {
-                        key: '$feature_flag',
-                        type: PropertyFilterType.Event,
-                        value: 'jan-16-running',
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-            {
-                id: 8,
-                name: 'jan-16-running payment action',
-                type: 'actions',
-            },
-        ])
-    })
-})
-
 describe('checkFeatureFlagEligibility', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test',
         name: 'Test',
@@ -1147,6 +972,103 @@ describe('getOrderedMetricsWithResults', () => {
             expect(secondaryOrdered).toHaveLength(1)
             expect(secondaryOrdered[0].metric.uuid).toBe('secondary-uuid')
         })
+
+        // Same cases as test_saved_metric_override_precedence in the backend resolver tests.
+        const funnelWithSavedOverrides = {
+            uuid: 'saved-funnel',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [],
+            breakdownAttributionType: BreakdownAttributionType.Step,
+            breakdownAttributionValue: 2,
+            breakdownFilter: { breakdown_limit: 5, breakdowns: [{ property: '$os', type: 'event' }] },
+        } as ExperimentMetric
+        const savedMean = {
+            uuid: 'saved-mean',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'test' },
+        } as ExperimentMetric
+
+        it.each([
+            [
+                'omitted overrides keep saved values but not saved breakdowns',
+                funnelWithSavedOverrides,
+                {},
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'null overrides count as omitted',
+                funnelWithSavedOverrides,
+                { breakdownAttributionType: null, breakdownAttributionValue: null, breakdown_limit: null },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'link values replace saved values',
+                funnelWithSavedOverrides,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.LastTouch,
+                    breakdown_limit: 20,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+                { breakdownAttributionType: BreakdownAttributionType.LastTouch },
+                { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'attribution step zero is explicit',
+                funnelWithSavedOverrides,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.Step,
+                    breakdownAttributionValue: 0,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 0 },
+                { breakdown_limit: 5, breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'attribution on a mean metric is ignored',
+                savedMean,
+                {
+                    breakdownAttributionType: BreakdownAttributionType.LastTouch,
+                    breakdownAttributionValue: 1,
+                    breakdowns: [{ property: '$browser', type: 'event' }],
+                },
+                {},
+                { breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+            [
+                'limit and attribution without link breakdowns are ignored',
+                funnelWithSavedOverrides,
+                { breakdownAttributionType: BreakdownAttributionType.LastTouch, breakdown_limit: 20, breakdowns: [] },
+                { breakdownAttributionType: BreakdownAttributionType.Step, breakdownAttributionValue: 2 },
+                { breakdown_limit: 5, breakdowns: [] },
+            ],
+            [
+                'a link whose query has not loaded resolves without its saved values',
+                undefined as unknown as ExperimentMetric,
+                { breakdowns: [{ property: '$browser', type: 'event' }], breakdown_limit: 20 },
+                {},
+                { breakdown_limit: 20, breakdowns: [{ property: '$browser', type: 'event' }] },
+            ],
+        ])('resolves link overrides: %s', (_name, query, overrides, expectedAttribution, expectedBreakdownFilter) => {
+            const resolved: Record<string, unknown> = {
+                ...resolveSharedMetric({
+                    query,
+                    metadata: { type: 'primary', ...overrides } as ExperimentSavedMetric['metadata'],
+                }),
+            }
+
+            const attribution = Object.fromEntries(
+                ['breakdownAttributionType', 'breakdownAttributionValue']
+                    .filter((key) => resolved[key] !== undefined)
+                    .map((key) => [key, resolved[key]])
+            )
+            expect(attribution).toEqual(expectedAttribution)
+            expect(resolved.breakdownFilter).toEqual(expectedBreakdownFilter)
+            expect(resolved.uuid).toBe(query?.uuid)
+        })
     })
 
     describe('mixed inline and shared metrics', () => {
@@ -1276,6 +1198,30 @@ describe('getOrderedMetricsWithResults', () => {
     })
 })
 
+describe('getDisplayOrderedIndices', () => {
+    it.each([
+        ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
+        ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
+        ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
+        ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
+        [
+            'appends missing metrics at end',
+            [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
+            ['c', 'a'],
+            [2, 0, 1, 3],
+        ],
+        ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
+        ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
+    ])('%s', (_desc, metrics, orderedUuids, expected) => {
+        expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
+    })
+
+    it('returns all indices exactly once', () => {
+        const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
+        expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
+    })
+})
+
 describe('metricResults', () => {
     const baseExperiment = {
         ...experimentJson,
@@ -1301,14 +1247,34 @@ describe('metricResults', () => {
         expect(metricResults(baseExperiment)([], [], 'primary')).toEqual([])
     })
 
-    it('returns an empty array when no ordered uuids reference existing metrics', () => {
+    it.each([
+        {
+            name: 'a null ordering renders the stored order',
+            ordering: null,
+            expectedIndexes: [0, 1, 2],
+        },
+        {
+            name: 'an ordering with a stale uuid and a missing metric renders the listed metric first, the rest after',
+            ordering: ['metric-3', 'stale-uuid'],
+            expectedIndexes: [2, 0, 1],
+        },
+    ])('$name', ({ ordering, expectedIndexes }) => {
         const experiment = {
             ...baseExperiment,
-            metrics: [inlineMetric('metric-1', 'test')],
-            // ordered uuids point at a metric that no longer exists
-            primary_metrics_ordered_uuids: ['stale-uuid'],
+            metrics: [inlineMetric('metric-1', 'a'), inlineMetric('metric-2', 'b'), inlineMetric('metric-3', 'c')],
+            primary_metrics_ordered_uuids: ordering,
         }
-        expect(metricResults(experiment)([mockResult({ result: 'data' })], [null], 'primary')).toEqual([])
+        const results = [
+            mockResult({ result: 'data1' }),
+            mockResult({ result: 'data2' }),
+            mockResult({ result: 'data3' }),
+        ]
+
+        const ordered = metricResults(experiment)(results, [null, null, null], 'primary')
+
+        expect(ordered.map((o) => o.metricIndex)).toEqual(expectedIndexes)
+        // Results stay paired with their metric by original position, whatever the display order.
+        expect(ordered.map((o) => o.result)).toEqual(expectedIndexes.map((index) => results[index]))
     })
 
     it('zips inline metrics with their results and errors', () => {
@@ -1408,7 +1374,7 @@ describe('metricResults', () => {
         expect(zip([mockResult({ r: 2 })], [null], 'secondary').map((o) => o.metric.uuid)).toEqual(['s-uuid'])
     })
 
-    it('drops metrics that have no uuid', () => {
+    it('keeps a metric without a uuid, after the ordered ones', () => {
         const experiment = {
             ...baseExperiment,
             metrics: [
@@ -1424,11 +1390,9 @@ describe('metricResults', () => {
             'primary'
         )
 
-        expect(ordered).toHaveLength(1)
-        expect(ordered[0].metric.uuid).toBe('metric-2')
-        // metric-2 is at original index 1, so it picks results[1]
-        expect(ordered[0].result).toEqual({ result: 'data2' })
-        expect(ordered[0].metricIndex).toBe(1)
+        expect(ordered.map((o) => o.metric.uuid)).toEqual(['metric-2', undefined])
+        expect(ordered.map((o) => o.result)).toEqual([{ result: 'data2' }, { result: 'data1' }])
+        expect(ordered.map((o) => o.metricIndex)).toEqual([1, 0])
     })
 
     it('yields undefined result/error when the arrays are shorter than the metric list', () => {

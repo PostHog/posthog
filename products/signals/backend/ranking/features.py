@@ -228,8 +228,8 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     One example per report, not one per scoring moment. A day's newborns over the whole lookback,
     times 1536 floats, is gigabytes of Parquet per partition and more than the training pod holds,
     which is what rules the moment grain out at this width. The default birth grain gives that.
-    `max_examples_per_head` bounds what is left; the lookback stays the tabular set's, so positives
-    still accrue over the whole window.
+    `max_examples_per_head` bounds what is left by dropping the oldest report-creation days; the
+    lookback stays the tabular set's, so positives accrue over the whole window until the budget binds.
 
     Vectors arrive through `extras`, from the rendering's own dt=D snapshot, which holds the
     latest vector per report. A report is re-embedded whenever its text changes, and the
@@ -252,8 +252,9 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     state_columns = ()
     # 1536 float32 columns, so a head's Parquet slice and its training matrix both scale with this.
     # Sized so every head of this family fits one partition's examples object and the fits stay
-    # inside the training job's runtime budget, with the budget spent on positives first.
-    max_examples_per_head = 25_000
+    # inside the training job's runtime budget. The budget cuts the oldest report-creation days, so
+    # it must stay large enough to keep the rare heads' positives.
+    max_examples_per_head = 100_000
 
     def __init__(self, *, name: str, extras_key: str) -> None:
         self.name = name

@@ -1,6 +1,103 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "capabilities": {
+            "description": "The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities.",
+            "properties": {
+                "connectors": {
+                    "description": "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
+                    "items": {
+                        "description": "One provider a canvas may call through ph.connectors, with the tools it may use.",
+                        "properties": {
+                            "provider": {
+                                "description": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+                                "maxLength": 300,
+                                "type": "string"
+                            },
+                            "tools": {
+                                "description": "Tool names the canvas may call on this provider. Read-only tools only.",
+                                "items": {
+                                    "maxLength": 200,
+                                    "type": "string"
+                                },
+                                "maxItems": 64,
+                                "minItems": 1,
+                                "type": "array"
+                            }
+                        },
+                        "required": ["provider", "tools"],
+                        "type": "object"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                },
+                "network": {
+                    "properties": {
+                        "origins": {
+                            "items": {
+                                "format": "uri",
+                                "maxLength": 2048,
+                                "type": "string"
+                            },
+                            "maxItems": 20,
+                            "type": "array"
+                        }
+                    },
+                    "required": ["origins"],
+                    "type": "object"
+                },
+                "posthog": {
+                    "properties": {
+                        "actions": {
+                            "description": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+                            "items": {
+                                "maxLength": 64,
+                                "type": "string"
+                            },
+                            "maxItems": 32,
+                            "type": "array"
+                        },
+                        "agentRequests": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "captureEvents": {
+                            "items": {
+                                "maxLength": 200,
+                                "type": "string"
+                            },
+                            "maxItems": 100,
+                            "type": "array"
+                        },
+                        "inlineQueries": {
+                            "type": "boolean"
+                        },
+                        "insights": {
+                            "items": {
+                                "maxLength": 128,
+                                "type": "string"
+                            },
+                            "maxItems": 100,
+                            "type": "array"
+                        },
+                        "state": {
+                            "description": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+                            "items": {
+                                "description": "* `user` - user\n* `shared` - shared",
+                                "enum": ["user", "shared"],
+                                "type": "string"
+                            },
+                            "maxItems": 2,
+                            "type": "array"
+                        }
+                    },
+                    "required": ["insights", "inlineQueries", "captureEvents"],
+                    "type": "object"
+                }
+            },
+            "required": ["posthog", "network"],
+            "type": "object"
+        },
         "expected_current_version_id": {
             "anyOf": [
                 {
@@ -22,9 +119,9 @@
             "type": "string"
         },
         "operations": {
-            "description": "Edits applied in order to the canvas's current source project.",
+            "description": "Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities.",
             "items": {
-                "description": "One per-file edit: set a file's content, or delete it.",
+                "description": "One file edit: replace text in a file, write a whole file, delete it, or rename it.",
                 "properties": {
                     "content": {
                         "anyOf": [
@@ -35,11 +132,33 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "The file's complete new content. Null (or omitted) deletes the file."
+                        "description": "For 'write': the file's complete new content."
+                    },
+                    "new_path": {
+                        "description": "For 'rename': the file's new project-relative path.",
+                        "type": "string"
+                    },
+                    "new_string": {
+                        "description": "For 'str_replace': the text that replaces old_string. An empty string deletes old_string.",
+                        "type": "string"
+                    },
+                    "old_string": {
+                        "description": "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted.",
+                        "type": "string"
+                    },
+                    "op": {
+                        "description": "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.\n\n* `write` - Write\n* `delete` - Delete\n* `rename` - Rename\n* `str_replace` - Str Replace",
+                        "enum": ["write", "delete", "rename", "str_replace"],
+                        "type": "string"
                     },
                     "path": {
-                        "description": "Project-relative path of the file to write or delete (e.g. \"src/canvas.tsx\").",
+                        "description": "Project-relative path of the file to edit (e.g. \"src/canvas.tsx\").",
                         "type": "string"
+                    },
+                    "replace_all": {
+                        "default": false,
+                        "description": "For 'str_replace': replace every exact match of old_string instead of requiring exactly one.",
+                        "type": "boolean"
                     }
                 },
                 "required": ["path"],
@@ -52,6 +171,6 @@
             "type": "string"
         }
     },
-    "required": ["id", "operations", "expected_current_version_id"],
+    "required": ["id", "expected_current_version_id"],
     "type": "object"
 }

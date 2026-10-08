@@ -410,12 +410,14 @@ class TaskRunRedisStream:
         except Exception:
             logger.warning("task_run_stream_mark_watched_failed", stream_key=self._stream_key, exc_info=True)
 
-    async def set_agent_active(self, active: bool) -> None:
-        await self._redis_client.set(
+    async def set_agent_active(self, active: bool) -> bool:
+        previous = await self._redis_client.set(
             get_task_run_stream_agent_active_key(self._stream_key),
             "1" if active else "0",
             ex=self._timeout,
+            get=True,
         )
+        return previous in (b"1", "1")
 
     async def get_agent_active(self) -> bool:
         active_raw = await self._redis_client.get(get_task_run_stream_agent_active_key(self._stream_key))

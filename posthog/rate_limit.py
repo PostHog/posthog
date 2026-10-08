@@ -446,6 +446,17 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
     rate = "1/day"
 
 
+class CodexConnectUserThrottle(UserRateThrottle):
+    scope = "codex_connect_user"
+    rate = "10/hour"
+
+
+# Each internal feedback post lands in a shared Slack channel, so cap it per user.
+class InternalFeedbackUserThrottle(UserRateThrottle):
+    scope = "internal_feedback_user"
+    rate = "60/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -532,6 +543,21 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
 # flagSelectionLogic.ts) awaits one copy_flags call per flag, sequentially, for up to 100 flags
 # in one operation, and does not retry on 429, so the burst rate has to clear a full legitimate
 # session (which can complete in well under a minute when each call is fast) without tripping.
+class BillingReadBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Burst limit on the organization billing API's reads, per personal key or, for session,
+    OAuth and MCP callers, per user. Its own scope, so a client hammering billing does not spend
+    the caller's general budget and vice versa. The rates start low and loosen with production
+    evidence."""
+
+    scope = "billing_read_burst"
+    rate = "30/minute"
+
+
+class BillingReadSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "billing_read_sustained"
+    rate = "300/hour"
+
+
 class CopyFlagsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # 120/minute clears a full 100-call session with headroom even if every call returns quickly,
     # while still catching a tight scripted loop well beyond normal bulk-copy usage.
@@ -765,6 +791,21 @@ class ReplayVisionSearchBurstRateThrottle(_UserBucketRateThrottle):
 class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_search_sustained"
     rate = "300/hour"
+
+
+# Creating an export renders it, and an API-created export holds a web worker while the render
+# runs. The default Burst/Sustained throttles bucket per personal API key and skip session traffic,
+# so a script with several keys, or a burst from the UI, is not capped per project. A person
+# exports one asset per click, so these rates leave room for normal use and scripts while capping
+# a bulk script that starts hundreds of exports at once.
+class ExportCreateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_burst"
+    rate = "60/minute"
+
+
+class ExportCreateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_sustained"
+    rate = "600/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
@@ -1066,6 +1107,15 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # This protects against accidental loops or scripted abuse while allowing normal usage.
     scope = "llm_prompt_publish_burst"
     rate = "30/minute"
+
+
+class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+    # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
+    # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
+    # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
+    # feature_flag_remote_config throttle.
+    scope = "llm_prompt_fetch"
+    rate = "600/minute"
 
 
 class EventValuesBurstThrottle(PersonalApiKeyRateThrottle):
@@ -1677,26 +1727,57 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
-class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Cap how often a team can fire the user-interview send_invites action.
-    #
-    # The content (subject + intro) and the recipient list are both
-    # user-controlled, so without a limit a member could use the action as a
-    # PostHog-branded spam relay by rotating the topic's interviewee_emails and
-    # re-sending. Idempotency only stops re-sending to the *same*
-    # SharingConfiguration, not sending to fresh addresses.
-    #
-    # Keyed per team (not per personal API key, not per topic) so neither
-    # rotating topics nor minting extra API keys bypasses the limit. Extends
-    # PersonalApiKeyOrUserRateThrottle so every authenticated caller is covered
-    # (PATs, OAuth bearer tokens, and session-cookie UI users alike).
-    scope = "user_interview_invite"
-    rate = "10/minute"
+def _is_llm_alert_simulation(request) -> bool:
+    """Whether an alert simulation request would make a billable model call.
+
+    Reads the same field the simulate serializer parses. A form-encoded body carries
+    ``detector_config`` as a JSON string that the serializer's JSONField decodes later, so
+    the string form is decoded here too; otherwise it would slip past the throttle.
+    """
+    data = request.data
+    if not hasattr(data, "get"):
+        return False
+    detector_config = data.get("detector_config")
+    if isinstance(detector_config, str):
+        try:
+            detector_config = json.loads(detector_config)
+        except ValueError:
+            return False
+    return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
+
+
+class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Per-team cap on billable AI alert simulations.
+
+    Keyed per team so extra API keys or members do not multiply it, and applied to every
+    authenticated caller: the generic burst and sustained throttles skip session users, so
+    without this a member could preview at whatever rate the browser allows.
+    """
+
+    def allow_request(self, request, view):
+        if not _is_llm_alert_simulation(request):
+            return True
+        return super().allow_request(request, view)
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class AlertLLMSimulationBurstThrottle(_AlertLLMSimulationThrottle):
+    scope = "alert_llm_simulation_burst"
+    rate = "10/minute"
+
+
+class AlertLLMSimulationSustainedThrottle(_AlertLLMSimulationThrottle):
+    scope = "alert_llm_simulation_sustained"
+    rate = "60/hour"
+
+
+class AlertLLMSimulationDailyThrottle(_AlertLLMSimulationThrottle):
+    scope = "alert_llm_simulation_daily"
+    rate = "200/day"
 
 
 class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
@@ -1850,6 +1931,21 @@ class ComposeTicketBurstThrottle(UserRateThrottle):
 
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
+    rate = "60/hour"
+
+
+class TicketNoteBurstThrottle(UserRateThrottle):
+    """
+    Private notes get their own bucket, so an agent writing notes cannot use up the compose
+    budget that the same user needs for customer replies.
+    """
+
+    scope = "ticket_note_burst"
+    rate = "10/minute"
+
+
+class TicketNoteSustainedThrottle(UserRateThrottle):
+    scope = "ticket_note_sustained"
     rate = "60/hour"
 
 

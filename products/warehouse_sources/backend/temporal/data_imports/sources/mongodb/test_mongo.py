@@ -2,7 +2,7 @@ import uuid
 import base64
 import datetime
 import contextlib
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, cast
 
 import pytest
@@ -10,8 +10,13 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from bson import Binary, DatetimeMS, ObjectId
-from bson.binary import UUID_SUBTYPE
+import bson
+from bson import Binary, DatetimeMS, Decimal128, Int64, ObjectId, Timestamp
+from bson.binary import UUID_SUBTYPE, UuidRepresentation
+from bson.code import Code
+from bson.codec_options import CodecOptions
+from bson.max_key import MaxKey
+from bson.min_key import MinKey
 from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
 from pymongo.hello import Hello
@@ -23,24 +28,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
+    MongoResumeConfig,
     _adaptive_chunk_size,
     _build_query,
     _get_avg_document_size,
     _get_partition_settings,
     _get_rows_to_sync,
+    _id_seek_filter,
     _list_importable_collection_names,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
-    get_leading_index_keys,
+    decode_resume_id,
+    encode_resume_id,
+    get_index_keys,
+    get_index_keys_by_collection,
     get_server_metadata,
     mongo_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -315,9 +327,9 @@ class TestProcessDocWithFieldLogging(SimpleTestCase):
         assert "_id=<unavailable>" in log_msg
 
 
-class TestGetLeadingIndexKeys(SimpleTestCase):
-    """The MongoDB warning hinges on whether the user's chosen incremental
-    field is the *leading* key of any index — non-leading positions in compound
+class TestGetIndexKeys(SimpleTestCase):
+    """A field is offered as an incremental cursor when any index covers it, and the MongoDB
+    warning hinges on whether it is the *leading* key of one — non-leading positions in compound
     indexes don't speed up `WHERE field >= last_max` queries.
     """
 
@@ -327,25 +339,51 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
         coll.list_indexes.return_value = iter(indexes)
         return coll
 
-    def test_collects_leading_keys_only(self):
+    def test_separates_covered_keys_from_leading_keys(self):
         coll = self._collection_with_indexes(
             [
                 {"key": {"_id": 1}},
                 {"key": {"updated_at": -1}},
-                # `user_id` is the leading key here; `created_at` is not
+                # `user_id` is the leading key here; `created_at` is covered but not leading
                 {"key": {"user_id": 1, "created_at": 1}},
             ]
         )
-        assert get_leading_index_keys(coll) == {"_id", "updated_at", "user_id"}
+        index_keys = get_index_keys(coll)
+
+        assert index_keys is not None
+        assert index_keys.covered == frozenset({"_id", "updated_at", "user_id", "created_at"})
+        assert index_keys.leading == frozenset({"_id", "updated_at", "user_id"})
 
     def test_returns_none_on_failure(self):
         coll = MagicMock()
         coll.list_indexes.side_effect = RuntimeError("network down")
-        assert get_leading_index_keys(coll) is None
+        assert get_index_keys(coll) is None
 
-    def test_returns_empty_set_for_collection_with_no_indexes(self):
-        coll = self._collection_with_indexes([])
-        assert get_leading_index_keys(coll) == set()
+    def test_returns_empty_keys_for_collection_with_no_indexes(self):
+        index_keys = get_index_keys(self._collection_with_indexes([]))
+
+        assert index_keys is not None
+        assert index_keys.covered == frozenset()
+        assert index_keys.leading == frozenset()
+
+    def test_reads_each_collection_indexes_once(self):
+        # Schema discovery answers a blocking HTTP request, so a second round trip per collection
+        # is what runs a database with many collections past that request's deadline.
+        collections = {name: self._collection_with_indexes([{"key": {"_id": 1}}]) for name in ("a", "b", "c")}
+        db = MagicMock()
+        db.__getitem__.side_effect = lambda name: collections[name]
+
+        result = get_index_keys_by_collection(db, list(collections))
+
+        assert set(result) == set(collections)
+        for name, coll in collections.items():
+            assert coll.list_indexes.call_count == 1, f"{name} was read more than once"
+
+    def test_reads_nothing_when_no_collections(self):
+        db = MagicMock()
+
+        assert get_index_keys_by_collection(db, []) == {}
+        db.__getitem__.assert_not_called()
 
 
 class TestBuildQuery(SimpleTestCase):
@@ -460,6 +498,11 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
                 "'code': 211, 'codeName': 'KeyNotFound'}",
             ),
+            (
+                "server_too_old",
+                "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
+                "PyMongo requires at least 8 (MongoDB 4.2).",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -510,10 +553,12 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("message", "Authentication failed", "password"),
             ("atlas_bad_auth", "bad auth", "password"),
             ("dns_name_not_found", "Name or service not known", "resolved"),
+            ("srv_dns_name_not_found", "The DNS query name does not exist", "resolved"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
             ("key_not_found", "No keys found for HMAC", "key management"),
+            ("server_too_old", "version of PyMongo requires at least", "upgrade the cluster"),
             ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
         ]
@@ -616,6 +661,18 @@ class TestGetRetryableErrors(SimpleTestCase):
         assert "Topology Description" not in message
         assert expected_phrase in message.lower()
 
+    def test_connection_reset_is_classified_retryable(self):
+        # AutoReconnect wrapping a bare ConnectionResetError mid-cursor-read (an RST, not a
+        # timeout) — the next connection attempt succeeds once the network recovers, so this must
+        # not flood error tracking as an unclassified exception on every retry.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: [Errno 104] Connection reset by peer "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection reset should be classified retryable: {error_msg}"
+        )
+
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
         # primary shutting down or stepping down); the next retry hits the new primary.
@@ -625,6 +682,22 @@ class TestGetRetryableErrors(SimpleTestCase):
         )
         assert any(pattern in error_msg for pattern in self.retryable), (
             f"MongoDB shutdown failover should be classified retryable: {error_msg}"
+        )
+
+    def test_execution_timeout_is_classified_retryable(self):
+        # mongo.py re-raises OperationFailure code 50 (MaxTimeMSExpired) unchanged when a getMore
+        # is killed before yielding anything (see TestMongoSourceCursorLifecycle's
+        # test_execution_timeout_without_progress_is_not_retried_forever). A fresh Temporal retry
+        # isn't bound by the same in-flight execution-time cap, so this must not flood error
+        # tracking on every occurrence.
+        error_msg = (
+            "operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3 "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms), full error: {'ok': 0, 'errmsg': "
+            "'operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3', "
+            "'code': 50, 'codeName': 'MaxTimeMSExpired'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB execution timeout with no progress should be classified retryable: {error_msg}"
         )
 
 
@@ -810,32 +883,50 @@ class _FakeCollection:
         return len(self._docs)
 
 
+def _read_rows(
+    collection: _FakeCollection,
+    *,
+    resumable_source_manager: Any = None,
+    should_use_incremental_field: bool = False,
+    on_row: Callable[[dict[str, Any]], None] | None = None,
+) -> tuple[Any, list[dict[str, Any]]]:
+    @contextlib.contextmanager
+    def fake_mongo_client(connection_string: str, team_id: int) -> Any:
+        client = MagicMock()
+        client.__getitem__.return_value.__getitem__.return_value = collection
+        yield client
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client",
+        fake_mongo_client,
+    ):
+        response = mongo_source(
+            # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+            connection_string="mongodb://host/testdb",
+            collection_name="things",
+            logger=MagicMock(),
+            team_id=1,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=None,
+            incremental_field="_id" if should_use_incremental_field else None,
+            incremental_field_type=IncrementalFieldType.ObjectID if should_use_incremental_field else None,
+            resumable_source_manager=resumable_source_manager,
+        )
+        rows = []
+        for row in cast(Iterable[dict[str, Any]], response.items()):
+            if on_row is not None:
+                on_row(row)
+            rows.append(row)
+        return response, rows
+
+
 class TestMongoSourceCursorLifecycle(SimpleTestCase):
     """CursorNotFound (MongoDB error tracking issue) fires when the server expires an idle
     cursor between chunk writes; no_cursor_timeout prevents that expiry, and closing the
     cursor explicitly stops it leaking server-side once no_cursor_timeout is set."""
 
     def _run_get_rows(self, collection: _FakeCollection) -> list[dict[str, Any]]:
-        @contextlib.contextmanager
-        def fake_mongo_client(connection_string: str, team_id: int) -> Any:
-            client = MagicMock()
-            client.__getitem__.return_value.__getitem__.return_value = collection
-            yield client
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client",
-            fake_mongo_client,
-        ):
-            response = mongo_source(
-                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
-                connection_string="mongodb://host/testdb",
-                collection_name="things",
-                logger=MagicMock(),
-                team_id=1,
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
-            return list(cast(Iterable[dict[str, Any]], response.items()))
+        return _read_rows(collection)[1]
 
     def test_cursor_created_with_no_cursor_timeout(self):
         collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}])
@@ -1029,6 +1120,208 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class _FakeResumeManager:
+    def __init__(self, saved: MongoResumeConfig | None = None) -> None:
+        self._saved = saved
+        self.staged: list[MongoResumeConfig] = []
+        self.load_calls = 0
+        self.clear_calls = 0
+
+    def can_resume(self) -> bool:
+        return self._saved is not None
+
+    def load_state(self) -> MongoResumeConfig | None:
+        self.load_calls += 1
+        return self._saved
+
+    def save_state(self, data: MongoResumeConfig) -> None:
+        self.staged.append(data)
+
+    def clear_state(self) -> None:
+        self.clear_calls += 1
+
+
+_STANDARD_UUID_CODEC: CodecOptions[dict[str, Any]] = CodecOptions(uuid_representation=UuidRepresentation.STANDARD)
+
+
+def _saved_state(value: Any) -> MongoResumeConfig:
+    encoded = encode_resume_id(value)
+    assert encoded is not None
+    return MongoResumeConfig(last_id=encoded)
+
+
+def _bson_bytes(value: Any) -> bytes:
+    # Equal BSON bytes means the same type, subtype and field order, which is what `$gt` compares.
+    return bson.encode({"_id": value}, codec_options=_STANDARD_UUID_CODEC)
+
+
+class TestMongoSourceResume(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("object_id", ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")),
+            ("string", "user-42"),
+            ("int32", 42),
+            ("int64", Int64(2**40)),
+            ("double", 1.5),
+            ("decimal128", Decimal128("12.50")),
+            ("uuid_subtype_4", uuid.UUID("2d3f6db5-ab46-4d58-a383-449ba9b24cf7")),
+            ("uuid_subtype_3", Binary(b"0123456789abcdef", 3)),
+            ("generic_binary", Binary(b"\x00\x01\x02", 0)),
+            ("datetime", datetime.datetime(2024, 5, 1, 12, 30, 15, 123000)),
+            ("out_of_range_datetime", DatetimeMS(-(10**15))),
+            ("timestamp", Timestamp(1700000000, 3)),
+            ("bool", True),
+            ("compound", {"tenant": "t1", "seq": 7, "ref": ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")}),
+        ]
+    )
+    def test_resume_id_round_trips_through_the_saved_json(self, _name: str, value: Any) -> None:
+        manager = ResumableSourceManager[MongoResumeConfig](MagicMock(), MongoResumeConfig)
+
+        restored = manager._load_json(manager._dump_json(_saved_state(value)))
+
+        assert _bson_bytes(decode_resume_id(restored.last_id)) == _bson_bytes(value)
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("min_key", MinKey()),
+            ("max_key", MaxKey()),
+            ("nan", float("nan")),
+            ("decimal_nan", Decimal128("NaN")),
+            ("javascript", Code("return 1")),
+            ("javascript_with_scope", Code("return x", {"x": 1})),
+        ]
+    )
+    def test_ids_that_cannot_be_seeked_past_have_no_checkpoint(self, _name: str, value: Any) -> None:
+        assert encode_resume_id(value) is None
+
+    @parameterized.expand(
+        [
+            ("object_id", ObjectId("65f1c2a4e4b0a1b2c3d4e5f6"), ["bool", "date", "maxKey"], ["objectId", "string"]),
+            ("string", "abc", ["object", "binData", "objectId"], ["string", "int"]),
+            ("int", 5, ["string", "objectId"], ["int", "double"]),
+        ]
+    )
+    def test_seek_also_matches_types_that_sort_after_the_checkpoint(
+        self, _name: str, value: Any, included: list[str], excluded: list[str]
+    ) -> None:
+        same_type, later_types = _id_seek_filter(value)["$or"]
+
+        assert same_type == {"_id": {"$gt": value}}
+        assert set(included) <= set(later_types["_id"]["$type"])
+        assert not set(excluded) & set(later_types["_id"]["$type"])
+
+    def test_fresh_run_stages_each_id_before_its_row_is_yielded(self) -> None:
+        ids = [ObjectId("65f1c2a4e4b0a1b2c3d4e5f6"), ObjectId("65f1c2a4e4b0a1b2c3d4e5f7")]
+        collection = _FakeCollection([{"_id": oid, "n": i} for i, oid in enumerate(ids)])
+        manager = _FakeResumeManager()
+        staged_at_yield: list[Any] = []
+
+        def on_row(row: dict[str, Any]) -> None:
+            staged_at_yield.append(decode_resume_id(manager.staged[-1].last_id) if manager.staged else None)
+
+        response, rows = _read_rows(collection, resumable_source_manager=manager, on_row=on_row)
+
+        assert [row["_id"] for row in rows] == [str(oid) for oid in ids]
+        assert staged_at_yield == ids
+        assert collection.find_queries[0] == {}
+        assert response.supports_resume is True
+        # The pipeline clears this only after it flushes the final incomplete batch.
+        assert manager.clear_calls == 0
+        assert response.on_complete is not None
+        response.on_complete()
+        assert manager.clear_calls == 1
+
+    @parameterized.expand(
+        [
+            ("object_id", ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")),
+            ("string", "user-42"),
+            ("int", 42),
+            ("uuid", uuid.UUID("2d3f6db5-ab46-4d58-a383-449ba9b24cf7")),
+        ]
+    )
+    def test_resumed_run_seeks_past_the_saved_id_with_its_bson_type(self, _name: str, saved_id: Any) -> None:
+        collection = _FakeCollection([{"_id": "next"}])
+        manager = _FakeResumeManager(_saved_state(saved_id))
+
+        _read_rows(collection, resumable_source_manager=manager)
+
+        assert _bson_bytes(collection.find_queries[0]["$or"][0]["_id"]["$gt"]) == _bson_bytes(saved_id)
+        assert collection.find_calls[0]["no_cursor_timeout"] is True
+        assert collection.cursors[0].sorted_by == ["_id", 1]
+
+    def test_resumed_run_keeps_the_seek_when_a_killed_cursor_reopens(self) -> None:
+        saved_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f0")
+        docs = [{"_id": ObjectId(f"65f1c2a4e4b0a1b2c3d4e5f{i}")} for i in range(1, 4)]
+        collection = _FakeCollection(
+            docs, error=CursorNotFound("cursor id 123 not found"), error_after=2, fallback_docs=docs
+        )
+        manager = _FakeResumeManager(_saved_state(saved_id))
+
+        _, rows = _read_rows(collection, resumable_source_manager=manager)
+
+        assert [row["_id"] for row in rows] == [str(doc["_id"]) for doc in docs]
+        assert collection.find_queries[1] == {"$and": [_id_seek_filter(saved_id), {"_id": {"$gt": docs[1]["_id"]}}]}
+
+    def test_incremental_run_does_not_resume(self) -> None:
+        collection = _FakeCollection([{"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")}])
+        manager = _FakeResumeManager(_saved_state(ObjectId("65f1c2a4e4b0a1b2c3d4e5f0")))
+
+        response, rows = _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+
+        assert len(rows) == 1
+        assert response.supports_resume is False
+        assert "$or" not in collection.find_queries[0]
+        assert (manager.load_calls, manager.staged, manager.clear_calls) == (0, [], 0)
+
+    def test_run_without_a_manager_does_not_claim_resume(self) -> None:
+        response, _ = _read_rows(_FakeCollection([{"_id": "1"}]))
+
+        assert response.supports_resume is False
+
+    def test_id_without_a_checkpoint_clears_the_state_once_per_run_of_such_ids(self) -> None:
+        collection = _FakeCollection([{"_id": None}, {"_id": float("nan")}, {"_id": 1}, {"_id": MaxKey()}])
+        manager = _FakeResumeManager()
+        clears_at_yield: list[int] = []
+
+        _read_rows(
+            collection, resumable_source_manager=manager, on_row=lambda _: clears_at_yield.append(manager.clear_calls)
+        )
+
+        assert clears_at_yield == [1, 1, 1, 2]
+        assert [decode_resume_id(state.last_id) for state in manager.staged] == [1]
+        assert manager.clear_calls == 2
+
+    def test_unreadable_saved_state_is_cleared_before_the_attempt_fails(self) -> None:
+        manager = _FakeResumeManager(MongoResumeConfig(last_id="{not json"))
+
+        with self.assertRaises(ValueError):
+            _read_rows(_FakeCollection([{"_id": "1"}]), resumable_source_manager=manager)
+
+        assert manager.clear_calls == 1
+
+    @parameterized.expand([("full_refresh", False, True), ("incremental_or_append", True, False)])
+    def test_resume_covers_only_full_refresh(self, _name: str, incremental_or_append: bool, expected: bool) -> None:
+        assert MongoDBSource().resume_covers_run(incremental_or_append=incremental_or_append) is expected
+
+    @parameterized.expand(
+        [("first_reset_attempt", True, 1, 1), ("retried_reset", True, 2, 0), ("no_reset", False, 1, 0)]
+    )
+    def test_source_for_pipeline_passes_the_manager_and_only_clears_a_reset_on_its_first_attempt(
+        self, _name: str, reset_pipeline: bool, activity_attempt: int, expected_clears: int
+    ) -> None:
+        manager = MagicMock()
+        inputs = MagicMock(reset_pipeline=reset_pipeline, activity_attempt=activity_attempt)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.mongo_source"
+        ) as source_mock:
+            MongoDBSource().source_for_pipeline(MagicMock(), manager, inputs)
+
+        assert manager.clear_state.call_count == expected_clears
+        assert source_mock.call_args.kwargs["resumable_source_manager"] is manager
 
 
 class TestGetServerMetadata(SimpleTestCase):

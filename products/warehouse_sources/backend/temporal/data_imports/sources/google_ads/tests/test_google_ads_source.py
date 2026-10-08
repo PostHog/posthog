@@ -496,6 +496,25 @@ class TestValidateCredentials:
         assert "216.239.36.223" not in (message or "")
         assert "StatusCode" not in (message or "")
 
+    def test_insufficient_scope_tells_the_user_to_reconnect(self):
+        # Google raises this when the stored OAuth token was granted without the adwords scope.
+        # A user cannot act on "the required scopes" because they never choose scopes, so the
+        # wizard has to ask for the same reconnect the sync path asks for.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "Reconnect your Google Ads account" in (message or "")
+        assert "scopes" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
@@ -964,6 +983,10 @@ class TestTransientGrpcErrorDetection:
             # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
             # transient backend incident, not a rejected credential — ride it out in-process.
             (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # A bare UNKNOWN status carrying "Stream removed" is a peer-initiated HTTP/2 stream reset
+            # (e.g. a load balancer recycling the connection), not an application failure — ride it
+            # out in-process the same way.
+            (google_api_exceptions.Unknown("Stream removed"), True),
             # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
             # broad a signal, so only the specific known message is treated as transient.
             (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),
@@ -1863,10 +1886,23 @@ class TestVersionDeclaration:
 
 
 class TestReportTableMissingIncrementalField:
-    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
-        # A report table's schema can arrive flagged incremental but with no incremental field
-        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
-        # default to it and run rather than crashing with "incremental_field ... can't be None".
+    @pytest.mark.parametrize(
+        "incremental_field,incremental_field_type",
+        [
+            pytest.param(None, None, id="missing"),
+            # A stored config can also carry the underscore-joined synced column name
+            # (`segments_date`) instead of the queryable `segments.date` — e.g. a stale value from
+            # before a schema was reconciled. Google rejects that field name outright, so it must be
+            # corrected the same way a missing field is.
+            pytest.param("segments_date", IncrementalFieldType.Date, id="stale_underscore_value"),
+        ],
+    )
+    def test_incremental_report_table_with_bad_incremental_field_defaults_to_segments_date(
+        self, incremental_field, incremental_field_type
+    ):
+        # A report table's schema can arrive flagged incremental but with no, or an invalid,
+        # incremental field. Its only valid field is always segments.date, so the sync must use it
+        # rather than crashing or sending Google a field it will reject.
         table = _stats_table()
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
@@ -1882,15 +1918,16 @@ class TestReportTableMissingIncrementalField:
                 resumable_source_manager=mock.Mock(),
                 api_version="v25",
                 should_use_incremental_field=True,
-                incremental_field=None,
-                incremental_field_type=None,
+                incremental_field=incremental_field,
+                incremental_field_type=incremental_field_type,
                 db_incremental_field_last_value=dt.date.today(),
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
 
-        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        # The windowed drain ran (no crash) and queried on the corrected segments.date field.
         assert search.call_count >= 1
         assert "segments.date" in search.call_args_list[0].args[2]
+        assert "segments_date" not in search.call_args_list[0].args[2]
 
 
 class TestUnknownResource:
@@ -2070,10 +2107,9 @@ class TestCriterionTablesReachNegatives:
 
 
 class TestBreakdownStatsDefaultOff:
-    # These tables fan a day of spend out across placements, landing pages, product groups, hours and
+    # These tables fan a day of spend out across placements, product groups, hours and
     # demographics, so they are orders of magnitude larger than the campaign and ad group reports.
-    # Defaulting one of them on would silently start syncing it for every account on the next schema
-    # reconcile, so each must stay opt-in and explain its size in the picker.
+    # Keep them opt-in so new connections do not start these large imports without a table selection.
     @pytest.mark.parametrize(
         "alias",
         [
@@ -2084,7 +2120,6 @@ class TestBreakdownStatsDefaultOff:
             "campaign_hourly_stats",
             "detail_placement_stats",
             "gender_stats",
-            "landing_page_stats",
             "location_stats",
             "product_group_stats",
             "user_location_stats",
@@ -2097,3 +2132,8 @@ class TestBreakdownStatsDefaultOff:
 
         assert contents["should_sync_default"] is False
         assert contents["description"]
+
+
+@pytest.mark.parametrize("alias", ["keyword", "keyword_stats", "landing_page_stats"])
+def test_search_performance_tables_are_preselected(alias: str) -> None:
+    assert RESOURCE_SCHEMAS[alias].get("should_sync_default", True) is True

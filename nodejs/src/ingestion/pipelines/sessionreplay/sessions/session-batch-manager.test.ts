@@ -32,6 +32,7 @@ describe('SessionBatchManager', () => {
         }) as unknown as jest.Mocked<SessionBatchRecorder>
 
     const config = (overrides: Partial<SessionBatchManagerConfig> = {}): SessionBatchManagerConfig => ({
+        compression: { codec: 'snappy' as const },
         maxBatchSizeBytes: 100,
         maxBatchAgeMs: 1000,
         maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
@@ -93,7 +94,8 @@ describe('SessionBatchManager', () => {
                 mockFeatureStore,
                 mockEncryptor,
                 Number.MAX_SAFE_INTEGER,
-                100
+                100,
+                { codec: 'snappy' }
             )
         })
 
@@ -117,7 +119,8 @@ describe('SessionBatchManager', () => {
                     mockFeatureStore,
                     mockEncryptor,
                     maxEventsPerSessionPerBatch,
-                    100
+                    100,
+                    { codec: 'snappy' }
                 )
             }
         )

@@ -6,7 +6,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -15,9 +14,9 @@ import { SEARCH_PARAM_FILTERS_KEY } from 'scenes/dashboard/dashboardUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardPlacement, DashboardType, InsightModel } from '~/types'
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -70,7 +69,7 @@ describe('DashboardFilterBar', () => {
 
     function renderFilterBar(
         dashboardModeSource: DashboardEventSource,
-        dashboard: DashboardType<QueryBasedInsightModel> = MOCK_DASHBOARD,
+        dashboard: DashboardType = MOCK_DASHBOARD,
         placement: DashboardPlacement = DashboardPlacement.Dashboard
     ): ReturnType<typeof dashboardLogic.build> {
         const logic = dashboardLogic({ id: dashboard.id, dashboard, placement })
@@ -131,8 +130,8 @@ describe('DashboardFilterBar', () => {
     })
 
     it('keeps Preview and Discard available, but hides Save filters, for viewers', async () => {
-        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
-        const viewerDashboard: DashboardType<QueryBasedInsightModel> = {
+        const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+        const viewerDashboard: DashboardType = {
             ...MOCK_DASHBOARD,
             user_access_level: AccessControlLevel.Viewer,
             tiles: [
@@ -140,7 +139,7 @@ describe('DashboardFilterBar', () => {
                     id: 1,
                     color: null,
                     layouts: {},
-                    insight: { id: 1, short_id: 'viewer', name: 'Viewer' } as QueryBasedInsightModel,
+                    insight: { id: 1, short_id: 'viewer', name: 'Viewer' } as InsightModel,
                 },
             ],
         }
@@ -155,30 +154,30 @@ describe('DashboardFilterBar', () => {
             expect(document.querySelector('[data-attr="dashboard-apply-filters"]')).toBeInTheDocument()
             expect(document.querySelector('[data-attr="dashboard-save-filters"]')).not.toBeInTheDocument()
         } finally {
-            payloadSpy.mockRestore()
+            autoPreviewLimit.restore()
             logic.unmount()
         }
     })
 
     it('keeps Preview disabled until the dashboard settings change', async () => {
-        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
-        let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
+        const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+        let finishPreview: (insight: InsightModel) => void = () => {
             throw new Error('Preview resolver is unavailable')
         }
-        const preview = new Promise<QueryBasedInsightModel>((resolve) => {
+        const preview = new Promise<InsightModel>((resolve) => {
             finishPreview = resolve
         })
         const getInsightSpy = jest
             .spyOn(dashboardUtils, 'getInsightWithRetry')
             .mockImplementation(async (_teamId, insight) => insight)
-        const previewDashboard: DashboardType<QueryBasedInsightModel> = {
+        const previewDashboard: DashboardType = {
             ...MOCK_DASHBOARD,
             tiles: [
                 {
                     id: 1,
                     color: null,
                     layouts: {},
-                    insight: { id: 1, short_id: 'preview', name: 'Preview' } as QueryBasedInsightModel,
+                    insight: { id: 1, short_id: 'preview', name: 'Preview' } as InsightModel,
                 },
             ],
         }
@@ -218,23 +217,23 @@ describe('DashboardFilterBar', () => {
         )
 
         getInsightSpy.mockRestore()
-        payloadSpy.mockRestore()
+        autoPreviewLimit.restore()
         logic.unmount()
     })
 
     it('makes Preview available after a preview request fails', async () => {
-        const payloadSpy = jest.spyOn(featureFlagLib, 'getFeatureFlagPayload').mockReturnValue(0)
+        const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
         const getInsightSpy = jest
             .spyOn(dashboardUtils, 'getInsightWithRetry')
             .mockRejectedValue(new Error('Preview request failed'))
-        const previewDashboard: DashboardType<QueryBasedInsightModel> = {
+        const previewDashboard: DashboardType = {
             ...MOCK_DASHBOARD,
             tiles: [
                 {
                     id: 1,
                     color: null,
                     layouts: {},
-                    insight: { id: 1, short_id: 'preview', name: 'Preview' } as QueryBasedInsightModel,
+                    insight: { id: 1, short_id: 'preview', name: 'Preview' } as InsightModel,
                 },
             ],
         }
@@ -255,7 +254,7 @@ describe('DashboardFilterBar', () => {
         )
 
         getInsightSpy.mockRestore()
-        payloadSpy.mockRestore()
+        autoPreviewLimit.restore()
         logic.unmount()
     })
 

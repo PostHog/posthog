@@ -71,7 +71,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
 """,
             iconPath="/static/services/mixpanel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mixpanel",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -173,8 +173,8 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
             # Mixpanel returns 402 when the project's plan does not include the data export API or the
             # account is in a payment-overdue state. Retrying cannot resolve a billing issue.
             "402 Client Error: Payment Required": (
-                "Mixpanel requires a paid plan that includes the data export API. Check your Mixpanel "
-                "plan and billing status, then try again."
+                "Your Mixpanel plan does not include data export, or its billing is overdue. Upgrade your "
+                "Mixpanel plan or settle its billing, then resync."
             ),
         }
 

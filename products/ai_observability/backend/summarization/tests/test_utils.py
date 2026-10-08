@@ -3,7 +3,65 @@ import pytest
 from django.template import TemplateDoesNotExist
 from django.utils.safestring import SafeString
 
-from products.ai_observability.backend.summarization.utils import load_summarization_template
+from posthog.hogql.property_access_types import RestrictedProperty
+
+from products.ai_observability.backend.summarization.utils import (
+    get_summarization_lookup_date_range,
+    get_summary_cache_key,
+    load_summarization_template,
+)
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+
+class TestSummarizationLookupDateRange:
+    @pytest.mark.parametrize(
+        "date_from,date_to,expected_from,expected_to",
+        [
+            (None, None, "2026-01-14T12:00:00+00:00", "2026-01-16T12:00:00+00:00"),
+            ("-7d", None, "-7d", "2026-01-16T12:00:00+00:00"),
+            (None, "2026-02-01", "2026-01-14T12:00:00+00:00", "2026-02-01"),
+            ("-7d", "2026-02-01", "-7d", "2026-02-01"),
+        ],
+    )
+    def test_fills_only_missing_bounds_from_event_timestamp(
+        self, date_from: str | None, date_to: str | None, expected_from: str, expected_to: str
+    ) -> None:
+        date_range = get_summarization_lookup_date_range("2026-01-15T12:00:00Z", date_from=date_from, date_to=date_to)
+
+        assert date_range.date_from == expected_from
+        assert date_range.date_to == expected_to
+
+    @pytest.mark.parametrize("timestamp", [None, 42, "not-a-timestamp", "2026-02-30T12:00:00Z", "0001-01-01T12:00:00Z"])
+    def test_invalid_timestamp_preserves_lookup_defaults(self, timestamp: object) -> None:
+        date_range = get_summarization_lookup_date_range(timestamp, date_to="2026-02-01")
+
+        assert date_range.date_from is None
+        assert date_range.date_to == "2026-02-01"
+
+
+class TestSummaryCacheKey:
+    def test_scopes_cache_by_effective_restrictions(self) -> None:
+        unrestricted_key = get_summary_cache_key(1, "trace", "trace-1")
+        assert unrestricted_key == "llm_summary:1:trace:trace-1:minimal:default"
+        assert get_summary_cache_key(1, "trace", "trace-1", restricted_properties=[]) == unrestricted_key
+
+        restrictions = [
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.EVENT),
+            RestrictedProperty(name="output", property_type=PropertyDefinition.Type.EVENT),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.PERSON),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.GROUP),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.GROUP, group_type_index=0),
+            RestrictedProperty(name="input", property_type=PropertyDefinition.Type.GROUP, group_type_index=1),
+        ]
+        scoped_keys = {
+            get_summary_cache_key(1, "trace", "trace-1", restricted_properties=[restriction])
+            for restriction in restrictions
+        }
+        assert len(scoped_keys) == len(restrictions)
+        assert unrestricted_key not in scoped_keys
+        assert get_summary_cache_key(
+            1, "trace", "trace-1", restricted_properties=restrictions
+        ) == get_summary_cache_key(1, "trace", "trace-1", restricted_properties=list(reversed(restrictions)))
 
 
 class TestLoadSummarizationTemplate:

@@ -27,6 +27,8 @@ import type {
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
+    FeatureFlagRollOutToEveryoneRequestApi,
+    FeatureFlagSetReleaseConditionRolloutRequestApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
     FeatureFlagTestEvaluationResponseApi,
@@ -56,6 +58,8 @@ import type {
     StaffCacheMutationApi,
     StaffCacheMutationResponseApi,
     StaffCacheStatusResponseApi,
+    StaffFlagEvaluationsModeMutationApi,
+    StaffFlagEvaluationsModeResponseApi,
     StaffTeamConfigApi,
     StaffTeamConfigListResponseApi,
     StaffTeamConfigMutationApi,
@@ -263,9 +267,13 @@ export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffT
  * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
  * per-team feature-flag count override.
  *
- * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
  * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
- * bulk operation, unlike the cache tools' rebuild and clear.
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -291,9 +299,13 @@ export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
  * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
  * per-team feature-flag count override.
  *
- * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
  * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
- * bulk operation, unlike the cache tools' rebuild and clear.
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -311,6 +323,43 @@ export const featureFlagsStaffTeamConfigSetCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(staffTeamConfigMutationApi),
     })
+}
+
+export const getFeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateUrl = () => {
+    return `/api/feature_flags_staff_team_config/set_flag_evaluations_mode/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode belongs to the
+ * organization, and only set_flag_evaluations_mode() writes it, for the organizations of the given
+ * teams. It uses the same helpers as the set_flag_evaluations_mode command, including the guard
+ * against lowering an organization, and it writes every organization of a request in one
+ * transaction.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreate = async (
+    staffFlagEvaluationsModeMutationApi: StaffFlagEvaluationsModeMutationApi,
+    options?: RequestInit
+): Promise<StaffFlagEvaluationsModeResponseApi> => {
+    return apiMutator<StaffFlagEvaluationsModeResponseApi>(
+        getFeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateUrl(),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(staffFlagEvaluationsModeMutationApi),
+        }
+    )
 }
 
 export const getFeatureFlagsStaffTeamsListUrl = (params: FeatureFlagsStaffTeamsListParams) => {
@@ -831,6 +880,81 @@ export const featureFlagsRemoteConfigRetrieve = async (
     })
 }
 
+export const getFeatureFlagsRollOutToEveryoneCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/roll_out_to_everyone/`
+}
+
+/**
+ * Serve a feature flag to every user.
+ *
+ * Adds a release condition with no property filters at 100% and keeps the existing
+ * conditions below it. Payloads, holdout and every other field are left as they are. On a
+ * boolean flag, removing the new condition restores the previous targeting. On a
+ * multivariate flag the variant distribution is rewritten as well, so removing the
+ * condition restores the audience but not the old split. A flag that already leads with
+ * such a condition gains no second one.
+ *
+ * This changes targeting only. A disabled flag still serves nobody, and a holdout is
+ * evaluated before release conditions, so users in one keep getting the holdout variant
+ * instead of the rollout. A flag gated on early access enrollment is refused, because that
+ * gate is evaluated before release conditions too and no targeting change gets past it.
+ *
+ * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
+ * condition decides who the flag serves, not which variant they get, so rolling a
+ * multivariate flag out to everyone also gives the named variant 100% of the variant
+ * distribution and every other variant 0%. To serve everyone and keep the current split
+ * between variants, update the flag instead.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409. Read the flag again and decide the rollout against its current
+ * definition.
+ */
+export const featureFlagsRollOutToEveryoneCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagRollOutToEveryoneRequestApi: FeatureFlagRollOutToEveryoneRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsRollOutToEveryoneCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRollOutToEveryoneRequestApi),
+    })
+}
+
+export const getFeatureFlagsSetReleaseConditionRolloutCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/set_release_condition_rollout/`
+}
+
+/**
+ * Set what percentage of one release condition's audience a feature flag is served to.
+ *
+ * Changes `rollout_percentage` on the release condition at `condition_index` and nothing
+ * else. The condition's property filters, every other condition, the variants, payloads,
+ * holdout and every remaining field are left as they are.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409, because a condition index only names the condition you read. Read the
+ * flag again and decide the percentage against its current definition.
+ *
+ * On a multivariate flag this sets how many of the matching users get a variant at all. It
+ * does not change how the variants are split between them.
+ */
+export const featureFlagsSetReleaseConditionRolloutCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagSetReleaseConditionRolloutRequestApi: FeatureFlagSetReleaseConditionRolloutRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagApi> => {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsSetReleaseConditionRolloutCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetReleaseConditionRolloutRequestApi),
+    })
+}
+
 export const getFeatureFlagsStatusRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/status/`
 }
@@ -966,8 +1090,9 @@ export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,

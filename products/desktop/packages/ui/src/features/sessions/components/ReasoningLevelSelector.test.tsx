@@ -127,7 +127,7 @@ function thoughtOption(
 }
 
 function claudeModelOption(
-  currentValue = "claude-opus-5",
+  currentValue = "claude-opus-5-5",
 ): SessionConfigOption {
   return {
     type: "select",
@@ -136,14 +136,16 @@ function claudeModelOption(
     category: "model",
     currentValue,
     options: [
-      { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
-      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "Claude Sonnet 5.5", value: "claude-sonnet-5-5" },
+      { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "Claude Fable 5.1", value: "claude-fable-5-1" },
     ],
   } as unknown as SessionConfigOption;
 }
 
-function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
+function mixedModelOption(
+  currentValue = "claude-opus-5-5",
+): SessionConfigOption {
   return {
     type: "select",
     id: "model",
@@ -151,14 +153,14 @@ function mixedModelOption(currentValue = "claude-opus-5"): SessionConfigOption {
     category: "model",
     currentValue,
     options: [
-      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "GLM 5.2", value: "@cf/zai-org/glm-5.2" },
     ],
   } as unknown as SessionConfigOption;
 }
 
 function groupedModelOption(
-  currentValue = "claude-sonnet-5",
+  currentValue = "claude-sonnet-5-5",
 ): SessionConfigOption {
   return {
     type: "select",
@@ -172,13 +174,13 @@ function groupedModelOption(
         name: "Anthropic",
         options: [
           {
-            name: "Claude Sonnet 5",
-            value: "claude-sonnet-5",
+            name: "Claude Sonnet 5.5",
+            value: "claude-sonnet-5-5",
             _meta: { "posthog.code/modelHarness": "claude" },
           },
           {
-            name: "Claude Opus 5",
-            value: "claude-opus-5",
+            name: "Claude Opus 5.5",
+            value: "claude-opus-5-5",
             _meta: { "posthog.code/modelHarness": "claude" },
           },
         ],
@@ -206,8 +208,8 @@ function effortlessModelOption(): SessionConfigOption {
     category: "model",
     currentValue: "moonshotai/kimi-k3",
     options: [
-      { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
-      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "Claude Sonnet 5.5", value: "claude-sonnet-5-5" },
+      { name: "Claude Opus 5.5", value: "claude-opus-5-5" },
       { name: "Kimi K3", value: "moonshotai/kimi-k3" },
     ],
   } as unknown as SessionConfigOption;
@@ -443,7 +445,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -485,7 +487,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -503,7 +505,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -518,7 +520,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "low" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -535,7 +537,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "medium" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
         />
       </Theme>,
@@ -553,7 +555,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
           includePiHarness
           onHarnessChange={onHarnessChange}
@@ -582,7 +584,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={claudeModelOption("claude-sonnet-5")}
+          modelOption={claudeModelOption("claude-sonnet-5-5")}
           adapter="claude"
           onModelChange={onModelChange}
         />
@@ -595,10 +597,10 @@ describe("ReasoningLevelSelector", () => {
     await user.click(await screen.findByRole("button", { name: "Advanced" }));
     await openSub(user, /^Model/);
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5.5" }),
     );
 
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(onModelChange).toHaveBeenCalledTimes(1);
     expect(
       screen.getByRole("menuitem", { name: /^Model/ }),
@@ -613,7 +615,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption()}
-          modelOption={groupedModelOption("claude-sonnet-5")}
+          modelOption={groupedModelOption("claude-sonnet-5-5")}
           adapter="claude"
           onAdapterChange={() => {}}
           onModelChange={onModelChange}
@@ -639,9 +641,9 @@ describe("ReasoningLevelSelector", () => {
     expect(onModelChange).not.toHaveBeenCalled();
 
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5.5" }),
     );
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(onHarnessModelChange).toHaveBeenCalledTimes(1);
   });
 
@@ -653,7 +655,7 @@ describe("ReasoningLevelSelector", () => {
       <Theme>
         <ReasoningLevelSelector
           thoughtOption={thoughtOption({ currentValue: "xhigh" })}
-          modelOption={claudeModelOption("claude-opus-5")}
+          modelOption={claudeModelOption("claude-opus-5-5")}
           adapter="claude"
           onChange={onChange}
           onModelChange={onModelChange}
@@ -698,7 +700,7 @@ describe("ReasoningLevelSelector", () => {
     await user.click(await screen.findByText("Reset to default"));
 
     await pollUntil(() => onChange.mock.calls.length > 0);
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
     expect(onChange).toHaveBeenCalledWith("medium");
   });
 
@@ -730,7 +732,7 @@ describe("ReasoningLevelSelector", () => {
     // The pair lands in one call, never the split changeModel/onChange that
     // would let the effort persist against the previously-shown model.
     expect(onNotchSelect).toHaveBeenCalledWith({
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
       effort: "medium",
     });
     expect(onModelChange).not.toHaveBeenCalled();
@@ -857,11 +859,11 @@ describe("ReasoningLevelSelector", () => {
     await user.click(screen.getByRole("button", { name: "Model: Kimi K3" }));
     await openSub(user, /^Model/);
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5.5" }),
     );
 
     await pollUntil(() => onModelChange.mock.calls.length > 0);
-    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5-5");
   });
 
   it("hides the reasoning submenu and slider for an effort-less model", async () => {
@@ -996,7 +998,7 @@ describe("ReasoningLevelSelector", () => {
 
   it.each([
     ["claude", "Anthropic", /^Claude plan billing is unavailable/],
-    ["codex", "OpenAI", /^OpenAI billing only works/],
+    ["codex", "OpenAI", /^ChatGPT plan billing is unavailable/],
   ] as const)(
     "disables the %s billing option for cloud tasks and names the reason",
     async (adapter, planLabel, reason) => {

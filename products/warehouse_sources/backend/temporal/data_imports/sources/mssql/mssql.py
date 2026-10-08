@@ -837,8 +837,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             row_size_bytes = max(row[0] or 0, 1)
             return int(row_size_bytes)
         except Exception as e:
+            # This `SELECT TOP 100 *` is a best-effort sample over the same table/columns as the
+            # real streaming query, same as `get_rows_to_sync` above: a genuine problem (missing
+            # column, permissions) resurfaces there and is classified through the normal
+            # retryable/non-retryable path. Capturing it here too would only flood error tracking
+            # with a handled duplicate.
             logger.debug(f"fetch_average_row_size: Error: {e}.", exc_info=e)
-            capture_exception(e)
             return None
 
     def get_rows_to_sync(
@@ -993,9 +997,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     # the schema to what came back instead of failing the Arrow build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                    for rows in fetch_row_batches(
-                        cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
-                    ):
+                    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in rows),
                             read_schema,

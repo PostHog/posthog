@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana im
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.grafana import (
     ANNOTATIONS_LIMIT,
     BASIC_AUTH,
+    DASHBOARD_VERSIONS_PAGE_SIZE,
     DEFAULT_PAGE_SIZE,
     MAX_RESPONSE_BYTES,
     TOKEN_AUTH,
@@ -84,6 +85,9 @@ class FakeResumableManager:
     def save_state(self, state: GrafanaResumeConfig) -> None:
         self.saved.append(state)
         self.state = state
+
+    def safe_point(self) -> None:
+        pass
 
 
 def _patch_session(session: mock.MagicMock):
@@ -305,14 +309,29 @@ class TestGetEndpointPermissions:
         def get(url, **kwargs):
             if "/api/teams/search" in url:
                 return _response(status_code=403, json_data={"message": "Permissions needed: teams:read"})
+            if "/api/dashboards/uid/d1/versions" in url:
+                return _response(status_code=403, json_data={"message": "Permissions needed: dashboards:write"})
+            if "/api/search" in url:
+                return _response(status_code=200, json_data=[{"uid": "d1"}])
             return _response(status_code=200, json_data=[])
 
         session = mock.MagicMock()
         session.get.side_effect = get
         with _patch_session(session):
-            results = get_endpoint_permissions("https://x.grafana.net", _token_auth(), None, 1, ["dashboards", "teams"])
+            results = get_endpoint_permissions(
+                "https://x.grafana.net",
+                _token_auth(),
+                None,
+                1,
+                ["dashboards", "teams", "team_members", "dashboard_versions"],
+            )
         assert results["dashboards"] is None
         assert results["teams"] is not None and "teams:read" in results["teams"]
+        # A fan-out child is unreachable when its parent is, and otherwise needs its own permission,
+        # so it is probed through a real parent id, never through its unresolved `{parent_id}` path.
+        assert results["team_members"] == results["teams"]
+        assert results["dashboard_versions"] is not None and "dashboards:write" in results["dashboard_versions"]
+        assert all("{" not in call.args[0] for call in session.get.call_args_list)
 
     def test_network_blip_is_not_a_missing_scope(self):
         session = mock.MagicMock()
@@ -374,6 +393,10 @@ class TestPagedRows:
         assert batches == [[{"id": 7}]]
         assert _query(session.get.call_args.args[0])["perpage"] == str(DEFAULT_PAGE_SIZE)
 
+    def test_orgs_pages_from_zero(self):
+        _, session, _ = self._run("orgs", [[{"id": 1}]])
+        assert _query(session.get.call_args.args[0])["page"] == "0"
+
     def test_resumes_from_saved_page(self):
         manager = FakeResumableManager(GrafanaResumeConfig(next_page=3))
         batches, session, _ = self._run("dashboards", [[{"uid": "d1"}]], manager=manager)
@@ -427,6 +450,123 @@ class TestPagedRows:
         assert session.get.call_count == 2
         assert len(batches) == 2
         assert manager.saved[-1].next_page == 3
+
+
+class TestFanOutRows:
+    def _run(
+        self,
+        endpoint: str,
+        responses_by_path: dict[str, list[Any]],
+        manager: FakeResumableManager | None = None,
+    ):
+        manager = manager or FakeResumableManager()
+        remaining = {path: list(responses) for path, responses in responses_by_path.items()}
+        session = mock.MagicMock()
+
+        def get(url, **kwargs):
+            response = remaining[urlparse(url).path].pop(0)
+            return response if isinstance(response, mock.MagicMock) else _response(json_data=response)
+
+        session.get.side_effect = get
+        with (
+            _patch_session(session),
+            mock.patch.object(grafana_module, "_is_host_safe", return_value=(True, None)),
+        ):
+            batches = list(
+                get_rows(
+                    host="https://x.grafana.net",
+                    auth=_token_auth(),
+                    org_id=None,
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    team_id=1,
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+        urls = [call.args[0] for call in session.get.call_args_list]
+        return batches, urls, manager
+
+    def test_team_members_fan_out_and_fill_missing_team_id(self):
+        batches, urls, _ = self._run(
+            "team_members",
+            {
+                "/api/teams/search": [{"teams": [{"id": 1}, {"id": 2}], "totalCount": 2}],
+                "/api/teams/1/members": [[{"userId": 10}]],
+                "/api/teams/2/members": [[{"userId": 11, "teamId": 2}]],
+            },
+        )
+        assert batches == [[{"teamId": 1, "userId": 10}], [{"teamId": 2, "userId": 11}]]
+        assert [urlparse(url).path for url in urls] == [
+            "/api/teams/search",
+            "/api/teams/1/members",
+            "/api/teams/2/members",
+        ]
+
+    def test_dashboard_versions_follow_continue_token(self):
+        batches, urls, _ = self._run(
+            "dashboard_versions",
+            {
+                "/api/search": [[{"uid": "d1"}]],
+                "/api/dashboards/uid/d1/versions": [
+                    {"versions": [{"version": 3}], "continueToken": "tok"},
+                    {"versions": [{"version": 2}], "continueToken": ""},
+                ],
+            },
+        )
+        assert batches == [[{"uid": "d1", "version": 3}], [{"uid": "d1", "version": 2}]]
+        assert _query(urls[1]) == {"limit": str(DASHBOARD_VERSIONS_PAGE_SIZE)}
+        assert _query(urls[2]) == {"limit": str(DASHBOARD_VERSIONS_PAGE_SIZE), "continueToken": "tok"}
+
+    def test_dashboard_versions_legacy_array_pages_by_offset(self):
+        full_page = [{"uid": "d1", "version": v} for v in range(DASHBOARD_VERSIONS_PAGE_SIZE)]
+        batches, urls, _ = self._run(
+            "dashboard_versions",
+            {
+                "/api/search": [[{"uid": "d1"}]],
+                "/api/dashboards/uid/d1/versions": [full_page, [{"uid": "d1", "version": 999}]],
+            },
+        )
+        assert len(batches) == 2
+        assert "start" not in _query(urls[1])
+        assert _query(urls[2])["start"] == str(DASHBOARD_VERSIONS_PAGE_SIZE)
+
+    def test_skips_parent_deleted_mid_sync(self):
+        not_found = _response(status_code=404, text="not found")
+        not_found.raise_for_status.side_effect = requests.HTTPError(response=not_found)
+        batches, _, _ = self._run(
+            "dashboard_versions",
+            {
+                "/api/search": [[{"uid": "gone"}, {"uid": "d2"}]],
+                "/api/dashboards/uid/gone/versions": [not_found],
+                "/api/dashboards/uid/d2/versions": [{"versions": [{"version": 1}], "continueToken": ""}],
+            },
+        )
+        assert batches == [[{"uid": "d2", "version": 1}]]
+
+    def test_resumes_from_saved_parent_index(self):
+        manager = FakeResumableManager(GrafanaResumeConfig(next_page=2, next_parent_index=1))
+        batches, urls, _ = self._run(
+            "team_members",
+            {
+                "/api/teams/search": [{"teams": [{"id": 1}, {"id": 2}]}],
+                "/api/teams/2/members": [[{"userId": 11}]],
+            },
+            manager=manager,
+        )
+        assert _query(urls[0])["page"] == "2"
+        assert batches == [[{"teamId": 2, "userId": 11}]]
+
+    def test_budget_cut_leaves_cursor_on_unfinished_parent(self):
+        # A host handing out continue tokens forever must not loop without end, and the parent it
+        # cut short must be re-fetched on the next sync rather than skipped.
+        endless = [{"versions": [{"version": v}], "continueToken": f"t{v}"} for v in range(10)]
+        with mock.patch.object(grafana_module, "MAX_PAGES_PER_RUN", 3):
+            _, urls, manager = self._run(
+                "dashboard_versions",
+                {"/api/search": [[{"uid": "d1"}, {"uid": "d2"}]], "/api/dashboards/uid/d1/versions": endless},
+            )
+        assert len(urls) == 3
+        assert manager.saved[-1] == GrafanaResumeConfig(next_page=1, next_parent_index=0)
 
 
 class TestAnnotationRows:

@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { AIContextAccountPropertiesSection } from '../../components/AIContextAccountPropertiesSection/AIContextAccountPropertiesSection'
 import { SupportPlaybookSection } from '../../components/SupportPlaybookSection/SupportPlaybookSection'
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
@@ -135,6 +136,7 @@ export function AISection(): JSX.Element {
             )}
 
             {aiSuggestionsEnabled && <SupportPlaybookSection />}
+            {aiSuggestionsEnabled && <AIContextAccountPropertiesSection />}
 
             {aiSuggestionsEnabled && (
                 <SceneSection

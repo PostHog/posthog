@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_perspectives
@@ -60,6 +61,8 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_skill RBAC
     # gate must apply — INTERNAL short-circuits AccessControlPermission before it checks anything.
     scope_object = "llm_skill"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewSkillConfig.objects.unscoped()
     serializer_class = ReviewPerspectiveConfigSerializer

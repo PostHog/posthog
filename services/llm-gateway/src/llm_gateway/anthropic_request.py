@@ -10,18 +10,33 @@ from llm_gateway.metrics.prometheus import CLEAR_THINKING_EDIT_DROPPED
 
 CLEAR_THINKING_EDIT: Final[str] = "clear_thinking_20251015"
 OPUS_5_REQUIRED_THINKING_EFFORTS: Final[frozenset[str]] = frozenset({"xhigh", "max"})
+# Rejects `thinking: {"type": "disabled"}` at every effort level, not only the top two.
+ALWAYS_THINKING_MODELS: Final[frozenset[str]] = frozenset({"claude-opus-5-5"})
+# Also rejects disabled thinking; `between_tools`, its thinking-off shape, is legal only at effort
+# high or below and without a per-message output_config.
+BETWEEN_TOOLS_MODELS: Final[frozenset[str]] = frozenset({"claude-sonnet-5-5"})
+BETWEEN_TOOLS_EFFORTS: Final[frozenset[object]] = frozenset({None, "", "low", "medium", "high"})
 
 
-def enable_required_opus_5_thinking(request_data: dict[str, Any]) -> dict[str, Any]:
+def _has_message_output_config(messages: object) -> bool:
+    return isinstance(messages, list) and any(isinstance(m, dict) and "output_config" in m for m in messages)
+
+
+def normalize_disabled_thinking(request_data: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite `thinking: disabled` for models that refuse it."""
     output_config = request_data.get("output_config")
     effort = output_config.get("effort") if isinstance(output_config, dict) else None
     thinking = request_data.get("thinking")
+    model = request_data.get("model")
 
-    if (
-        request_data.get("model") != "claude-opus-5"
-        or effort not in OPUS_5_REQUIRED_THINKING_EFFORTS
-        or not isinstance(thinking, dict)
-        or thinking.get("type") != "disabled"
+    if not isinstance(thinking, dict) or thinking.get("type") != "disabled":
+        return request_data
+    if model in BETWEEN_TOOLS_MODELS:
+        if effort in BETWEEN_TOOLS_EFFORTS and not _has_message_output_config(request_data.get("messages")):
+            return {**request_data, "thinking": {"type": "between_tools"}}
+        return {**request_data, "thinking": {"type": "adaptive"}}
+    if model not in ALWAYS_THINKING_MODELS and (
+        model != "claude-opus-5" or effort not in OPUS_5_REQUIRED_THINKING_EFFORTS
     ):
         return request_data
 
