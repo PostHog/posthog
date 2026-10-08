@@ -513,6 +513,8 @@ export interface _MetricQueryRequestApi {
 export interface _MetricQueryResponseApi {
     /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
     results: _MetricSeriesApi[]
+    /** Set only when the query returned no points: what to check before querying again. */
+    hint?: string
 }
 
 export interface _MetricSamplesBodyApi {
