@@ -10,6 +10,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError
 from django.db.models import Max, Q, QuerySet
 
+from products.canvas.backend.access_control import filter_canvases_by_access_level_for_user_id
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import api as tasks_facade
@@ -31,7 +32,7 @@ def canvas_comments_accessible(
             )
         if task_id is not None:
             canvases = canvases.filter(Q(generation_task_id=task_id) | Q(source_versions__task_id=task_id))
-        return canvases.exists()
+        return filter_canvases_by_access_level_for_user_id(canvases, team_id, user_id).exists()
     except (ValueError, ValidationError):
         return False
 
@@ -106,7 +107,8 @@ def visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
         _live_or_owned_q(user_id),
         source_policy=Canvas.SOURCE_POLICY_STANDARD,
     )
-    return {str(canvas_id) for canvas_id in canvases.values_list("id", flat=True)}
+    visible = filter_canvases_by_access_level_for_user_id(canvases, team_id, user_id)
+    return {str(canvas_id) for canvas_id in visible.values_list("id", flat=True)}
 
 
 def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[int]) -> set[int]:
@@ -167,9 +169,10 @@ def _live_or_owned_q(user_id: int | None) -> Q:
 
 
 def _visible_canvases(team_id: int, user_id: int | None) -> QuerySet[Canvas]:
-    return Canvas.objects.for_team(team_id).filter(
+    canvases = Canvas.objects.for_team(team_id).filter(
         tasks_facade.visible_channels_q(user_id, relation="channel"), deleted=False
     )
+    return filter_canvases_by_access_level_for_user_id(canvases, team_id, user_id)
 
 
 def _summary(canvas: Canvas) -> CanvasSummary:

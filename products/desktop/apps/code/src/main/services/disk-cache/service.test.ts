@@ -7,7 +7,9 @@ import { DiskCache } from "./service";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
-describe("DiskCache", () => {
+// Every case here writes and reads a real temp directory, which outruns the 5s
+// default when CI runs every desktop suite at once.
+describe("DiskCache", { timeout: 20_000 }, () => {
   let rootDir: string;
   let now: number;
 

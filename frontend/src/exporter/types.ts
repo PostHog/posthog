@@ -1,7 +1,11 @@
-import { NotebookType } from 'scenes/notebooks/types'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { NotebookType } from "scenes/notebooks/types";
+import { SessionRecordingPlayerMode } from "scenes/session-recordings/player/sessionRecordingPlayerLogic";
 
-import { AnyResponseType, QuerySchema, SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import {
+    AnyResponseType,
+    QuerySchema,
+    SharingConfigurationSettings,
+} from "~/queries/schema/schema-general";
 import {
     CohortType,
     DashboardType,
@@ -9,53 +13,109 @@ import {
     HeatmapExportContext,
     InsightModel,
     SessionRecordingType,
-} from '~/types'
+} from "~/types";
 
 export enum ExportType {
-    Image = 'image',
-    Embed = 'embed',
-    Scene = 'scene',
-    Unlock = 'unlock',
-    Heatmap = 'heatmap',
+    Image = "image",
+    Embed = "embed",
+    Scene = "scene",
+    Unlock = "unlock",
+    Heatmap = "heatmap",
+}
+
+/** A publicly shared desktop canvas: the published build renders in a sandboxed iframe. */
+export interface SharedCanvasPayload {
+    id: string;
+    name: string;
+    kind: "freeform" | "grid" | "component";
+    description: string;
+    /** Whether the build captured when sharing was turned on still exists. False leaves `artifact_url` null. */
+    published: boolean;
+    /**
+     * Signed URL of the shared build's entry HTML, minted for this page load. Null when that build is
+     * gone, or when artifact delivery is not configured on this instance.
+     */
+    artifact_url: string | null;
+    /** Whether the owner lets anyone with the link copy the canvas into their own project. */
+    allow_forking: boolean;
+    /** When the build the link shows was published. Null when that build is gone. */
+    shared_at: string | null;
+}
+
+/** A publicly shared file a task run produced: the exact upload that was shared. */
+export interface SharedTaskArtifactPayload {
+    name: string;
+    content_type: string;
+    /** Decides the renderer: markdown inline, images inline, everything else a download. */
+    kind: "markdown" | "image" | "html" | "file";
+    size: number | null;
+    uploaded_at: string | null;
+    /** The markdown text, inlined when the file is small enough to ship in the page. */
+    markdown: string | null;
+    /** Same-token file URL: renders inline for images, downloads for everything else. */
+    file_url: string;
+}
+
+/** What the public page knows about the person looking at it, from their PostHog session if they have one. */
+export interface SharedPageViewer {
+    is_authenticated: boolean;
+    email: string | null;
+    first_name: string | null;
+    /** The theme the viewer chose in PostHog. Null when signed out or never set, so the page follows the OS. */
+    theme_mode: "light" | "dark" | "system" | null;
+    /** In-app path that opens the original in PostHog Desktop; null unless the viewer may see it. */
+    open_path: string | null;
+    /** False when the link is off: only viewers who can open the original get the page then. */
+    sharing_enabled: boolean;
+    /** The sharing endpoint for this link; null unless the viewer may turn the link on or off. */
+    sharing_api_path: string | null;
+    /** Whether the viewer made the shared thing, so the page can say "by you". */
+    is_creator: boolean;
 }
 
 export interface ExportedData extends SharingConfigurationSettings {
-    accessToken?: string
-    shareToken?: string // JWT token for password-protected shares
-    type: ExportType
-    dashboard?: DashboardType
-    insight?: InsightModel
-    themes?: DataColorThemeModel[]
-    recording?: SessionRecordingType
-    notebook?: NotebookType
+    accessToken?: string;
+    shareToken?: string; // JWT token for password-protected shares
+    type: ExportType;
+    dashboard?: DashboardType;
+    insight?: InsightModel;
+    themes?: DataColorThemeModel[];
+    recording?: SessionRecordingType;
+    notebook?: NotebookType;
     /**
      * Pre-serialized saved insights referenced by a shared notebook, keyed by `short_id`.
      * Each entry already includes computed `result`/`last_refresh`/etc. so the frontend can seed
      * `cachedInsight` + `cachedResults` and avoid POSTing to `/api/projects/.../query/` (which
      * `SharingAccessTokenAuthentication` rejects).
      */
-    insights?: Record<string, InsightModel>
+    insights?: Record<string, InsightModel>;
     /**
      * Pre-computed results for inline (non-saved-insight) ph-query nodes in a shared notebook,
      * keyed by node `nodeId`. Same rationale as `insights` — lets the shared viewer render
      * `<Query cachedResults={…} />` without ever hitting the query API.
      */
-    inline_query_results?: Record<string, AnyResponseType>
+    inline_query_results?: Record<string, AnyResponseType>;
     /**
      * Ad-hoc query for an insight-less image export (`export_context.source`), with its
      * pre-computed result in `query_results` — same rationale as `inline_query_results`.
      */
-    query?: QuerySchema
-    query_results?: AnyResponseType
+    query?: QuerySchema;
+    query_results?: AnyResponseType;
     /** Optional title shown inside an ad-hoc query image export. */
-    query_title?: string
-    autoplay?: boolean
+    query_title?: string;
+    autoplay?: boolean;
     /** Player adds border by default - we want to remove it **/
-    noBorder?: boolean
-    mode?: SessionRecordingPlayerMode
-    exportToken?: string
-    heatmap_url?: string
-    heatmap_context?: HeatmapExportContext
+    noBorder?: boolean;
+    mode?: SessionRecordingPlayerMode;
+    exportToken?: string;
+    heatmap_url?: string;
+    heatmap_context?: HeatmapExportContext;
     /** Cohort id+name inlined for shared views, which can't reach /api/cohorts. */
-    cohorts?: Pick<CohortType, 'id' | 'name'>[]
+    cohorts?: Pick<CohortType, "id" | "name">[];
+    /** Shared desktop canvas payload. */
+    canvas?: SharedCanvasPayload;
+    /** Shared task-run artifact payload. */
+    task_artifact?: SharedTaskArtifactPayload;
+    /** Who is looking at a shared canvas or file; sent for those two share types only. */
+    viewer?: SharedPageViewer;
 }
