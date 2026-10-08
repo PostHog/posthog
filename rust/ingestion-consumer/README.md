@@ -53,7 +53,7 @@ Under `key_table`:
 
 - One task owns the state machine and applies polls, worker responses, revokes and retry wakeups one at a time.
 - Each key has a FIFO queue, and at most one request per key is in flight, which preserves per-key order.
-- The packer builds a request only for a free worker slot, from ready keys up to a target size. Keys stay unclaimed until then, so a key's run keeps growing while every slot is busy. A request never mixes assignment epochs or fresh and replayed messages.
+- The packer builds a request only for a free worker slot, from ready keys up to a target size. Keys stay unclaimed until then, so a key's run keeps growing while every slot is busy, up to the target. A key's backlog past the target leaves in consecutive requests, one in flight at a time. A request never mixes assignment epochs or fresh and replayed messages.
 - A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.
 - A failed send returns its messages to the front of their keys' queues. They retry through the packer as replay after the retry delay.
 - A revoke drops the pending messages of the revoked partitions, because the new owner replays them.
@@ -61,8 +61,8 @@ Under `key_table`:
 
 | Setting | Default | Effect under `key_table` |
 | --- | --- | --- |
-| `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. `0` disables the event target. |
-| `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. `0` disables the byte target. |
+| `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. It also caps one key's run. `0` disables the event target and the cap. |
+| `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. It also caps one key's run. `0` disables the byte target and the cap. |
 | `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 

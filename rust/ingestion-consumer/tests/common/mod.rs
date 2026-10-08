@@ -17,7 +17,7 @@ use ingestion_consumer::routing::Router;
 use ingestion_consumer::scheduler::SchedulerKind;
 use lifecycle::Handle;
 
-pub const ONE_KEY_PER_REQUEST: PackTargets = PackTargets {
+pub const ONE_MESSAGE_PER_REQUEST: PackTargets = PackTargets {
     events: NonZeroUsize::new(1),
     bytes: None,
     latency_budget: Duration::ZERO,
@@ -57,7 +57,7 @@ pub fn key_table_batcher(
         transport,
         stall_timeout,
         retry_delay,
-        ONE_KEY_PER_REQUEST,
+        ONE_MESSAGE_PER_REQUEST,
     )
 }
 

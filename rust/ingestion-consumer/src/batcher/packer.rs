@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use metrics::counter;
 
-use super::key_queues::{KeyQueues, ReadySize};
+use super::key_queues::{KeyQueues, ReadySize, RunCap};
 use super::request::{Request, RequestClass};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -17,10 +17,15 @@ pub struct PackTargets {
 }
 
 impl PackTargets {
+    pub fn run_cap(&self) -> RunCap {
+        RunCap {
+            messages: self.events,
+            bytes: self.bytes,
+        }
+    }
+
     fn reached(&self, size: ReadySize) -> bool {
-        self.events
-            .is_some_and(|target| size.messages >= target.get())
-            || self.bytes.is_some_and(|target| size.bytes >= target.get())
+        self.run_cap().reached(size)
     }
 }
 
@@ -52,6 +57,10 @@ impl Packer {
             targets,
             reservation: None,
         }
+    }
+
+    pub fn targets(&self) -> PackTargets {
+        self.targets
     }
 
     pub fn latency_budget(&self) -> Duration {
@@ -154,7 +163,7 @@ mod tests {
     #[test]
     fn a_backlog_fills_free_slots_with_full_requests_and_the_rest_waits() {
         let now = Instant::now();
-        let mut keys = KeyQueues::new();
+        let mut keys = KeyQueues::default();
         for (index, key) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
             push(&mut keys, key, 0, &[index as i64], now);
         }
@@ -175,7 +184,7 @@ mod tests {
     #[test]
     fn without_a_free_slot_nothing_is_claimed_or_reserved() {
         let now = Instant::now();
-        let mut keys = KeyQueues::new();
+        let mut keys = KeyQueues::default();
         push(&mut keys, "a", 0, &[1, 2], now);
         let mut packer = Packer::new(targets(2));
 
@@ -187,7 +196,7 @@ mod tests {
     #[test]
     fn the_byte_target_sends_a_request_with_the_event_target_off() {
         let now = Instant::now();
-        let mut keys = KeyQueues::new();
+        let mut keys = KeyQueues::default();
         push(&mut keys, "a", 0, &[1], now);
         let mut packer = Packer::new(PackTargets {
             events: None,
@@ -206,7 +215,7 @@ mod tests {
     #[test]
     fn classes_pack_into_separate_requests() {
         let now = Instant::now();
-        let mut keys = KeyQueues::new();
+        let mut keys = KeyQueues::default();
         push(&mut keys, "a", 1, &[1], now);
         push(&mut keys, "b", 2, &[2], now);
         push(&mut keys, "c", 1, &[3], now);
@@ -224,7 +233,7 @@ mod tests {
     #[test]
     fn a_reservation_with_nothing_left_to_pack_is_released() {
         let now = Instant::now();
-        let mut keys = KeyQueues::new();
+        let mut keys = KeyQueues::default();
         push(&mut keys, "a", 0, &[1], now);
         let mut packer = Packer::new(targets(100));
         packer.pack(&mut keys, now, 1, false);
@@ -238,7 +247,7 @@ mod tests {
     #[test]
     fn an_expired_reservation_waits_for_a_slot_and_then_sends_at_once() {
         let now = Instant::now();
-        let mut keys = KeyQueues::new();
+        let mut keys = KeyQueues::default();
         push(&mut keys, "a", 0, &[1], now);
         let mut packer = Packer::new(targets(100));
         packer.pack(&mut keys, now, 1, false);

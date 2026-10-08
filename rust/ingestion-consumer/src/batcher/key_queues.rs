@@ -2,6 +2,7 @@
 //! out, and its later messages wait until that run settles.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,6 +57,19 @@ pub(super) fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
 pub struct ReadySize {
     pub messages: usize,
     pub bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RunCap {
+    pub messages: Option<NonZeroUsize>,
+    pub bytes: Option<NonZeroUsize>,
+}
+
+impl RunCap {
+    pub fn reached(&self, size: ReadySize) -> bool {
+        self.messages.is_some_and(|cap| size.messages >= cap.get())
+            || self.bytes.is_some_and(|cap| size.bytes >= cap.get())
+    }
 }
 
 impl std::ops::AddAssign for ReadySize {
@@ -135,13 +149,40 @@ impl KeyState {
         Some((front.class, front.size()))
     }
 
+    fn append(
+        &mut self,
+        class: RequestClass,
+        messages: Vec<SerializedKafkaMessage>,
+        now: Instant,
+        cap: RunCap,
+    ) {
+        let mut messages = messages.into_iter();
+        while messages.len() > 0 {
+            let open = self
+                .segments
+                .back()
+                .is_some_and(|back| back.class == class && !cap.reached(back.size()));
+            if !open {
+                self.segments.push_back(Segment {
+                    class,
+                    queued_at: now,
+                    bytes: 0,
+                    messages: Vec::new(),
+                });
+            }
+            let back = self.segments.back_mut().expect("an open back segment");
+            for message in messages.by_ref() {
+                back.bytes += message.payload_bytes();
+                back.messages.push(message);
+                if cap.reached(back.size()) {
+                    break;
+                }
+            }
+        }
+    }
+
     fn claim_front(&mut self) -> Segment {
         let segment = self.segments.pop_front().expect("a ready key has messages");
-        // Pushes merge into the back segment, so the front one is the whole run.
-        debug_assert!(self
-            .segments
-            .front()
-            .is_none_or(|next| next.class != segment.class));
         self.claim = Some(Claim {
             assignment_epoch: segment.class.assignment_epoch,
             revoked: Vec::new(),
@@ -207,14 +248,18 @@ pub struct KeyQueues {
     ready_keys: VecDeque<Arc<str>>,
     waiting_keys: BTreeSet<(Instant, Arc<str>)>,
     ready_sizes: ReadySizes,
+    run_cap: RunCap,
     queued_messages: usize,
     queued_bytes: usize,
     claimed_keys: usize,
 }
 
 impl KeyQueues {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(run_cap: RunCap) -> Self {
+        Self {
+            run_cap,
+            ..Self::default()
+        }
     }
 
     pub fn key_count(&self) -> usize {
@@ -281,18 +326,7 @@ impl KeyQueues {
         };
         let was_ready = state.is_ready();
         let before = state.ready_size();
-        match state.segments.back_mut() {
-            Some(back) if back.class == class => {
-                back.bytes += bytes;
-                back.messages.extend(messages);
-            }
-            _ => state.segments.push_back(Segment {
-                class,
-                queued_at: now,
-                bytes,
-                messages,
-            }),
-        }
+        state.append(class, messages, now, self.run_cap);
         self.ready_sizes.replace(before, state.ready_size());
         if !was_ready && state.is_ready() {
             self.ready_keys.push_back(routing_key);
@@ -534,7 +568,7 @@ mod tests {
     #[test]
     fn arrivals_for_a_claimed_key_wait_for_its_settle() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         assert_eq!(
             claimed(&take_all(&mut queues, now)),
@@ -564,7 +598,7 @@ mod tests {
     #[test]
     fn keys_past_the_message_limit_stay_unclaimed_and_keep_their_turn() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         for routing_key in ["a", "b", "c"] {
             queues.push(key(routing_key), 0, vec![message(routing_key, 0, 1)], now);
         }
@@ -585,7 +619,7 @@ mod tests {
     fn requeued_messages_go_first_as_replay_after_their_retry_time() {
         let now = Instant::now();
         let retry_at = now + Duration::from_millis(100);
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(
             key("a"),
             0,
@@ -622,7 +656,7 @@ mod tests {
     #[test]
     fn a_run_stops_at_an_epoch_boundary() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 1, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 2, vec![message("a", 0, 2)], now);
 
@@ -635,7 +669,7 @@ mod tests {
     #[test]
     fn a_revoke_drops_queued_messages_and_requeued_messages_of_the_partition() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(
             key("a"),
             0,
@@ -664,7 +698,7 @@ mod tests {
     #[test]
     fn a_revoke_that_drops_the_requeued_messages_ends_their_wait() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         take_all(&mut queues, now);
         queues.push(key("a"), 0, vec![message("a", 1, 7)], now);
@@ -684,7 +718,7 @@ mod tests {
     #[test]
     fn a_settle_without_a_claim_is_an_error() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         assert!(queues
             .settle(&key("a"), vec![message("a", 0, 1)], None, now)
@@ -723,7 +757,7 @@ mod tests {
     #[test]
     fn pushes_of_one_class_before_a_claim_share_one_segment_and_leave_as_one_run() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         assert_eq!(queues.keys[&key("a")].segments.len(), 1);
@@ -736,7 +770,7 @@ mod tests {
     #[test]
     fn queued_bytes_follow_messages_through_claim_requeue_and_purge() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(
             key("a"),
             0,
@@ -760,7 +794,7 @@ mod tests {
     #[test]
     fn repeated_failures_keep_one_replay_segment_ahead_of_every_later_arrival() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         let failed = || vec![message("a", 0, 1), message("a", 0, 2)];
         queues.push(key("a"), 0, failed(), now);
         take_all(&mut queues, now);
@@ -797,7 +831,7 @@ mod tests {
     #[test]
     fn a_key_evicted_by_a_purge_and_pushed_again_is_claimed_once() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         assert_eq!(
@@ -817,7 +851,7 @@ mod tests {
     #[test]
     fn a_double_purge_does_not_double_count() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(
             key("a"),
             0,
@@ -838,7 +872,7 @@ mod tests {
     fn a_partially_revoked_requeue_keeps_waiting_for_its_retry() {
         let now = Instant::now();
         let retry_at = now + Duration::from_millis(100);
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         let spanning = || vec![message("a", 0, 1), message("a", 1, 7)];
         queues.push(key("a"), 0, spanning(), now);
         take_all(&mut queues, now);
@@ -862,7 +896,7 @@ mod tests {
             assignment_epoch,
             replay: false,
         };
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 1, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 2, vec![message("a", 0, 2)], now);
         queues.push(key("b"), 1, vec![message("b", 0, 3)], now);
@@ -884,7 +918,7 @@ mod tests {
     #[test]
     fn a_take_of_one_class_leaves_other_classes_in_their_turn() {
         let now = Instant::now();
-        let mut queues = KeyQueues::new();
+        let mut queues = KeyQueues::default();
         queues.push(key("a"), 2, vec![message("a", 0, 1)], now);
         queues.push(key("b"), 1, vec![message("b", 0, 2)], now);
         queues.push(key("c"), 2, vec![message("c", 0, 3)], now);

@@ -180,15 +180,16 @@ pub struct Config {
     pub parked_retry_interval_ms: u64,
 
     /// Target request size in events for the key-table packer: once this many
-    /// events are ready, a free worker slot gets a request at once. `0`
-    /// disables the event target. Only read under
+    /// events are ready, a free worker slot gets a request at once. One key's
+    /// run never holds more, so a key's backlog leaves in consecutive requests.
+    /// `0` disables the event target and the cap. Only read under
     /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
     pub pack_target_events: usize,
 
     /// Target request size in key-plus-value bytes for the key-table packer.
-    /// `0` (default) disables the byte target. Only read under
-    /// `INGESTION_SCHEDULER=key_table`.
+    /// One key's run never holds more. `0` (default) disables the byte target
+    /// and the cap. Only read under `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
     pub pack_target_bytes: usize,
 

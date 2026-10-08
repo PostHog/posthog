@@ -96,7 +96,7 @@ impl BatcherStateMachine {
             );
         }
         Ok(BatcherStateMachine::Running(ActiveState {
-            keys: KeyQueues::new(),
+            keys: KeyQueues::new(packer.targets().run_cap()),
             packer,
             assigner,
             in_flight: InFlightRequests::new(),
@@ -733,14 +733,12 @@ mod tests {
     fn bin_packing_places_the_largest_request_first() {
         let now = Instant::now();
         let workers = pool(&["w1", "w2"]);
-        let batcher = batcher(4, now);
+        let batcher = packing_batcher(10, Duration::ZERO, 4, now);
 
-        let (_, effects) = batcher.on_groups(
-            now,
-            &workers,
-            0,
-            vec![run("small", &[1]), run("large", &[2, 3, 4])],
-        );
+        // Different epochs keep the two runs in separate requests.
+        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 0, vec![run("small", &[1])]);
+        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 1, vec![run("large", &[2, 3, 4])]);
+        let (_, effects) = batcher.on_wakeup(now, &workers);
         let placed: Vec<_> = effects
             .sends
             .iter()
@@ -773,14 +771,9 @@ mod tests {
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         assert_eq!(effects.sends.len(), 1);
         let request = effects.sends[0].request;
-        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("b", &[3])]);
 
         let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
-        assert_eq!(
-            shape(&effects.sends[0]),
-            vec![("b", vec![2, 3])],
-            "b was never claimed, so its later message joins the run"
-        );
+        assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
         // The freed slot is refilled in the same action, so the worker is
         // reported idle and then busy again.
         assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
@@ -1258,7 +1251,7 @@ mod tests {
     fn a_worker_accepting_fewer_messages_than_sent_fails_the_state_machine() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(4, now);
+        let batcher = packing_batcher(4, Duration::ZERO, 4, now);
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
         let request = effects.sends[0].request;
 
@@ -1271,7 +1264,7 @@ mod tests {
     fn an_accepted_request_completes_each_partition_and_acks_only_keyed_messages() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(4, now);
+        let batcher = packing_batcher(2, Duration::ZERO, 4, now);
         let keyed = KeyRun {
             routing_key: "a".into(),
             messages: vec![message("a", 0, 1), message("a", 1, 2)],
@@ -1314,7 +1307,8 @@ mod tests {
             routing_key: "a".into(),
             messages: vec![message("a", 0, 1), message("a", 1, 7)],
         };
-        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![spanning]);
+        let (batcher, effects) =
+            packing_batcher(4, Duration::ZERO, 4, now).on_groups(now, &workers, 0, vec![spanning]);
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
         let later = KeyRun {
             routing_key: "a".into(),
@@ -1344,8 +1338,12 @@ mod tests {
     fn a_revoke_then_reassign_drops_the_old_requeue_and_sends_the_new_epoch_run_once() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let (batcher, effects) =
-            batcher(4, now).on_groups(now, &workers, 1, vec![run("a", &[1, 2])]);
+        let (batcher, effects) = packing_batcher(4, Duration::ZERO, 4, now).on_groups(
+            now,
+            &workers,
+            1,
+            vec![run("a", &[1, 2])],
+        );
         let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
         let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
         // The new owner of the partition replays the uncommitted offsets.
