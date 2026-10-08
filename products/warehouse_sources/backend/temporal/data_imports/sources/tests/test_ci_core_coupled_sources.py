@@ -16,9 +16,10 @@ from pathlib import Path
 # every facade re-export a Core/CorePOE file actually consumes back to its source vendor and
 # fails if that vendor is missing from the turbo.json contract-check inputs.
 #
-# Limitation: SourceRegistry lookups resolve vendors dynamically, so this guard cannot cover
-# dependencies on their config fields. Dependent tests can be skipped on PRs and narrowed
-# merge-queue runs; the hourly full master run is the backstop for those dependencies.
+# Registry lookups resolve vendors dynamically, so this guard cannot enumerate their
+# dependencies. MSSQL stays in the contract inputs because data_warehouse's SQL migration
+# tests depend on its optional schema field. Other registry dependencies can be skipped on
+# PRs and narrowed merge-queue runs; the hourly full master run is their backstop.
 #
 # Generated configs are watched per module, because watching the package re-runs the Django
 # suite for every source. The second test holds that list to what the watched files refer to.
