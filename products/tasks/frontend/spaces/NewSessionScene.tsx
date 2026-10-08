@@ -1,15 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    Button,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
-    Heading,
-    Skeleton,
-} from '@posthog/quill'
+import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,7 +9,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { newSessionSceneLogic } from './newSessionSceneLogic'
-import { NewSessionSpaceSelect } from './NewSessionSpaceSelect'
 import { SpaceTaskComposer } from './SpaceTaskComposer'
 import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
 
@@ -29,9 +19,8 @@ export const scene: SceneExport = {
 
 export function NewSessionScene(): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const { space, spaceGroups, sortedSpaces, spacesLoading, spacesUnavailable, composerRepositoryConfig } =
-        useValues(newSessionSceneLogic)
-    const { pickSpace, sessionStarted, loadSpaces } = useActions(newSessionSceneLogic)
+    const { space, spacesLoading, spacesUnavailable, composerRepositoryConfig } = useValues(newSessionSceneLogic)
+    const { sessionStarted, loadSpaces } = useActions(newSessionSceneLogic)
 
     if (!enabled) {
         return <NotFound object="page" />
@@ -65,23 +54,7 @@ export function NewSessionScene(): JSX.Element {
                         </Empty>
                     ) : (
                         <>
-                            <Heading size="2xl" render={<h1 />} className="mb-5 flex flex-col">
-                                <span>Start a new session</span>
-                                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-muted-foreground">
-                                    in
-                                    {resolving ? (
-                                        <Skeleton className="h-7 w-28 self-center" />
-                                    ) : (
-                                        <NewSessionSpaceSelect
-                                            spaces={sortedSpaces}
-                                            groups={spaceGroups}
-                                            value={space}
-                                            onChange={pickSpace}
-                                        />
-                                    )}
-                                    <span>space</span>
-                                </span>
-                            </Heading>
+                            <h1 className="sr-only">Start a new session</h1>
                             {resolving ? (
                                 <SpaceTaskComposerSkeleton />
                             ) : (

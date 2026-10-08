@@ -9,6 +9,17 @@
  */
 import * as zod from 'zod'
 
+export const warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax = 2592000
+
+export const WarehouseSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
+    refresh_interval_seconds: zod
+        .number()
+        .min(1)
+        .max(warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax)
+        .optional()
+        .describe('Materialize only: refresh interval to use instead of the proposed one, in seconds.'),
+})
+
 export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000
 
 export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object({
