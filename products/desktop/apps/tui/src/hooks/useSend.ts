@@ -64,6 +64,7 @@ export function useSend({
   openModal,
   openModelSheet,
   openEffortSheet,
+  openModeSheet,
   pickFor,
   compact,
   openSearch,
@@ -101,6 +102,7 @@ export function useSend({
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
+  openModeSheet: (paneId: string, task: Task | undefined) => void;
   pickFor: (paneId: string) => StartPick;
   compact: (
     paneId: string,
@@ -185,6 +187,10 @@ export function useSend({
     }
     if (slash?.command === "effort") {
       openEffortSheet(paneId, current);
+      return;
+    }
+    if (slash?.command === "mode") {
+      openModeSheet(paneId, current);
       return;
     }
     if (slash?.command === "compact") {

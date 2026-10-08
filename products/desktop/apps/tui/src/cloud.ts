@@ -370,6 +370,7 @@ export function createCloud(
             cwd: process.cwd(),
             apiHost: auth.apiHost,
             projectId,
+            mode: loadPrefs().claudeMode,
             ...pick,
           },
           claudeLoggedIn,

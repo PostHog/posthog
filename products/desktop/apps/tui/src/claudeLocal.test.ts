@@ -56,6 +56,7 @@ describe("ClaudeLocalSession", () => {
       projectId: 7,
       adapter: "claude",
       claudeModelAccess: "own-subscription",
+      permissionMode: "auto",
       runMode: "local",
       model: "claude-opus-5-5",
       effort: "high",
@@ -158,6 +159,44 @@ describe("ClaudeLocalSession", () => {
       "allow",
     );
     expect(lists.at(-1)).toEqual([]);
+  });
+
+  it("lists Claude's modes and switches one", async () => {
+    const agent = fakeAgent();
+    const modeOption = {
+      id: "mode",
+      name: "Approval Preset",
+      type: "select",
+      currentValue: "auto",
+      options: [
+        { value: "plan", name: "Plan Mode" },
+        { value: "auto", name: "Auto Mode" },
+      ],
+    };
+    agent.startSession.mockResolvedValueOnce({
+      sessionId: "s1",
+      channel: "c1",
+      configOptions: [modeOption],
+    } as never);
+    const setSessionConfigOption = vi.fn(async () => {});
+    Object.assign(agent, { setSessionConfigOption });
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    await session.start();
+
+    expect(await session.control.modes?.()).toEqual({
+      available: [
+        { id: "plan", name: "Plan Mode" },
+        { id: "auto", name: "Auto Mode" },
+      ],
+      current: "auto",
+    });
+    await session.control.setMode?.("plan");
+    expect(setSessionConfigOption).toHaveBeenCalledWith("s1", "mode", "plan");
+    expect((await session.control.modes?.())?.current).toBe("plan");
   });
 
   it("stops the session and its turn", async () => {
