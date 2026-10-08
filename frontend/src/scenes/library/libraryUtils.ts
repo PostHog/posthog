@@ -115,6 +115,18 @@ export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string 
     return (segments[segments.length - 1] || entry.path).replace(/\\\//g, '/')
 }
 
+/** The type's name in lower case, for a label beside an object: "feature flag", but "SQL insight" keeps its acronym. */
+export function libraryTypeLabel(type: string | undefined): string | null {
+    const baseType = baseObjectType(type)
+    const name = Object.hasOwn(fileSystemTypes, baseType)
+        ? (fileSystemTypes[baseType as keyof typeof fileSystemTypes] as FileSystemType).name
+        : null
+    if (!name) {
+        return null
+    }
+    return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
+}
+
 export function sortLibraryTypes(types: LibraryObjectType[]): LibraryObjectType[] {
     const rank = (type: LibraryObjectType): number => {
         const index = LIBRARY_TYPE_ORDER.indexOf(type.value)
