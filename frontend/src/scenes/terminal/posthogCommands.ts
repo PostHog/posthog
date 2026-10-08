@@ -25,6 +25,8 @@ import { insightsList, insightsRetrieve } from 'products/product_analytics/front
 import { markdownNode, PosthogFilesystem, terminalFilename } from './posthogFilesystem'
 import { RUN_HELP, TerminalCommandContext, TerminalCommands } from './terminalCommands'
 import { HOGQL_FLAGS, HOGQL_HELP, terminalHogqlQuery } from './terminalHogql'
+import { TerminalNetplay } from './terminalNetplay'
+import { NETPLAY_HELP } from './terminalRelay'
 import { parseRemovalArguments, RM_SCRIPT } from './terminalRemove'
 import { terminalQueryTable } from './terminalSql'
 
@@ -60,6 +62,7 @@ run --help                       Show SQL export formats and examples
 hogql [options] ["SQL"]           Run SQL from an argument, stdin, or an interactive prompt
 hogql --help                      Show query options and output formats
 ph open [path]                   Open a project file or folder in PostHog (defaults to .)
+ph netplay help                  Configure a game relay for Doom in this terminal session
 
 Examples:
   ph notebooks-list --limit 10 | jq .results
@@ -152,7 +155,8 @@ export class PosthogCommands {
         private projectId: string,
         private signal: AbortSignal,
         private filesystem: PosthogFilesystem,
-        private navigate: (url: string) => void
+        private navigate: (url: string) => void,
+        private netplay?: TerminalNetplay
     ) {
         this.toolDirectory = filesystem.directory('tools', filesystem.root)
         const options = { signal }
@@ -407,6 +411,12 @@ export class PosthogCommands {
 
     async execute(argv: string[], cwd: string, context: TerminalCommandContext = {}): Promise<unknown> {
         const [name = 'help', ...rest] = argv
+        if (name === 'netplay') {
+            if (!this.netplay) {
+                throw new Error('Netplay is unavailable. Restart the terminal and try again.')
+            }
+            return this.netplay.command(rest)
+        }
         if (name === 'hogql') {
             if (rest.length === 1 && ['--help', '-h'].includes(rest[0])) {
                 return HOGQL_HELP
@@ -447,12 +457,18 @@ export class PosthogCommands {
                         'run',
                         'hogql',
                         'open',
+                        'netplay',
                         ...Object.keys(aliases),
                         ...this.commands.keys(),
                     ]),
                 ]
                     .filter((candidate) => /^[A-Za-z0-9_@/.-]+$/.test(candidate) && candidate.startsWith(prefix))
                     .sort()
+                    .join('\n')
+            }
+            if (commandName === 'netplay') {
+                return (position === '2' ? ['help', 'configure', 'status', 'clear'] : ['--json'])
+                    .filter((candidate) => candidate.startsWith(prefix))
                     .join('\n')
             }
             if (prefix.startsWith('--') && previous !== '--json') {
@@ -539,6 +555,9 @@ export class PosthogCommands {
             }
             if (rest[0] === 'hogql') {
                 return HOGQL_HELP
+            }
+            if (rest[0] === 'netplay') {
+                return NETPLAY_HELP
             }
             const tool = await this.find(rest[0])
             const { invoke: _, ...description } = tool

@@ -3,6 +3,8 @@ import os
 from posthog.settings.base_variables import BASE_DIR
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
+TERMINAL_NETPLAY_RELAY_URL = os.getenv("TERMINAL_NETPLAY_RELAY_URL", "")
+
 # Integration service. Both unset (the default) means credential reads fall back to the
 # local environment; see posthog/integration_secrets/client.py for the contract.
 INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")

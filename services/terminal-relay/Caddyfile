@@ -1,0 +1,5 @@
+{$RELAY_HOST} {
+    @netplay path /netplay
+    reverse_proxy @netplay relay:8080
+    respond 404
+}

@@ -28,7 +28,7 @@ class FakeConnection extends EventTarget {
     })
     close = jest.fn()
 
-    constructor() {
+    constructor(readonly configuration: RTCConfiguration) {
         super()
         FakeConnection.created.push(this)
         FakeConnection.configure?.(this)
@@ -203,7 +203,7 @@ describe('terminal Doom netplay', () => {
         await jest.advanceTimersByTimeAsync(0)
         expect(FakeConnection.created).toHaveLength(16)
 
-        await jest.advanceTimersByTimeAsync(20_000)
+        await jest.advanceTimersByTimeAsync(25_000)
         for (const connection of FakeConnection.created) {
             expect(connection.close).toHaveBeenCalledTimes(1)
         }
@@ -271,7 +271,7 @@ describe('terminal Doom netplay', () => {
                 ),
             'error Try again in 30 seconds.',
         ],
-        ['a host that never answers', () => {}, 'error The host did not answer. Check the room code and try again.'],
+        ['a host that never answers', () => {}, 'error The connection timed out. Try again.'],
     ])('reports %s to Doom', async (_name, setup, message) => {
         setup()
 
@@ -279,6 +279,31 @@ describe('terminal Doom netplay', () => {
         await jest.advanceTimersByTimeAsync(30_000)
 
         expect(guest).toEqual([{ peer: 255, text: message, bytes: expect.any(Array) }])
+        for (const connection of FakeConnection.created) {
+            expect(connection.close).toHaveBeenCalledTimes(1)
+        }
+    })
+
+    it.each(['timeout', 'session end'])('cancels a stalled signaling request on %s', async (reason) => {
+        let requestSignal!: AbortSignal
+        signal.mockImplementationOnce(
+            (_project, _body, options) =>
+                new Promise((_resolve, reject) => {
+                    requestSignal = options.signal
+                    requestSignal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+                })
+        )
+        fromGuest(255, 'join ABC123')
+        await jest.advanceTimersByTimeAsync(0)
+        if (reason === 'session end') {
+            session.abort()
+        }
+        await jest.advanceTimersByTimeAsync(25_000)
+
+        expect(requestSignal.aborted).toBe(true)
         expect(FakeConnection.created[0].close).toHaveBeenCalledTimes(1)
+        expect(guest.map(({ text }) => text)).toEqual(
+            reason === 'timeout' ? ['error The connection timed out. Try again.'] : []
+        )
     })
 })

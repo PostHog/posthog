@@ -4,6 +4,7 @@ The policy lives apart from the other middleware so that team-security owns the 
 `.github/CODEOWNERS` and reviews every change to it.
 """
 
+import re
 import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -65,6 +66,15 @@ def object_storage_upload_source() -> str:
         return ""
     scheme = parts.scheme if settings.DEBUG or settings.TEST else "https"
     return f"{scheme}://{parts.netloc}/{bucket}"
+
+
+def terminal_relay_source() -> str:
+    url = settings.TERMINAL_NETPLAY_RELAY_URL
+    if re.fullmatch(r"wss://[a-zA-Z0-9.-]+(?::[0-9]{1,5})?/netplay", url):
+        return url
+    if (settings.DEBUG or settings.TEST) and re.fullmatch(r"ws://(?:localhost|127\.0\.0\.1):[0-9]{1,5}/netplay", url):
+        return url
+    return ""
 
 
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
@@ -415,7 +425,7 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source} {terminal_relay_source()}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

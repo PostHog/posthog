@@ -23,6 +23,7 @@ import { insightsRetrieve } from 'products/product_analytics/frontend/generated/
 import { PosthogCommands } from './posthogCommands'
 import { PosthogFilesystem } from './posthogFilesystem'
 import { MAX_TERMINAL_FILE_BYTES } from './terminalFilesystem'
+import { TerminalNetplay } from './terminalNetplay'
 
 jest.mock('scenes/teamLogic', () => ({ teamLogic: { values: { currentTeamId: 42 } } }))
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
@@ -49,6 +50,36 @@ describe('PostHog terminal commands', () => {
     let filesystem: PosthogFilesystem
     const navigate = jest.fn()
     const cwd = '/posthog/files/Research'
+    it('configures session-local netplay without project writes or credential output', async () => {
+        const controller = new AbortController()
+        commands = new PosthogCommands(
+            '42',
+            controller.signal,
+            filesystem,
+            navigate,
+            new TerminalNetplay('42', controller.signal)
+        )
+        const result = await commands.execute(
+            [
+                'netplay',
+                'configure',
+                '--json',
+                JSON.stringify({
+                    url: 'wss://relay.example.com/netplay',
+                    token: 'test-password',
+                }),
+            ],
+            cwd
+        )
+        expect(result).toContain('Game relay configured')
+        expect(result).not.toContain('test-password')
+        expect(confirm).not.toHaveBeenCalled()
+        expect(await commands.execute(['netplay', 'status'], cwd)).toEqual(result)
+        expect(await commands.execute(['help', 'netplay'], cwd)).toContain('ph netplay configure')
+        expect(await commands.execute(['_complete', '2', 'c', 'netplay', 'netplay'], cwd)).toBe('configure\nclear')
+        await commands.execute(['netplay', 'clear'], cwd)
+        expect(await commands.execute(['netplay', 'status'], cwd)).toContain('No game relay')
+    })
     const author = {
         id: 1,
         uuid: '01900000-0000-7000-8000-000000000001',

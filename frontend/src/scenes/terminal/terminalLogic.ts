@@ -523,7 +523,8 @@ export const terminalLogic = kea<terminalLogicType>([
                     true
                 )
                 cache.filesystem = filesystem
-                new PosthogCommands(String(projectId), controller.signal, filesystem, actions.openUrl)
+                const netplay = new TerminalNetplay(String(projectId), controller.signal)
+                new PosthogCommands(String(projectId), controller.signal, filesystem, actions.openUrl, netplay)
                 new TerminalAI(filesystem, String(projectId), controller.signal)
                 actions.setStatus('booting')
                 const server = new NinePServer(filesystem, (error) => {
@@ -566,7 +567,7 @@ export const terminalLogic = kea<terminalLogicType>([
                         }
                     },
                     folder ?? undefined,
-                    new TerminalNetplay(String(projectId), controller.signal)
+                    netplay
                 )
                 if (controller.signal.aborted) {
                     return

@@ -1,0 +1,27 @@
+services:
+    relay:
+        build: .
+        environment:
+            RELAY_SIGNING_KEYS: ${RELAY_SIGNING_KEYS:?Set a dedicated relay signing key}
+            RELAY_ALLOWED_ORIGINS: ${RELAY_ALLOWED_ORIGINS:?Set the allowed PostHog origin}
+        restart: unless-stopped
+        read_only: true
+        cap_drop: [ALL]
+        security_opt: [no-new-privileges:true]
+        mem_limit: 256m
+        cpus: 1
+        pids_limit: 64
+    caddy:
+        image: caddy:2-alpine
+        environment:
+            RELAY_HOST: ${RELAY_HOST:?Set the relay hostname}
+        ports: ['80:80', '443:443']
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        restart: unless-stopped
+        depends_on: [relay]
+volumes:
+    caddy_data:
+    caddy_config:

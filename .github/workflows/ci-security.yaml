@@ -73,6 +73,7 @@ jobs:
                         - '!products/desktop/**'
                         - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
+                        - 'services/terminal-relay/**'
                         - 'tools/**'
                         - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
