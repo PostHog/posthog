@@ -90,8 +90,8 @@ _STALE_SETTINGS = {
 }
 _SAMPLE_SETTINGS = {"max_execution_time": 3600, "max_memory_usage": 32_000_000_000}
 _TEAM_CHECK_SETTINGS = {"max_execution_time": 900, "max_memory_usage": 32_000_000_000}
-_REPAIR_PERSON_READ_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 60, "max_memory_usage": 4_000_000_000}
-_REPAIR_MAPPING_READ_SETTINGS = {"max_execution_time": 60, "max_memory_usage": 4_000_000_000}
+# Repair reads see lightweight-deleted rows, so a republish lands above every row a sweep masked.
+_REPAIR_READ_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 60, "max_memory_usage": 4_000_000_000}
 
 # A scan reads only these fields, which keeps person properties out of the RPC payloads.
 _VERSION_ONLY_READ_OPTIONS = ReadOptions(field_mask=["id", "uuid", "team_id", "version"])
@@ -613,9 +613,11 @@ class _ChPersonState:
 
 @frozen
 class _ChMappingState:
+    visible_rows: int
+    visible_max_version: int
+    visible_winner_deleted: bool
+    visible_winner_person_uuid: str
     max_version: int
-    winner_deleted: bool
-    winner_person_uuid: str
 
 
 @frozen
@@ -658,7 +660,13 @@ WHERE team_id = %(team_id)s AND id = %(person_uuid)s
 """
 
 _MAPPING_STATE_SQL = """
-SELECT distinct_id, max(version), argMax(is_deleted, version), toString(argMax(person_id, version))
+SELECT
+    distinct_id,
+    countIf(_row_exists),
+    maxIf(version, _row_exists),
+    argMaxIf(is_deleted, version, _row_exists),
+    toString(argMaxIf(person_id, version, _row_exists)),
+    max(version)
 FROM person_distinct_id2
 WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
 GROUP BY distinct_id
@@ -682,14 +690,14 @@ def _person_kind(pg_version: int, state: _ChPersonState | None) -> PersonDiverge
 
 
 def _mapping_kind(person_uuid: str, pg_version: int, state: _ChMappingState | None) -> MappingDivergenceKind | None:
-    if state is None:
+    if state is None or state.visible_rows == 0:
         return "absent"
-    if state.winner_deleted:
+    if state.visible_winner_deleted:
         return "hidden"
-    if state.winner_person_uuid != person_uuid:
+    if state.visible_winner_person_uuid != person_uuid:
         return "other_person"
     # The owner matches, but a later move of this mapping would be written below the ClickHouse winner and lost.
-    if state.max_version > pg_version:
+    if state.visible_max_version > pg_version:
         return "stale"
     return None
 
@@ -701,7 +709,7 @@ def _target_version(pg_version: int, ch_max_version: int | None) -> int:
 
 
 def _ch_person_states(team_id: int, person_uuids: list[str]) -> dict[str, _ChPersonState]:
-    rows = _ch(_PERSON_STATE_SQL, {"team_id": team_id, "person_uuids": person_uuids}, _REPAIR_PERSON_READ_SETTINGS)
+    rows = _ch(_PERSON_STATE_SQL, {"team_id": team_id, "person_uuids": person_uuids}, _REPAIR_READ_SETTINGS)
     return {
         person_uuid: _ChPersonState(
             visible_rows=int(visible_rows),
@@ -716,12 +724,21 @@ def _ch_person_states(team_id: int, person_uuids: list[str]) -> dict[str, _ChPer
 def _ch_mapping_states(team_id: int, distinct_ids: list[str]) -> dict[str, _ChMappingState]:
     states: dict[str, _ChMappingState] = {}
     for chunk in _chunks(distinct_ids, _MAPPING_QUERY_CHUNK_SIZE):
-        rows = _ch(_MAPPING_STATE_SQL, {"team_id": team_id, "distinct_ids": list(chunk)}, _REPAIR_MAPPING_READ_SETTINGS)
-        for distinct_id, max_version, winner_deleted, winner_person_uuid in rows:
+        rows = _ch(_MAPPING_STATE_SQL, {"team_id": team_id, "distinct_ids": list(chunk)}, _REPAIR_READ_SETTINGS)
+        for (
+            distinct_id,
+            visible_rows,
+            visible_max_version,
+            visible_winner_deleted,
+            visible_winner_person_uuid,
+            max_version,
+        ) in rows:
             states[distinct_id] = _ChMappingState(
+                visible_rows=int(visible_rows),
+                visible_max_version=int(visible_max_version),
+                visible_winner_deleted=bool(visible_winner_deleted),
+                visible_winner_person_uuid=visible_winner_person_uuid,
                 max_version=int(max_version),
-                winner_deleted=bool(winner_deleted),
-                winner_person_uuid=winner_person_uuid,
             )
     return states
 
@@ -915,7 +932,7 @@ def _clickhouse_only_properties(plan: _PersonPlan) -> dict[str, Any]:
     rows = _ch(
         _PERSON_WINNER_PROPERTIES_SQL,
         {"team_id": plan.team_id, "person_uuid": plan.person_uuid},
-        _REPAIR_PERSON_READ_SETTINGS,
+        _REPAIR_READ_SETTINGS,
     )
     ch_properties = json.loads(rows[0][0]) if rows and rows[0][0] else {}
     pg_properties = plan.person.properties or {}
