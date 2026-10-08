@@ -248,7 +248,6 @@ class TestDedupeFlashFindings:
             pytest.param("2002-1-2", "dedup_sibling", "2002-1-2", id="lens_sibling"),
             pytest.param(_PRIOR_KEY, "dedup_prior", _PRIOR_KEY, id="earlier_turn"),
             pytest.param("77", "dedup_comment", "comment:77", id="pr_comment"),
-            pytest.param("nothing-shown", "dedup_unmatched", "nothing-shown", id="unknown_id"),
         ],
     )
     async def test_a_dedup_drop_records_what_it_repeats(
@@ -281,6 +280,67 @@ class TestDedupeFlashFindings:
         assert (drop.issue.id, drop.disposition, recorded) == ("2002-1-1", disposition, duplicate_of)
         # The dedup can only name an earlier finding it was shown with its key.
         assert all(_PRIOR_KEY in call.kwargs["prompt"] for call in mock_llm.call_args_list)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "llm_duplicates,expected_kept,expected_drops",
+        [
+            pytest.param(
+                [("2002-1-1", "2002-1-2"), ("2002-1-2", "2002-1-1")],
+                ["2000-1-1", "2002-1-1", "2002-1-3"],
+                [("2002-1-2", "2002-1-1")],
+                id="mutual_pair_keeps_the_first_in_compose_order",
+            ),
+            pytest.param(
+                [("2002-1-1", "2002-1-2"), ("2002-1-2", "2002-1-3"), ("2002-1-3", "2002-1-2")],
+                ["2000-1-1", "2002-1-3"],
+                [("2002-1-1", "2002-1-3"), ("2002-1-2", "2002-1-3")],
+                id="loop_keeps_its_must_fix_and_the_tail_follows_the_chain",
+            ),
+            pytest.param(
+                [("2002-1-2", "2002-1-1"), ("2002-1-1", "2000-1-1")],
+                ["2000-1-1", "2002-1-3"],
+                [("2002-1-1", "2000-1-1"), ("2002-1-2", "2000-1-1")],
+                id="chain_ends_at_the_main_finding",
+            ),
+            pytest.param(
+                [("2002-1-1", "2002-1-1"), ("2002-1-2", "nothing-shown")],
+                ["2000-1-1", "2002-1-1", "2002-1-2", "2002-1-3"],
+                [],
+                id="self_reference_and_unknown_id_keep_the_finding",
+            ),
+            pytest.param(
+                [("2000-1-1", "2002-1-1")],
+                ["2000-1-1", "2002-1-1", "2002-1-2", "2002-1-3"],
+                [],
+                id="main_call_never_saw_the_lens_finding",
+            ),
+        ],
+    )
+    async def test_a_removal_holds_only_when_what_it_names_survives(
+        self,
+        pr_metadata: PRMetadata,
+        llm_duplicates: list[tuple[str, str]],
+        expected_kept: list[str],
+        expected_drops: list[tuple[str, str]],
+    ) -> None:
+        # Two findings that name each other would otherwise both drop, and the problem they share would
+        # leave the review. A target the dedup made up must not cost a finding either.
+        issues = [
+            _issue("2000-1-1", IssuePriority.SHOULD_FIX),
+            _issue("2002-1-1", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
+            _issue("2002-1-2", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
+            _issue("2002-1-3", IssuePriority.MUST_FIX, _LENS_SOURCE),
+        ]
+
+        selection = await self._dedupe(pr_metadata, issues, _flash_dedup(*llm_duplicates))
+
+        assert sorted(issue.id for issue in selection.kept) == expected_kept
+        drops = [drop for drop in selection.dropped if drop.disposition != "cap"]
+        assert [
+            (drop.issue.id, drop.duplicate_of.id if isinstance(drop.duplicate_of, Issue) else drop.duplicate_of)
+            for drop in drops
+        ] == expected_drops
 
 
 def test_turn_stats_count_every_candidate_once_per_session() -> None:

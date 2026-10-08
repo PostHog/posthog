@@ -289,6 +289,9 @@ the same plus the main findings as anchors, so a lens finding can lose to a main
 The Flash dedup output (`FlashIssueDeduplication`) names what each duplicate repeats (`duplicate_of`: the finding kept
 in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
 priority of the most severe duplicate removed in its favor, so a lens P1 that repeats a main P3 posts as must-fix.
+A removal holds only when what it names survives (`_resolve_duplicates`): a finding that names itself or an id its call
+was not shown stays, findings that name each other in a loop keep the first one in the compose order (priority, main
+before lens, session order), and a removal whose target also drops records the survivor at the end of the chain.
 A Flash dedup call that fails non-retryably (the gateway rejects the model), or fails on the activity's last attempt,
 falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding or a PR comment
 drops as its repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
@@ -307,7 +310,7 @@ range. A PR past the lens part cap gets one line in the status comment that says
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
 with its `reported_priority`, the session's pass and part, the `disposition` (`dedup_prior`, `dedup_comment`,
-`dedup_anchor`, `dedup_sibling`, `dedup_unmatched`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
+`dedup_anchor`, `dedup_sibling`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
 rank in the composed order for a cut finding, the cap, and the lens part count. A retried turn replaces its rows by
 `run_index`. Only analysis reads them: publishing, the status comment, outcome classification, `load_prior_findings`,
 and the reviews API read `issue_finding` rows, so a dropped finding can neither post nor suppress a later finding.

@@ -78,14 +78,13 @@ class Issue(BaseModel):
 
 
 # Why a single-agent turn drops a finding. A `dedup_*` drop repeats an earlier turn's finding, a PR
-# comment, a main finding (anchor), or a finding of its own session or lens (sibling); `dedup_unmatched`
-# means the dedup named nothing it was shown. `cap` is the cut in `compose_flash_findings`.
+# comment, a main finding (anchor), or a finding of its own session or lens (sibling). `cap` is the cut
+# in `compose_flash_findings`.
 DropDisposition = Literal[
     "dedup_prior",
     "dedup_comment",
     "dedup_anchor",
     "dedup_sibling",
-    "dedup_unmatched",
     "cap",
 ]
 

@@ -240,6 +240,14 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   takes the highest priority of the duplicates removed in its favor, anchors and siblings alike. Prior findings carry
   their issue key as `id` in the Flash prompt so the dedup can name them. The pipeline's dedup output is unchanged.
   `reported_priority` stays the reviewer's own P level, so a raised finding reads `must_fix` with its original P3.
+- **Survivor rule.** The dedup can name a finding it also removes. Two lens findings that named each other both
+  dropped, and a problem both lenses raised left the review. A removal now holds only when what it names survives: a
+  kept main or lens finding, an earlier turn's finding, or a PR comment. A finding that names itself or an id its call
+  was never shown stays, and the turn logs it, because a guess at the target could drop the only statement of a
+  problem. In a loop of findings that name each other, the first in the compose order (priority, main before lens,
+  session order) stays, so the choice is deterministic and matches what the cap would prefer. A removal whose target
+  also drops follows the chain, and its `dropped_finding` record and the priority raise name the final survivor. This
+  replaced the `dedup_unmatched` disposition, which recorded an unknown id as a drop.
 - **Dedup fallback.** The Flash dedup depends on one model through the LLM gateway. A non-retryable error there (the
   gateway rejects the model, a 4xx) used to fail the turn after every review session had already run and paid. A
   failed call now falls back to the positional pre-filter alone, right away for a non-retryable error and on the
@@ -259,8 +267,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   disposition, what it repeats, its rank and the cap, so a later analysis and a judge pass can measure what each rule
   costs. A new artefact type, not a disposition column on `issue_finding`, because every reader of `issue_finding`
   would then need a filter, and one missed filter would post a dropped finding or let it suppress a later turn. The
-  dispositions follow the dedup's own answer (`duplicate_of`); `dedup_unmatched` marks a dedup that named an id it was
-  never shown. Findings that scope cleaning drops before dedup are not recorded. The choices are callable, so the new
+  dispositions follow the survivor each removal resolves to (see the survivor rule). Findings that scope cleaning drops
+  before dedup are not recorded. The choices are callable, so the new
   type needs no migration.
 - **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
   to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the status
