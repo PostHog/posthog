@@ -876,6 +876,12 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             if (!view) {
                 return
             }
+            // A new head version can add, change, or drop the data declaration, so the check is read again.
+            // The mount already loads it for the first view.
+            if (cache.dataCheckVersionId !== undefined && cache.dataCheckVersionId !== view.current_version_id) {
+                actions.loadDataCheck()
+            }
+            cache.dataCheckVersionId = view.current_version_id
             if (!cache.viewedTracked) {
                 cache.viewedTracked = true
                 posthog.capture(CANVAS_EVENTS.viewed, {

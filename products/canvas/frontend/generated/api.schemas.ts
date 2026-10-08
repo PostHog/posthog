@@ -836,7 +836,10 @@ export interface CanvasDataDeclarationApi {
      * @items.maxLength 400
      */
     events?: string[]
-    /** Properties the canvas's queries read or filter on. */
+    /**
+     * Properties the canvas's queries read or filter on.
+     * @maxItems 100
+     */
     properties?: CanvasDataPropertyDeclarationApi[]
     /**
      * Data warehouse table names the canvas's queries read.

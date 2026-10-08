@@ -116,3 +116,5 @@ def check_canvas_data_dependencies() -> None:
     except Exception as error:
         logger.exception("canvas_data_dependency_check_failed", error=str(error))
         capture_exception(error, additional_properties={"task": "check_canvas_data_dependencies"})
+        # Fail the task too, so the scheduler records a failed run and not a success.
+        raise

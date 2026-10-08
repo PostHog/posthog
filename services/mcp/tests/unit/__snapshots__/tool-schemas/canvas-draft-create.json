@@ -149,6 +149,7 @@
                                                 "required": ["name", "type"],
                                                 "type": "object"
                                             },
+                                            "maxItems": 100,
                                             "type": "array"
                                         },
                                         "tables": {

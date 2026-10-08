@@ -280,8 +280,12 @@ class CanvasDataDeclarationSerializer(serializers.Serializer):
         max_length=100,
         help_text="Event names the canvas's queries read.",
     )
-    properties = CanvasDataPropertyDeclarationSerializer(
-        many=True, required=False, default=list, help_text="Properties the canvas's queries read or filter on."
+    properties = serializers.ListField(
+        child=CanvasDataPropertyDeclarationSerializer(),
+        required=False,
+        default=list,
+        max_length=100,
+        help_text="Properties the canvas's queries read or filter on.",
     )
     tables = serializers.ListField(
         child=serializers.CharField(max_length=400),

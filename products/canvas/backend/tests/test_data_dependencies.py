@@ -13,12 +13,18 @@ from posthog.models.scoping import team_scope
 
 from products.canvas.backend.error_reports import DATA_DRIFT_ERROR_TYPE
 from products.canvas.backend.facade.testing import create_canvas
-from products.canvas.backend.logic.data_dependencies import check_canvas_data, run_data_dependency_checks
+from products.canvas.backend.logic.data_dependencies import (
+    CanvasDataChecksFailed,
+    check_canvas_data,
+    latest_missing_data,
+    run_data_dependency_checks,
+)
 from products.canvas.backend.logic.runtime import prepare_fix_request
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasDataCheck, CanvasSourceVersion
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.tasks.backend.models import Channel
+from products.warehouse_sources.backend.facade.contracts import TableNames
 
 DECLARED_DATA: dict[str, Any] = {
     "events": ["$pageview", "signup completed"],
@@ -64,7 +70,7 @@ class CanvasDataDependenciesBaseTest(APIBaseTest):
 
 
 class TestCanvasDataCheck(CanvasDataDependenciesBaseTest):
-    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_names", return_value={})
+    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
     def test_check_records_every_declared_item_the_project_no_longer_has(self, _tables) -> None:
         canvas = self._canvas_with_data()
         EventDefinition.objects.create(team=self.team, name="$pageview")
@@ -83,8 +89,8 @@ class TestCanvasDataCheck(CanvasDataDependenciesBaseTest):
         assert check.source_version_id == canvas.current_source_version_id
 
     @patch(
-        "products.canvas.backend.logic.data_dependencies.all_queryable_table_names",
-        return_value={UUID(int=1): "stripe_charges"},
+        "products.canvas.backend.logic.data_dependencies.all_queryable_table_keys",
+        return_value={UUID(int=1): TableNames(row_name="stripe_charges", queryable_key="stripe_charges")},
     )
     def test_check_is_ok_when_everything_declared_exists(self, _tables) -> None:
         canvas = self._canvas_with_data()
@@ -98,7 +104,7 @@ class TestCanvasDataCheck(CanvasDataDependenciesBaseTest):
         assert check.status == CanvasDataCheck.STATUS_OK
         assert check.missing == {"events": [], "properties": [], "tables": []}
 
-    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_names", return_value={})
+    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
     def test_nightly_run_checks_only_canvases_that_declare_data_and_updates_in_place(self, _tables) -> None:
         declaring = self._canvas_with_data()
         self._canvas_with_data(data=None)
@@ -121,7 +127,41 @@ class TestCanvasDataCheck(CanvasDataDependenciesBaseTest):
         assert checks[0].status == CanvasDataCheck.STATUS_DRIFT
         assert checks[0].checked_at > earlier
 
-    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_names", return_value={})
+    @patch(
+        "products.canvas.backend.logic.data_dependencies.all_queryable_table_keys",
+        return_value={
+            UUID(int=1): TableNames(row_name="googleanalytics_devices", queryable_key="googleanalytics.devices")
+        },
+    )
+    def test_a_source_table_declared_by_its_queryable_key_is_present(self, _tables) -> None:
+        canvas = self._canvas_with_data({"events": [], "properties": [], "tables": ["googleanalytics.devices"]})
+
+        check = check_canvas_data(canvas)
+
+        assert check.status == CanvasDataCheck.STATUS_OK
+        assert check.missing["tables"] == []
+
+    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
+    def test_nightly_run_checks_every_canvas_then_fails_when_one_check_failed(self, _tables) -> None:
+        broken = self._canvas_with_data()
+        healthy = self._canvas_with_data()
+        real_check = check_canvas_data
+
+        def check_or_fail(canvas: Canvas) -> CanvasDataCheck:
+            if canvas.id == broken.id:
+                raise RuntimeError("boom")
+            return real_check(canvas)
+
+        with (
+            patch("products.canvas.backend.logic.data_dependencies.check_canvas_data", side_effect=check_or_fail),
+            self.assertRaises(CanvasDataChecksFailed) as raised,
+        ):
+            run_data_dependency_checks()
+
+        assert str(broken.id) in str(raised.exception)
+        assert CanvasDataCheck.objects.unscoped().filter(canvas_id=healthy.id).exists()
+
+    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
     def test_fix_request_for_data_drift_names_the_missing_items(self, _tables) -> None:
         canvas = self._canvas_with_data(build=True)
         check_canvas_data(canvas)
@@ -140,7 +180,7 @@ class TestCanvasDataCheckApi(CanvasDataDependenciesBaseTest):
     def _get(self, canvas_id):
         return self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/data_check/")
 
-    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_names", return_value={})
+    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
     def test_data_check_reports_unchecked_then_the_latest_result(self, _tables) -> None:
         canvas = self._canvas_with_data()
 
@@ -158,3 +198,29 @@ class TestCanvasDataCheckApi(CanvasDataDependenciesBaseTest):
         assert after.json()["status"] == "drift"
         assert after.json()["missing"]["events"] == ["$pageview", "signup completed"]
         assert after.json()["checked_at"] is not None
+
+    @patch("products.canvas.backend.logic.data_dependencies.all_queryable_table_keys", return_value={})
+    def test_a_check_of_an_older_version_is_not_reported(self, _tables) -> None:
+        canvas = self._canvas_with_data()
+        check_canvas_data(canvas)
+        assert self._get(canvas.id).json()["status"] == "drift"
+
+        with team_scope(self.team.id):
+            newer = CanvasSourceVersion.objects.create(
+                team_id=self.team.id,
+                canvas_id=canvas.id,
+                source_hash="b" * 64,
+                source_object_key=f"canvases/test/{canvas.id}/source-2.json",
+                source_size=2,
+                task_id=UUID(int=7),
+                created_by_id=self.user.id,
+                capabilities={"posthog": {}, "network": {"origins": []}},
+            )
+            canvas.current_source_version = newer
+            canvas.save()
+
+        response = self._get(canvas.id)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "unchecked"
+        assert latest_missing_data(self.team.id, canvas.id) is None
