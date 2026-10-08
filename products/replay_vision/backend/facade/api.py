@@ -4,7 +4,9 @@ from uuid import UUID
 from django.db.models import Case, When
 from django.utils import timezone
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team as TeamModel
+from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.facade.contracts import ObservationRequestRejected, StartedObservationRequest
@@ -15,13 +17,16 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
-from products.replay_vision.backend.scanner_access import accessible_observations, readable_observation_scanner_ids
+from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
+    readable_observation_scanner_ids,
+)
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
-    from posthog.models.user import User
 
 _MAX_PAGE_OBSERVATIONS = 30
 
@@ -108,15 +113,19 @@ def has_signal_emitting_scanner(team_id: int) -> bool:
 def start_workflow_observation_request(
     *,
     team_id: int,
+    owner_id: int | None,
     session_ids: list[str],
     scanner_id: UUID | None,
     prompt: str | None,
     idempotency_key: str,
+    wait_for_session_end: bool = False,
 ) -> StartedObservationRequest:
     """Scan sessions for a workflow step, with a saved scanner or a plain-language question.
 
-    No user stands behind the call, so access is the workflow's: the step can only name sessions and
-    scanners in its own project. Raises `ObservationRequestRejected` when the scan can't be requested.
+    The step runs as the workflow's owner, so it can only do what that owner could do from the API: read
+    recordings, and edit the scanner it names (or the project's scanners, to ask a question). Otherwise
+    anyone allowed to edit a workflow could forward recording contents they may not read. Raises
+    `ObservationRequestRejected` when the scan can't be requested.
     """
     # Deferred: these reach the temporal package, whose activities import them back while it loads.
     from products.replay_vision.backend.observation_requests import (  # noqa: PLC0415
@@ -130,6 +139,10 @@ def start_workflow_observation_request(
     from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN  # noqa: PLC0415
 
     team = TeamModel.objects.select_related("organization").get(id=team_id)
+    owner = _workflow_owner(team, owner_id)
+    access = UserAccessControl(user=owner, team=team, organization_id=str(team.organization_id))
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        raise ObservationRequestRejected("The workflow's owner can't view session recordings.", "forbidden")
     if not team.organization.is_ai_data_processing_approved:
         raise ObservationRequestRejected(
             "Your organization needs to allow AI analysis before a workflow can run a Replay vision scan.", "consent"
@@ -146,7 +159,16 @@ def start_workflow_observation_request(
         scanner = ReplayScanner.objects.filter(team_id=team.id, id=scanner_id).first()
         if scanner is None:
             raise ObservationRequestRejected("No scanner with this id exists in this project.", "not_found")
+        if not access.check_access_level_for_object(scanner, "editor") or not can_read_targeted_experiment(
+            access, team.id, scanner
+        ):
+            raise ObservationRequestRejected("The workflow's owner can't scan with this scanner.", "forbidden")
     else:
+        if not access.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise ObservationRequestRejected(
+                "Asking a question needs the workflow's owner to have edit access to the project's scanners.",
+                "forbidden",
+            )
         config = {"prompt": (prompt or "").strip()}
         error = scanner_config_error(ScannerType.MONITOR, config)
         if error is not None:
@@ -158,13 +180,14 @@ def start_workflow_observation_request(
     try:
         request, created = create_observation_request(
             team=team,
-            user=None,
+            user=owner,
             source=ObservationRequestSource.WORKFLOW,
             session_ids=sessions,
             scanner=scanner,
             inline=inline,
             idempotency_key=idempotency_key,
             reference="",
+            wait_for_session_end=wait_for_session_end,
         )
     except IdempotencyKeyConflict:
         raise ObservationRequestRejected("This step's dispatch key is already used by another request.", "invalid")
@@ -178,3 +201,13 @@ def start_workflow_observation_request(
     return StartedObservationRequest(
         request_id=request.id, status="completed", created=created, result=step_result(request, progress)
     )
+
+
+def _workflow_owner(team: TeamModel, owner_id: int | None) -> User:
+    owner = User.objects.filter(id=owner_id, is_active=True).first() if owner_id is not None else None
+    if (
+        owner is None
+        or not OrganizationMembership.objects.filter(user=owner, organization_id=team.organization_id).exists()
+    ):
+        raise ObservationRequestRejected("The workflow has no owner who can run scans.", "forbidden")
+    return owner

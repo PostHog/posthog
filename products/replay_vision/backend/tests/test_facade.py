@@ -113,6 +113,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
     def _start(self, **overrides: Any):
         kwargs: dict[str, Any] = {
             "team_id": self.team.id,
+            "owner_id": self.user.id,
             "session_ids": ["s1", "s1"],
             "scanner_id": None,
             "prompt": "did they rage click?",
@@ -121,7 +122,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         }
         return start_workflow_observation_request(**kwargs)
 
-    def test_starts_an_inline_scan_owned_by_no_user(self) -> None:
+    def test_starts_an_inline_scan_as_the_workflow_owner(self) -> None:
         started = self._start()
 
         assert (started.status, started.created) == ("running", True)
@@ -160,12 +161,21 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
             ("no_ai_consent", {}, "consent"),
             ("unknown_scanner", {"scanner_id": uuid.uuid4()}, "not_found"),
             ("no_session", {"session_ids": [""]}, "invalid"),
+            ("no_owner", {"owner_id": None}, "forbidden"),
+            ("owner_cannot_view_recordings", {}, "forbidden"),
         ]
     )
     def test_refuses(self, name: str, overrides: dict[str, Any], kind: str) -> None:
         if name == "no_ai_consent":
             self.organization.is_ai_data_processing_approved = False
             self.organization.save()
+        if name == "owner_cannot_view_recordings":
+            # Without this, anyone who can edit a workflow could forward recording contents they may not read.
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
 
         with pytest.raises(ObservationRequestRejected) as error:
             self._start(**overrides)

@@ -17,7 +17,7 @@ from products.replay_vision.backend.facade.contracts import (
     ObservationRequestRejected,
     RejectionKind,
 )
-from products.workflows.backend.facade.api import workflow_exists
+from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_owner_id
 from products.workflows.backend.facade.service_jwt import WORKFLOW_VISION_REQUEST_PURPOSE
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +27,7 @@ _REJECTION_STATUS: dict[RejectionKind, int] = {
     "not_found": status.HTTP_404_NOT_FOUND,
     "consent": status.HTTP_400_BAD_REQUEST,
     "invalid": status.HTTP_400_BAD_REQUEST,
+    "forbidden": status.HTTP_403_FORBIDDEN,
 }
 
 MAX_WORKFLOW_SESSIONS = 200
@@ -61,6 +62,11 @@ class WorkflowVisionRequestCreateSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=4000,
         help_text="What to look for in the sessions, in plain language. Pass this or `scanner_id`.",
+    )
+    wait_for_session_end = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Hold the scan until the session has been quiet for 35 minutes, so it is scanned whole.",
     )
     idempotency_key = serializers.CharField(
         max_length=200,
@@ -123,6 +129,10 @@ class WorkflowVisionRequestViewSet(viewsets.GenericViewSet):
                 response=WorkflowVisionRequestRejectedSerializer,
                 description="AI analysis is off for the organization, or the question is invalid",
             ),
+            403: OpenApiResponse(
+                response=WorkflowVisionRequestRejectedSerializer,
+                description="The workflow's owner can't view recordings or can't use this scanner",
+            ),
             404: OpenApiResponse(
                 response=WorkflowVisionRequestRejectedSerializer,
                 description="The scanner doesn't exist in this project",
@@ -143,16 +153,20 @@ class WorkflowVisionRequestViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if not workflow_exists(team_id=team_id, workflow_id=hog_flow_id):
+        try:
+            owner_id = get_workflow_owner_id(team_id=team_id, workflow_id=hog_flow_id)
+        except WorkflowNotFound:
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         try:
             started = start_workflow_observation_request(
                 team_id=team_id,
+                owner_id=owner_id,
                 session_ids=data["session_ids"],
                 scanner_id=data.get("scanner_id"),
                 prompt=data.get("prompt"),
                 idempotency_key=data["idempotency_key"],
+                wait_for_session_end=data["wait_for_session_end"],
             )
         except ObservationRequestRejected as error:
             logger.info(

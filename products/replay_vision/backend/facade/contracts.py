@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-RejectionKind = Literal["not_found", "consent", "invalid"]
+RejectionKind = Literal["not_found", "consent", "invalid", "forbidden"]
 
 # The longest session recording id a scan accepts.
 MAX_SESSION_ID_LENGTH = 128

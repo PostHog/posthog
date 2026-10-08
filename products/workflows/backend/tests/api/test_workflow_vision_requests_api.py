@@ -78,10 +78,12 @@ class TestWorkflowVisionRequestsAPI(APIBaseTest):
         }
         start.assert_called_once_with(
             team_id=self.team.id,
+            owner_id=self.user.id,
             session_ids=["s1"],
             scanner_id=None,
             prompt="did they rage click?",
             idempotency_key="run:step:1",
+            wait_for_session_end=True,
         )
 
     @parameterized.expand(
@@ -89,6 +91,7 @@ class TestWorkflowVisionRequestsAPI(APIBaseTest):
             ("not_found", status.HTTP_404_NOT_FOUND),
             ("consent", status.HTTP_400_BAD_REQUEST),
             ("invalid", status.HTTP_400_BAD_REQUEST),
+            ("forbidden", status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_a_refused_scan_maps_onto_a_failing_status(self, kind: RejectionKind, expected: int) -> None:

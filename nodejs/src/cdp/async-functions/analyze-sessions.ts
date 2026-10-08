@@ -55,6 +55,7 @@ registerAsyncFunction('postHogAnalyzeSessions', {
             },
             body: JSON.stringify({
                 session_ids: payload.session_ids,
+                wait_for_session_end: payload.wait_for_session_end !== false,
                 ...(payload.scanner_id ? { scanner_id: payload.scanner_id } : {}),
                 ...(payload.prompt ? { prompt: payload.prompt } : {}),
                 idempotency_key: idempotencyKey,

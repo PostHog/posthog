@@ -24,7 +24,7 @@ if (empty(inputs.scanner_id) and empty(inputs.prompt)) {
   throw Error('A question or a scanner is required')
 }
 
-let payload := { 'session_ids': [inputs.session_id] }
+let payload := { 'session_ids': [inputs.session_id], 'wait_for_session_end': inputs.wait_for_session_end != false }
 if (not empty(inputs.scanner_id)) {
   payload.scanner_id := inputs.scanner_id
 } else {
@@ -39,8 +39,8 @@ if (response.status >= 400) {
 
 let scan := response.body
 if (scan.status == 'running') {
-  // Park the step until the scan settles: the scan workflow's timeout plus slack for the wake.
-  scan.await := { 'max_wait': '120m', 'label': 'Replay vision scan' }
+  // Park the step until the scan settles: up to 6 hours for the session to end, the scan itself, and slack for the wake.
+  scan.await := { 'max_wait': '8h', 'label': 'Replay vision scan' }
 }
 return scan
 `,
@@ -53,6 +53,16 @@ return scan
             required: true,
             default: '{event.properties.$session_id}',
             description: 'The session recording to analyze. Defaults to the triggering event’s session.',
+        },
+        {
+            key: 'wait_for_session_end',
+            type: 'boolean',
+            label: 'Wait for the session to end',
+            secret: false,
+            required: false,
+            default: true,
+            description:
+                'Scan the recording once the session has been quiet for 35 minutes, so the whole session is analyzed. Turn this off only when the triggering event comes after the session is over.',
         },
         {
             key: 'prompt',

@@ -24,6 +24,7 @@ describe('posthog analyze sessions template', () => {
         expect(params.url).toMatch(/\/api\/projects\/1\/workflow_vision_requests\/$/)
         expect(parseJSON(params.body!)).toEqual({
             session_ids: ['session-1'],
+            wait_for_session_end: true,
             prompt: 'Did the user rage click?',
             idempotency_key: `${response.invocation.id}:action_1:0`,
         })
@@ -39,7 +40,7 @@ describe('posthog analyze sessions template', () => {
     })
 
     it.each([
-        ['running', { request_id: 'r1', status: 'running', await: { max_wait: '120m', label: 'Replay vision scan' } }],
+        ['running', { request_id: 'r1', status: 'running', await: { max_wait: '8h', label: 'Replay vision scan' } }],
         ['completed', { request_id: 'r1', status: 'completed' }],
     ])('parks the step only while the scan is %s', async (scanStatus, expected) => {
         let response = await tester.invoke(inputs, undefined, workflowOptions)
