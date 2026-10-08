@@ -8,6 +8,8 @@ Do not use it for one feature or one flow. Those requests have no blueprint yet,
 
 Read [design-guidelines.md](./design-guidelines.md) first. This file says which tiles to build.
 
+When you call `posthog:dashboard-create`, include the words "product overview blueprint" in the `context` you write for the call. PostHog counts the dashboards built from this blueprint by that phrase.
+
 ## Settle the definitions before you build
 
 Three definitions decide every number on this dashboard. A guessed definition of "activated" can move the activation rate from under 10% to over 50% on the same data, so do not guess these.
