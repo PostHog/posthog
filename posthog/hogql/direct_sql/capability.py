@@ -7,8 +7,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 # Gates BigQuery direct query while it is tested internally. It exists for warehouse-native
-# experiment metrics, not as a general warehouse feature, so teams outside the rollout must not
-# be able to connect or query BigQuery directly.
+# experiment metrics; teams outside the rollout must not be able to connect or query it.
 BIGQUERY_DIRECT_QUERY_FLAG = "bigquery-direct-query"
 
 

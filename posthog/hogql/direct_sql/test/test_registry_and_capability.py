@@ -47,8 +47,7 @@ class TestDirectSQLRegistry(SimpleTestCase):
     def test_bigquery_adapter_is_raw_only(self):
         adapter = get_adapter("bigquery")
         assert adapter is not None
-        # No BigQuery printer dialect exists; a non-None dialect here would route HogQL
-        # compilation to a printer that produces SQL BigQuery can't parse.
+        # No BigQuery printer dialect exists; a non-None dialect would route HogQL to a wrong printer.
         self.assertIsNone(adapter.dialect)
 
     def test_register_adapter_round_trips(self):

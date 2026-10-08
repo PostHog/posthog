@@ -4298,9 +4298,8 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_direct_bigquery_source_without_table_registration(self, mock_get_source):
-        # BigQuery is raw-only: it has no materialization engine, so a pure-direct connection must
-        # be created with its schema rows but no DataWarehouseTable, instead of crashing in the
-        # table-registration step. Creation is gated on the bigquery-direct-query flag.
+        # BigQuery has no materialization engine, so a pure-direct connection is created with
+        # schema rows but no DataWarehouseTable. Creation is gated on the bigquery-direct-query flag.
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
