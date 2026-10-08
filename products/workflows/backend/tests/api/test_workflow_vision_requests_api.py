@@ -48,15 +48,34 @@ class TestWorkflowVisionRequestsAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {_token(self.team.id, str(self.hog_flow.id), audience=audience)}",
         )
 
-    @parameterized.expand([("new", True, status.HTTP_202_ACCEPTED), ("replayed_key", False, status.HTTP_200_OK)])
-    def test_starts_a_scan_for_the_token_team(self, _name: str, created: bool, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("new", True, None, status.HTTP_202_ACCEPTED),
+            ("replayed_key", False, None, status.HTTP_200_OK),
+            (
+                "already_settled",
+                True,
+                {"succeeded_count": 1, "sessions": [{"session_id": "s1", "state": "succeeded", "output": {"v": 1}}]},
+                status.HTTP_202_ACCEPTED,
+            ),
+        ]
+    )
+    def test_starts_a_scan_for_the_token_team(
+        self, _name: str, created: bool, result: dict[str, Any] | None, expected: int
+    ) -> None:
         request_id = uuid4()
-        started = StartedObservationRequest(request_id=request_id, status="running", created=created)
+        started = StartedObservationRequest(
+            request_id=request_id, status="completed" if result else "running", created=created, result=result
+        )
         with patch(_START, return_value=started) as start:
             response = self._post()
 
         assert response.status_code == expected, response.json()
-        assert response.json() == {"request_id": str(request_id), "status": "running"}
+        assert response.json() == {
+            **(result or {}),
+            "request_id": str(request_id),
+            "status": "completed" if result else "running",
+        }
         start.assert_called_once_with(
             team_id=self.team.id,
             session_ids=["s1"],

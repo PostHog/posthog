@@ -34,7 +34,7 @@ export interface scannerPickerLogicActions {
 
 export type scannerPickerLogicType = MakeLogicType<scannerPickerLogicValues, scannerPickerLogicActions>
 
-// A team's saved scanners number in the tens, so one page covers the picker.
+// A team's saved scanners usually fit in one page; the loader still follows `next` for the rest.
 const SCANNER_PAGE_SIZE = 500
 
 export const scannerPickerLogic = kea<scannerPickerLogicType>([
@@ -50,8 +50,17 @@ export const scannerPickerLogic = kea<scannerPickerLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const page = await visionScannersList(String(values.currentTeamId), { limit: SCANNER_PAGE_SIZE })
-                    return page.results
+                    const scanners: ReplayScannerApi[] = []
+                    for (let offset = 0; ; offset += SCANNER_PAGE_SIZE) {
+                        const page = await visionScannersList(String(values.currentTeamId), {
+                            limit: SCANNER_PAGE_SIZE,
+                            offset,
+                        })
+                        scanners.push(...page.results)
+                        if (!page.next || page.results.length === 0) {
+                            return scanners
+                        }
+                    }
                 },
             },
         ],

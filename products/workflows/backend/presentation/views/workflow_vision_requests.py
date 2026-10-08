@@ -12,7 +12,11 @@ from rest_framework.response import Response
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 
 from products.replay_vision.backend.facade.api import start_workflow_observation_request
-from products.replay_vision.backend.facade.contracts import ObservationRequestRejected, RejectionKind
+from products.replay_vision.backend.facade.contracts import (
+    MAX_SESSION_ID_LENGTH,
+    ObservationRequestRejected,
+    RejectionKind,
+)
 from products.workflows.backend.facade.api import workflow_exists
 from products.workflows.backend.facade.service_jwt import WORKFLOW_VISION_REQUEST_PURPOSE
 
@@ -44,7 +48,7 @@ class WorkflowVisionRequestsJWTAuthentication(ScopedServiceJWTAuthentication):
 
 class WorkflowVisionRequestCreateSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
-        child=serializers.CharField(max_length=200),
+        child=serializers.CharField(max_length=MAX_SESSION_ID_LENGTH),
         allow_empty=False,
         max_length=MAX_WORKFLOW_SESSIONS,
         help_text=f"Session recording IDs to scan, at most {MAX_WORKFLOW_SESSIONS}.",
@@ -69,11 +73,24 @@ class WorkflowVisionRequestCreateSerializer(serializers.Serializer):
         return attrs
 
 
+class WorkflowVisionSessionResultSerializer(serializers.Serializer):
+    session_id = serializers.CharField(help_text="The session recording this answer is for.")
+    state = serializers.CharField(help_text="Where the session ended up, for example 'succeeded' or 'skipped'.")
+    output = serializers.JSONField(
+        allow_null=True, help_text="The scanner's answer. Null unless the session succeeded."
+    )
+
+
 class WorkflowVisionRequestResponseSerializer(serializers.Serializer):
     request_id = serializers.UUIDField(help_text="The Replay vision scan request this step started.")
     status = serializers.ChoiceField(
         choices=[("running", "Running"), ("completed", "Completed")],
-        help_text="'completed' when nothing could start, so there is nothing to wait for.",
+        help_text="'completed' when every session already settled, so there is nothing to wait for.",
+    )
+    sessions = WorkflowVisionSessionResultSerializer(
+        many=True,
+        required=False,
+        help_text="Set only when `status` is 'completed': the same per-session answers a parked step is woken with.",
     )
 
 
@@ -150,10 +167,13 @@ class WorkflowVisionRequestViewSet(viewsets.GenericViewSet):
             request_id=str(started.request_id),
             created=started.created,
         )
-        return Response(
-            WorkflowVisionRequestResponseSerializer({"request_id": started.request_id, "status": started.status}).data,
-            status=status.HTTP_202_ACCEPTED if started.created else status.HTTP_200_OK,
-        )
+        # A settled request returns the body a parked step is woken with (counts included), so the step output
+        # has one shape either way.
+        result = started.result or {}
+        typed = WorkflowVisionRequestResponseSerializer(
+            {**result, "request_id": started.request_id, "status": started.status}
+        ).data
+        return Response({**result, **typed}, status=status.HTTP_202_ACCEPTED if started.created else status.HTTP_200_OK)
 
 
 def _rejected(detail: str, http_status: int) -> Response:

@@ -2,13 +2,17 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import Case, When
+from django.utils import timezone
 
 from posthog.models.team.team import Team as TeamModel
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.facade.contracts import ObservationRequestRejected, StartedObservationRequest
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_observation_request import ObservationRequestSource
+from products.replay_vision.backend.models.replay_observation_request import (
+    ObservationRequestSource,
+    ReplayObservationRequest,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.scanner_access import accessible_observations, readable_observation_scanner_ids
@@ -116,9 +120,11 @@ def start_workflow_observation_request(
     """
     # Deferred: these reach the temporal package, whose activities import them back while it loads.
     from products.replay_vision.backend.observation_requests import (  # noqa: PLC0415
+        IdempotencyKeyConflict,
         InlineScanSpec,
         create_observation_request,
         request_progress,
+        step_result,
     )
     from products.replay_vision.backend.scanner_config import scanner_config_error  # noqa: PLC0415
     from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN  # noqa: PLC0415
@@ -149,18 +155,26 @@ def start_workflow_observation_request(
             scanner_type=ScannerType.MONITOR, scanner_config=config, model=ScannerModel.GEMINI_3_FLASH_PREVIEW
         )
 
-    request, created = create_observation_request(
-        team=team,
-        user=None,
-        source=ObservationRequestSource.WORKFLOW,
-        session_ids=sessions,
-        scanner=scanner,
-        inline=inline,
-        idempotency_key=idempotency_key,
-        reference="",
+    try:
+        request, created = create_observation_request(
+            team=team,
+            user=None,
+            source=ObservationRequestSource.WORKFLOW,
+            session_ids=sessions,
+            scanner=scanner,
+            inline=inline,
+            idempotency_key=idempotency_key,
+            reference="",
+        )
+    except IdempotencyKeyConflict:
+        raise ObservationRequestRejected("This step's dispatch key is already used by another request.", "invalid")
+    progress = request_progress(request)
+    if not progress.settled:
+        return StartedObservationRequest(request_id=request.id, status="running", created=created)
+    # The step returns these answers now instead of parking, so no wake is owed and the sweep must skip it.
+    ReplayObservationRequest.objects.for_team(team.id).filter(id=request.id, completed_at__isnull=True).update(
+        completed_at=timezone.now()
     )
     return StartedObservationRequest(
-        request_id=request.id,
-        status="completed" if request_progress(request).settled else "running",
-        created=created,
+        request_id=request.id, status="completed", created=created, result=step_result(request, progress)
     )

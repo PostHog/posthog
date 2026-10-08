@@ -24,7 +24,9 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.tests.helpers import snapshot_for
 
 
 class TestFetchPageSessionObservations(APIBaseTest):
@@ -124,6 +126,34 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
 
         assert (started.status, started.created) == ("running", True)
         assert self._start().request_id == started.request_id
+
+    def test_returns_the_answers_at_once_when_the_session_was_already_scanned(self) -> None:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            team=self.team,
+            session_id="s1",
+            scanner_snapshot=snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            scanner_result={"model_output": {"verdict": "yes"}},
+            completed_at=timezone.now(),
+        )
+
+        started = self._start(scanner_id=scanner.id, prompt=None)
+
+        assert started.status == "completed"
+        assert started.result is not None
+        assert started.result["sessions"] == [{"session_id": "s1", "state": "succeeded", "output": {"verdict": "yes"}}]
+        # The step never parks, so the sweep must not try to wake it.
+        request = ReplayObservationRequest.objects.for_team(self.team.id).get(id=started.request_id)
+        assert request.completed_at is not None
 
     @parameterized.expand(
         [
