@@ -9,11 +9,13 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.signals.backend.models import SignalScoutConfig
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -615,6 +617,8 @@ class TestWorkflowProposals(APIBaseTest):
             ("paused by the system", "system_paused"),
             ("api key limited to a child environment", "child_key"),
             ("a project at its enabled-scout limit", "at_cap"),
+            ("a person without editor access to skills", "no_skill_access"),
+            ("a member widening another person's scout", "widen"),
             ("api key without the proposal scope turning one on", "key_on"),
             ("api key without the proposal scope turning one off", "key_off"),
             ("a scout a person set up", "own"),
@@ -638,6 +642,18 @@ class TestWorkflowProposals(APIBaseTest):
                 source_product="workflows",
                 status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
                 pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            )
+        elif case == "widen":
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            other = User.objects.create_and_join(self.organization, "other@example.com", None)
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                skill_name="signals-scout-workflows",
+                source_product="workflows",
+                enabled=True,
+                created_by=other,
+                enabled_by=other,
             )
         elif case == "child_key":
             key = generate_random_token_personal()
@@ -666,9 +682,22 @@ class TestWorkflowProposals(APIBaseTest):
                 enabled = False
             self.client.logout()
 
-        with patch(
-            "products.signals.backend.scout_harness.team_limits.max_enabled_scouts_for_team",
-            return_value=0 if case == "at_cap" else 100,
+        original_check = UserAccessControl.check_access_level_for_resource
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.max_enabled_scouts_for_team",
+                return_value=0 if case == "at_cap" else 100,
+            ),
+            patch.object(
+                UserAccessControl,
+                "check_access_level_for_resource",
+                autospec=True,
+                side_effect=lambda uac, resource, *args, **kwargs: (
+                    resource != "llm_skill"
+                    if case == "no_skill_access"
+                    else original_check(uac, resource, *args, **kwargs)
+                ),
+            ),
         ):
             self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
 
@@ -676,7 +705,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert scout is None or scout.write_scopes == []
         if case == "system_paused":
             assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-        if case == "at_cap":
+        if case in ("at_cap", "no_skill_access"):
             assert scout is None
 
     @parameterized.expand(

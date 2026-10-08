@@ -1417,14 +1417,25 @@ def enable_scout_for_product(
     The project gets that one skill and an enabled config the product owns. `acting_user` becomes
     the person the runs act as, because they turned the feature on. `write_scopes` is limited to
     `SCOUT_GRANTABLE_WRITE_SCOPES`. The caller must already have checked that this person may
-    grant those scopes. Returns False without writing when the organization has not approved AI
-    data processing, when the scout is paused by a person or by the system, when a new scout would
-    pass the project's enabled-scout limit, or when another product owns its config.
+    grant those scopes. It applies the same rules as the scout config API: the person needs editor
+    access to skills, a new scout must fit the project's enabled-scout limit, and only a project
+    admin or the person the runs act as may widen an existing grant. Returns False without writing
+    when a rule refuses, when the organization has not approved AI data processing, when the scout
+    is paused by a person or by the system, or when another product owns its config.
     """
+    from posthog.models.organization import (
+        OrganizationMembership,  # noqa: PLC0415 — keeps the membership model off the facade's import path
+    )
     from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
         SCOUT_GRANTABLE_WRITE_SCOPES,
     )
+    from posthog.user_permissions import (
+        UserPermissions,  # noqa: PLC0415 — keeps the permission resolver off the facade's import path
+    )
 
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415 — keeps access control off the facade's import path
+        UserAccessControl,
+    )
     from products.signals.backend.scout_harness.config_registry import (  # noqa: PLC0415 — keeps the scout registry off the facade's import path
         enabled_scout_count,
     )
@@ -1435,6 +1446,9 @@ def enable_scout_for_product(
         canonical_structured_output_schema_for,
         sync_canonical_skills,
     )
+    from products.signals.backend.scout_harness.skill_loader import (  # noqa: PLC0415 — keeps the skill loader off the facade's import path
+        resolve_scout_acting_user_id,
+    )
     from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps the flag payload reader off the facade's import path
         max_enabled_scouts_for_team,
     )
@@ -1444,6 +1458,8 @@ def enable_scout_for_product(
     if team.organization.is_ai_data_processing_approved is not True:
         return False
     scopes = sorted(set(write_scopes) & SCOUT_GRANTABLE_WRITE_SCOPES)
+    if not UserAccessControl(user=acting_user, team=team).check_access_level_for_resource("llm_skill", "editor"):
+        return False
 
     sync_canonical_skills(team, withheld_skill_names=canonical_skill_names() - {skill_name})
     defaults: dict[str, Any] = {
@@ -1477,6 +1493,10 @@ def enable_scout_for_product(
             return False
         granted = sorted(set(config.write_scopes or []) | set(scopes))
         if granted != sorted(config.write_scopes or []):
+            level = UserPermissions(user=acting_user, team=team).current_team.effective_membership_level
+            is_admin = level is not None and level >= OrganizationMembership.Level.ADMIN
+            if not is_admin and resolve_scout_acting_user_id(team, skill_name, config) != acting_user.pk:
+                return False
             config.write_scopes = granted
             config.save(update_fields=["write_scopes", "updated_at"])
     return True
