@@ -1329,6 +1329,10 @@ class ClickHousePropertyResolver(CloningVisitor):
                         type=node.type,
                     )
 
+        boolean_conversion = self._rewrite_boolean_property_conversion(node)
+        if boolean_conversion is not None:
+            return boolean_conversion
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
@@ -1383,6 +1387,33 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
 
         return super().visit_call(node)
+
+    def _rewrite_boolean_property_conversion(self, node: ast.Call) -> ast.Expr | None:
+        match node:
+            case ast.Call(
+                name="transform",
+                args=[
+                    ast.Call(name="toString", args=[operand]) as string_read,
+                    ast.Constant(value=["true", "false"]),
+                    ast.Constant(value=[1, 0]),
+                    ast.Constant(value=None),
+                ],
+            ):
+                access = self._lowered_property_operand(operand)
+                if access is None or not all(isinstance(key, str) for key in access.keys):
+                    return None
+                field_type = _blob_field_type_of(access)
+                assert field_type is not None
+                keys = cast(list[str], access.keys)
+                if self._is_virtual_feature_flag_property(field_type, keys[0]):
+                    return None
+                source = resolve_materialized_property_source(field_type, ".".join(keys), self.context)
+                if source is None or source.kind != "json_subcolumn":
+                    return None
+                # Object and array text cannot match either Boolean spelling.
+                value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
+                return replace(node, args=[replace(string_read, args=[value]), *node.args[1:]])
+        return None
 
     def _rewrite_feature_flag_json_call(self, node: ast.Call) -> ast.Expr | None:
         """A JSON function over a virtual flag key, rewritten on native events to parse the flag read.

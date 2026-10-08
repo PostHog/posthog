@@ -19,6 +19,7 @@ from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTab
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.printer.utils import prepare_ast_for_printing
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.transforms.clickhouse_property_resolution import (
     MAX_MATERIALIZED_LIKE_PATTERN_LENGTH,
@@ -30,6 +31,8 @@ from posthog.hogql.transforms.property_types import PropertySwapper
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
@@ -97,6 +100,72 @@ class TestMaterializedLikePatternLimit(SimpleTestCase):
 
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNativeJSONPropertyComparisons(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("event", "properties", "value", "properties.value", False),
+            ("person", "person_properties", "value", "poe.properties.value", False),
+            ("dotted", "properties", "value.child", "properties.`value.child`", False),
+            ("temporary", "temporary_properties", "$sdk_debug_flag", "properties.$sdk_debug_flag", False),
+            ("restricted", "properties", "value", "properties.value", True),
+        ]
+    )
+    def test_boolean_reads_preserve_mixed_values(
+        self, _name: str, column: str, key: str, property_expr: str, restricted: bool
+    ) -> None:
+        metadata = PropertyMetadata(
+            event_properties={key: {"type": "Boolean"}} if column != "person_properties" else {},
+            person_properties={key: {"type": "Boolean"}} if column == "person_properties" else {},
+        )
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=metadata,
+            database=Database(),
+            restricted_properties={RestrictedProperty(name=key, property_type=PropertyDefinition.Type.EVENT)}
+            if restricted
+            else set(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper(
+            "UTC", metadata.event_properties, metadata.person_properties, {}, context, False
+        )
+        prepared = prepare_ast_for_printing(
+            parse_select(
+                f"SELECT tuple({property_expr}, {property_expr} = true, {property_expr} = false, "
+                f"{property_expr} IS NULL) FROM events"
+            ),
+            context,
+            "clickhouse",
+        )
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+        assert "toJSONString" not in printed
+        values: list[object] = [
+            True,
+            "true",
+            False,
+            "false",
+            1,
+            0,
+            "1",
+            "TRUE",
+            "",
+            None,
+            {},
+            {"child": True},
+            [],
+            [True],
+        ]
+        documents = [{key: value} for value in values]
+        rows = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), 'JSON') AS {column}) AS events",
+            {**context.values, "documents": [json.dumps(document) for document in [*documents, {}]]},
+            settings={"json_type_escape_dots_in_keys": 1},
+        )
+        expected = [None] * len(values) if restricted else [True, True, False, False, *([None] * (len(values) - 4))]
+        assert [row[0] for row in rows] == [
+            (value, int(value is True), int(value is False), int(value is None)) for value in [*expected, None]
+        ]
+
     @parameterized.expand(
         [
             (field, property_type)
