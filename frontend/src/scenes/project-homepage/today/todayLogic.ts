@@ -20,6 +20,7 @@ import { TeamType, UserType } from '~/types'
 import {
     signalsReportsForYouRetrieve,
     signalsReportsRetrieve,
+    signalsReportsReviewersMeDestroy,
     signalsReportsStateCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
@@ -36,7 +37,6 @@ import type {
     BriefingApi,
     BriefingItemApi,
     BriefingItemStateEnumApi,
-    TodayItemReasonEnumApi,
 } from 'products/today/frontend/generated/api.schemas'
 
 import type { TeamPublicType } from '../../../types'
@@ -49,6 +49,7 @@ import {
     isBriefingSettled,
     isExternalHref,
     itemHref,
+    itemNamesPerson,
     itemReportId,
 } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
@@ -57,8 +58,6 @@ import { TodayBriefingSegment, briefingForReports, teamReportCard } from './toda
 export const TOP_REPORT_COUNT = 5
 // The most reports the for_you endpoint returns in one call (MAX_FOR_YOU_REPORTS on the backend).
 export const MORE_REPORTS_LIMIT = 20
-// The briefing reasons a report gets when it names the person, the reports the for_you count covers.
-const NAMES_PERSON_REASONS: ReadonlySet<TodayItemReasonEnumApi> = new Set(['waiting_for_you', 'suggested_reviewer'])
 const CLOCK_MS = 30_000
 export const BRIEFING_POLL_MS = 5_000
 // The run's budget is 10 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
@@ -299,6 +298,16 @@ export interface todayLogicActions {
         item: BriefingItemApi
         surface: TodayItemOpenSurface
     }
+    leaveReportReview: (
+        reportId: string,
+        surface: TodayReportVerdictSurface
+    ) => {
+        reportId: string
+        surface: TodayReportVerdictSurface
+    }
+    leaveReportReviewFailure: (reportId: string) => {
+        reportId: string
+    }
     loadMoreReports: () => any
     loadMoreReportsFailure: (
         error: string,
@@ -530,6 +539,8 @@ export const todayLogic = kea<todayLogicType>([
             surface: TodayReportVerdictSurface
         ) => ({ target, verdict, surface }),
         setReportVerdictFailure: (reportId: string) => ({ reportId }),
+        leaveReportReview: (reportId: string, surface: TodayReportVerdictSurface) => ({ reportId, surface }),
+        leaveReportReviewFailure: (reportId: string) => ({ reportId }),
         addReportVerdictReason: (target: TodayReportVerdictTarget, verdict: TodayReportVerdict) => ({
             target,
             verdict,
@@ -673,6 +684,11 @@ export const todayLogic = kea<todayLogicType>([
                     [target.reportId]: VERDICTS[verdict].itemState,
                 }),
                 setReportVerdictFailure: (overrides, { reportId }) => {
+                    const { [reportId]: _, ...rest } = overrides
+                    return rest
+                },
+                leaveReportReview: (overrides, { reportId }) => ({ ...overrides, [reportId]: 'left' }),
+                leaveReportReviewFailure: (overrides, { reportId }) => {
                     const { [reportId]: _, ...rest } = overrides
                     return rest
                 },
@@ -835,7 +851,7 @@ export const todayLogic = kea<todayLogicType>([
                 // item, or one the person only claimed, is not in it and must not be taken off it.
                 const countedShownIds = showPersonalBriefing
                     ? briefingItems
-                          .filter((item) => item.state === 'open' && NAMES_PERSON_REASONS.has(item.reason))
+                          .filter((item) => item.state === 'open' && itemNamesPerson(item))
                           .map(itemReportId)
                           .filter((id): id is string => id !== null)
                     : reports.map((report) => report.id)
@@ -1070,6 +1086,22 @@ export const todayLogic = kea<todayLogicType>([
                 lemonToast.success(target.hasOpenPullRequest ? copy.successClosingPullRequest : copy.success, {
                     button: { label: 'Add a reason', action: () => actions.addReportVerdictReason(target, verdict) },
                 })
+            },
+            // No confirm dialog: unlike a verdict, this changes nothing for anyone but the person.
+            leaveReportReview: async ({ reportId, surface }) => {
+                try {
+                    await signalsReportsReviewersMeDestroy(String(values.currentProjectId), reportId)
+                } catch (error) {
+                    actions.leaveReportReviewFailure(reportId)
+                    lemonToast.error(
+                        (error instanceof ApiError && error.detail) ||
+                            'Couldn’t remove you from the reviewers. Try again, or change them from the Inbox.'
+                    )
+                    return
+                }
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today report review left', { surface })
+                lemonToast.success('Removed you from the reviewers')
             },
             addReportVerdictReason: ({ target, verdict }) => {
                 const copy = VERDICTS[verdict]
