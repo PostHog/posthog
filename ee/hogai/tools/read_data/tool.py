@@ -70,6 +70,7 @@ from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
 from ee.hogai.context.experiment import ExperimentContext
 from ee.hogai.context.feature_flag import FeatureFlagContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format import format_access_control_warnings, format_warehouse_sync_warnings
 from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.context.survey import SurveyContext
@@ -1204,6 +1205,9 @@ def _format_metric_run(name: str, envelope: dict) -> str:
     elif envelope.get("results") is None:
         lines.append("The query is still running. Run the metric again in a moment.")
     else:
+        warnings = format_warehouse_sync_warnings(envelope) + format_access_control_warnings(envelope)
+        if warnings:
+            lines.append(sanitize_for_system_reminder(warnings).rstrip())
         payload = json.dumps({"columns": envelope.get("columns"), "results": envelope["results"]}, default=str)
         if len(payload) > SQLResultsFormatter.MAX_RESULT_CHARS:
             payload = payload[: SQLResultsFormatter.MAX_RESULT_CHARS] + "… (truncated)"

@@ -27814,6 +27814,8 @@ export namespace Schemas {
          * @nullable
          */
       instructions: string | null;
+      /** Query warnings, such as a failed warehouse sync or rows hidden by access control. Report them with the result. Empty for a markdown metric. */
+      warnings: unknown[];
     }
 
     /**

@@ -2292,9 +2292,12 @@ class TestReadDataTool(BaseTest):
             "has_more": False,
             "posthog_url": None,
             "instructions": None,
+            "warnings": [{"type": "warehouse_sync", "message": "The stripe source failed to sync."}],
         }
         with patch("ee.hogai.tools.read_data.tool.run_metric", return_value=envelope):
             result, _ = await tool._arun_impl({"kind": "data_catalog_metric", "name": "pro_users"})
+
+        assert "The stripe source failed to sync." in result
 
         assert '"results": [[10]]' in result
         assert ("This result is not canonical" in result) is labeled_not_canonical
