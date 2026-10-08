@@ -32,7 +32,7 @@ const meta: Meta = {
     title: 'Scenes-App/Insights/Flag Called Rebuild Banner',
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.FLAG_CALLED_REBUILD_BANNERS],
+        featureFlags: [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES],
         testOptions: {
             snapshotBrowsers: ['chromium'],
             // Narrow enough that the banner text and its action wrap, as they do with the side panel open.
