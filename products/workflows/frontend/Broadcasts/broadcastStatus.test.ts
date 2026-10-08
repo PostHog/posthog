@@ -6,7 +6,7 @@ const flow = (
     status: string,
     origin_product: string | null = 'broadcasts'
 ): Parameters<typeof getBroadcastStatus>[0] => ({ status, origin_product })
-const withJob = (status: string): { latestBatchJob: HogFlowBatchJobApi; totals: Record<string, number> } => ({
+const withJob = (status: string): { latestBatchJob: HogFlowBatchJobApi; totals: Record<string, number> | null } => ({
     latestBatchJob: { status } as HogFlowBatchJobApi,
     totals: {},
 })
@@ -16,7 +16,12 @@ describe('getBroadcastStatus', () => {
         ['a draft, whatever its runs say', flow('draft'), withJob('completed'), 'draft'],
         ['an archived broadcast', flow('archived'), withJob('completed'), 'archived'],
         ['a run still going', flow('active'), withJob('active'), 'sending'],
-        ['a run that finished', flow('active'), { ...withJob('completed'), hasPendingSchedule: false }, 'sent'],
+        [
+            'a run that finished and sent',
+            flow('active'),
+            { ...withJob('completed'), totals: { email_sent: 3, failed: 1 }, hasPendingSchedule: false },
+            'sent',
+        ],
         ['a finished run whose schedules did not load', flow('active'), withJob('completed'), 'unknown'],
         // A terminal run used to fall through to the no-run fallback and read as "scheduled",
         // telling the sender another send was pending when nothing was coming.
@@ -46,6 +51,24 @@ describe('getBroadcastStatus', () => {
             flow('active'),
             { ...withJob('failed'), hasPendingSchedule: true },
             'failed',
+        ],
+        [
+            'a finished run whose recipients all failed before a send',
+            flow('active'),
+            { ...withJob('completed'), totals: { failed: 100 }, hasPendingSchedule: false },
+            'failed',
+        ],
+        [
+            'a finished run with no send recorded yet',
+            flow('active'),
+            { ...withJob('completed'), totals: { triggered: 100 }, hasPendingSchedule: false },
+            'sending',
+        ],
+        [
+            'a finished run whose metrics have not loaded',
+            flow('active'),
+            { ...withJob('completed'), totals: null, hasPendingSchedule: false },
+            'sent',
         ],
         // Runs not loaded yet, or failed to load, used to read as "scheduled" for a broadcast that already sent.
         ['a live broadcast whose runs have not loaded', flow('active'), undefined, 'unknown'],
