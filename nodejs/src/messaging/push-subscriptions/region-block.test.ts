@@ -35,7 +35,6 @@ describe('createRegionBlockCheck', () => {
     const signed = (ip: string, key: string, ageSeconds = 0): IncomingMessage => {
         const timestamp = String(Math.floor(Date.now() / 1000 - ageSeconds))
         return {
-            // Envoy sets X-Forwarded-For to the Cloudflare edge for managed proxy traffic.
             headers: {
                 'x-forwarded-for': '8.8.8.8',
                 'x-posthog-client-ip': ip,
