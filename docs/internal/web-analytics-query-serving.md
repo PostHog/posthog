@@ -191,6 +191,21 @@ Manual runs have no release delay.
 Worker capacity can delay a team beyond its release time; the offset is not a completion deadline.
 The eager and demand jobs can still overlap if either pass runs long.
 
+## In-app digest query recovery
+
+The in-app digest notification batch retries a team's read-only digest build up to three times for
+`CH_TRANSIENT_ERRORS`, with 30- and 60-second backoff. Additional retries stop five minutes after the batch
+starts; later teams still receive their initial attempt. Each team's reporting bounds are fixed before
+its first attempt, so a retry crossing midnight cannot change the reporting period. Invalid filters and
+other permanent query errors are not retried.
+
+Completed team builds remain available while other teams recover. Notification delivery starts only
+after building the organization's teams, outside the retry loop, so query recovery does not resend
+notifications. Failed teams remain excluded and counted; if every team fails, the organization failure
+is included in the workflow result. Notification builds omit goals because the notification does not
+render them. These retries do not change email digest delivery or provide deduplication for an entire
+activity replay after a worker failure.
+
 ## Flags and team allowlists
 
 | Gate                                                  | Type              | Controls                                                                                                        |

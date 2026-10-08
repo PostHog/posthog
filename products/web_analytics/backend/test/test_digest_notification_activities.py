@@ -1,15 +1,31 @@
 import uuid
+from collections import Counter
+from datetime import timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from tenacity import Retrying
+
+from posthog.schema import (
+    DateRange,
+    WebAnalyticsItemKind,
+    WebOverviewItem,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
+)
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
-from products.notifications.backend.facade.api import NotificationType, TargetType
+from products.notifications.backend.facade.api import NotificationData, NotificationType, TargetType
 from products.web_analytics.backend.temporal.digest_notification.activities import (
     _build_and_send_for_org,
     _expose_and_notify_user,
@@ -72,7 +88,7 @@ class _DigestNotificationTestBase(APIBaseTest):
 
         self.build_digest_patcher = patch(
             "products.web_analytics.backend.weekly_digest.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **kwargs: _make_team_digest(team),
         )
         self.mock_build_digest = self.build_digest_patcher.start()
 
@@ -144,7 +160,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         self.mock_create_notification.assert_not_called()
 
     def test_org_with_no_wa_data_is_skipped(self):
-        self.mock_build_digest.side_effect = lambda team: _make_team_digest(team, visitors=0)
+        self.mock_build_digest.side_effect = lambda team, **kwargs: _make_team_digest(team, visitors=0)
 
         counts = _build_and_send_for_org(str(self.organization.id), flag_key="my-flag")
 
@@ -154,7 +170,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
     def test_a_failing_team_is_left_out_and_counted(self):
         broken_team = Team.objects.create(organization=self.organization, name="Broken team")
 
-        def build(team):
+        def build(team, **kwargs):
             if team.id == broken_team.id:
                 raise TimeoutError("Query timed out")
             return _make_team_digest(team)
@@ -178,7 +194,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
     def test_raises_when_the_only_teams_with_data_may_be_the_failed_ones(self):
         broken_team = Team.objects.create(organization=self.organization, name="Broken team")
 
-        def build(team):
+        def build(team, **kwargs):
             if team.id == broken_team.id:
                 raise TimeoutError("Query timed out")
             return _make_team_digest(team, visitors=0)
@@ -193,7 +209,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
     def test_busiest_team_is_selected_when_user_has_multiple(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
-        def digest_by_team(team):
+        def digest_by_team(team, **kwargs):
             visitors = 500 if team.id == team_b.id else 10
             return _make_team_digest(team, visitors=visitors)
 
@@ -347,7 +363,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
 
         with patch(
             f"{ACTIVITIES}._build_and_send_for_org",
-            side_effect=lambda org_id, flag_key, dry_run: results_by_org[org_id],
+            side_effect=lambda org_id, flag_key, dry_run, **kwargs: results_by_org[org_id],
         ):
             totals = _run_wa_digest_notification_batch(DigestBatchInput(org_ids=["1", "2", "3"]))
 
@@ -361,7 +377,7 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         assert totals.failed == 1
 
     def test_isolates_per_org_failures(self):
-        def fake_build_and_send(org_id, flag_key, dry_run):
+        def fake_build_and_send(org_id, flag_key, dry_run, **kwargs):
             if org_id == "2":
                 raise RuntimeError("clickhouse exploded for org 2")
             return OrgDigestNotificationCounts(sent=1, control=1)
@@ -374,10 +390,98 @@ class TestRunWaDigestNotificationBatch(_DigestNotificationTestBase):
         assert totals.notifications_sent == 2
         assert totals.control_exposed == 2
 
+    @parameterized.expand(
+        [
+            ("recovers", ClickHouseAtCapacity, 1, False, False, 2, 2),
+            ("exhausted", ClickHouseAtCapacity, 3, False, False, 3, 1),
+            ("permanent", ValueError, 3, False, False, 1, 1),
+            ("budget_spent", ClickHouseAtCapacity, 3, True, False, 1, 1),
+            ("send_failure", ClickHouseAtCapacity, 1, False, True, 2, 1),
+        ]
+    )
+    def test_retries_only_transient_reads_before_delivery(
+        self,
+        _name: str,
+        error_type: type[Exception],
+        failures: int,
+        spend_budget: bool,
+        fail_send: bool,
+        expected_attempts: int,
+        expected_sent: int,
+    ) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_org, name="Other project", timezone="UTC")
+        OrganizationMembership.objects.create(
+            organization=other_org, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        self.build_digest_patcher.stop()
+        attempts: Counter[int] = Counter()
+        periods: list[DateRange] = []
+        clock = [0.0]
+        waits: list[float] = []
+
+        def overview_runner(*, team: Team, query: WebOverviewQuery) -> MagicMock:
+            response = WebOverviewQueryResponse(
+                results=[
+                    WebOverviewItem(key="visitors", kind=WebAnalyticsItemKind.UNIT, value=10),
+                    WebOverviewItem(key="views", kind=WebAnalyticsItemKind.UNIT, value=100),
+                ]
+            )
+            return MagicMock(run=MagicMock(return_value=response))
+
+        def stats_runner(*, team: Team, query: WebStatsTableQuery) -> MagicMock:
+            if team.id == other_team.id:
+                assert query.dateRange is not None
+                periods.append(query.dateRange)
+            if query.breakdownBy == WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
+                attempts[team.id] += 1
+                if team.id == self.team.id and spend_budget:
+                    clock[0] += 301
+                if team.id == other_team.id and attempts[team.id] <= failures:
+                    return MagicMock(run=MagicMock(side_effect=error_type()))
+            return MagicMock(run=MagicMock(return_value=WebStatsTableQueryResponse(results=[])))
+
+        def send(data: NotificationData) -> MagicMock:
+            if fail_send and data.team_id == other_team.id:
+                raise ClickHouseAtCapacity()
+            return _make_notification_event()
+
+        self.mock_create_notification.side_effect = send
+        digest_module = "products.web_analytics.backend.weekly_digest"
+        with time_machine.travel("2026-01-01T23:59:59Z", tick=False) as traveller:
+
+            def sleep(delay: float) -> None:
+                waits.append(delay)
+                clock[0] += delay
+                traveller.shift(timedelta(seconds=delay))
+
+            with (
+                patch(f"{ACTIVITIES}.Retrying", side_effect=lambda **kwargs: Retrying(sleep=sleep, **kwargs)),
+                patch(f"{ACTIVITIES}.time.monotonic", side_effect=lambda: clock[0]),
+                patch(f"{digest_module}.WebOverviewQueryRunner", side_effect=overview_runner),
+                patch(f"{digest_module}.WebStatsTableQueryRunner", side_effect=stats_runner),
+                patch(f"{digest_module}.WebGoalsQueryRunner", side_effect=AssertionError("Unused goals queried")),
+                patch(f"{digest_module}.capture_exception"),
+                patch(f"{ACTIVITIES}.capture_exception"),
+            ):
+                totals = _run_wa_digest_notification_batch(
+                    DigestBatchInput(org_ids=[str(self.organization.id), str(other_org.id)])
+                )
+
+        assert attempts == {self.team.id: 1, other_team.id: expected_attempts}
+        assert totals.notifications_sent == expected_sent
+        assert totals.orgs_failed == int(expected_sent == 1 and not fail_send)
+        assert totals.failed == int(fail_send)
+        assert self.mock_create_notification.call_count == expected_sent + int(fail_send)
+        assert waits == [30.0, 60.0][: expected_attempts - 1]
+        assert periods and all(period == periods[0] for period in periods)
+        assert periods[0].date_from == "2025-12-25T00:00:00+00:00"
+        assert periods[0].date_to == "2026-01-01T23:59:59.999999+00:00"
+
     def test_passes_flag_key_and_dry_run_through(self):
         captured: list[tuple[str, str, bool]] = []
 
-        def fake_build_and_send(org_id, flag_key, dry_run):
+        def fake_build_and_send(org_id, flag_key, dry_run, **kwargs):
             captured.append((org_id, flag_key, dry_run))
             return OrgDigestNotificationCounts(sent=1)
 

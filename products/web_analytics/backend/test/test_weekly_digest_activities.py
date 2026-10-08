@@ -240,7 +240,7 @@ class TestBuildAndSendForOrg(_DigestTestBase):
         self.addCleanup(flag_patcher.stop)
         build_digest_patcher = patch(
             "products.web_analytics.backend.weekly_digest.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **kwargs: _make_team_digest(team),
         )
         self.mock_build_digest = build_digest_patcher.start()
         self.addCleanup(build_digest_patcher.stop)
@@ -248,7 +248,7 @@ class TestBuildAndSendForOrg(_DigestTestBase):
     def test_a_failing_team_is_left_out_and_disclosed(self):
         broken_team = Team.objects.create(organization=self.organization, name="Broken team")
 
-        def build(team):
+        def build(team, **kwargs):
             if team.id == broken_team.id:
                 raise TimeoutError("Query timed out")
             return _make_team_digest(team)
@@ -279,7 +279,7 @@ class TestSendTestDigestSingleTeamMode(_DigestTestBase):
         super().setUp()
         self.build_digest_patcher = patch(
             "products.web_analytics.backend.weekly_digest.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **kwargs: _make_team_digest(team),
         )
         self.build_digest_patcher.start()
 
@@ -330,7 +330,7 @@ class TestSendTestDigestFullUserMode(_DigestTestBase):
         super().setUp()
         self.build_digest_patcher = patch(
             "products.web_analytics.backend.weekly_digest.build_team_digest",
-            side_effect=lambda team: _make_team_digest(team),
+            side_effect=lambda team, **kwargs: _make_team_digest(team),
         )
         self.build_digest_patcher.start()
 
@@ -604,7 +604,7 @@ class TestRunWaDigestBatch(APIBaseTest):
             ),
             patch(
                 "products.web_analytics.backend.weekly_digest.build_team_digest",
-                side_effect=lambda team: _make_team_digest(team),
+                side_effect=lambda team, **kwargs: _make_team_digest(team),
             ),
             patch("products.web_analytics.backend.temporal.weekly_digest.activities.EmailMessage") as mock_email_class,
         ):
