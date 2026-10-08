@@ -88,6 +88,31 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ),
         )
 
+    def _suggest_materialize(
+        self,
+        *,
+        score: float = 1.0,
+        live_sources: tuple[SourceRef, ...] = (),
+        unknown_sources: tuple[SourceRef, ...] = (),
+    ) -> WarehouseSuggestion:
+        return ingest_surfaced(
+            self.team.id,
+            replace(
+                make_draft(fingerprint="materialize:orders", subject_id=self.view.id, score=score),
+                kind=WarehouseSuggestionKind.MATERIALIZE,
+                payload=MaterializePayload(
+                    subject_name="orders",
+                    refresh_interval_seconds=86400,
+                    saves_seconds_per_month=900.0,
+                    saves_bytes_per_month=0.0,
+                    freshness_today_seconds=None,
+                    freshness_after_seconds=86400,
+                    live_sources=live_sources,
+                    unknown_sources=unknown_sources,
+                ),
+            ),
+        )
+
     def _restrict(self, resource: str, resource_id: UUID | None, access_level: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -185,6 +210,14 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_lists_materialize_before_certify_whatever_their_scores(self) -> None:
+        certify = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=900.0)
+        materialize = self._suggest_materialize(score=1.0)
+
+        listed = self.client.get(f"{self.url}/").json()["results"]
+
+        assert [row["id"] for row in listed] == [str(materialize.id), str(certify.id)]
+
     def test_a_materialize_suggestion_hides_the_names_of_source_tables_the_reader_cannot_see(self) -> None:
         denied_table = DataWarehouseTable.objects.create(
             team=self.team,
@@ -192,24 +225,11 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="s3://bucket/secret_payments",
         )
-        ingest_surfaced(
-            self.team.id,
-            replace(
-                make_draft(fingerprint="materialize:orders", subject_id=self.view.id),
-                kind=WarehouseSuggestionKind.MATERIALIZE,
-                payload=MaterializePayload(
-                    subject_name="orders",
-                    refresh_interval_seconds=86400,
-                    saves_seconds_per_month=900.0,
-                    saves_bytes_per_month=0.0,
-                    freshness_today_seconds=None,
-                    freshness_after_seconds=86400,
-                    live_sources=(SourceRef(name="events", warehouse_table_id=None),),
-                    unknown_sources=(
-                        SourceRef(name="stripe_charges", warehouse_table_id=self.table.id),
-                        SourceRef(name="secret_payments", warehouse_table_id=denied_table.id),
-                    ),
-                ),
+        self._suggest_materialize(
+            live_sources=(SourceRef(name="events", warehouse_table_id=None),),
+            unknown_sources=(
+                SourceRef(name="stripe_charges", warehouse_table_id=self.table.id),
+                SourceRef(name="secret_payments", warehouse_table_id=denied_table.id),
             ),
         )
         self._restrict("warehouse_table", denied_table.id, "none")

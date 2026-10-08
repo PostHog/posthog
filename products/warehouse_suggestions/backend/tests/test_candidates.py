@@ -1,5 +1,8 @@
+from dataclasses import replace
 from datetime import timedelta
 from uuid import uuid4
+
+from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
 
@@ -13,7 +16,7 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     allowed_intervals,
     estimate_savings,
 )
-from products.warehouse_suggestions.backend.logic.rules import Surface
+from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
     context,
@@ -127,3 +130,21 @@ class TestDeprecateCandidate(SimpleTestCase):
         result = DeprecateCandidate().evaluate(context(team_reads({}, days_with_data=29), views=[materialized]))
 
         assert (result.drafts, result.skipped_reason) == ((), "needs 30 days of read data, has 29")
+
+
+class TestDeprecateBackgroundReads(BaseTest):
+    @parameterized.expand([("background_reads_count", True, []), ("only_people_count", False, [VIEW_ID])])
+    def test_a_view_read_only_by_background_traffic(
+        self, _name: str, counts_background_reads: bool, expected_subjects: list
+    ) -> None:
+        rules = replace(RULES, deprecate=replace(RULES.deprecate, counts_background_reads=counts_background_reads))
+        reads = team_reads(
+            {view_subject(VIEW_ID): busy_reads(human_requests=0, human_users=0, human_days=0, background_requests=40)}
+        )
+        candidate_context = context(
+            reads, views=[view(VIEW_ID, is_materialized=True)], team_id=self.team.pk, rules=rules
+        )
+
+        result = DeprecateCandidate().evaluate(candidate_context)
+
+        assert [draft.subject_id for draft in result.drafts] == expected_subjects

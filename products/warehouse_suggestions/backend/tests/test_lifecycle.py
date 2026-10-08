@@ -4,6 +4,8 @@ from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.warehouse_suggestions.backend.facade.contracts import (
@@ -20,7 +22,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
 )
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
-from products.warehouse_suggestions.backend.logic.lifecycle import apply_run
+from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view, view_subject
@@ -67,7 +69,7 @@ class TestApplyRun(BaseTest):
     @parameterized.expand(
         [
             ("first_week_puts_certify_first", False, {"certify": 3, "materialize": 2}),
-            ("later_weeks_order_by_score", True, {"materialize": 3, "certify": 2}),
+            ("later_weeks_put_materialize_first_despite_a_lower_score", True, {"materialize": 3, "certify": 2}),
         ]
     )
     def test_surfaces_five_a_day_at_most_three_per_kind(
@@ -85,8 +87,8 @@ class TestApplyRun(BaseTest):
         view_ids = [uuid4() for _ in range(8)]
         ctx = self._context(*view_ids)
         drafts = [
-            *(self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, 1) for view_id in view_ids[:4]),
-            *(self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 100) for view_id in view_ids[4:]),
+            *(self._draft(ctx, WarehouseSuggestionKind.CERTIFY, view_id, 1000) for view_id in view_ids[:4]),
+            *(self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1) for view_id in view_ids[4:]),
         ]
 
         apply_run(ctx, drafts, NOW, surface=True)
@@ -181,3 +183,31 @@ class TestApplyRun(BaseTest):
         assert set(WarehouseSuggestion.objects.for_team(self.team.pk).values_list("status", flat=True)) == {
             WarehouseSuggestionStatus.AUTO_RESOLVED
         }
+
+
+CERTIFY = WarehouseSuggestionKind.CERTIFY
+DEPRECATE = WarehouseSuggestionKind.DEPRECATE
+MATERIALIZE = WarehouseSuggestionKind.MATERIALIZE
+WAITING = [
+    WarehouseSuggestion(id=UUID(int=1), kind=CERTIFY, score=5.0),
+    WarehouseSuggestion(id=UUID(int=2), kind=CERTIFY, score=900.0),
+    WarehouseSuggestion(id=UUID(int=3), kind=DEPRECATE, score=1.0),
+    WarehouseSuggestion(id=UUID(int=4), kind=MATERIALIZE, score=2.0),
+    WarehouseSuggestion(id=UUID(int=5), kind=MATERIALIZE, score=3.0),
+]
+
+
+class TestPickInTurns(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("one_of_each_kind_per_turn_best_score_first", 5, {}, [5, 3, 2, 4, 1]),
+            ("a_kind_at_its_cap_is_skipped", 5, {MATERIALIZE: 3}, [3, 2, 1]),
+            ("slots_run_out_mid_turn", 2, {}, [5, 3]),
+        ]
+    )
+    def test_picks_kinds_in_order_and_rows_by_score_within_a_kind(
+        self, _name: str, slots: int, already_open: dict[str, int], expected_ids: list[int]
+    ) -> None:
+        chosen = _pick_in_turns(WAITING, (MATERIALIZE, DEPRECATE, CERTIFY), slots, Counter(already_open), 3)
+
+        assert chosen == [UUID(int=row_id) for row_id in expected_ids]

@@ -27,7 +27,7 @@ class DeprecateCandidate(Candidate):
             for saved_query in context.inventory.saved_queries.values()
             if _is_refreshed(saved_query)
             and context.is_suggestible_view(saved_query)
-            and _subject(saved_query) not in context.reads.subjects
+            and not _is_read(context, _subject(saved_query))
         ]
         dependents = dependent_saved_query_ids(context.team_id, [saved_query.id for saved_query in unread])
         drafts = []
@@ -58,7 +58,7 @@ class DeprecateCandidate(Candidate):
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        return saved_query is None or not _is_refreshed(saved_query) or subject in context.reads.subjects
+        return saved_query is None or not _is_refreshed(saved_query) or _is_read(context, subject)
 
     def _rejection(
         self, context: CandidateContext, saved_query: SavedQueryDefinition, *, has_dependents: bool
@@ -76,6 +76,13 @@ class DeprecateCandidate(Candidate):
             ref.warehouse_table_id is not None and UUID(ref.warehouse_table_id) in context.inventory.direct_table_ids
             for ref in upstream_table_refs(context.team_id, saved_query_id)
         )
+
+
+def _is_read(context: CandidateContext, subject: Subject) -> bool:
+    reads = context.reads.reads_of(subject)
+    if reads is None:
+        return False
+    return context.rules.deprecate.counts_background_reads or reads.human_requests > 0
 
 
 def _is_refreshed(saved_query: SavedQueryDefinition) -> bool:

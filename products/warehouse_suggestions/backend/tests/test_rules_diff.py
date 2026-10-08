@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
-from products.warehouse_suggestions.backend.logic.rules import RULES
+from products.warehouse_suggestions.backend.logic.rules import RULES, rules_version
 from products.warehouse_suggestions.backend.logic.rules_diff import (
     InvalidRuleOverrideError,
     KindDiff,
@@ -63,11 +63,22 @@ class TestRulesDiff(SimpleTestCase):
 
         assert diff[WarehouseSuggestionKind.CERTIFY] == KindDiff(added=(), removed=("busy",), reranked=())
 
+    def test_a_new_kind_order_changes_the_rules_version(self) -> None:
+        reordered = override_rules(RULES, ["lifecycle.kind_order=certify, deprecate, materialize"])
+
+        assert reordered.lifecycle.kind_order == (
+            WarehouseSuggestionKind.CERTIFY,
+            WarehouseSuggestionKind.DEPRECATE,
+            WarehouseSuggestionKind.MATERIALIZE,
+        )
+        assert rules_version(reordered) != rules_version(RULES)
+
     @parameterized.expand(
         [
             ("no_section", "min_users=7"),
             ("unknown_rule", "certify.min_people=7"),
             ("not_a_number_rule", "traffic.background_kinds=temporal"),
+            ("unknown_kind_in_an_order", "lifecycle.kind_order=certify,nope"),
         ]
     )
     def test_rejects_an_override_it_cannot_apply(self, _name: str, assignment: str) -> None:

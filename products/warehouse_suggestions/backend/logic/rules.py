@@ -1,5 +1,6 @@
 import json
 import hashlib
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import timedelta
 from enum import StrEnum
@@ -83,6 +84,7 @@ class DeprecateRules:
     min_days_with_data: int
     seconds_floor: float
     bytes_floor: float
+    counts_background_reads: bool
 
 
 @frozen
@@ -111,7 +113,8 @@ class LifecycleRules:
     max_open: int
     max_open_per_kind: int
     first_week_runs: int
-    first_week_kinds: frozenset[WarehouseSuggestionKind]
+    kind_order: tuple[WarehouseSuggestionKind, ...]
+    first_week_kind_order: tuple[WarehouseSuggestionKind, ...]
 
 
 @frozen
@@ -177,7 +180,9 @@ RULES = Rules(
     ),
     eligibility=EligibilityRules(min_view_readers=2, min_view_reads=50),
     certify=CertifyRules(top_share=0.10, min_users=5, min_days=20, min_surfaces=2),
-    deprecate=DeprecateRules(min_days_with_data=30, seconds_floor=600.0, bytes_floor=float(TERABYTE)),
+    deprecate=DeprecateRules(
+        min_days_with_data=30, seconds_floor=600.0, bytes_floor=float(TERABYTE), counts_background_reads=True
+    ),
     materialize=MaterializeRules(
         min_days=10,
         min_requests=50,
@@ -196,9 +201,22 @@ RULES = Rules(
         max_open=15,
         max_open_per_kind=3,
         first_week_runs=2,
-        first_week_kinds=frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE}),
+        kind_order=(
+            WarehouseSuggestionKind.MATERIALIZE,
+            WarehouseSuggestionKind.DEPRECATE,
+            WarehouseSuggestionKind.CERTIFY,
+        ),
+        first_week_kind_order=(
+            WarehouseSuggestionKind.CERTIFY,
+            WarehouseSuggestionKind.DEPRECATE,
+            WarehouseSuggestionKind.MATERIALIZE,
+        ),
     ),
 )
+
+
+def kind_position(kind_order: Sequence[str], kind: str) -> int:
+    return kind_order.index(kind) if kind in kind_order else len(kind_order)
 
 
 def rules_version(rules: Rules) -> str:

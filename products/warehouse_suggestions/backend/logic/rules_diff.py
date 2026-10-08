@@ -80,4 +80,15 @@ def _parse_like(current: Any, raw_value: str) -> Any:
         return float(raw_value)
     if isinstance(current, timedelta):
         return timedelta(seconds=float(raw_value))
-    raise InvalidRuleOverrideError(f"Only numbers, booleans and durations can be overridden, not {current!r}")
+    if isinstance(current, tuple) and current:
+        return _parse_items(type(current[0]), raw_value)
+    raise InvalidRuleOverrideError(
+        f"Only numbers, booleans, durations and ordered lists can be overridden, not {current!r}"
+    )
+
+
+def _parse_items(item_type: type, raw_value: str) -> tuple[Any, ...]:
+    try:
+        return tuple(item_type(item.strip()) for item in raw_value.split(","))
+    except ValueError as error:
+        raise InvalidRuleOverrideError(str(error)) from error

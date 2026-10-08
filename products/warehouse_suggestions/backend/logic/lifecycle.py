@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Sequence
 from datetime import datetime, time, timedelta
 from uuid import UUID
@@ -18,7 +18,7 @@ from ..models import WarehouseSuggestion
 from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
-from .rules import LifecycleRules
+from .rules import LifecycleRules, kind_position
 from .suggestions import transition_to, upsert_suggestions
 
 
@@ -132,21 +132,40 @@ def _surface(team_id: int, rules: LifecycleRules, now: datetime) -> int:
     first_week = not suggestions.filter(
         surfaced_at__lt=start_of_day - timedelta(days=rules.first_week_runs - 1)
     ).exists()
-    waiting = sorted(
-        suggestions.filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True).only(
-            "id", "kind", "score"
-        ),
-        key=lambda row: (first_week and row.kind not in rules.first_week_kinds, -row.score, str(row.id)),
+    waiting = suggestions.filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True).only(
+        "id", "kind", "score"
     )
-    chosen: list[UUID] = []
-    for row in waiting:
-        if len(chosen) == slots:
-            break
-        if open_kinds[row.kind] >= rules.max_open_per_kind:
-            continue
-        open_kinds[row.kind] += 1
-        chosen.append(row.id)
+    chosen = _pick_in_turns(
+        list(waiting),
+        rules.first_week_kind_order if first_week else rules.kind_order,
+        slots,
+        open_kinds,
+        rules.max_open_per_kind,
+    )
     return suggestions.filter(id__in=chosen).update(surfaced_at=now)
+
+
+def _pick_in_turns(
+    waiting: Sequence[WarehouseSuggestion],
+    kind_order: Sequence[WarehouseSuggestionKind],
+    slots: int,
+    open_kinds: Counter[str],
+    max_open_per_kind: int,
+) -> list[UUID]:
+    queues: defaultdict[str, deque[WarehouseSuggestion]] = defaultdict(deque)
+    for row in sorted(waiting, key=lambda row: (-row.score, str(row.id))):
+        queues[row.kind].append(row)
+    turns = sorted(queues, key=lambda kind: (kind_position(kind_order, kind), kind))
+    open_now = Counter(open_kinds)
+    chosen: list[UUID] = []
+    while len(chosen) < slots:
+        ready = [kind for kind in turns if queues[kind] and open_now[kind] < max_open_per_kind]
+        if not ready:
+            break
+        for kind in ready[: slots - len(chosen)]:
+            chosen.append(queues[kind].popleft().id)
+            open_now[kind] += 1
+    return chosen
 
 
 def _move(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> bool:
