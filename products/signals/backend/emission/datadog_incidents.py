@@ -8,8 +8,9 @@ from typing import Any
 
 from structlog import get_logger
 
-from products.signals.backend.emission._common import build_extra, clean_text
+from products.signals.backend.emission._common import build_extra
 from products.signals.backend.emission._prompts import ERROR_ACTIONABILITY_PROMPT, ERROR_SUMMARIZATION_PROMPT
+from products.signals.backend.emission.datadog_common import clean_text
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 
@@ -52,7 +53,7 @@ def datadog_incident_emitter(team_id: int, record: dict[str, Any]) -> SignalEmit
         source_id=f"incident:{incident_id}",
         description=description,
         weight=1.0,
-        extra={"kind": "incident", **build_extra(record, _EXTRA_FIELDS)},
+        extra={"kind": "incident", **build_extra(record, _EXTRA_FIELDS, ())},
     )
 
 

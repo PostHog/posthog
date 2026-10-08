@@ -50,7 +50,7 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
 ]
 
-IDS = [f"{product}-{table}" for _, table, product, _ in TIER1_SOURCES]
+IDS = [product for _, _, product, _ in TIER1_SOURCES]
 
 
 def _mock_record(fields: tuple[str, ...]) -> dict:

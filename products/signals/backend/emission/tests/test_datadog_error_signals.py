@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from parameterized import parameterized
-from pydantic import ValidationError
 
 from posthog.hogql import ast
+from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -30,19 +30,80 @@ from products.signals.backend.emission.datadog_error_logs import (
 from products.signals.backend.emission.datadog_error_spans import (
     DATADOG_ERROR_SPANS_CONFIG,
     datadog_error_span_emitter,
-    datadog_error_span_record_fetcher,
     span_source_id,
 )
 from products.signals.backend.emission.datadog_incidents import datadog_incident_emitter
-from products.signals.backend.emission.fetchers.grouped_warehouse import MAX_GROUP_PAGES, week_period
-from products.signals.backend.emission.registry import SignalSourceTableConfig
-from products.signals.backend.emission.tests.conftest import (
-    MOCK_DATADOG_ERROR_ISSUE_RECORD,
-    MOCK_DATADOG_ERROR_LOG_RECORD,
-    MOCK_DATADOG_ERROR_SPAN_RECORD,
-    MOCK_DATADOG_INCIDENT_RECORD,
+from products.signals.backend.emission.fetchers.grouped_warehouse import (
+    MAX_GROUP_PAGES,
+    GroupedWarehouseRecordFetcher,
+    week_period,
 )
+from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS, SignalSourceTableConfig
 from products.signals.backend.models import SignalEmissionRecord
+
+MOCK_DATADOG_ERROR_ISSUE_RECORD: dict = {
+    "id": "issue-1",
+    "error_type": "ConnectionRefusedError",
+    "error_message": "Connection refused by upstream payments.example.com",
+    "service": "checkout-api",
+    "state": "OPEN",
+    "platform": "BACKEND",
+    "file_path": "app/payments/client.py",
+    "function_name": "charge",
+    "first_seen": "2026-07-15T10:00:00.000Z",
+    "last_seen": "2026-07-15T12:30:00.000Z",
+    "is_crash": False,
+    "window_total_count": 42,
+    "window_impacted_users": 7,
+}
+
+
+@pytest.fixture
+def datadog_error_issue_record() -> dict:
+    return {**MOCK_DATADOG_ERROR_ISSUE_RECORD}
+
+
+MOCK_DATADOG_ERROR_SPAN_RECORD: dict = {
+    "service": "checkout-api",
+    "resource_name": "POST /orders",
+    "occurrences": 120,
+    "first_seen": "2026-07-15T10:00:00.000Z",
+    "last_seen": "2026-07-15T12:30:00.000Z",
+    "error_type": "TimeoutError",
+}
+
+
+@pytest.fixture
+def datadog_error_span_record() -> dict:
+    return {**MOCK_DATADOG_ERROR_SPAN_RECORD}
+
+
+MOCK_DATADOG_ERROR_LOG_RECORD: dict = {
+    "service": "checkout-api",
+    "message_pattern": "Payment # failed for order #",
+    "occurrences": 87,
+    "first_seen": "2026-07-15T10:00:00.000Z",
+    "last_seen": "2026-07-15T12:30:00.000Z",
+}
+
+
+@pytest.fixture
+def datadog_error_log_record() -> dict:
+    return {**MOCK_DATADOG_ERROR_LOG_RECORD}
+
+
+MOCK_DATADOG_INCIDENT_RECORD: dict = {
+    "id": "abc",
+    "title": "Checkout latency",
+    "severity": "SEV-2",
+    "state": "active",
+    "created": "2026-07-15T10:00:00.000Z",
+}
+
+
+@pytest.fixture
+def datadog_incident_record() -> dict:
+    return {**MOCK_DATADOG_INCIDENT_RECORD}
 
 
 class TestDatadogErrorIssueEmitter:
@@ -342,6 +403,61 @@ class _ConstantCollector(TraversingVisitor):
         self.constants.append(node.value)
 
 
+class _CallNameCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.names: list[str] = []
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.names.append(node.name)
+        super().visit_call(node)
+
+
+def _grouped_fetcher_query(config: SignalSourceTableConfig, last_synced_at: str | None) -> ast.SelectQuery:
+    """Run the real grouped fetcher against a stubbed executor and return the AST it built."""
+    captured: dict[str, ast.SelectQuery] = {}
+
+    def fake_execute(query, **kwargs):
+        captured["query"] = query
+        result = MagicMock()
+        result.results = []
+        result.columns = []
+        return result
+
+    with patch(
+        "products.signals.backend.emission.fetchers.grouped_warehouse.execute_hogql_query", side_effect=fake_execute
+    ):
+        config.record_fetcher(
+            MagicMock(),
+            config,
+            {"table_name": "source.table", "last_synced_at": last_synced_at, "extra": {}},
+        )
+    return captured["query"]
+
+
+class TestRegisteredGroupedConfigsBuildValidHogQL:
+    """A grouped source whose query cannot parse or names an unknown function fails here
+    instead of failing silently on every sync in production."""
+
+    @pytest.mark.parametrize("last_synced_at", [None, "2025-01-01T00:00:00Z"])
+    def test_every_grouped_source_query_parses_and_uses_known_functions(self, last_synced_at):
+        configs = [
+            (key, config)
+            for key, config in sorted(_SIGNAL_TABLE_CONFIGS.items())
+            if isinstance(config.record_fetcher, GroupedWarehouseRecordFetcher)
+        ]
+        assert len(configs) > 1, "the registry sweep matched no grouped warehouse source"
+        unknown: dict[tuple[str, str], list[str]] = {}
+        for key, config in configs:
+            collector = _CallNameCollector()
+            collector.visit(_grouped_fetcher_query(config, last_synced_at))
+            unknown[key] = [
+                name
+                for name in collector.names
+                if not (find_hogql_function(name) or find_hogql_aggregation(name) or find_hogql_posthog_function(name))
+            ]
+        assert {key: names for key, names in unknown.items() if names} == {}
+
+
 @pytest.mark.django_db
 class TestGroupedWarehouseRecordFetcher(BaseTest):
     context: dict[str, Any] = {"table_name": "datadog.error_spans", "last_synced_at": None, "extra": {}}
@@ -452,17 +568,13 @@ class TestGroupedWarehouseRecordFetcher(BaseTest):
 
         assert len(set(where_by_cursor.values())) == 1
 
-    def test_config_with_a_scope_is_rejected(self):
-        with pytest.raises(ValidationError, match="does not support scope_field"):
-            SignalSourceTableConfig(
-                **{
-                    **DATADOG_ERROR_SPANS_CONFIG.model_dump(),
-                    "emitter": datadog_error_span_emitter,
-                    "record_fetcher": datadog_error_span_record_fetcher,
-                    "scope_field": "service",
-                    "scope_config_key": "datadog_services",
-                }
-            )
+    def test_fetching_with_a_scope_is_rejected(self):
+        config = DATADOG_ERROR_SPANS_CONFIG.model_copy(
+            update={"scope_field": "service", "scope_config_key": "datadog_services"}
+        )
+
+        with pytest.raises(ValueError, match="does not support scope_field"):
+            config.record_fetcher(self.team, config, self.context)
 
     def test_returns_nothing_when_the_window_has_no_rows(self):
         records, _ = self._fetch(DATADOG_ERROR_SPANS_CONFIG, [])

@@ -7,14 +7,25 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog import datadog as ddog
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.datadog import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import (
+    DatadogIssueSearchConfig,
     _epoch_ms_to_iso,
     _join_included,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
-    DATADOG_ENDPOINTS,
-    DatadogIssueSearchConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import DATADOG_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.source import DatadogSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datadog import (
+    DatadogSourceConfig,
 )
+
+
+class TestErrorTablesOptIn:
+    def test_error_tables_are_opt_in(self) -> None:
+        config = DatadogSourceConfig(api_key="dd-api", application_key="dd-app", site="datadoghq.com")
+        schemas = {s.name: s for s in DatadogSource().get_schemas(config, 123)}
+        for name in ("error_tracking_issues", "error_spans", "error_logs"):
+            assert schemas[name].should_sync_default is False
+        assert schemas["logs"].should_sync_default is True
 
 
 class TestWalkPageCap:
