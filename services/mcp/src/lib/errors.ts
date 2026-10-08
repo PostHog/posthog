@@ -123,6 +123,25 @@ function formatPinnedContextSwitchMessage(pinned: {
     )
 }
 
+export const SESSION_RESET_REQUIRED_REASON = 'session_reset_required'
+
+/**
+ * Thrown before any tool runs when an MCP session saved its project and
+ * organization selection under the store key that held only the session id.
+ * The server does not trust those values, because any credential can send the
+ * same session id, and it does not silently start over from the pin or the
+ * shared token selection either. A new session starts with a clean selection.
+ */
+export class McpSessionResetRequiredError extends Error {
+    constructor() {
+        super(
+            'This MCP session started before a PostHog MCP server update, and the server cannot restore its project and organization selection. ' +
+                'No tool ran. Reconnect the PostHog MCP server to start a new session, then try again.'
+        )
+        this.name = 'McpSessionResetRequiredError'
+    }
+}
+
 export interface PostHogValidationErrorOptions {
     detail: string
     attr: string | undefined

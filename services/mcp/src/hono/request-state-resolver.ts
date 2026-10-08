@@ -1,5 +1,6 @@
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
+import { McpSessionResetRequiredError } from '@/lib/errors'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -139,12 +140,13 @@ export class RequestStateResolver {
         reqCtx.setPinnedContext(pinned)
 
         // Start Redis reads only when Promise.all can observe their timeout rejections.
+        // A pinned request never writes a default into the token selection that other sessions share.
         const [context, sessionContext, storedProjectId] = await Promise.all([
             reqCtx.getContext(),
             this.resolveSessionContext(requestContext),
-            pinned?.projectId ? undefined : reqCtx.tokenCache.get('projectId'),
+            pinned ? undefined : reqCtx.tokenCache.get('projectId'),
         ])
-        if (!pinned?.projectId && !storedProjectId) {
+        if (!pinned && !storedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
@@ -280,6 +282,9 @@ export class RequestStateResolver {
      * Many clients send the pin only on `initialize`. A later request in the same
      * session that omits the pin restores the session's saved pin and switch, so
      * it does not fall back to whatever another session left in the token cache.
+     * A session that never sent a pin stays on the token selection, even when it
+     * recorded a switch. A pin that differs in either field replaces the whole
+     * saved pin and discards the recorded switch.
      *
      * Without an MCP session id nothing records a switch across requests, so the
      * pin wins on every request and the switch tools refuse to switch.
@@ -296,13 +301,25 @@ export class RequestStateResolver {
             return hasPin ? { pin, sessionScoped: false, orgId: organizationId, projectId } : undefined
         }
 
-        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject] = await Promise.all([
-            sessionCache.get('appliedPinOrgId'),
-            sessionCache.get('appliedPinProjectId'),
-            sessionCache.get('activeOrgId'),
-            sessionCache.get('activeProjectId'),
-        ])
-        if (!hasPin && !appliedPinOrg && !appliedPinProject && !activeOrg && !activeProject) {
+        const legacyCache = reqCtx.legacySessionScopedCache
+        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject, legacyPinOrg, legacyPinProject] =
+            await Promise.all([
+                sessionCache.get('appliedPinOrgId'),
+                sessionCache.get('appliedPinProjectId'),
+                sessionCache.get('activeOrgId'),
+                sessionCache.get('activeProjectId'),
+                legacyCache?.get('appliedPinOrgId'),
+                legacyCache?.get('appliedPinProjectId'),
+            ])
+        // A pin marker under the former key means a pinned session from before the
+        // key included the credential. Its saved switch would be lost silently, so
+        // stop before any tool runs. Legacy state without a pin marker never changed
+        // the selection, so it needs no reset.
+        const hasSessionState = Boolean(appliedPinOrg || appliedPinProject || activeOrg || activeProject)
+        if (!hasSessionState && (legacyPinOrg || legacyPinProject)) {
+            throw new McpSessionResetRequiredError()
+        }
+        if (!hasPin && !appliedPinOrg && !appliedPinProject) {
             return undefined
         }
 
@@ -323,9 +340,7 @@ export class RequestStateResolver {
             }
         }
 
-        const pinChanged =
-            (organizationId !== undefined && appliedPinOrg !== organizationId) ||
-            (projectId !== undefined && appliedPinProject !== projectId)
+        const pinChanged = appliedPinOrg !== organizationId || appliedPinProject !== projectId
 
         let overrideOrg = activeOrg
         let overrideProject = activeProject
@@ -335,6 +350,8 @@ export class RequestStateResolver {
             await Promise.all([
                 sessionCache.delete('activeOrgId'),
                 sessionCache.delete('activeProjectId'),
+                organizationId ? undefined : sessionCache.delete('appliedPinOrgId'),
+                projectId ? undefined : sessionCache.delete('appliedPinProjectId'),
                 sessionCache.setMany({
                     ...(organizationId ? { appliedPinOrgId: organizationId } : {}),
                     ...(projectId ? { appliedPinProjectId: projectId } : {}),

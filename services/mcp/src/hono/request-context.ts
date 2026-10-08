@@ -34,6 +34,7 @@ const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
     private sessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
+    private legacySessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
@@ -86,17 +87,35 @@ export class RequestContext {
             return undefined
         }
         if (!this.sessionScopedCacheInstance) {
-            const digest = createHash('sha256')
-                .update(`${this.props.userHash ?? ''}\0${mcpSessionId}`)
-                .digest()
-            this.sessionScopedCacheInstance = new RedisCache<SessionScopedState>(
-                digest.subarray(0, 16).toString('base64url'),
-                this.redis,
-                'session',
-                SESSION_CACHE_TTL_SECONDS
-            )
+            this.sessionScopedCacheInstance = this.sessionCacheFor(`${this.props.userHash ?? ''}\0${mcpSessionId}`)
         }
         return this.sessionScopedCacheInstance
+    }
+
+    /**
+     * The session store under its former key, which held only the session id.
+     * Read it only to find a session that started before the key included the
+     * credential. Never restore its values: another credential can send the same id.
+     */
+    get legacySessionScopedCache(): RedisCache<SessionScopedState> | undefined {
+        const mcpSessionId = this.requestContext.mcpSessionId
+        if (!mcpSessionId) {
+            return undefined
+        }
+        if (!this.legacySessionScopedCacheInstance) {
+            this.legacySessionScopedCacheInstance = this.sessionCacheFor(mcpSessionId)
+        }
+        return this.legacySessionScopedCacheInstance
+    }
+
+    private sessionCacheFor(keyMaterial: string): RedisCache<SessionScopedState> {
+        const digest = createHash('sha256').update(keyMaterial).digest()
+        return new RedisCache<SessionScopedState>(
+            digest.subarray(0, 16).toString('base64url'),
+            this.redis,
+            'session',
+            SESSION_CACHE_TTL_SECONDS
+        )
     }
 
     /** Set by the resolver before `getContext()`, so every tool reads the pinned context. */

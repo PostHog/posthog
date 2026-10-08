@@ -24,6 +24,7 @@ const {
     mockRedisFailures: {
         contextError: undefined as Error | undefined,
         pinWriteGate: undefined as Promise<void> | undefined,
+        legacyReadError: undefined as Error | undefined,
         contextReads: 0,
     },
     // The request-scoped context the last resolve handed to RequestContext.
@@ -103,6 +104,16 @@ vi.mock('@/hono/request-context', () => {
             return {
                 tokenCache: makeCache(mockTokenStore),
                 sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
+                legacySessionScopedCache: props.mcpSessionId
+                    ? {
+                          get: vi.fn(async () => {
+                              if (mockRedisFailures.legacyReadError) {
+                                  throw mockRedisFailures.legacyReadError
+                              }
+                              return undefined
+                          }),
+                      }
+                    : undefined,
                 getContext: vi.fn(async () => {
                     mockRedisFailures.contextReads += 1
                     if (mockRedisFailures.contextError) {
@@ -178,6 +189,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRefreshTtlCalls.length = 0
         mockRedisFailures.contextError = undefined
         mockRedisFailures.pinWriteGate = undefined
+        mockRedisFailures.legacyReadError = undefined
         mockRedisFailures.contextReads = 0
         mockPinned.last = undefined
         mockApiKey.scopes = ['*']
@@ -234,6 +246,17 @@ describe('RequestStateResolver MCP client contexts', () => {
             releasePinWrite()
             process.off('unhandledRejection', onUnhandled)
         }
+    })
+
+    it.each([
+        ['a pinned request', { projectId: '1' }],
+        ['a request without a pin', { projectId: undefined }],
+    ])('fails %s when the legacy session store cannot be read', async (_label, pin) => {
+        // Skipping the check would let a pre-upgrade session run tools against a silently reset selection.
+        mockRedisFailures.legacyReadError = new Error('Command timed out')
+
+        await expect(makeResolver().resolve(makeProps(pin))).rejects.toThrow('Command timed out')
+        expect(mockRedisFailures.contextReads).toBe(0)
     })
 
     it.each([

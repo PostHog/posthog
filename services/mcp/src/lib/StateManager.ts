@@ -33,6 +33,7 @@ export class StateManager {
     private _api: ApiClient
     private _user?: ApiUser
     private _pinned: PinnedActiveContext | undefined
+    private _pinnedOrgProject: Promise<string> | undefined
     constructor(cache: ScopedCache<State>, api: ApiClient, pinned?: PinnedActiveContext) {
         this._cache = cache
         this._api = api
@@ -65,6 +66,7 @@ export class StateManager {
         if (updates.projectId) {
             pinned.projectId = updates.projectId
         }
+        this._pinnedOrgProject = undefined
         if (!pinned.sessionScoped) {
             await this._cache.setMany({
                 ...(updates.orgId && !pinned.pin.organizationId && !pinned.pin.projectId
@@ -370,7 +372,16 @@ export class StateManager {
     }
 
     async getProjectId(): Promise<string> {
-        const projectId = this._pinned?.projectId ?? (await this._cache.get('projectId'))
+        const pinned = this._pinned
+        if (pinned) {
+            if (pinned.projectId) {
+                return pinned.projectId
+            }
+            this._pinnedOrgProject ??= this._resolvePinnedOrgProjectId(pinned)
+            return this._pinnedOrgProject
+        }
+
+        const projectId = await this._cache.get('projectId')
 
         if (!projectId) {
             const { organizationId, projectId: resolved } = await this.setDefaultOrganizationAndProject()
@@ -381,6 +392,35 @@ export class StateManager {
         }
 
         return projectId
+    }
+
+    /**
+     * An organization pin selects an org but no project. The shared token cache and
+     * the user's default can name a project in another org, so accept a candidate
+     * only when its lookup proves that it belongs to the selected org. A failed
+     * lookup rejects the candidate. The choice is never written to the shared
+     * cache, because other sessions on the credential read it.
+     */
+    private async _resolvePinnedOrgProjectId(pinned: PinnedActiveContext): Promise<string> {
+        const orgId = pinned.orgId
+        const belongsToOrg = async (candidate: string | undefined): Promise<boolean> => {
+            if (!orgId || !candidate) {
+                return false
+            }
+            const project = await this._getCachedOrFetchProjectById(candidate).catch(() => undefined)
+            return project?.organization === orgId
+        }
+
+        const cachedCandidate = await this._cache.get('projectId')
+        if (await belongsToOrg(cachedCandidate)) {
+            return cachedCandidate!
+        }
+        const { projectId } = await this._getDefaultOrganizationAndProject().catch(() => ({ projectId: undefined }))
+        const defaultCandidate = projectId?.toString()
+        if (defaultCandidate !== cachedCandidate && (await belongsToOrg(defaultCandidate))) {
+            return defaultCandidate!
+        }
+        throw new MissingProjectContextError({ organizationId: orgId })
     }
 
     private isCacheStale(fetchedAt: number | undefined, ttlMs: number = CACHE_TTL_MS): boolean {
@@ -466,6 +506,10 @@ export class StateManager {
         if (!projectId) {
             return undefined
         }
+        return this._getCachedOrFetchProjectById(projectId)
+    }
+
+    private async _getCachedOrFetchProjectById(projectId: string): Promise<CachedProject | undefined> {
         return this.getOrFetchCached({
             name: 'project',
             cacheKey: `cachedProject:${projectId}` as const,
