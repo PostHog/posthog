@@ -276,7 +276,7 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         submitted["default_value"] = default
         response = self.post_flag({"key": "typed-v2", "filters": submitted})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"].startswith(f"{attr}: "), response.json()
+        assert response.json()["attr"] == attr, response.json()
         assert not FeatureFlag.objects.filter(team=self.team, key="typed-v2").exists()
 
     def test_active_on_create_is_rejected_not_downgraded(self) -> None:
