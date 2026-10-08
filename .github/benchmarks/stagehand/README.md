@@ -30,6 +30,10 @@ ten scenarios does not certify the full suite or its visual checks.
 - Stagehand has one context per browser. The port launches a fresh browser per
   test to preserve isolation; that startup and all explicit waits are timed.
   The baseline keeps Playwright's existing context-per-test lifecycle.
+- Chrome 148 restricts extension installation to a trusted pipe client. The
+  port uses Playwright's launcher and browser CDP session to install Stagehand's
+  bundled extension, then attaches Stagehand by extension ID over loopback.
+  It keeps the common binary and includes this bootstrap in the timings.
 - Three independent CI hosts run one excluded warmup pair and five measured
   pairs each. Driver order alternates within hosts and the starting order
   reverses across hosts. Hosts remain separate populations.

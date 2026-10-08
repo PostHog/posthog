@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { report } from './report.mjs'
 
 test('a speed report requires complete, matching, first-attempt successful work', async () => {
-    for (const corruption of ['none', 'skip', 'retry', 'missing', 'different-id']) {
+    for (const corruption of ['none', 'skip', 'retry', 'missing', 'different-id', 'wrong-file']) {
         const directory = `${await mkdtemp(join(tmpdir(), 'stagehand-report-'))}/`
         try {
             await mkdir(`${directory}results`)
@@ -16,6 +16,12 @@ test('a speed report requires complete, matching, first-attempt successful work'
                 for (const driver of ['playwright', 'stagehand']) {
                     const specs = Array.from({ length: 10 }, (_, index) => ({
                         title: `Flow ${index}`,
+                        file:
+                            driver === 'stagehand'
+                                ? '.github/benchmarks/stagehand/stagehand.spec.ts'
+                                : index < 9
+                                  ? 'playwright/e2e/auth.spec.ts'
+                                  : 'playwright/e2e/before-onboarding.spec.ts',
                         tests: [
                             {
                                 expectedStatus: 'passed',
@@ -30,6 +36,7 @@ test('a speed report requires complete, matching, first-attempt successful work'
                             specs[0].tests[0].results.push({ status: 'passed', retry: 1, duration: 10 })
                         if (corruption === 'missing') specs.pop()
                         if (corruption === 'different-id') specs[0].title = 'Different flow'
+                        if (corruption === 'wrong-file') specs[0].file = 'playwright/e2e/auth.spec.ts'
                     }
                     await writeFile(
                         `${directory}results/${driver}-${pair}.json`,

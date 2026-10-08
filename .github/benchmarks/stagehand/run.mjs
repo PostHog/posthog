@@ -14,6 +14,7 @@ const executablePath = repositoryRequire('@playwright/test').chromium.executable
 const diagnostic = process.argv.includes('--diagnostic')
 await mkdir(`${directory}results`, { recursive: true })
 const measurements = []
+const containerIds = execFileSync('docker', ['ps', '--quiet'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean)
 const manifest = JSON.parse(await readFile(`${directory}package.json`, 'utf8'))
 const metadata = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
@@ -31,6 +32,12 @@ const metadata = {
         .digest('hex'),
     setupSeconds: (Date.now() - Number(process.env.BENCHMARK_SETUP_STARTED_AT)) / 1000,
     stagehandInstallSeconds: Number(process.env.BENCHMARK_STAGEHAND_INSTALL_SECONDS),
+    containerImages: containerIds.length
+        ? execFileSync('docker', ['inspect', '--format', '{{.Name}} {{.Image}}', ...containerIds], { encoding: 'utf8' })
+              .trim()
+              .split('\n')
+              .sort()
+        : [],
     fixtureHashes: Object.fromEntries(
         await Promise.all(
             [
@@ -95,6 +102,12 @@ for (let pair = diagnostic ? 0 : -1; pair < (diagnostic ? 1 : 5); pair++) {
         )
     }
     if (measurements.some((row) => row.exitCode !== 0)) break
+    const reports = await Promise.all(
+        drivers.map(async (driver) =>
+            JSON.parse(await readFile(`${directory}results/${driver}-${diagnostic ? 'profile' : pair}.json`, 'utf8'))
+        )
+    )
+    if (reports.some(({ stats }) => stats.expected !== 10 || stats.unexpected || stats.flaky || stats.skipped)) break
 }
 if (diagnostic) {
     if (measurements.some((row) => row.exitCode !== 0)) process.exitCode = 1

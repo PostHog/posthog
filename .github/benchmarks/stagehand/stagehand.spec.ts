@@ -1,4 +1,5 @@
 import type { Page, StagehandBrowser } from '@browserbasehq/stagehand'
+import path from 'node:path'
 
 import { NodeKind } from '../../../frontend/src/queries/schema/schema-general'
 import { expect, test as base, type APIRequestContext } from '../../../playwright/node_modules/@playwright/test'
@@ -9,19 +10,40 @@ const test = base.extend<{ sh: { browser: StagehandBrowser; page: Page }; setup:
     sh: async ({ playwright, viewport }, use, testInfo) => {
         // Stagehand exports an ESM entrypoint; Playwright loads these specs as CommonJS.
         const { localBrowser } = await import('@browserbasehq/stagehand')
-        const browser = await localBrowser.launch({
+        const port = 9222 + testInfo.workerIndex
+        const chrome = await playwright.chromium.launch({
             executablePath: playwright.chromium.executablePath(),
             headless: true,
-            viewport: viewport ?? { width: 1280, height: 720 },
+            ignoreDefaultArgs: ['--disable-extensions'],
+            args: [`--remote-debugging-port=${port}`, '--enable-unsafe-extension-debugging'],
         })
-        const page = await browser.context.newPage()
+        let browser: StagehandBrowser | undefined
+        let page: Page | undefined
         try {
+            // Chrome 148 permits Extensions.loadUnpacked over the launcher's pipe, but rejects TCP clients.
+            const cdp = await chrome.newBrowserCDPSession()
+            const { id } = await cdp.send('Extensions.loadUnpacked', {
+                path: path.join(__dirname, 'node_modules', '@browserbasehq', 'stagehand', 'dist', 'extension'),
+            })
+            await cdp.detach()
+            browser = await localBrowser.connect({ cdpUrl: `http://127.0.0.1:${port}`, extensionId: id })
+            page = (await browser.context.activePage()) ?? (await browser.context.newPage())
+            const size = viewport ?? { width: 1280, height: 720 }
+            await page.setViewportSize(size.width, size.height)
             await use({ browser, page })
+        } catch (error) {
+            if (error instanceof Error)
+                throw new Error(`${error.message}; CDP cause: ${JSON.stringify(error.cause)}`, { cause: error })
+            throw error
         } finally {
-            if (testInfo.status !== testInfo.expectedStatus) {
+            if (page && testInfo.status !== testInfo.expectedStatus) {
                 await page.screenshot({ path: testInfo.outputPath('stagehand-failure.png') }).catch(() => undefined)
             }
-            await browser.close()
+            try {
+                await browser?.close()
+            } finally {
+                await chrome.close()
+            }
         }
     },
     setup: async ({ baseURL }, use) => {

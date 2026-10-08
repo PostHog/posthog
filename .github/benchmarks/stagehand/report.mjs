@@ -25,6 +25,7 @@ function collect(suites, parents = [], depth = 0) {
         ...suite.specs.flatMap((spec) =>
             spec.tests.map((test) => ({
                 id: [...parents, spec.title].join(' / '),
+                file: spec.file,
                 expected: test.expectedStatus,
                 status: test.status,
                 attempts: test.results.map((result) => ({
@@ -45,6 +46,13 @@ export async function report(directory, measurements) {
         try {
             const json = JSON.parse(await readFile(`${directory}results/${row.driver}-${row.pair}.json`, 'utf8'))
             const tests = collect(json.suites)
+            const expectedFiles =
+                row.driver === 'playwright'
+                    ? ['playwright/e2e/auth.spec.ts', 'playwright/e2e/before-onboarding.spec.ts']
+                    : ['.github/benchmarks/stagehand/stagehand.spec.ts']
+            const files = [...new Set(tests.map((test) => test.file))].sort()
+            if (JSON.stringify(files) !== JSON.stringify(expectedFiles.sort()))
+                errors.push(`${row.driver}/${row.pair}: unexpected spec files`)
             outcomes.push({ ...row, tests, stats: json.stats })
             if (
                 json.errors.length ||
@@ -73,6 +81,8 @@ export async function report(directory, measurements) {
             errors.push(`Missing pair ${pair}`)
             continue
         }
+        if (!rows.some((row) => row.driver === 'playwright') || !rows.some((row) => row.driver === 'stagehand'))
+            errors.push(`Missing driver in pair ${pair}`)
         if (
             JSON.stringify(rows[0].tests.map((test) => test.id).sort()) !==
             JSON.stringify(rows[1].tests.map((test) => test.id).sort())

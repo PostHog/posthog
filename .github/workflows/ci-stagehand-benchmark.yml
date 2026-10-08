@@ -519,6 +519,8 @@ jobs:
                   COMPOSE_PROFILES: capture,ingestion
               run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
+            - name: Verify measurement validator
+              run: node --test .github/benchmarks/stagehand/report.test.mjs
             - name: Run paired real E2E suites
               env:
                   BENCHMARK_STAGEHAND_INSTALL_SECONDS: ${{ steps.stagehand-install.outputs.seconds }}
