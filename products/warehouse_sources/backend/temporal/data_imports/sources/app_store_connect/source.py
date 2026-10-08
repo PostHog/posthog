@@ -184,6 +184,8 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR: "App Store Connect does not recognize your vendor number. Find it in App Store Connect under Payments and Financial Reports, update it in this source's settings, then run the sync again.",
             # Retrying only delays the message that tells the user to fix the field.
             APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR: APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR,
+            # Any other 400 on a report read. Apple answers the same request the same way on every retry.
+            "400 Client Error: Bad Request for url: https://api.appstoreconnect.apple.com/v1/salesReports": "App Store Connect rejected a sales report request. Check the vendor number in this source's settings, then run the sync again. Contact support if it keeps failing.",
         }
 
     def get_retryable_errors(self) -> set[str]:
