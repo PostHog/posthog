@@ -218,9 +218,7 @@ def _drop_shared_labels(series: list[MetricSeries]) -> list[MetricSeries]:
     if len(series) < 2:
         return series
     shared = {
-        key
-        for key, value in series[0].labels.items()
-        if all(other.labels.get(key) == value for other in series[1:])
+        key for key, value in series[0].labels.items() if all(other.labels.get(key) == value for other in series[1:])
     }
     return [replace(s, labels={k: v for k, v in s.labels.items() if k not in shared}) for s in series]
 
