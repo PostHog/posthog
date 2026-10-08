@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Sequence
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -7,6 +8,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_ONESHOT_MAX_FINDINGS,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
+    ONESHOT_MODEL,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
@@ -83,6 +85,23 @@ def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdi
     return payload
 
 
+_ANCHOR_RULING = "raised by this turn's main review, which publishes it in this turn"
+
+
+def _anchor_payload(anchor: Issue) -> dict:
+    """One finding this turn keeps, as prompt data shaped like a prior finding."""
+    return {
+        "title": anchor.title,
+        "file": anchor.file,
+        "lines": [line_range.model_dump(mode="json") for line_range in anchor.lines],
+        "body": anchor.issue,
+        "suggestion": anchor.suggestion,
+        "priority": anchor.priority.value,
+        "source_perspective": anchor.source_perspective,
+        "prior_ruling": _ANCHOR_RULING,
+    }
+
+
 DEDUP_SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
 A finding is a duplicate only when it raises the same concrete problem as another finding, a prior
 inline comment, or an earlier review turn's already-ruled-on finding — not merely because it shares a
@@ -103,6 +122,8 @@ async def deduplicate_issues(
     branch: str,
     repository: str,
     workflow_id_prefix: str | None = None,
+    anchors: Sequence[Issue] = (),
+    model: str | None = None,
 ) -> list[Issue]:
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
@@ -114,6 +135,10 @@ async def deduplicate_issues(
     so a still-present dismissed/below-threshold issue doesn't burn another validation turn. The
     dedupe prompt is pure text (no code context), so within the one-shot gate that call is a direct
     gateway call; only an over-limit finding set falls back to the sandbox.
+
+    `anchors` are findings this turn keeps whatever the LLM answers. They count as prior coverage, so
+    an issue that restates one is dropped, and they are never dropped or returned themselves. `model`
+    pins both the one-shot and the sandbox call; None keeps the pipeline's dedup models.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
@@ -121,6 +146,7 @@ async def deduplicate_issues(
 
     prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
     prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
+    prior_ranges += [(anchor.file, lr) for anchor in anchors for lr in anchor.lines]
     if pr_comments:
         authors = sorted({c.user for c in pr_comments})
         logger.info(f"Deduping against {len(pr_comments)} prior inline comment(s) from authors: {authors}")
@@ -140,7 +166,10 @@ async def deduplicate_issues(
         CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
         PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
-        PRIOR_FINDINGS_JSON=json.dumps([_prior_finding_payload(f, v) for f, v in prior_findings], indent=2),
+        PRIOR_FINDINGS_JSON=json.dumps(
+            [_prior_finding_payload(f, v) for f, v in prior_findings] + [_anchor_payload(a) for a in anchors],
+            indent=2,
+        ),
         ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
         DEDUPLICATION_SCHEMA=schema.strip(),
     )
@@ -155,6 +184,7 @@ async def deduplicate_issues(
             system_prompt=DEDUP_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
+            model=model or ONESHOT_MODEL,
         )
     else:
         deduplication_result = await run_sandbox_review(
@@ -168,7 +198,7 @@ async def deduplicate_issues(
             step_name="dedup",
             workflow_id_prefix=workflow_id_prefix,
             runtime_adapter=DEDUP_RUNTIME_ADAPTER,
-            model=DEDUP_MODEL,
+            model=model or DEDUP_MODEL,
             reasoning_effort=DEDUP_REASONING_EFFORT,
         )
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.

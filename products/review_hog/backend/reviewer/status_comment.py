@@ -28,7 +28,6 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
@@ -38,9 +37,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FULL,
     effective_priority,
     published_priorities_for,
-    review_priorities_for,
 )
-from products.review_hog.backend.reviewer.diff_position import format_line_ranges
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
@@ -58,7 +55,6 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_request,
     is_app_bot_author,
 )
-from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -180,12 +176,13 @@ def render_in_progress_body(
 ) -> str:
     """The running-state body: the current step (mirroring the UI), plus a one-line explainer."""
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        # One session has no stages to count, so the body only says the review is running.
+        # Parallel sessions have no stages to count, so the body only says the review is running.
         return "\n".join(
             [
                 f"### \U0001f994 {_product_name(review_mode)} is reviewing this pull request",
                 "",
-                "One reviewer reads the whole pull request and publishes its findings back to it.",
+                "A main reviewer and two focused reviewers read the pull request in parallel. "
+                "The most important findings are published back to it.",
                 "",
                 "<sub>This comment updates when the review finishes.</sub>",
                 "",
@@ -225,7 +222,6 @@ def render_final_body(
     review_mode: str = REVIEW_MODE_FULL,
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
-    summary_findings: list[ReviewIssueFinding] | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -234,7 +230,6 @@ def render_final_body(
     sentence attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
-    `summary_findings` are published here instead of inline: the single-agent design's P3 findings.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
@@ -274,26 +269,10 @@ def render_final_body(
             if report_url:
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
-        lines.extend(_render_summary_findings(summary_findings or []))
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
     return "\n".join(lines)
-
-
-def _render_summary_findings(findings: list[ReviewIssueFinding]) -> list[str]:
-    """Low-priority findings listed in the status comment, collapsed so they stay out of the way."""
-    if not findings:
-        return []
-    lines = ["", "<details>", f"<summary>{_plural(len(findings), 'low-priority finding')}</summary>", ""]
-    for finding in findings:
-        lines.extend([f"- **{finding.title}** (`{finding.file}:{format_line_ranges(finding.lines)}`)", ""])
-        lines.extend(["  " + line if line else "" for line in finding.body.splitlines()])
-        lines.append("")
-    lines.append("</details>")
-    # The review sandbox holds live tokens, so its text gets the same scrub as the posted review.
-    scrubbed, _count = redact_secrets("\n".join(lines))
-    return scrubbed.split("\n")
 
 
 def render_resolution_progress_section(*, done: int, total: int, fixed: int, left_for_you: int) -> str:
@@ -587,7 +566,6 @@ class FinalizeStatusCommentInput:
     review_mode: str = REVIEW_MODE_FULL
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
-    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -597,18 +575,13 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
         counts = dict.fromkeys(IssuePriority, 0)
-        threshold = IssuePriority(input.urgency_threshold)
-        published = published_priorities_for(threshold)
-        in_review = review_priorities_for(threshold, input.review_design)
-        summary_findings: list[ReviewIssueFinding] = []
         for finding, verdict in load_valid_findings(
             team_id=input.team_id, report_id=input.report_id, run_index=input.run_index
         ):
-            priority = effective_priority(finding.priority, verdict.adjusted_priority)
-            counts[priority] += 1
-            if priority in published and priority not in in_review:
-                summary_findings.append(finding)
-        published_count = sum(count for priority, count in counts.items() if priority in in_review)
+            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
+        threshold = IssuePriority(input.urgency_threshold)
+        published = published_priorities_for(threshold)
+        published_count = sum(count for priority, count in counts.items() if priority in published)
         held_back_count = sum(count for priority, count in counts.items() if priority not in published)
         body = render_final_body(
             input.report_id,
@@ -622,7 +595,6 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             review_mode=input.review_mode,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
-            summary_findings=summary_findings,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:

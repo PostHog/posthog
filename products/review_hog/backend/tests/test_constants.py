@@ -13,7 +13,6 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     published_priorities_for,
-    review_priorities_for,
     reviewhog_version_for_mode,
     select_review_design,
 )
@@ -100,23 +99,3 @@ class TestSelectReviewDesign:
         self, _name: str, review_mode: str, review_design: str, expected: str
     ) -> None:
         assert reviewhog_version_for_mode(review_mode, review_design) == expected
-
-
-class TestReviewPrioritiesFor:
-    @parameterized.expand(
-        [
-            # The single agent's P3 findings go to the status comment, so they must never post inline.
-            (
-                "single_agent_all_issues",
-                REVIEW_DESIGN_SINGLE_AGENT,
-                IssuePriority.CONSIDER,
-                {IssuePriority.SHOULD_FIX, IssuePriority.MUST_FIX},
-            ),
-            ("single_agent_must_fix", REVIEW_DESIGN_SINGLE_AGENT, IssuePriority.MUST_FIX, {IssuePriority.MUST_FIX}),
-            ("pipeline_all_issues", REVIEW_DESIGN_PIPELINE, IssuePriority.CONSIDER, set(IssuePriority)),
-        ]
-    )
-    def test_single_agent_keeps_consider_findings_out_of_the_review(
-        self, _name: str, review_design: str, threshold: IssuePriority, expected: set[IssuePriority]
-    ) -> None:
-        assert review_priorities_for(threshold, review_design) == expected

@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
-    review_priorities_for,
+    published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
@@ -117,8 +117,7 @@ def publish_persisted_review(
         head_sha=head_sha,
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
-        # The single-agent design keeps its P3 findings out of the review; the status comment lists them.
-        published_priorities=review_priorities_for(urgency_threshold, review_design),
+        published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
         review_mode=review_mode,
     )

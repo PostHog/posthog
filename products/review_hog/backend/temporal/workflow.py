@@ -801,7 +801,6 @@ class ReviewPRWorkflow:
                         review_mode=inputs.review_mode,
                         celebrate_clean_reviews=acting.celebrate_clean_reviews,
                         marker=marker,
-                        review_design=review_design,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

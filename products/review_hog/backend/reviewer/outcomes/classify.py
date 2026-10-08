@@ -53,7 +53,7 @@ from products.review_hog.backend.reviewer.constants import (
     OUTCOME_MAX_REPORTS_PER_SWEEP,
     effective_priority,
     priority_rank,
-    review_priorities_for,
+    published_priorities_for,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
@@ -62,7 +62,6 @@ from products.review_hog.backend.reviewer.outcomes.github_fetch import fetch_com
 from products.review_hog.backend.reviewer.outcomes.judge import judge_finding
 from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_compare_files, touched_near
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
-from products.review_hog.backend.reviewer.review_state import review_design_for_finding
 from products.review_hog.backend.reviewer.telemetry import finding_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -189,21 +188,18 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
         if report.acting_user_id
         else DEFAULT_URGENCY_THRESHOLD.value
     )
-    # A single-agent turn lists its P3 findings only in the status comment, so they never got a review
-    # comment and count as not posted, like findings below the threshold.
-    priorities_by_turn: dict[tuple[int, str], set[IssuePriority]] = {}
+    priorities_by_run: dict[int, set[IssuePriority]] = {}
 
-    def _publishable_priorities(finding: ReviewIssueFinding) -> set[IssuePriority]:
-        key = (finding.run_index, review_design_for_finding(finding))
-        if key not in priorities_by_turn:
-            threshold = snapshotted.get(str(finding.run_index), fallback_threshold)
-            priorities_by_turn[key] = review_priorities_for(IssuePriority(threshold), key[1])
-        return priorities_by_turn[key]
+    def _publishable_priorities(run_index: int) -> set[IssuePriority]:
+        if run_index not in priorities_by_run:
+            threshold = snapshotted.get(str(run_index), fallback_threshold)
+            priorities_by_run[run_index] = published_priorities_for(IssuePriority(threshold))
+        return priorities_by_run[run_index]
 
     published = [
         (finding, verdict)
         for finding, verdict in all_valid
-        if effective_priority(finding.priority, verdict.adjusted_priority) in _publishable_priorities(finding)
+        if effective_priority(finding.priority, verdict.adjusted_priority) in _publishable_priorities(finding.run_index)
     ]
     # Fallback guards the idempotency invariant: publishing set the watermark, so at least one valid
     # finding was posted — if a post-review threshold change emptied the gated set, classify all valid

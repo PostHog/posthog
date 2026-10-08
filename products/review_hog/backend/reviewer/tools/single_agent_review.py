@@ -10,16 +10,28 @@ so a prompt iteration edits files and no code.
 
 import re
 import json
+import asyncio
+import logging
 from pathlib import Path
 
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
-from products.review_hog.backend.reviewer.constants import FLASH_PROMPT_DIFF_MAX_CHARS
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.constants import (
+    FLASH_DEDUP_MODEL,
+    FLASH_MAX_FINDINGS,
+    FLASH_POSTED_PRIORITIES,
+    FLASH_PROMPT_DIFF_MAX_CHARS,
+    SINGLE_AGENT_SOURCE,
+    priority_rank,
+)
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
+
+logger = logging.getLogger(__name__)
 
 SINGLE_AGENT_PROMPT_DIR = "single_agent_review"
 SINGLE_AGENT_CORE_FILE = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / "core.md"
@@ -187,3 +199,71 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
             )
         )
     return issues
+
+
+def compose_flash_findings(main: list[Issue], lens: list[Issue]) -> list[Issue]:
+    """The findings a Flash turn keeps: posted priorities only, highest first, main review first on ties.
+
+    The caller persists only these. A persisted finding that never posts counts as already raised, so
+    every later turn would keep it off the PR too.
+    """
+    posted = [issue for issue in [*main, *lens] if issue.priority in FLASH_POSTED_PRIORITIES]
+    ranked = sorted(posted, key=lambda issue: priority_rank(issue.priority), reverse=True)
+    return ranked[:FLASH_MAX_FINDINGS]
+
+
+async def dedupe_flash_findings(
+    *,
+    team_id: int,
+    user_id: int,
+    issues: list[Issue],
+    pr_metadata: PRMetadata,
+    pr_comments: list[PRComment],
+    prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    branch: str,
+    repository: str,
+    workflow_id_prefix: str | None = None,
+) -> list[Issue]:
+    """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
+
+    Two dedup calls run in parallel. The main findings dedup against PR comments and earlier turns.
+    The lens findings dedup against those too and against the main findings as anchors, so a lens
+    finding can lose to a main finding but never the other way around.
+    """
+    main = [issue for issue in issues if issue.source_perspective == SINGLE_AGENT_SOURCE]
+    lens = [issue for issue in issues if issue.source_perspective != SINGLE_AGENT_SOURCE]
+    main_kept, lens_kept = await asyncio.gather(
+        deduplicate_issues(
+            team_id=team_id,
+            user_id=user_id,
+            issues=main,
+            pr_metadata=pr_metadata,
+            pr_comments=pr_comments,
+            prior_findings=prior_findings,
+            branch=branch,
+            repository=repository,
+            workflow_id_prefix=workflow_id_prefix,
+            model=FLASH_DEDUP_MODEL,
+        ),
+        deduplicate_issues(
+            team_id=team_id,
+            user_id=user_id,
+            issues=lens,
+            pr_metadata=pr_metadata,
+            pr_comments=pr_comments,
+            prior_findings=prior_findings,
+            branch=branch,
+            repository=repository,
+            workflow_id_prefix=workflow_id_prefix,
+            anchors=main,
+            model=FLASH_DEDUP_MODEL,
+        ),
+    )
+    kept = compose_flash_findings(main_kept, lens_kept)
+    logger.info(
+        "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
+        len(kept),
+        len(main_kept),
+        len(lens_kept),
+    )
+    return kept

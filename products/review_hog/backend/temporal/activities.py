@@ -52,8 +52,8 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MAX_ATTEMPTS,
     ReviewArm,
     effective_priority,
+    published_priorities_for,
     review_arm_for_mode,
-    review_priorities_for,
     select_review_design,
     validation_arm_for_mode,
 )
@@ -144,6 +144,7 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
     SingleAgentPrompt,
+    dedupe_flash_findings,
     issues_from_review,
     lens_prompt_path,
     load_core_prompt,
@@ -1359,17 +1360,30 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
-        survivors = await deduplicate_issues(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            issues=issues,
-            pr_metadata=snapshot.pr_metadata,
-            pr_comments=snapshot.pr_comments,
-            prior_findings=prior_findings,
-            branch=input.branch,
-            repository=input.repository,
-            workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
-        )
+        if single_agent:
+            survivors = await dedupe_flash_findings(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                issues=issues,
+                pr_metadata=snapshot.pr_metadata,
+                pr_comments=snapshot.pr_comments,
+                prior_findings=prior_findings,
+                branch=input.branch,
+                repository=input.repository,
+                workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
+            )
+        else:
+            survivors = await deduplicate_issues(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                issues=issues,
+                pr_metadata=snapshot.pr_metadata,
+                pr_comments=snapshot.pr_comments,
+                prior_findings=prior_findings,
+                branch=input.branch,
+                repository=input.repository,
+                workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
+            )
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1562,7 +1576,7 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         issues=issues,
         validations=validations,
         pr_files=pr_files,
-        published_priorities=review_priorities_for(IssuePriority(input.urgency_threshold), input.review_design),
+        published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
     )
     finalize_review_report(
         team_id=input.team_id,

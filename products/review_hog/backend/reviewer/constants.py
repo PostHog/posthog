@@ -152,6 +152,11 @@ SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
 
+# A Flash turn posts P0-P2 findings only. Add `IssuePriority.CONSIDER` to post P3 findings too.
+FLASH_POSTED_PRIORITIES = frozenset({IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX})
+# The main and lens findings merge into one list by priority, cut here so a turn's comments stay few.
+FLASH_MAX_FINDINGS = 4
+
 # Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
 FLASH_LENS_CHUNK_MAX_LINES = 600
 FLASH_LENS_MAX_CHUNKS = 4
@@ -386,6 +391,9 @@ CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
 DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
 DEDUP_MODEL = "claude-sonnet-5"
 DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
+# Both dedup calls of a single-agent Flash turn run on this model instead of the one-shot and sandbox
+# dedup models, with the same adapter and effort.
+FLASH_DEDUP_MODEL = "claude-sonnet-5-5"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
@@ -427,18 +435,6 @@ def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
     findings below the threshold are dropped everywhere; placement (inline vs body) is unchanged.
     """
     return {priority for priority, rank in _PRIORITY_RANK.items() if rank >= _PRIORITY_RANK[threshold]}
-
-
-def review_priorities_for(threshold: IssuePriority, review_design: str) -> set[IssuePriority]:
-    """Priorities the PR review itself carries: its tally, its inline comments, its off-diff section.
-
-    The single-agent design lists its `consider` (P3) findings in the status comment instead, so only
-    P0-P2 findings reach the review. The pipeline posts everything at or above the threshold.
-    """
-    published = published_priorities_for(threshold)
-    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return published - {IssuePriority.CONSIDER}
-    return published
 
 
 def priority_rank(priority: IssuePriority) -> int:

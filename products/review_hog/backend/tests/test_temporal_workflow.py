@@ -341,7 +341,6 @@ async def _run_full_review_pr_workflow(
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
-        _saw_design("status", input.review_design)
         marker_calls["status"] = input.marker
         return None
 
@@ -661,7 +660,7 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == [7]
-    assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "body", "publish", "status", "track")}
+    assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "body", "publish", "track")}
 
 
 @pytest.mark.asyncio
