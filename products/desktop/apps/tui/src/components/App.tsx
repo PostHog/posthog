@@ -454,7 +454,11 @@ export function App({
       picker={pickerFor(node.id)}
       modal={modalFor(node.id) ?? null}
       model={modelLabel(node.id, node.taskId)}
-      onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
+      // A cloud Claude Code or Codex run has no pi RPC, so its models, effort and commands stay unread.
+      onRunLive={(taskId, runId) =>
+        (isLocal(taskId) || taskOf(taskId)?.runtime === "pi") &&
+        onRunLive(node.id, taskId, runId)
+      }
       onTurn={(turn) => setTurn(node.id, turn)}
       chips={
         isLocal(node.taskId) || !node.taskId
