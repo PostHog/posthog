@@ -9038,6 +9038,10 @@ snapshots:
         hash: v1.k794b7964.158bb2510d66c6fe81f144c86fd612bac8c95cc95f56186e4465e8995a1e38b8.YJ_6q5QuNZQJsomF5fYIADEUdgz670SCVgfQtUCRL6Y
     scenes-app-batchexports--existing-big-query-export--light:
         hash: v1.k794b7964.169c050ced77823af76847e5b432e37172733b51a52fa3e4046ab9ef586d40eb.QA_BL0dNaL6VSVaB5YMB03s3-F4U4WQjVKyOY_xGux4
+    scenes-app-batchexports--existing-hog-ql-export--dark:
+        hash: v1.k794b7964.d5e31173e3e69b7a063b65c63239e8aab0eb7458470b6ab09673d92f7c9bbf11.s1usBPTk3SLC9lrQaQsFVDvYXGsS6-M9NbIxYuROncc
+    scenes-app-batchexports--existing-hog-ql-export--light:
+        hash: v1.k794b7964.b6ba4512c7721d653ea7c8fa2b9fa755894f0071ea904835e44f4ae6434624da.Wb198vJBtGeUMQhPPJxJuSsNVtnhoHiMOlF2QFfqFwc
     scenes-app-batchexports--history-empty--dark:
         hash: v1.k794b7964.4876ed69bc9129528181a8a663b41e0fb1350b95e3f3a6077a9db2857b081cc4.N_l9zIvhsX-G07IjsNfoWtmuyYaV-o88xTxZz3_w4rM
     scenes-app-batchexports--history-empty--light:
