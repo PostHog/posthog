@@ -436,10 +436,12 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         {isAddingUrl && (
                             <div className="border rounded p-3 bg-bg-3000 mb-2">
                                 <LemonBanner type="info" className="text-sm mb-2">
-                                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do
-                                    not). This is because <code className="inline">https://example.com/</code> does not
-                                    only match the homepage. You'd need{' '}
-                                    <code className="inline">^https://example.com/$</code>
+                                    Patterns are tested against the full URL, scheme and host included, and are wrapped
+                                    in <code className="inline">^</code> and <code className="inline">$</code> when
+                                    added. So <code className="inline">https://example.com/</code> only matches the
+                                    homepage, and a path on its own like <code className="inline">/checkout/.*</code>{' '}
+                                    never matches. Start a path pattern with <code className="inline">.*</code>, or
+                                    write the full URL.
                                 </LemonBanner>
                                 <LemonLabel>Matching regex:</LemonLabel>
                                 <div className="flex gap-2 mt-1">
@@ -447,7 +449,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         value={newUrl}
                                         onChange={setNewUrl}
                                         onPressEnter={() => addUrl(newUrl)}
-                                        placeholder="e.g., /checkout/.*, ^https://example.com/page$"
+                                        placeholder="e.g., .*/checkout/.*, ^https://example.com/page$"
                                         fullWidth
                                         autoFocus
                                     />
@@ -461,12 +463,12 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                 {triggerGroup.urls.length > 0 && (
                                     <div className="mt-3 pt-3 border-t">
                                         <LemonLabel className="text-xs mb-1 block">
-                                            Test a URL against existing patterns:
+                                            Test a full URL against existing patterns:
                                         </LemonLabel>
                                         <LemonInput
                                             value={testUrl}
                                             onChange={setTestUrl}
-                                            placeholder="Enter a URL to test (e.g., https://example.com/page)"
+                                            placeholder="Full URL, as the browser sees it (e.g., https://example.com/checkout?step=2)"
                                             fullWidth
                                             size="small"
                                         />
@@ -482,7 +484,11 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                                 }) ? (
                                                     <span className="text-success">Matches at least one pattern</span>
                                                 ) : (
-                                                    <span className="text-danger">Doesn't match any patterns</span>
+                                                    <span className="text-danger">
+                                                        Doesn't match any patterns. Patterns are tested against the full
+                                                        URL, so a path-only pattern needs a leading{' '}
+                                                        <code className="inline">.*</code>
+                                                    </span>
                                                 )}
                                             </div>
                                         )}

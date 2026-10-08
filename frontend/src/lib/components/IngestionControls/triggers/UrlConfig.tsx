@@ -88,12 +88,12 @@ export function UrlConfig({
             {!props.isAddFormVisible && props.config && props.config.length > 0 && (
                 <div className="border rounded p-3 bg-surface-primary">
                     <LemonLabel className="text-sm font-medium mb-2 block">
-                        Test a URL against these patterns:
+                        Test a full URL against these patterns:
                     </LemonLabel>
                     <LemonInput
                         value={checkUrl}
                         onChange={setCheckUrl}
-                        placeholder="Enter a URL to test (e.g., https://example.com/page)"
+                        placeholder="Full URL, as the browser sees it (e.g., https://example.com/checkout?step=2)"
                         data-attr="url-check-input"
                         className="mb-2"
                     />
@@ -102,7 +102,10 @@ export function UrlConfig({
                             {Object.values(checkUrlResults).some(Boolean) ? (
                                 <span className="text-success">✓ This URL matches at least one pattern</span>
                             ) : (
-                                <span className="text-danger">✗ This URL doesn't match any patterns</span>
+                                <span className="text-danger">
+                                    ✗ This URL doesn't match any patterns. Patterns are tested against the full URL, so
+                                    a path-only pattern needs a leading <code className="inline">.*</code>
+                                </span>
                             )}
                         </div>
                     )}
@@ -268,14 +271,20 @@ function UrlConfigForm({
         >
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
-                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
-                    because <pre className="inline">https://example.com/</pre> does not only match the homepage. You'd
-                    need <pre className="inline">^https://example.com/$</pre>
+                    Patterns are tested against the full URL, scheme and host included, and are wrapped in{' '}
+                    <code className="inline">^</code> and <code className="inline">$</code> when added. So{' '}
+                    <code className="inline">https://example.com/</code> only matches the homepage, and a path on its
+                    own like <code className="inline">/checkout/.*</code> never matches. Start a path pattern with{' '}
+                    <code className="inline">.*</code>, or write the full URL.
                 </LemonBanner>
                 <LemonLabel className="w-full">
                     Matching regex:
                     <LemonField name="url" className="flex-1">
-                        <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
+                        <LemonInput
+                            autoFocus
+                            placeholder="e.g., .*/checkout/.*, ^https://example.com/page$"
+                            data-attr="url-input"
+                        />
                     </LemonField>
                 </LemonLabel>
                 {validationWarning && <span className="text-danger">{validationWarning}</span>}
