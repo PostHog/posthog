@@ -92,9 +92,9 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": (
                         "# 👋 Start here\n\n"
-                        "PostHog captures pageviews, clicks, sessions, and location automatically, so this "
-                        "dashboard shows data right away. Set the retention and funnel tiles to use your own "
-                        "events. You can edit any tile or duplicate the dashboard."
+                        "The charts below use pageviews, clicks, sessions, and location, which PostHog captures "
+                        "automatically. Set the retention and funnel tiles to use your own events. You can edit "
+                        "any tile or duplicate the dashboard."
                     ),
                     "layouts": {
                         "sm": {"h": 2, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 3},
