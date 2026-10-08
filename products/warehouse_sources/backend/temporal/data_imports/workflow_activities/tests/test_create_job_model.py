@@ -328,6 +328,28 @@ class TestCreateJobActivityStatusOrdering:
 
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.activity")
+    def test_outputs_carry_the_schemas_failure_streak(
+        self, mock_activity: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.sync_type_config = {
+            "failure_streak": {"runs": 4, "last_failed_at": (timezone.now() - dt.timedelta(minutes=5)).isoformat()}
+        }
+        schema.save()
+
+        outputs = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
+            )
+        )
+
+        assert outputs.failed_runs_in_a_row == 4
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
     @patch(f"{MODULE}._verify_v3_lock_still_held")
     @patch(f"{MODULE}.is_multi_destination_enabled", return_value=True)
     def test_a_table_whose_every_destination_is_paused_fails_before_the_job_exists(

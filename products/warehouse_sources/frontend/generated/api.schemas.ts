@@ -172,6 +172,43 @@ export interface PatchedExternalDataDestinationApi {
     readonly latest_error_at?: string | null
 }
 
+export interface AddSourcesRequestApi {
+    /**
+     * IDs of up to 50 existing sources to attach to this destination.
+     * @maxItems 50
+     */
+    source_ids: string[]
+    /** Start a full resync for each enabled table newly attached. */
+    resync?: boolean
+}
+
+export interface SkippedSourceApi {
+    /** ID of the source that was not attached. */
+    id: string
+    /** Name of the source that was not attached. */
+    name: string
+    /** Why the source was not attached. */
+    reason: string
+}
+
+export interface ResyncFailureApi {
+    /** ID of the table whose resync did not start. */
+    schema_id: string
+    /** Why the resync did not start. */
+    detail: string
+}
+
+export interface AddSourcesResponseApi {
+    /** Sources newly attached to this destination. */
+    attached: SyncedSourceApi[]
+    /** Sources that were not attached and their reasons. */
+    skipped: SkippedSourceApi[]
+    /** Number of tables sent for a full resync. */
+    tables_resyncing: number
+    /** Tables whose resync did not start. The sources are still attached. */
+    resync_failures: ResyncFailureApi[]
+}
+
 /**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
