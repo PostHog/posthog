@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
     plan_deterministic_chunks,
+    plan_lens_chunks,
     reconcile_chunks,
 )
 
@@ -164,6 +165,55 @@ class TestPlanDeterministicChunks:
 
         assert planned is not None
         assert planned.chunks == []
+
+
+class TestPlanLensChunks:
+    @pytest.mark.parametrize(
+        "pr_files,expected_chunks,expected_capped",
+        [
+            pytest.param(
+                [_file("a/x.py", 300), _file("a/data.json", 2000)],
+                [["a/x.py", "a/data.json"]],
+                False,
+                id="small_pr_is_one_part_with_every_file",
+            ),
+            pytest.param(
+                [
+                    _file("a/1.py", 300),
+                    _file("a/2.py", 200),
+                    _file("b/1.py", 400),
+                    _file("c/1.py", 100),
+                    _file("ee/hogai/tools/search.py", 100),
+                    _file("tests/test_a.py", 900),
+                    _file("tools/script.py", 50),
+                ],
+                [["a/1.py", "a/2.py"], ["b/1.py", "c/1.py", "ee/hogai/tools/search.py"]],
+                False,
+                id="directories_stay_together_and_nested_tools_count",
+            ),
+            pytest.param(
+                [_file("a/big.py", 900), _file("a/small.py", 100), _file("b/x.py", 100)],
+                [["a/big.py"], ["a/small.py", "b/x.py"]],
+                False,
+                id="oversized_file_gets_its_own_part",
+            ),
+            pytest.param(
+                [_file(f"d{n}/a.py", 400) for n in range(1, 9)],
+                [["d1/a.py", "d2/a.py"], ["d3/a.py", "d4/a.py"], ["d5/a.py", "d6/a.py"], ["d7/a.py", "d8/a.py"]],
+                True,
+                id="more_parts_than_the_cap_grow_into_four",
+            ),
+        ],
+    )
+    def test_every_reviewable_file_lands_in_exactly_one_part(
+        self, pr_files: list[PRFile], expected_chunks: list[list[str]], expected_capped: bool
+    ) -> None:
+        # A file missing from every part, or split across two, escapes the lens sessions or costs
+        # one twice, and a capped plan above four parts opens more sessions than a turn allows.
+        plan = plan_lens_chunks(pr_files)
+
+        assert plan.chunks == expected_chunks
+        assert plan.capped is expected_capped
 
     def test_generate_chunking_prompt_missing_schema(
         self,

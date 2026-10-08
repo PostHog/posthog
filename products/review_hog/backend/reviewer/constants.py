@@ -152,6 +152,10 @@ SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
 
+# Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
+FLASH_LENS_CHUNK_MAX_LINES = 600
+FLASH_LENS_MAX_CHUNKS = 4
+
 
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
     if reasoning_effort == ReasoningEffort.XHIGH.value:
