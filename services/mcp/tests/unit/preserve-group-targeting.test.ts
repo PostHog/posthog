@@ -812,6 +812,33 @@ describe('preserveGroupTargetingFilters', () => {
             },
             unresolved: [0],
         },
+        {
+            name: 'two sets on different aggregations filter on the same key and value and exchange operators',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [{ key: 'plan', type: 'person', operator: 'exact', value: 'pro' }],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'icontains', value: 'pro' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'icontains', value: 'pro' }], rollout_percentage: 100 },
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                ],
+            },
+            unresolved: [0, 1],
+        },
     ])('names each condition set it cannot resolve when $name', ({ existing, incoming, unresolved }) => {
         expect(refusedSets(() => preserveGroupTargetingFilters(existing, incoming))).toEqual(
             unresolved.map((index) => `filters.groups[${index}]`)

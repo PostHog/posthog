@@ -11,10 +11,10 @@
  * the flag-level aggregation or each set without a source states, clears, or implies its own: it
  * sends aggregation_group_type_index, carries an explicit person-aggregated property, or carries a
  * group property with a group_type_index. A set loses its source on such a flag when another stored
- * set on a different aggregation has the same keys and the incoming values differ from the stored
- * ones, because a swap of the two sets and an in-place edit of their values send the same payload.
- * On a flag whose sets all aggregate the same way, a set that keeps its keys at its index keeps its
- * source even when other sets change.
+ * set on a different aggregation has the same keys and the incoming operators or values differ from
+ * the stored ones, because a swap of the two sets and an in-place edit of their filters send the
+ * same payload. On a flag whose sets all aggregate the same way, a set that keeps its keys at its
+ * index keeps its source even when other sets change.
  *
  * A set's aggregation then decides its property types. A group-aggregated set restores a
  * person-aggregated type that its source holds for the key. A group-aggregated set with no source
@@ -167,14 +167,19 @@ function storedAggregation(group: FlagConditionGroup, flagLevelGroupIndex: numbe
     )
 }
 
-/** The values under each key compare as a multiset, so a removed or added filter on a key is a change. */
-function keepsValues(incoming: FlagConditionGroup, source: ExistingSet): boolean {
+/**
+ * The filters under each key compare as a multiset of operator and value pairs, so a removed, added,
+ * or changed filter on a key is a change.
+ */
+function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolean {
     return [...indexProperties(incoming.properties)].every(([key, props]) => {
         const unmatched = [...(source.propsByKey.get(key) ?? [])]
         return (
             props.length === unmatched.length &&
             props.every((prop) => {
-                const match = unmatched.findIndex((stored) => isDeepStrictEqual(stored.value, prop.value))
+                const match = unmatched.findIndex(
+                    (stored) => stored.operator === prop.operator && isDeepStrictEqual(stored.value, prop.value)
+                )
                 if (match === -1) {
                     return false
                 }
@@ -413,7 +418,7 @@ export function preserveGroupTargetingFilters(
                 !!existingSet &&
                 isRecord(group) &&
                 sharesKeysAcrossAggregations(existingSet, index) &&
-                !keepsValues(group, existingSet)
+                !keepsFilters(group, existingSet)
             return positionHolds && keptKeys[index] && !ambiguous ? existingSet : undefined
         })
 
