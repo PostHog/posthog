@@ -3004,17 +3004,21 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cohort_condition_without_person_read", ["hog_flow:write", "group:read"], True, 403),
-            ("cohort_condition_with_person_read", ["hog_flow:write", "group:read", "person:read"], True, 200),
-            ("no_cohort_condition_without_person_read", ["hog_flow:write", "group:read"], False, 200),
+            ("cohort_condition_without_person_read", ["hog_flow:write", "group:read"], True, True, 403),
+            ("cohort_condition_with_person_read", ["hog_flow:write", "group:read", "person:read"], True, True, 200),
+            ("rolled_out_without_person_read", ["hog_flow:write", "group:read"], False, True, 403),
+            ("not_rolled_out_without_person_read", ["hog_flow:write", "group:read"], False, False, 200),
+            ("stored_cohort_condition_after_dial_down", ["hog_flow:write", "group:read"], True, False, 403),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_test_invocation_requires_person_read_only_for_cohort_conditions(
-        self, _name, scopes, with_cohort_condition, expected_status, _mock_flag
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false")
+    def test_test_invocation_requires_person_read_where_cohort_conditions_can_run(
+        self, _name, scopes, with_cohort_condition, flag_on_at_test_time, expected_status, mock_flag
     ):
         # A cohort condition makes the runtime load the supplied person's memberships, so the test
-        # endpoint would be a membership oracle for a token that cannot read persons.
+        # endpoint would be a membership oracle for a token that cannot read persons. Where the flag is
+        # on, a write token can add such a condition between the scope check and the run.
+        mock_flag.return_value = True
         if with_cohort_condition:
             cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
             filters = {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
@@ -3029,6 +3033,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert created.status_code == 201, created.json()
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        mock_flag.return_value = flag_on_at_test_time
 
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"

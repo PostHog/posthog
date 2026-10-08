@@ -293,6 +293,22 @@ _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "sour
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
 
 
+def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
+    # The flag targets organizations, so evaluate it against the organization that owns the target team:
+    # a user acting on a project outside their active organization gets that project's rollout.
+    try:
+        return feature_enabled_or_false(
+            WORKFLOWS_COHORT_CONDITIONS_FLAG,
+            user.distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
+
+
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
     """The parts of a wait condition a person actually wrote, with compiler output dropped."""
     if not isinstance(condition, dict):
@@ -1327,17 +1343,7 @@ class HogFlowActionSerializer(serializers.Serializer):
             get_team = self.context.get("get_team")
             if get_team is None:
                 return False
-            # The flag targets organizations, so evaluate it against the organization that owns the target
-            # team: a user saving into a project outside their active organization gets that project's rollout.
-            organization_id = str(get_team().organization_id)
-            return feature_enabled_or_false(
-                WORKFLOWS_COHORT_CONDITIONS_FLAG,
-                user.distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
+            return _cohort_conditions_rolled_out(user, str(get_team().organization_id))
         except Exception:
             return False
 
@@ -4347,8 +4353,8 @@ class HogFlowViewSet(
         if self.action == "invocations":
             scopes = ["hog_flow:write", "group:read"]
             # A cohort condition makes the runtime load the supplied person's real cohort memberships, so
-            # the branch a test run takes would be a membership oracle. Require person:read for those flows.
-            if self._test_invocation_reads_cohort_membership(request):
+            # the branch a test run takes would be a membership oracle. Require person:read where that can happen.
+            if self._test_invocation_may_read_cohort_membership(request):
                 scopes.append("person:read")
             return scopes
         # Rerun re-executes stored invocations — it replays up to 30 days of
@@ -4362,11 +4368,27 @@ class HogFlowViewSet(
             return ["hog_flow:write", "person:read", "group:read"]
         return None
 
-    def _test_invocation_reads_cohort_membership(self, request: Request) -> bool:
+    # Memoized because both permission classes ask for the scopes and the flag check is a network call
+    _cohort_conditions_rollout: Optional[bool] = None
+
+    def _test_invocation_may_read_cohort_membership(self, request: Request) -> bool:
         # Schema generation asks for the security requirement without URL kwargs or a request body.
         workflow_id = self.kwargs.get("pk")
         if workflow_id is None:
             return False
+        # Where the flag is on, a hog_flow:write token can add a cohort condition between this check and
+        # the worker's own read of the workflow, so the stored definition alone cannot gate the scopes.
+        if self._cohort_conditions_rollout is None:
+            user = getattr(request, "user", None)
+            self._cohort_conditions_rollout = (
+                user is not None
+                and not user.is_anonymous
+                and not isinstance(user, SyntheticUser)
+                and _cohort_conditions_rolled_out(user, str(self.team.organization_id))
+            )
+        if self._cohort_conditions_rollout:
+            return True
+        # With the flag off, only conditions stored before a dial-down still compile with cohorts.
         data = request.data if isinstance(request.data, dict) else {}
         configuration = data.get("configuration")
         if _actions_reference_cohorts(configuration.get("actions") if isinstance(configuration, dict) else None):
