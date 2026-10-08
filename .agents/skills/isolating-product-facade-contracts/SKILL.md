@@ -270,6 +270,7 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
+- A view that serves a contract checks object RBAC with `self.check_object_permissions(request, ObjectAccessRef(...))` in its `get_object()`, not by hand or in the facade. See `products/architecture.md` § Who owns RBAC?
 - Never return ORM models across product boundaries.
 - `hogli product:lint` reads the facade signatures, in the kinds `facade-returns`,
   `facade-accepts(<parameter>)` and `facade-logic`. The matching lines of

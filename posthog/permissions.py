@@ -46,6 +46,7 @@ from posthog.scopes import (
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
@@ -56,7 +57,10 @@ from products.access_control.backend.facade.user_access_control import (
 CREATE_ACTIONS = ["create", "update"]
 
 
-def extract_organization(object: Model, view: ViewSet) -> Organization:
+def extract_organization(object: Model | ObjectAccessRef, view: ViewSet) -> Organization:
+    if isinstance(object, ObjectAccessRef):
+        return Team.objects.select_related("organization").get(pk=object.team_id).organization
+
     # This is set as part of the TeamAndOrgViewSetMixin to allow models that are not directly related to an organization
     organization_id_rewrite = getattr(view, "filter_rewrite_rules", {}).get("organization_id")
     if organization_id_rewrite:
@@ -570,6 +574,10 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
+        # A sharing configuration grants access to specific model instances, so it never covers a
+        # contract-backed object.
+        if isinstance(object, ObjectAccessRef):
+            return False
         if not isinstance(
             request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
         ):
@@ -1092,6 +1100,13 @@ class AccessControlPermission(ScopeBasePermission):
 
         return READ_LEVEL
 
+    def required_access_level(self, request, view) -> Optional[AccessControlLevel]:
+        """The access level this request needs on the view's resource and its objects.
+
+        Subclasses change the level by overriding `_get_required_access_level`.
+        """
+        return self._get_required_access_level(request, view)
+
     def has_object_permission(self, request, view, object) -> bool:
         # At this level we are checking an individual resource - this could be a project or a lower level item like a Dashboard
 
@@ -1117,7 +1132,10 @@ class AccessControlPermission(ScopeBasePermission):
         if not required_level:
             return True
 
-        has_access = uac.check_access_level_for_object(object, required_level=required_level)
+        if isinstance(object, ObjectAccessRef):
+            has_access = uac.check_access_level_for_ref(object, required_level=required_level)
+        else:
+            has_access = uac.check_access_level_for_object(object, required_level=required_level)
 
         if not has_access:
             self.message = f"You do not have {required_level} access to this resource."

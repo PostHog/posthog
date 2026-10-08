@@ -118,6 +118,7 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     get_field_access_control_map,
     resource_to_display_name,
@@ -987,7 +988,7 @@ class ProjectBackwardCompatSerializer(
             representation["default_data_theme"] = _default_data_color_theme_id()
         return representation
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         # The access-control system is keyed on the Team, so resolve through the passthrough Team
         return super().get_user_access_level(cast(Project, obj).passthrough_team)
 

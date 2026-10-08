@@ -22,6 +22,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
+    SharingAccessTokenAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.constants import AvailableFeature
@@ -37,9 +38,11 @@ from posthog.permissions import (
     AccessControlPermission,
     ActiveOrganizationPermission,
     PostHogFeatureFlagPermission,
+    SharingTokenPermission,
     get_authenticator_client,
 )
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -165,7 +168,15 @@ class TestAccessControlPermission(BaseTest):
         # Should NOT have permission
         assert self.permission.has_permission(request, view) is False
 
-    def test_has_object_permission_with_specific_access(self):
+    def _as_target(self, notebook, target: str):
+        if target == "model":
+            return notebook
+        return ObjectAccessRef(
+            resource="notebook", id=str(notebook.id), team_id=self.team.id, created_by_id=notebook.created_by_id
+        )
+
+    @parameterized.expand([("model",), ("ref",)])
+    def test_has_object_permission_with_specific_access(self, target):
         """Test object-level permission when user has specific access to the object"""
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -182,9 +193,10 @@ class TestAccessControlPermission(BaseTest):
         view = self._create_real_view(action="retrieve", pk=str(self.notebook_1.id))
 
         # Should have object permission for notebook_1
-        assert self.permission.has_object_permission(request, view, self.notebook_1) is True
+        assert self.permission.has_object_permission(request, view, self._as_target(self.notebook_1, target)) is True
 
-    def test_has_object_permission_without_specific_access(self):
+    @parameterized.expand([("model",), ("ref",)])
+    def test_has_object_permission_without_specific_access(self, target):
         """Test object-level permission when user lacks specific access to the object"""
         # Set resource-level access to "none"
         self._create_access_control(resource="notebook", access_level="none")
@@ -193,7 +205,7 @@ class TestAccessControlPermission(BaseTest):
         view = self._create_real_view(action="retrieve", pk=str(self.notebook_2.id))
 
         # Should NOT have object permission for notebook_2
-        assert self.permission.has_object_permission(request, view, self.notebook_2) is False
+        assert self.permission.has_object_permission(request, view, self._as_target(self.notebook_2, target)) is False
 
     def test_has_permission_for_create_action_with_none_resource_access(self):
         """Test that create actions are blocked when user has 'none' resource access"""
@@ -1452,6 +1464,15 @@ class TestPostHogFeatureFlagPermission(BaseTest):
 
         self.assertFalse(result)
         mock_ff.assert_called_once()
+
+
+class TestSharingTokenPermission(SimpleTestCase):
+    def test_denies_an_object_access_ref(self):
+        request = Mock()
+        request.successful_authenticator = Mock(spec=SharingAccessTokenAuthentication)
+        ref = ObjectAccessRef(resource="notebook", id="1", team_id=1, created_by_id=None)
+
+        assert SharingTokenPermission().has_object_permission(request, Mock(), ref) is False
 
 
 class TestActiveOrganizationPermission(SimpleTestCase):
