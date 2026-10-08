@@ -62,6 +62,13 @@
             "formSchemaExport": "surveyResultsWidgetFormSchema",
             "formFields": ["surveyId", "limit", "dateRange"],
             "live": false
+        },
+        "workflows_list": {
+            "configSchemaExport": "workflowsWidgetConfigSchema",
+            "configTypeExport": "WorkflowsWidgetConfig",
+            "formSchemaExport": "workflowsWidgetFormSchema",
+            "formFields": ["limit"],
+            "live": false
         }
     }
 }

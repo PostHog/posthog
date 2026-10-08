@@ -17,6 +17,7 @@ from products.dashboards.backend.widget_specs.configs import (
     NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
+    WORKFLOWS_LIST_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
     ConversationsRecentTicketsWidgetConfig,
     ErrorTrackingListWidgetConfig,
@@ -26,6 +27,7 @@ from products.dashboards.backend.widget_specs.configs import (
     NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
+    WorkflowsListWidgetConfig,
 )
 
 DashboardWidgetType = Literal[
@@ -125,6 +127,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.workflows_list import run_workflows_list_widget  # noqa: PLC0415
 
     return {
         NOTEBOOK_WIDGET_TYPE: WidgetSpec(
@@ -266,6 +269,24 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
+        ),
+        WORKFLOWS_LIST_WIDGET_TYPE: WidgetSpec(
+            widget_type=WORKFLOWS_LIST_WIDGET_TYPE,
+            config_model=WorkflowsListWidgetConfig,
+            query_fn=run_workflows_list_widget,
+            required_scopes=("hog_flow:read", "query:read"),
+            group_id="workflows",
+            group_label="Workflows",
+            label="Workflow activity",
+            description=(
+                "Workflows and broadcasts with how many runs started, completed and failed in the period, "
+                "plus email sent, delivered, opened and bounced counts for workflows that send email."
+            ),
+            required_product_access="hog_flow",
+            product_access_denied_message="You do not have access to workflows.",
+            availability_requirements=(),
+            form_fields=("limit",),
+            filter_fields=("status", "workflowType", "dateRange"),
         ),
     }
 

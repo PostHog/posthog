@@ -45,6 +45,7 @@ from products.dashboards.backend.widget_specs.configs import (
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
+    WORKFLOWS_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
 )
@@ -222,6 +223,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("workflows", WORKFLOWS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_rejects_high_limit(self, _label: str, widget_type: str) -> None:
@@ -250,6 +252,7 @@ class TestWidgetRegistry(APIBaseTest):
         + [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("logs", LOGS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        + [("workflows", WORKFLOWS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
     )
     def test_validate_list_config_accepts_short_date_ranges(
         self, _label: str, widget_type: str, date_from: str
@@ -266,6 +269,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
             ("logs", LOGS_LIST_WIDGET_TYPE),
+            ("workflows", WORKFLOWS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_rejects_unsupported_date_range(self, _label: str, widget_type: str) -> None:

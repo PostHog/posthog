@@ -240,6 +240,7 @@ export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 're
 export const WIDGET_LIST_COUNT_EXPERIMENTS: WidgetListCountNoun = { singular: 'experiment', plural: 'experiments' }
 export const WIDGET_LIST_COUNT_LOGS: WidgetListCountNoun = { singular: 'log line', plural: 'log lines' }
 export const WIDGET_LIST_COUNT_TICKETS: WidgetListCountNoun = { singular: 'ticket', plural: 'tickets' }
+export const WIDGET_LIST_COUNT_WORKFLOWS: WidgetListCountNoun = { singular: 'workflow', plural: 'workflows' }
 
 export function formatWidgetListCountFooter(
     shown: number,

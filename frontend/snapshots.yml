@@ -6499,9 +6499,9 @@ snapshots:
     products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.6c001db5555f48832f11ae8d9dcc535dff4e22044bb6dfce15db3a2a522f1fa9.GQCxp64JkEqDCNEeSD6gPtc5rwlzjHFJ-QnZu4lRips
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
-        hash: v1.k794b7964.c8ccf56e7a97ed764ef1b9feff1fbefb1e3b8677fbf34e950adb91fb8ad0c65a.SP6nwmHbLhfX64P11e8X6ceeDvQynhdRrSCHXsblts8
+        hash: v1.k794b7964.635556871e6e66aba9e76c84da7e3f1d25d24fd83a78cc0110094218a759db80.i7hp0H_qV-jZuya2Q1ZeH1D2tRVeKXGIZuKxC7EpEsk
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
-        hash: v1.k794b7964.76d3914773ce95c73661a095c09cd13d3886fc71ed8619b405b52d03af75309e.7h4Yavt5bAp86IDjoyzG4duYQRyU4pDb5kMndOnOut0
+        hash: v1.k794b7964.bd0f86e82baa6bca754ced759529611f9824e8beb5b24b6e7b2883fdc9899ebb.Kc51-jp9A7vafwUSGMcYCwQ1Mtlw_3din1s1gKPO-NM
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
         hash: v1.k794b7964.c69d28ef03335511de9b7dd75d5ad1c0458272d5d8f340083cdb86acc3b3c888.KB3MNhE9xEjVSl9hmVpz2jLC0IAmOTvaVZBmrl3pNKs
     products-dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
@@ -6682,6 +6682,34 @@ snapshots:
         hash: v1.k794b7964.033fccd93730eb20949b5d46c3fa28a2cf70195b831b592445452e542355746b.6sVzTGZElazG0Ada-MV8GsA46N5FsgsFub2JeToqa_A
     products-dashboards-dashboard-widgets-widget-types-surveys-survey-results-widget-settings--default--light:
         hash: v1.k794b7964.99d53d26b9fa00291e6dc0684d510e776f9abe830ad4ba5808c481c2082fafbe.yMhRC4g18POYYwPvSXODRVzmAYEI4VOO_9yqjbodvGQ
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--empty--dark:
+        hash: v1.k794b7964.e4315c1bef311aebd8a865d2cab2d42e9b31d3317191117a45d551152d96ce09.SKyH9uHPxT3VI_TFm4-2LLiigRABGHs8OAp_RMFEMQw
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--empty--light:
+        hash: v1.k794b7964.a5c4cb35ea086fe9af4191336fc565d9012d6314af7b18b5a526cb9270ad5572.bUgoS6igir9ayQVnBDkcr28DOn9yrlMwji1WMG1TxEY
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--empty-with-filters--dark:
+        hash: v1.k794b7964.4fa6165c2064f9d7b1c6a6c8c1f1151c4d9b921561e3831af804d1afca3d5a93.I14uD0sTThs-umWPmtWLT3agC9wzWoa1AlsVKQUfXeU
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--empty-with-filters--light:
+        hash: v1.k794b7964.e45e193f70f20e0e572060f892114102f37cb2478f436925ae0276379672e9a5.DU6fwMdKG6cS4J15Wwn1sTMItdrwfALGv9IeDYt_RIc
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--error--dark:
+        hash: v1.k794b7964.704284cae8da86fc8a47037af544628b557d8ad2b2c6683648bfb8a73a8658db.gzGug24SFLtyOhzyTobIgTpvvU7GyetJI72NeYe7z8I
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--error--light:
+        hash: v1.k794b7964.2f02ffe637553d3bf4bcb93d21263ff36f913286f8ff6977b38575c7e25ea2bf.A-guKnvrre2CB63GsI7F1iep_tOvFrcPULRvfqfc7_c
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--loading--dark:
+        hash: v1.k794b7964.2909226931b5b0925be9313db59be9540a8b7e8144c76dc45f6b1eb3b0f16f54.i5YBFkOF2EQRxQFvler626WvAu6PATMZR28yTeMqosY
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--loading--light:
+        hash: v1.k794b7964.39266680ec5431a28777975084821ad5c5edc676a285bb0e44bd876ef0d64c1d.Rlwaqf692KZs2TE5ZcjhEugUsIvSFqS6p8fT5KUDKs0
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--populated--dark:
+        hash: v1.k794b7964.e866a0a39e413da0f86ae85ccc6432bffb6c482f18f9f802b932bd2f403a29c4.COkVwXhxzIJU5zelhm_cV9_sXKw1xNSZ3MXO3OYKbZY
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--populated--light:
+        hash: v1.k794b7964.3115b427471808f33ad80c4b561575554097cbe6666ca3e0281996d4043952bf.NGkC_T228Xon85x6a3sijtn-wnSyKjQHmKU7G1fPlaQ
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--tile-filters-read-only--dark:
+        hash: v1.k794b7964.db8628df64c9d03b6dcd0f3e66d042384b9cf03ae429d86290e0cc90b34efa37.m4bUG4lTLtjljRQ3lcAPjFisdEKmYtzPuFdmpjgg4dg
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity--tile-filters-read-only--light:
+        hash: v1.k794b7964.b65f25502977359bec17cf63112d21d2fec43a68a535c869cdc393fb97929588.yj1AzCCaSkaLQV8zersiiXe5neAxEsYkenp3C_0vbBY
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity-widget-settings--default--dark:
+        hash: v1.k794b7964.998dc6e6b23d0f72f026dc40c958ac55e315af174b76d2c9ff45421974604ad6.0U7U7hHhZPlFyTPKpLu7IyTrAdg2MW7gXE7rb7Z8RPs
+    products-dashboards-dashboard-widgets-widget-types-workflows-workflow-activity-widget-settings--default--light:
+        hash: v1.k794b7964.e6ef5e8a34573da31a27542fc8e2b5de14675be302b7922e0f865d6148cf98a7.JtofXU4VKOyLZgx3q0I-UxkX8yEmBxg_PRG6w7NIZuM
     products-dashboards-dashboard-widgets-widgetcard--default--dark:
         hash: v1.k794b7964.59dd4103fefd6fa5b0f0d5ed2cbed7284f64ffcd88f2a48780e63deebfe1f201.PE9eFDI4uDXsSr6BxvayAmUSu-menTTPcPK7vAhEgUE
     products-dashboards-dashboard-widgets-widgetcard--default--light:

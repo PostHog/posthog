@@ -8,6 +8,7 @@ import { ExperimentResultsWidgetPreview, ExperimentsListWidgetPreview } from './
 import { LogsWidgetPreview } from './LogsWidgetPreview'
 import { SessionReplayWidgetPreview } from './SessionReplayWidgetPreview'
 import { SurveyResultsWidgetPreview } from './SurveysWidgetPreviews'
+import { WorkflowsWidgetPreview } from './WorkflowsWidgetPreview'
 
 // Kept apart from the catalog: the catalog is imported by dashboardLogic and, through it, by the
 // app shell, while the previews render product UI (recordings player, error tracking list, logs)
@@ -24,4 +25,5 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     experiment_results: ExperimentResultsWidgetPreview,
     survey_results: SurveyResultsWidgetPreview,
     logs_list: LogsWidgetPreview,
+    workflows_list: WorkflowsWidgetPreview,
 }

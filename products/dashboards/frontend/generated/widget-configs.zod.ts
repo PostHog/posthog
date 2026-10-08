@@ -13,6 +13,7 @@ import { NotebookWidgetConfig as NotebookWidgetConfigComponent } from './widget-
 import { SessionReplayListWidgetConfig } from './widget-config-schemas/sessionReplayListWidgetConfig.zod'
 import { SurveyResultsWidgetConfig as SurveyResultsWidgetConfigComponent } from './widget-config-schemas/surveyResultsWidgetConfig.zod'
 import { WidgetFilterEntry } from './widget-config-schemas/widgetFilterEntry.zod'
+import { WorkflowsListWidgetConfig } from './widget-config-schemas/workflowsListWidgetConfig.zod'
 
 export const activityEventsWidgetConfigSchema = /* @__PURE__ */ ActivityEventsListWidgetConfig
 export const conversationsRecentTicketsWidgetConfigSchema =
@@ -24,6 +25,7 @@ export const logsWidgetConfigSchema = /* @__PURE__ */ LogsListWidgetConfig
 export const notebookWidgetConfigSchema = /* @__PURE__ */ NotebookWidgetConfigComponent
 export const sessionReplayWidgetConfigSchema = /* @__PURE__ */ SessionReplayListWidgetConfig
 export const surveyResultsWidgetConfigSchema = /* @__PURE__ */ SurveyResultsWidgetConfigComponent
+export const workflowsWidgetConfigSchema = /* @__PURE__ */ WorkflowsListWidgetConfig
 export const widgetFilterEntrySchema = /* @__PURE__ */ WidgetFilterEntry
 
 export type ActivityEventsWidgetConfig = zod.infer<typeof activityEventsWidgetConfigSchema>
@@ -35,6 +37,7 @@ export type LogsWidgetConfig = zod.infer<typeof logsWidgetConfigSchema>
 export type NotebookWidgetConfig = zod.infer<typeof notebookWidgetConfigSchema>
 export type SessionReplayWidgetConfig = zod.infer<typeof sessionReplayWidgetConfigSchema>
 export type SurveyResultsWidgetConfig = zod.infer<typeof surveyResultsWidgetConfigSchema>
+export type WorkflowsWidgetConfig = zod.infer<typeof workflowsWidgetConfigSchema>
 
 type WidgetFiltersRecord = NonNullable<ActivityEventsWidgetConfig['widgetFilters']>
 export type WidgetFilterConfigEntry = WidgetFiltersRecord[string]
@@ -93,4 +96,8 @@ export const surveyResultsWidgetFormSchema = surveyResultsWidgetConfigSchema.pic
     surveyId: true,
     limit: true,
     dateRange: true,
+})
+
+export const workflowsWidgetFormSchema = workflowsWidgetConfigSchema.pick({
+    limit: true,
 })
