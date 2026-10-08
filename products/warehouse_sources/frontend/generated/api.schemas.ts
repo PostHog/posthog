@@ -1213,6 +1213,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Squarespace` - Squarespace
  * * `Statsig` - Statsig
  * * `Statuspage` - Statuspage
+ * * `Steam` - Steam
  * * `Stigg` - Stigg
  * * `Strava` - Strava
  * * `SurveySparrow` - SurveySparrow
@@ -2589,6 +2590,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Squarespace: 'Squarespace',
     Statsig: 'Statsig',
     Statuspage: 'Statuspage',
+    Steam: 'Steam',
     Stigg: 'Stigg',
     Strava: 'Strava',
     SurveySparrow: 'SurveySparrow',
@@ -4112,6 +4114,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -5999,6 +6002,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -7455,6 +7459,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -8835,6 +8840,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -10269,6 +10275,7 @@ export interface SourcePreviewRequestApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -11684,6 +11691,7 @@ export interface SourceSetupApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -13106,6 +13114,7 @@ export interface SourceCredentialCreateApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
