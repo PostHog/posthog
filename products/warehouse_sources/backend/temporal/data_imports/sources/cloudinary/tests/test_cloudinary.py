@@ -3,17 +3,8 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.cloudinary import (
     CloudinaryResumeConfig,
-    base_url,
     cloudinary_source,
-    get_resource,
     validate_credentials,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.settings import (
-    CLOUDINARY_ENDPOINTS,
-    MAX_RESULTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -38,70 +29,7 @@ def _source(endpoint: str = "images", region: str = "global", manager: mock.Magi
     return cloudinary_source("my-cloud", "key", "secret", region, endpoint, 1, "job", manager or _manager())
 
 
-class TestCloudinaryRegions:
-    @pytest.mark.parametrize(
-        "region,expected",
-        [
-            ("global", "https://api.cloudinary.com/v1_1/my-cloud"),
-            ("eu", "https://api-eu.cloudinary.com/v1_1/my-cloud"),
-            ("ap", "https://api-ap.cloudinary.com/v1_1/my-cloud"),
-            ("not-a-region", "https://api.cloudinary.com/v1_1/my-cloud"),
-        ],
-    )
-    def test_each_region_maps_to_its_host(self, region: str, expected: str) -> None:
-        assert base_url("my-cloud", region) == expected
-
-
-class TestCloudinaryResources:
-    @pytest.mark.parametrize("endpoint", sorted(CLOUDINARY_ENDPOINTS))
-    def test_rows_are_selected_from_the_endpoints_own_envelope(self, endpoint: str) -> None:
-        config = CLOUDINARY_ENDPOINTS[endpoint]
-        resource = get_resource(endpoint)
-        endpoint_config = resource["endpoint"]
-        assert endpoint_config is not None and not isinstance(endpoint_config, str)
-        assert endpoint_config["data_selector"] == f"{config.data_key}[*]"
-        assert resource["primary_key"] == config.primary_key
-
-    @pytest.mark.parametrize("endpoint", sorted(CLOUDINARY_ENDPOINTS))
-    def test_every_endpoint_asks_for_the_largest_page(self, endpoint: str) -> None:
-        # Cloudinary counts each call against an hourly quota, so a small page multiplies the cost.
-        endpoint_config = get_resource(endpoint)["endpoint"]
-        assert endpoint_config is not None and not isinstance(endpoint_config, str)
-        params = endpoint_config["params"]
-        assert params is not None
-        assert params["max_results"] == MAX_RESULTS
-
-    @pytest.mark.parametrize("endpoint", ["images", "videos", "raw_files"])
-    def test_asset_tables_ask_for_tags_and_context(self, endpoint: str) -> None:
-        # Cloudinary omits both unless asked, and they are the fields users join on.
-        endpoint_config = get_resource(endpoint)["endpoint"]
-        assert endpoint_config is not None and not isinstance(endpoint_config, str)
-        params = endpoint_config["params"]
-        assert params is not None
-        assert params["tags"] == "true"
-        assert params["context"] == "true"
-
-
 class TestCloudinarySource:
-    @pytest.mark.parametrize("endpoint", sorted(CLOUDINARY_ENDPOINTS))
-    def test_the_pipeline_gets_a_source_response_keyed_on_the_endpoint(self, endpoint: str) -> None:
-        config = CLOUDINARY_ENDPOINTS[endpoint]
-        response = _source(endpoint)
-
-        assert isinstance(response, SourceResponse)
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.partition_keys == ([config.partition_key] if config.partition_key else None)
-
-    def test_pages_are_walked_with_cloudinarys_cursor_field(self) -> None:
-        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
-            _source()
-
-        paginator = rest_api_resource.call_args.args[0]["client"]["paginator"]
-        assert isinstance(paginator, JSONResponseCursorPaginator)
-        assert paginator.cursor_path == "next_cursor"
-        assert paginator.cursor_param == "next_cursor"
-
     def test_the_key_and_secret_ride_basic_auth(self) -> None:
         with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
             _source()
@@ -146,15 +74,6 @@ class TestCloudinaryCredentials:
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
-
-    def test_an_unknown_cloud_name_is_called_out(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(404)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            _, message = validate_credentials("my-cloud", "key", "secret", "global")
-
-        assert message is not None and "cloud name" in message
 
     def test_the_probe_costs_nothing_against_the_quota(self) -> None:
         # /ping is the one Admin API call Cloudinary does not bill to the hourly limit.

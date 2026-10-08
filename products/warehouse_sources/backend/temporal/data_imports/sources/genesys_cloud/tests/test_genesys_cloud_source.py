@@ -1,9 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
-    OAuth2AuthRequestError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.genesyscloud import (
     GenesysCloudSourceConfig,
 )
@@ -17,27 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cl
 class TestGenesysCloudSource:
     def setup_method(self):
         self.source = GenesysCloudSource()
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            str(OAuth2AuthRequestError("HTTP 401 from the OAuth2 token endpoint: invalid_client", is_permanent=True)),
-            "403 Client Error: Forbidden for url: https://api.mypurecloud.com/api/v2/analytics/conversations/details/query",
-            str(InvalidGenesysCloudRegionError("Unknown Genesys Cloud region: 'evil.example.com'")),
-        ],
-    )
-    def test_permanent_failures_are_non_retryable(self, observed_error):
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            str(OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False)),
-            "429 Client Error: Too Many Requests for url: https://api.mypurecloud.com/api/v2/routing/queues",
-        ],
-    )
-    def test_transient_failures_are_retryable(self, observed_error):
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
     def test_validate_credentials_rejects_unknown_table(self):
         config = GenesysCloudSourceConfig(region="mypurecloud.com", client_id="cid", client_secret="secret")

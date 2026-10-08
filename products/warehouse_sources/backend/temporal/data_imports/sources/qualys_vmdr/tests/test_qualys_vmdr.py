@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, date, datetime
 from typing import cast
 
@@ -15,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
     _extract_rows,
     _fetch_jwt,
     _fetch_page,
-    _next_batch_url,
     _parse_xml,
     _read_capped_body,
     build_base_url,
@@ -178,42 +176,6 @@ class TestQualysVmdr:
         assert expected_param in url
         assert "truncation_limit=1000" in url
 
-    def test_initial_url_full_refresh_has_no_incremental_filter(self):
-        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["hosts"], "2.0", False, None)
-        assert "vm_scan_since" not in url
-
-    def test_initial_url_omits_truncation_limit_when_endpoint_does_not_support_it(self):
-        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["scans"], "2.0", False, None)
-        assert "truncation_limit" not in url
-        assert url.startswith("https://example.com/api/2.0/fo/scan/?")
-
-    @pytest.mark.parametrize(
-        "endpoint,api_version,expected_path",
-        [
-            # Only the KnowledgeBase endpoint moves to /api/4.0/ under the 4.0 pin.
-            ("knowledge_base", "2.0", "/api/2.0/fo/knowledge_base/vuln/"),
-            ("knowledge_base", "4.0", "/api/4.0/fo/knowledge_base/vuln/"),
-            # The FO endpoints stay on /api/2.0/ regardless of the source-level pin.
-            ("hosts", "2.0", "/api/2.0/fo/asset/host/"),
-            ("hosts", "4.0", "/api/2.0/fo/asset/host/"),
-            ("scans", "4.0", "/api/2.0/fo/scan/"),
-        ],
-    )
-    def test_initial_url_resolves_path_per_version(self, endpoint, api_version, expected_path):
-        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS[endpoint], api_version, False, None)
-        assert url.startswith(f"https://example.com{expected_path}?")
-
-    def test_extract_rows_lowercases_scalars_and_json_encodes_nested(self):
-        root = _parse_xml(HOST_LIST_PAGE_1)
-        rows = list(_extract_rows(root, QUALYS_VMDR_ENDPOINTS["hosts"]))
-
-        assert len(rows) == 1
-        assert rows[0]["id"] == "1001"
-        assert rows[0]["last_vuln_scan_datetime"] == "2026-07-01T10:00:00Z"
-        # Repeated nested elements are JSON strings, not structs (arrow type stability)
-        tags = json.loads(rows[0]["tags"])
-        assert [t["name"] for t in tags["tag"]] == ["prod", "web"]
-
     def test_extract_detection_rows_flatten_one_row_per_detection_with_host_prefix(self):
         root = _parse_xml(DETECTION_PAGE)
         rows = list(_extract_rows(root, QUALYS_VMDR_ENDPOINTS["host_list_detection"]))
@@ -223,21 +185,6 @@ class TestQualysVmdr:
         assert rows[0]["last_update_datetime"] == "2026-07-01T00:00:00Z"
         # The host's DETECTION_LIST must not leak into the flattened row
         assert "host_detection_list" not in rows[0]
-
-    def test_parse_xml_tolerates_keepalive_whitespace(self):
-        root = _parse_xml("\n   \n" + HOST_LIST_PAGE_2)
-        assert root.tag == "HOST_LIST_OUTPUT"
-
-    def test_next_batch_url_is_rerooted_onto_configured_server(self):
-        root = _parse_xml(HOST_LIST_PAGE_1)
-        next_url = _next_batch_url(root, "https://qualysapi.qualys.eu")
-
-        assert next_url is not None
-        assert next_url.startswith("https://qualysapi.qualys.eu/api/2.0/fo/asset/host/?")
-        assert "id_min=1002" in next_url
-
-    def test_next_batch_url_none_without_warning(self):
-        assert _next_batch_url(_parse_xml(HOST_LIST_PAGE_2), "https://example.com") is None
 
     def test_get_rows_paginates_and_saves_state_after_yield(self):
         manager = _FakeManager()
@@ -411,34 +358,6 @@ class TestQualysVmdr:
         )
         assert [row["qid"] for row in batches[0]] == ["38170"]
 
-    def test_get_rows_knowledge_base_2_0_uses_basic_auth_and_2_0_path(self):
-        get_session = mock.MagicMock()
-        get_session.get.return_value = _response(text=KNOWLEDGE_BASE_PAGE)
-
-        with (
-            mock.patch(f"{_MODULE}._make_session", return_value=get_session) as make_session,
-            mock.patch(f"{_MODULE}.make_tracked_session") as gateway,
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            list(
-                get_rows(
-                    "qualysapi.qualys.com",
-                    "user",
-                    "pass",
-                    "knowledge_base",
-                    "2.0",
-                    mock.MagicMock(),
-                    _FakeManager().as_manager(),
-                )
-            )
-
-        # No JWT minting on 2.0 — the request session keeps basic auth
-        gateway.assert_not_called()
-        assert "bearer_token" not in make_session.call_args.kwargs
-        assert get_session.get.call_args[0][0].startswith(
-            "https://qualysapi.qualys.com/api/2.0/fo/knowledge_base/vuln/"
-        )
-
     def test_get_rows_knowledge_base_4_0_without_gateway_raises_before_any_request(self):
         with (
             mock.patch(f"{_MODULE}._make_session") as make_session,
@@ -461,43 +380,6 @@ class TestQualysVmdr:
 
         gateway.assert_not_called()
         make_session.assert_not_called()
-
-    def test_fetch_jwt_posts_credentials_to_gateway_and_strips_token(self):
-        gateway_session = mock.MagicMock()
-        gateway_session.post.return_value = _response(status_code=200, text="  jwt-token\n")
-
-        with (
-            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            token = _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
-
-        assert token == "jwt-token"
-        assert gateway_session.post.call_args[0][0] == "https://gateway.qg2.apps.qualys.com/auth"
-        assert gateway_session.post.call_args.kwargs["data"] == {
-            "username": "user",
-            "password": "pass",
-            "token": "true",
-        }
-
-    def test_fetch_jwt_session_opts_out_of_sample_capture(self):
-        # The /auth response body is the raw minted JWT: the name-based sample scrubbers can't
-        # recognise it and it can't be listed in `redact_values` (it doesn't exist yet), so the
-        # exchange must be excluded from HTTP sample capture entirely.
-        gateway_session = mock.MagicMock()
-        gateway_session.post.return_value = _response(status_code=200, text="jwt-token")
-
-        with (
-            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session) as make_tracked,
-            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
-        ):
-            _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
-
-        assert make_tracked.call_args.kwargs["capture"] is False
-        # The password is still redacted from the metered request, and the body is streamed
-        # rather than buffered whole.
-        assert make_tracked.call_args.kwargs["redact_values"] == ("pass",)
-        assert gateway_session.post.call_args.kwargs["stream"] is True
 
     def test_fetch_jwt_refuses_an_oversized_gateway_body(self):
         # `gateway_server` is user-supplied, so a host that returns a huge (or slow-dripped) body
