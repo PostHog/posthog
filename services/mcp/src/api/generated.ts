@@ -112633,6 +112633,8 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
+      /** Set only when the query returned no points: what to check before querying again. */
+      hint?: string;
     }
 
     export interface _MetricSamplesBody {
