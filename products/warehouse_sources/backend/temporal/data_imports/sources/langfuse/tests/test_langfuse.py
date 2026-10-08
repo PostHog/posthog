@@ -5,6 +5,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse import langfuse as langfuse_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.langfuse import (
     HOST_NOT_ALLOWED_ERROR,
@@ -54,6 +56,12 @@ def _page(items: list[dict[str, Any]], *, page: int, total_pages: int) -> mock.M
 
 def _trace(trace_id: str, timestamp: str) -> dict[str, Any]:
     return {"id": trace_id, "timestamp": timestamp}
+
+
+def _not_found() -> mock.MagicMock:
+    response = _response(status_code=404, text="Not found")
+    response.raise_for_status.side_effect = requests.HTTPError("404 Client Error", response=response)
+    return response
 
 
 def _cursor_page(items: list[dict[str, Any]], *, cursor: Optional[str]) -> mock.MagicMock:
@@ -415,6 +423,72 @@ class TestGetRows:
             )
         assert langfuse_module.PAGE_LIMIT_ERROR in str(exc.value)
         assert manager.save_state.call_args.args[0].page == 3
+
+    def test_parent_id_listing_over_byte_budget_raises_non_retryable(self):
+        # Parent ids are all buffered before the first child row is yielded, so a hostile host
+        # streaming unique large ids must be cut off at the budget rather than grow worker memory.
+        manager = self._manager()
+        with (
+            mock.patch.object(langfuse_module, "MAX_PARENT_ID_BYTES", 100),
+            pytest.raises(langfuse_module.LangfuseResponseTooLargeError) as exc,
+        ):
+            self._run(
+                manager,
+                [_page([{"id": "q-aaaaaa"}, {"id": "q-bbbbbb"}], page=1, total_pages=1)],
+                endpoint="annotation_queue_items",
+            )
+        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(exc.value)
+
+    def test_fan_out_walks_every_parent_and_checkpoints_the_next_one(self):
+        manager = self._manager()
+        rows, session = self._run(
+            manager,
+            [
+                _page([{"id": "q-c"}, {"id": "q/a"}], page=1, total_pages=2),
+                _page([{"id": "q-b"}], page=2, total_pages=2),
+                _page([{"id": "i1", "queueId": "q-b"}], page=1, total_pages=2),
+                _page([{"id": "i2", "queueId": "q-b"}], page=2, total_pages=2),
+                _not_found(),
+                _page([{"id": "i3", "queueId": "q/a"}], page=1, total_pages=1),
+            ],
+            endpoint="annotation_queue_items",
+        )
+
+        assert [r["id"] for r in rows] == ["i1", "i2", "i3"]
+        urls = [c.args[0] for c in session.get.call_args_list]
+        assert urls[2:] == [
+            "https://cloud.langfuse.com/api/public/annotation-queues/q-b/items",
+            "https://cloud.langfuse.com/api/public/annotation-queues/q-b/items",
+            "https://cloud.langfuse.com/api/public/annotation-queues/q-c/items",
+            "https://cloud.langfuse.com/api/public/annotation-queues/q%2Fa/items",
+        ]
+        saved = [(c.args[0].parent_id, c.args[0].page) for c in manager.save_state.call_args_list]
+        assert saved == [("q-b", 2), ("q-c", 1), ("q/a", 1)]
+
+    @pytest.mark.parametrize(
+        "saved_parent, expected_url_parent, expected_page",
+        [
+            ("q-b", "q-b", 3),
+            # The saved parent was deleted, so its successor starts from its first page.
+            ("q-bb", "q-c", 1),
+        ],
+    )
+    def test_fan_out_resumes_from_saved_parent(self, saved_parent, expected_url_parent, expected_page):
+        manager = self._manager(LangfuseResumeConfig(page=3, parent_id=saved_parent))
+        rows, session = self._run(
+            manager,
+            [
+                _page([{"id": "q-a"}, {"id": "q-b"}, {"id": "q-c"}], page=1, total_pages=1),
+                _page([{"id": "i9", "queueId": expected_url_parent}], page=expected_page, total_pages=expected_page),
+                _page([], page=1, total_pages=0),
+            ],
+            endpoint="annotation_queue_items",
+        )
+
+        assert [r["id"] for r in rows] == ["i9"]
+        resumed = session.get.call_args_list[1]
+        assert resumed.args[0].endswith(f"/annotation-queues/{expected_url_parent}/items")
+        assert resumed.kwargs["params"]["page"] == expected_page
 
 
 class TestRetryBehavior:

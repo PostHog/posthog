@@ -4864,10 +4864,10 @@ Today (16): `activities`, `app_events`, `apps`, `deployment_events`, `deployment
 
 Diffed against: <https://raw.githubusercontent.com/koyeb/koyeb-api-client-go/main/api/v1/koyeb/api/openapi.yaml>
 
-- [ ] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high)
-- [ ] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high)
-- [ ] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high)
-- [ ] `/v1/usages` — org-level usage rollup; PostHog syncs only usages/details, so totals must be re-derived (medium)
+- [x] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high). Added as `catalog_instances`.
+- [x] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high). Added as `catalog_regions`.
+- [x] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high). Added as `projects`.
+- ~~`/v1/usages`~~ — not table material: the reply is one nested object per period that sums `duration_seconds` by app, service, region and instance type. `usage_details` already holds those per-run durations, so the rollup is a `GROUP BY` over it.
 - [ ] `/v1/volume_events` — volume lifecycle history, the only event stream missing while app/service/deployment/instance events are synced (medium)
 - [ ] `/v1/regional_deployment_events` — per-region deployment transition history to explain rollout failures (medium)
 - [ ] `/v1/catalog/datacenters` — lookup mapping datacenter ids on regional deployments to physical locations (medium)
@@ -4921,14 +4921,14 @@ Note: Kustomer's ReadMe-hosted reference blocks machine-readable spec fetches (s
 
 ## Lacework — gaps
 
-Today (10): `agent_info`, `alerts`, `audit_logs`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_machines`, `vulnerabilities_containers`, `vulnerabilities_hosts`
+Today (17): `agent_info`, `alerts`, `audit_logs`, `cloud_accounts`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_containers`, `entities_images`, `entities_machines`, `inventory_aws`, `inventory_azure`, `inventory_gcp`, `policies`, `vulnerabilities_containers`, `vulnerabilities_hosts`
 
 Diffed against: <https://api.lacework.net/api/v2/docs/lacework-api-v2.0.yaml>
 
-- [ ] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
-- [ ] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
-- [ ] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
-- [ ] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
+- [x] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
+- [x] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
+- [x] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
+- [x] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
 - [ ] `POST /api/v2/CloudActivities/search` — cloud control-plane activity trail, the main behavioral dataset alongside alerts (medium)
 - [ ] `POST /api/v2/Entities/Packages/search` — installed package inventory that vulnerability findings reference (medium)
 - [ ] `POST /api/v2/Activities/UserLogins/search` — login activity for identity-risk analysis (medium)
@@ -4969,15 +4969,15 @@ Note: The Lambda Cloud API v1.10.0 exposes 24 paths and every GET-able collectio
 
 ## Langfuse — gaps
 
-Today (8): `dataset_items`, `datasets`, `models`, `observations`, `prompts`, `scores`, `sessions`, `traces`
+Today (11): `annotation_queue_items`, `annotation_queues`, `dataset_items`, `datasets`, `models`, `observations`, `prompts`, `score_configs`, `scores`, `sessions`, `traces`
 
 Diffed against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
-- [ ] `GET /api/public/dataset-run-items` — join table linking dataset items to the trace/observation produced in each eval run - without it synced dataset_items and traces cannot be joined (high)
-- [ ] `GET /api/public/datasets/{datasetName}/runs` — the eval run records that dataset-run-items and scores hang off; the unit of 'how did this prompt version do' (high)
-- [ ] `GET /api/public/score-configs` — lookup that resolves the config, data type and categorical values behind the score rows already synced (high)
+- [ ] `GET /api/public/dataset-run-items` — join table linking dataset items to the trace/observation produced in each eval run - without it synced dataset_items and traces cannot be joined (high) — skipped: deprecated, removed from Langfuse Cloud on 2026-11-16; superseded by `GET /api/public/experiment-items`
+- [ ] `GET /api/public/datasets/{datasetName}/runs` — the eval run records that dataset-run-items and scores hang off; the unit of 'how did this prompt version do' (high) — skipped: deprecated, removed from Langfuse Cloud on 2026-11-16; superseded by `GET /api/public/experiments`
+- [x] `GET /api/public/score-configs` — lookup that resolves the config, data type and categorical values behind the score rows already synced (high)
 - [ ] `GET /api/public/experiments and GET /api/public/experiment-items` — experiment runs and their per-item results, the headline eval surface (medium)
-- [ ] `GET /api/public/annotation-queues, /{queueId}/items` — human annotation queue state and per-item status for review throughput analysis (medium)
+- [x] `GET /api/public/annotation-queues, /{queueId}/items` — human annotation queue state and per-item status for review throughput analysis (medium)
 - [ ] `GET /api/public/comments` — human comments attached to traces/observations/sessions, useful for qualitative review joins (low)
 - [ ] `GET /api/public/organizations/memberships and /projects/{projectId}/memberships` — org/project membership lookup resolving user ids seen on traces and annotations (org-scoped key required) (low)
 
@@ -4989,10 +4989,10 @@ Today (6): `annotation_queues`, `datasets`, `examples`, `feedback`, `projects`, 
 
 Diffed against: <https://api.smith.langchain.com/openapi.json>
 
-- [ ] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high)
-- [ ] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high)
-- [ ] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high)
-- [ ] `GET /v2/datasets/{dataset_id}/experiment-runs` — experiment results per dataset, the core evaluation output (high)
+- [x] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high) — synced as `threads`; the query already returns each thread's stats, so the per-thread stats call is not used
+- [x] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high) — synced as `workspaces`; `/tenants` returns the same list and can create a personal workspace when called, so it is not used
+- [x] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high) — synced as `annotation_queue_runs`
+- ~~`GET /v2/datasets/{dataset_id}/experiment-runs`~~ — not a separate table: it is a POST that needs the experiment ids up front and returns each dataset example with its experiment runs nested inside. Experiments are tracing projects, so their runs already land in `runs` (with `session_id` and `reference_example_id`) and their examples in `examples`; this endpoint only joins the two (high)
 - [ ] `GET /api/v1/model-price-map` — lookup mapping model names on runs to token prices, so run cost can be recomputed (medium)
 - [ ] `GET /api/v1/datasets/{dataset_id}/versions and /splits` — dataset version history and split assignment, needed to compare experiments fairly (medium)
 - [ ] `GET /api/v1/orgs/current/members and /api/v1/workspaces/current/members` — membership tables resolving the user ids that appear on feedback and annotations (medium)
@@ -5006,15 +5006,15 @@ Note: The spec has 365 paths. PostHog's `projects` table maps to /api/v1/session
 
 ## Lattice — gaps
 
-Today (6): `departments`, `feedbacks`, `goals`, `review_cycles`, `updates`, `users`
+Today (10): `departments`, `feedbacks`, `goal_updates`, `goals`, `review_cycles`, `reviewees`, `reviews`, `tags`, `updates`, `users`
 
 Diffed against: <https://developers.lattice.com/reference>
 
-- [ ] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
-- [ ] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
-- [ ] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
+- [x] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
+- [x] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
+- [x] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
 - [ ] `GET /v1/user/{id}/tasks` — task records tied to goals and users, commonly wanted for follow-through analysis (medium)
-- [ ] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
+- [x] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
 - [ ] `GET /v1/user/{id}/customAttributes (+ /v1/customAttribute/{id}, /v1/customAttributeValue/{id})` — custom HR attributes per user plus the lookup that decodes their ids - the main segmentation dimension (medium)
 - [ ] `GET /v1/question/{id} and /v1/questionRevision/{id}` — lookup resolving question ids carried on reviews and feedback (fetch-by-id only, no list endpoint) (low)
 - [ ] `GET /v1/competency/{id}` — competency lookup referenced by review questions and ratings (low)
@@ -7828,11 +7828,14 @@ Note: Coverage is solid for the images and videos verticals (categories, collect
 
 ## SigmaComputing — gaps
 
-Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+Today (13): `Connections`, `DataModels`, `Members`, `ReportElements`, `ReportPages`, `ReportQueries`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
 
 Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
 
 - [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
+- [x] `report elements (GET /v2/reports/{reportId}/elements)` — per-report charts, tables, and controls, fanned out from reports like the workbook elements table, added here
+- [x] `report pages (GET /v2/reports/{reportId}/pages)` — per-report page list, fanned out from reports, added here
+- [x] `report queries (GET /v2/reports/{reportId}/queries)` — SQL behind each report element for query auditing, fanned out from reports, added here
 
 ## SigNoz — gaps
 
@@ -9541,6 +9544,7 @@ Diffed against: <https://developers.wrike.com/sitemap.xml>
 - [ ] `comments (GET /comments, GET /tasks/{id}/comments)` — collaboration volume per task and folder (medium)
 - [ ] `approvals (GET /approvals, GET /tasks/{id}/approvals)` — approval state and turnaround per task/folder (medium)
 - [ ] `dependencies (GET /tasks/{id}/dependencies)` — the task graph edges needed for critical-path and blocker analysis (medium)
+- [x] `project_dependencies (GET /folders/{folderId}/dependencies)` — project-to-project dependency edges for portfolio scheduling (medium)
 - [ ] `bookings (GET /bookings)` — resource allocations to compare planned vs logged effort (medium)
 - [ ] `timesheets (GET /timesheets)` — submitted timesheet periods and their approval state (medium)
 - [ ] `audit_log (GET /audit_log)` — account-level change events across all entities (medium)
@@ -9788,7 +9792,7 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (12): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
+Today (14): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
@@ -9804,5 +9808,7 @@ Diffed against: <https://developer.zylo.com/sitemap.xml>
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)
 - [ ] `/v2/workflows and /v2/workflows/{workflowId}/responses` — app-request and review workflow responses - per-response rows for governance reporting (low)
 - [ ] `/v2/companyDocuments` — document metadata (MSAs, DPAs) linked to suppliers and contracts already synced (low)
+- [x] `/v2/automations` — automation configurations and their latest run status; needs a token with the automation role (`automations`)
+- [x] `/v2/automations/{automationId}/executions` — execution history per automation, fanned out over `/v2/automations`
 
-Note: Tables are static in products/warehouse_sources/backend/temporal/data_imports/sources/zylo/settings.py (ZYLO_ENDPOINTS), no dynamic discovery. Zylo does not publish a downloadable OpenAPI file - the docs are a ReadMe.io site - so I enumerated every operation from https://developer.zylo.com/sitemap.xml and confirmed each reported path by pulling the embedded operation JSON from the individual reference pages (e.g. https://developer.zylo.com/reference/userscontroller\_getusers yields "path":"/v2/users"). Deliberately excluded as config/plumbing: /v2/alerts, /v2/integrations, /v2/automations (+executions), /v2/company, payment upload jobs, and the reporting/query job endpoints. Note /v2/purchaseOrders is already flagged in-repo as scope-gated, so some of these may 403 for keys lacking spend:read.
+Note: Tables are static in products/warehouse_sources/backend/temporal/data_imports/sources/zylo/settings.py (ZYLO_ENDPOINTS), no dynamic discovery. Zylo does not publish a downloadable OpenAPI file - the docs are a ReadMe.io site - so I enumerated every operation from https://developer.zylo.com/sitemap.xml and confirmed each reported path by pulling the embedded operation JSON from the individual reference pages (e.g. https://developer.zylo.com/reference/userscontroller\_getusers yields "path":"/v2/users"). Deliberately excluded as config/plumbing: /v2/alerts, /v2/integrations, /v2/company, payment upload jobs, and the reporting/query job endpoints. Note /v2/purchaseOrders is already flagged in-repo as scope-gated, so some of these may 403 for keys lacking spend:read.
