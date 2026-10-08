@@ -9,6 +9,7 @@ import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
 import { ProbabilityHistogram } from '../ProbabilityHistogram'
 import { EmptyTab } from './EmptyTab'
+import { PredictionActionsPanel } from './PredictionActionsPanel'
 import { PredictionSegmentCards } from './PredictionSegmentCards'
 import { ProbabilityUsersTable } from './ProbabilityUsersTable'
 import { ScoreNowButton } from './ScoreNowButton'
@@ -94,6 +95,8 @@ export function PredictionsTab(): JSX.Element {
             </p>
 
             <PredictionSegmentCards />
+
+            <PredictionActionsPanel />
 
             <LemonCollapse
                 multiple
