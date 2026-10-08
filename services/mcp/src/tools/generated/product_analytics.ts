@@ -61,6 +61,28 @@ const AssistantDataVisualizationYAxisSettings = z.object({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
+const AssistantDataVisualizationMetricSettings = z.object({
+    showChange: z.coerce.boolean().optional(),
+    summary: z.enum(['total', 'average', 'latest']).optional(),
+})
+
+const PieChartSettings = z.object({
+    showTotal: z.coerce
+        .boolean()
+        .describe('Whether to show the aggregation total. Defaults to on only when slices show values.')
+        .optional(),
+    sliceContent: z
+        .enum(['labels', 'values', 'none'])
+        .describe('What to render on each slice. Defaults to values.')
+        .optional(),
+    valueDisplay: z
+        .enum(['absolute', 'percentage'])
+        .describe(
+            'Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`.'
+        )
+        .optional(),
+})
+
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
     color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
     displayType: z
@@ -125,6 +147,14 @@ const AssistantDataVisualizationChartSettings = z.object({
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    legendPosition: z
+        .enum(['top', 'bottom', 'left', 'right'])
+        .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
+        .optional(),
+    metric: AssistantDataVisualizationMetricSettings.describe(
+        'Settings for `Metric`. `summary` defaults to `latest`.'
+    ).optional(),
+    pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
         'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
     ).optional(),
@@ -162,9 +192,12 @@ const AssistantDataVisualizationChartSettings = z.object({
 const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsTable',
     'BoldNumber',
+    'Metric',
     'ActionsLineGraph',
     'ActionsBar',
+    'ActionsBarValue',
     'ActionsPie',
+    'ActionsDonut',
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
@@ -186,7 +219,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
@@ -315,7 +348,7 @@ const insightCreate = (): ToolBase<
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
-            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_name` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert.\n'
+            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_code` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert.\n'
         )
     },
 })
