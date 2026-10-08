@@ -4,15 +4,22 @@ import { NewSessionSpaceSource, newSessionSpace } from './newSessionSceneLogic'
 const space = (id: string, systemRole: ChannelDTOApi['system_role'] = null): ChannelDTOApi =>
     ({ id, name: id, system_role: systemRole }) as ChannelDTOApi
 
-const SPACES = [space('general', 'general'), space('me', 'personal'), space('checkout')]
-
 describe('newSessionSpace', () => {
-    it.each<[string, string | null, string, NewSessionSpaceSource]>([
-        ['a space’s own New session keeps its space', 'checkout', 'checkout', 'route'],
-        ['a generic New chat always starts personal', null, 'me', 'personal'],
-        ['a deleted route space falls back to personal', 'gone', 'me', 'personal'],
-    ])('%s', (_, routeSpaceId, expectedId, expectedSource) => {
-        const { space: chosen, source } = newSessionSpace(SPACES, routeSpaceId)
+    it.each<[string, ChannelDTOApi[], string | undefined, NewSessionSpaceSource | null]>([
+        [
+            'starts personal even when a team space comes first',
+            [space('general', 'general'), space('me', 'personal'), space('checkout')],
+            'me',
+            'personal',
+        ],
+        [
+            'never falls back to a shared space without a personal one',
+            [space('general', 'general'), space('checkout')],
+            undefined,
+            null,
+        ],
+    ])('%s', (_, spaces, expectedId, expectedSource) => {
+        const { space: chosen, source } = newSessionSpace(spaces)
         expect({ id: chosen?.id, source }).toEqual({ id: expectedId, source: expectedSource })
     })
 })

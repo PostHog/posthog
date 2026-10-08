@@ -58,7 +58,7 @@ export function NewSessionScene(): JSX.Element {
                                 Start a new chat
                             </Heading>
                             <Text variant="muted" className="mb-5">
-                                Only you can see this chat. You can make it public later.
+                                Only you can see this chat.
                             </Text>
                             {resolving ? (
                                 <SpaceTaskComposerSkeleton />
