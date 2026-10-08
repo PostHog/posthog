@@ -346,8 +346,11 @@ rules:
                               |RepoRoutingRule
                               |ReviewReport
                               |ReviewReportArtefact
+                              |ReviewRepository
+                              |ReviewRepositoryPerson
                               |ReviewSkillConfig
                               |ReviewUserSettings
+                              |ReviewUserRepositoryChoice
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |SandboxSession
@@ -788,8 +791,11 @@ rules:
                         |RepoRoutingRule
                         |ReviewReport
                         |ReviewReportArtefact
+                        |ReviewRepository
+                        |ReviewRepositoryPerson
                         |ReviewSkillConfig
                         |ReviewUserSettings
+                        |ReviewUserRepositoryChoice
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |SandboxSession
