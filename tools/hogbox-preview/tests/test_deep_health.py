@@ -143,6 +143,13 @@ class OverrideTemporalParityTest(unittest.TestCase):
         override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
         self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 3)
 
+    def test_feature_flags_reads_the_caches_django_writes(self):
+        override = self._override()
+        flags_block = override.split("  feature-flags:", 1)[1].split("  ingestion-general:", 1)[0]
+        self.assertIn(f"FLAGS_REDIS_URL={PostHogPreviewStack.FLAGS_REDIS_URL}", flags_block)
+        self.assertIn("OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000", flags_block)
+        self.assertEqual(override.count(f"FLAGS_REDIS_URL={PostHogPreviewStack.FLAGS_REDIS_URL}"), 4)
+
     def test_worker_pins_the_image(self):
         # dev-full's worker carries `build: .` — an unpinned image turns
         # `up --no-build` into the 20-min build.
@@ -255,6 +262,7 @@ class TemplateSyncTest(unittest.TestCase):
             "start_cdp_service",
             "sync_hog_function_templates",
             "sync_feature_flags",
+            "warm_flag_caches",
             "up_web",
             "wait_for_health",
             "deep_health",
@@ -270,7 +278,8 @@ class TemplateSyncTest(unittest.TestCase):
         self.assertLess(events.index("migrate"), events.index("start_cdp_service"))
         self.assertLess(events.index("start_cdp_service"), events.index("sync_hog_function_templates"))
         self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
-        self.assertLess(events.index("sync_feature_flags"), events.index("up_web"))
+        self.assertLess(events.index("sync_feature_flags"), events.index("warm_flag_caches"))
+        self.assertLess(events.index("warm_flag_caches"), events.index("up_web"))
 
     def test_cdp_service_uses_the_published_image_configuration(self):
         backend = _RecordingBackend()

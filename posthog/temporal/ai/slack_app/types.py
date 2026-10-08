@@ -165,6 +165,17 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
+class SlackAppModelRouterInput(BaseModel):
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    user_id: int
+    event_text: str
+    thread_ts: str | None = None
+    repository: str | None = None
+    model_override: SlackAppModelOverride | None = None
+
+
 class SlackAppProjectRouteInput(BaseModel):
     """Single-argument input for the project-route classifier activity.
 

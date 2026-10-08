@@ -54,3 +54,30 @@ class WorkflowProposalStatus(LabeledStrEnum):
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
     APPLIED = "applied", "Applied"
+
+
+class HogFlowState(LabeledStrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class HogFlowOriginProduct(LabeledStrEnum):
+    """The product surface that owns a workflow. Null for workflows built in the workflows UI or the API."""
+
+    LOOPS = "loops", "Loops"
+    BROADCASTS = "broadcasts", "Broadcasts"
+
+
+class HogFlowEmailSendingPausedBy(LabeledStrEnum):
+    AUTO = "auto", "auto"
+    STAFF = "staff", "staff"
+
+
+class HogFlowExitCondition(LabeledStrEnum):
+    # The same choices as HogFlowTemplateExitCondition, kept as a separate class so each owner keeps its
+    # own enum and the shared OpenAPI component name does not change.
+    CONVERSION = "exit_on_conversion"
+    TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
+    TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
+    ONLY_AT_END = "exit_only_at_end"
