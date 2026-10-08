@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { hogFlowsRevisionsList, hogFlowsRevisionsRetrieve } from '../../../../generated/api'
@@ -32,6 +33,11 @@ export interface aiTaskInstructionsCompareLogicValues {
     revision: HogFlowRevisionApi | null
     revisionLoadFailed: boolean
     revisionLoading: boolean
+    revisionOptions: {
+        label: string
+        labelInMenu: string
+        value: number
+    }[]
     revisions: HogFlowRevisionBasicApi[]
     revisionsLoadFailed: boolean
     revisionsResponse: PaginatedHogFlowRevisionBasicListApi | null
@@ -85,6 +91,11 @@ export interface aiTaskInstructionsCompareLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         revisions: (revisionsResponse: PaginatedHogFlowRevisionBasicListApi | null) => HogFlowRevisionBasicApi[]
+        revisionOptions: (revisions: HogFlowRevisionBasicApi[]) => {
+            label: string
+            labelInMenu: string
+            value: number
+        }[]
         selectedRevisionPrompt: (
             selectedVersion: number | null,
             revision: HogFlowRevisionApi | null,
@@ -178,6 +189,15 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
             (response: PaginatedHogFlowRevisionBasicListApi | null): HogFlowRevisionBasicApi[] =>
                 response?.results ?? [],
         ],
+        revisionOptions: [
+            (s) => [s.revisions],
+            (revisions: HogFlowRevisionBasicApi[]): { value: number; label: string; labelInMenu: string }[] =>
+                revisions.map((revision) => ({
+                    value: revision.version,
+                    label: `v${revision.version}`,
+                    labelInMenu: `v${revision.version} · ${dayjs(revision.created_at).format('MMM D, YYYY')}`,
+                })),
+        ],
         // undefined while the chosen version loads, and null when the step is not an AI task in it.
         selectedRevisionPrompt: [
             (s) => [s.selectedVersion, s.revision, (_, props) => props.actionId],
@@ -203,6 +223,7 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
             posthog.capture('workflows ai task instructions compared', {
                 workflow_id: props.workflowId,
                 compared_version: values.selectedVersion ?? 'live',
+                trigger: 'open',
             })
         },
         selectVersion: ({ version }) => {
@@ -213,6 +234,7 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
             posthog.capture('workflows ai task instructions compared', {
                 workflow_id: props.workflowId,
                 compared_version: version ?? 'live',
+                trigger: 'select_version',
             })
         },
     })),

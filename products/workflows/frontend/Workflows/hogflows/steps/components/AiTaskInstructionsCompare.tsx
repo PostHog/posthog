@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconClock } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { InstructionsDiff } from '../../../InstructionsDiff'
@@ -17,7 +15,8 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
     const {
         isOpen,
         selectedVersion,
-        revisions,
+        revisionOptions,
+        revisionsResponse,
         revisionsResponseLoading,
         revisionsLoadFailed,
         selectedRevisionPrompt,
@@ -50,7 +49,8 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
     const comparedPrompt =
         selectedVersion === null ? findAiTaskPrompt(originalWorkflow.actions, actionId) : selectedRevisionPrompt
     const versionName = selectedVersion === null ? 'the live version' : `v${selectedVersion}`
-    const versionSubject = selectedVersion === null ? 'The live version' : versionName
+    const versionSubject = selectedVersion === null ? 'The live version' : `Version ${selectedVersion}`
+    const pastVersionOptions = revisionOptions.filter((option) => option.value !== originalWorkflow.version)
 
     return (
         <div className="flex flex-col gap-2 rounded border p-2" data-attr="workflow-ai-task-compare">
@@ -64,13 +64,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     aria-label="Version to compare with"
                     options={[
                         { value: null, label: `Live version (v${originalWorkflow.version})` },
-                        ...revisions
-                            .filter((revision) => revision.version !== originalWorkflow.version)
-                            .map((revision) => ({
-                                value: revision.version,
-                                label: `v${revision.version}`,
-                                labelInMenu: `v${revision.version} · ${dayjs(revision.created_at).format('MMM D, YYYY')}`,
-                            })),
+                        ...pastVersionOptions,
                     ]}
                     data-attr="workflow-ai-task-compare-version"
                 />
@@ -78,6 +72,11 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     Close
                 </LemonButton>
             </div>
+            {revisionsResponse && pastVersionOptions.length === 0 && (
+                <span className="text-xs text-secondary">
+                    No past versions yet. One is saved each time the live workflow changes.
+                </span>
+            )}
             {revisionsLoadFailed && (
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-danger">Could not load past versions.</span>
@@ -98,9 +97,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                 ) : comparedPrompt === undefined ? (
                     <LemonSkeleton className="h-24 w-full" />
                 ) : comparedPrompt === null ? (
-                    <span className="text-sm text-secondary">
-                        {versionSubject} has no AI task instructions for this step.
-                    </span>
+                    <span className="text-sm text-secondary">{versionSubject} doesn't have this AI task step.</span>
                 ) : comparedPrompt === currentPrompt ? (
                     <span className="text-sm text-secondary">No differences from {versionName}.</span>
                 ) : (
