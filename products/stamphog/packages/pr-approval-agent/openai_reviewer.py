@@ -18,7 +18,7 @@ import tempfile
 import threading
 import subprocess
 from dataclasses import asdict, dataclass
-from fnmatch import fnmatch
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +152,15 @@ def git_environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in _GIT_LOCATION_VARIABLES}
 
 
+def _glob_matches(parts: list[str], pattern: list[str]) -> bool:
+    """Match path segments the way a git :(glob) pathspec does: * stays inside one segment, ** spans any number."""
+    if not pattern:
+        return not parts
+    if pattern[0] == "**":
+        return any(_glob_matches(parts[skip:], pattern[1:]) for skip in range(len(parts) + 1))
+    return bool(parts) and fnmatchcase(parts[0], pattern[0]) and _glob_matches(parts[1:], pattern[1:])
+
+
 class ToolError(Exception):
     """A tool call the model can correct. Its message goes back to the model as the tool output."""
 
@@ -245,7 +254,7 @@ class RepoTools:
         if glob and target.is_dir():
             prefix = "" if relative == "." else f"{relative}/"
             pathspec = f":(glob){prefix}{glob}" if "/" in glob else f":(glob){prefix}**/{glob}"
-        elif glob and not fnmatch(relative if "/" in glob else target.name, glob):
+        elif glob and not _glob_matches(relative.split("/"), glob.split("/") if "/" in glob else ["**", glob]):
             return "(no matches)"
         else:
             pathspec = relative

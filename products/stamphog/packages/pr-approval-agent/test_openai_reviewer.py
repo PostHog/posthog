@@ -27,6 +27,8 @@ def checkout(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
     (root / "src" / "app.py").write_text("def handler():\n    return 1\n")
+    (root / "src" / "deep").mkdir()
+    (root / "src" / "deep" / "inner.py").write_text("nested = True\n")
     (tmp_path / "secret.txt").write_text(SECRET)
     (root / "src" / "link.txt").symlink_to(tmp_path / "secret.txt")
     (root / "src" / "linkdir").symlink_to(tmp_path)
@@ -84,6 +86,16 @@ def test_tools_never_reveal_content_outside_the_checkout(checkout: Path, tool: s
             {"pattern": "handler", "path": "src/app.py", "glob": "src/*.py"},
             "src/app.py:1:def handler():",
             id="file-in-glob",
+        ),
+        pytest.param(
+            {"pattern": "nested", "path": "src/deep/inner.py", "glob": "src/*.py"},
+            "(no matches)",
+            id="star-stays-in-segment",
+        ),
+        pytest.param(
+            {"pattern": "nested", "path": "src/deep/inner.py", "glob": "**/*.py"},
+            "src/deep/inner.py:1:nested = True",
+            id="double-star-spans-segments",
         ),
     ],
 )
