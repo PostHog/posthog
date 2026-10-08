@@ -14,7 +14,7 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - The resolution of a path that the resolver's tree does not hold carries `added`: the first part of the path, from the root, that the tree does not hold as a directory, and the owners of additions there. Resolved against the tree before a change, this names the new directory for every file a change adds, so a consumer can use `additions` without its own tree walk. `null` when the tree holds the path, or when the resolver reads only ownership files. SPEC sections 4 and 7.2 define it.
 - An optional `sensitive` field, at file level and in rules, marks paths where a small change can change behavior far outside the change. The nearest value wins, as for `status`. The format only states the fact; a consumer decides what to do with it, for example a review assigner that requests the owners for each change. It never makes a review required. An alias file such as `product.yaml` can set it too, so a manifest that already used a `sensitive` key for another purpose now marks its paths as sensitive. `SPEC.md` section 3.7 defines it.
 - The resolver response carries a `sensitive` member, and `Resolution` a `sensitive` field. A consumer treats a missing member as `false`.
-- `lint` warns about a sensitive path that has no owners, because no consumer can act on it.
+- `lint` warns about a sensitive path that has no owners, because a consumer has no owner to request a review from.
 
 ### Changed
 
