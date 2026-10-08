@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -25,11 +25,13 @@ jest.mock('kea', () => ({
 
 const mockedUseActions = useActions as jest.Mock
 const mockedUseValues = useValues as jest.Mock
+const guardAvailableFeature = jest.fn()
+const showCreateProjectModal = jest.fn()
 
-function setup(projectCreationForbiddenReason: string | null): void {
+function setup(projectCreationForbiddenReason: string | null, isHobby = false): void {
     mockedUseValues.mockImplementation((logic: unknown) => {
         if (logic === preflightLogic) {
-            return { preflight: { can_create_org: false } }
+            return { preflight: { can_create_org: false }, isHobby }
         }
         if (logic === organizationLogic) {
             return { currentOrganization: { teams: [] }, projectCreationForbiddenReason }
@@ -38,7 +40,7 @@ function setup(projectCreationForbiddenReason: string | null): void {
             return { currentTeam: MOCK_DEFAULT_TEAM }
         }
         if (logic === upgradeModalLogic) {
-            return { guardAvailableFeature: jest.fn() }
+            return { guardAvailableFeature }
         }
         if (logic === pendingInvitesLogic) {
             return { pendingInvites: [] }
@@ -47,7 +49,7 @@ function setup(projectCreationForbiddenReason: string | null): void {
     })
     mockedUseActions.mockImplementation((logic: unknown) => {
         if (logic === globalModalsLogic) {
-            return { showCreateProjectModal: jest.fn() }
+            return { showCreateProjectModal }
         }
         if (logic === newAccountMenuLogic) {
             return { closeProjectSwitcher: jest.fn(), setAccountMenuOpen: jest.fn() }
@@ -86,5 +88,26 @@ describe('project creation controls', () => {
         render(<ProjectCombobox />)
 
         expect(screen.getByText('New project').closest('button')).toBeDisabled()
+    })
+
+    test.each([
+        ['hobby', true, false],
+        ['cloud or local development', false, true],
+    ])('first project on %s uses the right entitlement guard', (_name, isHobby, guardOnSelfHosted) => {
+        setup(null, isHobby)
+        guardAvailableFeature.mockImplementation((_feature, onAvailable, options) => {
+            if (!options.guardOnSelfHosted) {
+                onAvailable()
+            }
+        })
+        render(<ProjectCombobox />)
+
+        fireEvent.click(screen.getByText('New project'))
+
+        expect(guardAvailableFeature).toHaveBeenCalledWith(expect.anything(), showCreateProjectModal, {
+            currentUsage: 0,
+            guardOnSelfHosted,
+        })
+        expect(showCreateProjectModal).toHaveBeenCalledTimes(isHobby ? 1 : 0)
     })
 })

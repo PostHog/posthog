@@ -7,6 +7,7 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
@@ -38,6 +39,7 @@ interface CreateProjectItem {
 type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
+    const { isHobby } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -107,6 +109,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     },
                     {
                         currentUsage: currentOrganization?.teams?.length,
+                        guardOnSelfHosted: !isHobby,
                     }
                 )
                 closeProjectSwitcher()
@@ -129,6 +132,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             currentOrganization?.teams?.length,
             setAccountMenuOpen,
             canCreateProject,
+            isHobby,
         ]
     )
 

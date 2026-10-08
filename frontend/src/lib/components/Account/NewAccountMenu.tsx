@@ -72,7 +72,7 @@ export function NewAccountMenu({
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isHobby } = useValues(preflightLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -155,27 +155,33 @@ export function NewAccountMenu({
                             >
                                 <Label intent="menu" className="pl-2 relative">
                                     Project
-                                    {!projectCreationForbiddenReason && (
-                                        <ButtonPrimitive
-                                            iconOnly
-                                            tooltip="Create a new project"
-                                            size="xs"
-                                            className="absolute -right-[2px] -top-[2px]"
-                                            data-attr="new-account-menu-create-project-icon-button"
-                                            onClick={() => {
-                                                guardAvailableFeature(
-                                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                    () => {
-                                                        setAccountMenuOpen(false)
-                                                        showCreateProjectModal()
-                                                    },
-                                                    { currentUsage: currentOrganization?.teams?.length }
-                                                )
-                                            }}
-                                        >
-                                            <IconPlusSmall className="text-tertiary size-4" />
-                                        </ButtonPrimitive>
-                                    )}
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        tooltip="Create a new project"
+                                        disabledReasons={
+                                            projectCreationForbiddenReason
+                                                ? { [projectCreationForbiddenReason]: true }
+                                                : undefined
+                                        }
+                                        size="xs"
+                                        className="absolute -right-[2px] -top-[2px]"
+                                        data-attr="new-account-menu-create-project-icon-button"
+                                        onClick={() => {
+                                            guardAvailableFeature(
+                                                AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                                () => {
+                                                    setAccountMenuOpen(false)
+                                                    showCreateProjectModal()
+                                                },
+                                                {
+                                                    currentUsage: currentOrganization?.teams?.length,
+                                                    guardOnSelfHosted: !isHobby,
+                                                }
+                                            )
+                                        }}
+                                    >
+                                        <IconPlusSmall className="text-tertiary size-4" />
+                                    </ButtonPrimitive>
                                 </Label>
                                 <DropdownMenuSeparator />
 

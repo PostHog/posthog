@@ -993,6 +993,19 @@ class TestOrganizationSerializer(APIBaseTest):
         team_names = {team["name"] for team in teams}
         self.assertEqual(team_names, {self.team.name, team2.name, team3.name})
 
+    def test_project_presence_uses_all_organization_teams(self):
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+        with patch.object(serializer, "get_teams", return_value=[]):
+            self.assertTrue(serializer.data["has_non_demo_project"])
+
+    def test_demo_project_does_not_count_as_non_demo_project(self):
+        self.team.is_demo = True
+        self.team.save()
+
+        serializer = OrganizationSerializer(self.organization, context=self.context)
+
+        self.assertFalse(serializer.data["has_non_demo_project"])
+
     def test_get_teams_with_multiple_orgs(self):
         org2, _, _ = Organization.objects.bootstrap(self.user)
         team2 = Team.objects.create(organization=org2, name="Org 2 Team")

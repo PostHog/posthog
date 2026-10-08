@@ -242,6 +242,9 @@ class OrganizationSerializer(
     has_signed_baa = serializers.SerializerMethodField(
         help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
+    has_non_demo_project = serializers.SerializerMethodField(
+        help_text="Whether this organization has a non-demo project, including projects hidden from the requesting user."
+    )
 
     class Meta:
         model = Organization
@@ -276,6 +279,7 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
+            "has_non_demo_project",
             "default_anonymize_ips",
             "default_role_id",
             "is_active",
@@ -303,6 +307,7 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
+            "has_non_demo_project",
             "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
@@ -340,6 +345,10 @@ class OrganizationSerializer(
     def get_membership_joined_at(self, organization: Organization) -> str | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.joined_at.isoformat() if membership is not None else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_non_demo_project(self, organization: Organization) -> bool:
+        return organization.teams.exclude(is_demo=True).exists()
 
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:

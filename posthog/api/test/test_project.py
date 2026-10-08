@@ -235,6 +235,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand([("limited", 2), ("unlimited", None)])
+    @patch("posthog.api.project.is_hobby", return_value=True)
+    def test_hobby_project_limit_ignores_legacy_entitlement(self, _name, limit, _mock_is_hobby):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": limit}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Second Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.api.project.is_hobby", return_value=True)
+    def test_hobby_can_create_first_non_demo_project(self, _mock_is_hobby):
+        self.team.is_demo = True
+        self.team.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "First Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
         if with_member_create_entitlement:
