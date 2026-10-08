@@ -586,6 +586,16 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status=paused")
         assert response.status_code == 400
 
+    def test_list_field_filter_rejection_keeps_the_validation_code(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?status=invalid-status")
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_choice",
+            "detail": "Select a valid choice. invalid-status is not one of the available choices.",
+            "attr": "status",
+        }
+
     def test_origin_product_is_set_on_create_and_immutable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

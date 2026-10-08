@@ -4317,7 +4317,12 @@ class HogFlowViewSet(
                 limit=limit,
             )
         except WorkflowListFiltersInvalid as invalid:
-            raise exceptions.ValidationError(invalid.errors)
+            raise exceptions.ValidationError(
+                {
+                    name: [exceptions.ErrorDetail(error.message, code=error.code) for error in errors]
+                    for name, errors in invalid.errors.items()
+                }
+            )
 
         # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
         if self.get_serializer_class() is HogFlowMinimalSerializer:

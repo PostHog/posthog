@@ -461,10 +461,16 @@ class WorkflowPage:
     results: list[Workflow]
 
 
-class WorkflowListFiltersInvalid(Exception):
-    """A field filter did not parse. ``errors`` maps each parameter to its messages."""
+@frozen
+class WorkflowListFilterError:
+    message: str
+    code: str | None
 
-    def __init__(self, errors: dict[str, list[str]]) -> None:
+
+class WorkflowListFiltersInvalid(Exception):
+    """A field filter did not parse. ``errors`` maps each parameter to its errors."""
+
+    def __init__(self, errors: dict[str, list[WorkflowListFilterError]]) -> None:
         super().__init__(errors)
         self.errors = errors
 

@@ -16,6 +16,7 @@ from django_filters import BooleanFilter, FilterSet
 from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
+    WorkflowListFilterError,
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
     WorkflowNotFound,
@@ -164,8 +165,16 @@ def _list_queryset(
 
     filterset = _WorkflowFilterSet(data=query.field_filters, queryset=queryset)
     if not filterset.is_valid():
+        # Format each message and keep each code the way DjangoFilterBackend does, so that this 400 body
+        # matches the body of every other filtered list endpoint.
         raise WorkflowListFiltersInvalid(
-            {name: [str(message) for message in messages] for name, messages in filterset.errors.items()}
+            {
+                name: [
+                    WorkflowListFilterError(message=str(error.message % (error.params or ())), code=error.code)
+                    for error in errors
+                ]
+                for name, errors in filterset.errors.as_data().items()
+            }
         )
     queryset = filterset.qs
 
