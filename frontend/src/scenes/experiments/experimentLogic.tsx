@@ -305,15 +305,24 @@ function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
  * and returns whether the save succeeded. The loader still owns error reporting and conflict recovery.
  */
 async function inflightUpdateSaved(cache: Record<string, any>): Promise<boolean> {
+    return (await inflightUpdateOutcome(cache)) === 'saved'
+}
+
+/**
+ * {@link inflightUpdateSaved} for a caller that must know how the save failed. After a `conflict`, the loader has
+ * replaced the experiment with the server's copy and kept only the scalar fields of the rejected update, so metric
+ * lists can differ from the ones the caller started with.
+ */
+async function inflightUpdateOutcome(cache: Record<string, any>): Promise<'saved' | 'conflict' | 'failed'> {
     const updatePromise: Promise<Experiment> | undefined = cache.inflightUpdate?.promise
     if (!updatePromise) {
-        return false
+        return 'failed'
     }
     try {
         await updatePromise
-        return true
-    } catch {
-        return false
+        return 'saved'
+    } catch (error) {
+        return isExperimentConflictError(error) ? 'conflict' : 'failed'
     }
 }
 
@@ -2363,30 +2372,32 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
+            // Read the old date before the save, because the save stores the response in values.experiment.
+            const oldStartDate = values.experiment?.start_date
             actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             if (!(await inflightUpdateSaved(cache))) {
                 return
             }
-            // eslint-disable-next-line no-unused-expressions
             if (values.experiment) {
                 posthog.capture('experiment start date changed', {
                     ...getEventPropertiesForExperiment(values.experiment),
-                    old_start_date: values.experiment.start_date,
+                    old_start_date: oldStartDate,
                     new_start_date: startDate,
                 })
             }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
+            // Read the old date before the save, because the save stores the response in values.experiment.
+            const oldEndDate = values.experiment?.end_date
             actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             if (!(await inflightUpdateSaved(cache))) {
                 return
             }
-            // eslint-disable-next-line no-unused-expressions
             if (values.experiment) {
                 posthog.capture('experiment end date changed', {
                     ...getEventPropertiesForExperiment(values.experiment),
-                    old_end_date: values.experiment.end_date,
+                    old_end_date: oldEndDate,
                     new_end_date: endDate,
                 })
             }
@@ -2696,15 +2707,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
             })
-            if (!(await inflightUpdateSaved(cache))) {
+            const outcome = await inflightUpdateOutcome(cache)
+            // After most failures the previous experiment and its results remain valid and visible. After a
+            // conflict the loader has swapped in the server's metric lists, so the previous results no longer
+            // pair with them.
+            if (outcome === 'failed') {
                 return
             }
 
-            // Metric results are positional. Once the metric list has saved, keeping the previous arrays
+            // Metric results are positional. Once the metric list has changed, keeping the previous arrays
             // around can briefly pair a result with the wrong metric (and gives no feedback while the
             // updated results are computed). Clear both result stores so every metric in the updated list
-            // renders its existing per-variant loading skeleton. Do this only after a successful save: if
-            // the update fails, the previous experiment and its results remain valid and visible.
+            // renders its existing per-variant loading skeleton.
             actions.clearMetricsResults()
             const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
             metricsLogic.actions.setPrimaryMetricsResults([])
@@ -2712,8 +2726,9 @@ export const experimentLogic = kea<experimentLogicType>([
             metricsLogic.actions.setSecondaryMetricsResults([])
             metricsLogic.actions.setSecondaryMetricsResultsErrors([])
 
-            // Reload results for added/edited metrics
-            actions.refreshExperimentResults(true, 'metric_config_change')
+            // Reload results for added/edited metrics. After a conflict this edit did not save, so nothing
+            // needs a recompute and cached results are enough.
+            actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateExposureCriteria: async () => {
             actions.updateExperiment({
@@ -2722,7 +2737,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 update_feature_flag_params: false,
             })
-            if (!(await inflightUpdateSaved(cache))) {
+            const outcome = await inflightUpdateOutcome(cache)
+            if (outcome !== 'saved') {
+                // The modal closes before the save settles. After a conflict the loader keeps the edit for
+                // review. After any other failure, put back the saved criteria, so the page does not show
+                // criteria that the server does not have.
+                if (outcome === 'failed' && values.unmodifiedExperiment) {
+                    actions.setExperiment({ exposure_criteria: values.unmodifiedExperiment.exposure_criteria })
+                }
                 return
             }
             actions.refreshExperimentResults(true, 'experiment_config_change')
@@ -3397,11 +3419,15 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(update)
-            if (!(await inflightUpdateSaved(cache))) {
+            // After a conflict the loader has swapped in the server's metric lists, so the results must
+            // follow that layout too.
+            if ((await inflightUpdateOutcome(cache)) === 'failed') {
                 return
             }
 
-            if (!canReuseResults) {
+            // The save can wait behind other updates in the queue, and a results load can start meanwhile.
+            // A realign would then overwrite the arrays that this load fills.
+            if (!canReuseResults || values.primaryMetricsResultsLoading || values.secondaryMetricsResultsLoading) {
                 actions.refreshExperimentResults(true, 'metric_config_change')
                 return
             }
@@ -3619,6 +3645,11 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
+            // Build the list only after the queued saves land. A toggle sent while another one is unsaved
+            // (the toast's Undo, for example) would otherwise send the older list and revert that change.
+            while (cache.inflightUpdate) {
+                await cache.inflightUpdate.promise.catch(() => {})
+            }
             const current = values.excludedVariants
             const next = excluded
                 ? Array.from(new Set([...current, variantKey]))
@@ -3706,6 +3737,11 @@ export const experimentLogic = kea<experimentLogicType>([
                             actions.setExperiment(response)
                             return response
                         } catch (error: any) {
+                            posthog.capture('experiment save failed', {
+                                experiment_id: values.experimentId,
+                                fields: Object.keys(update).filter((field) => field !== 'update_feature_flag_params'),
+                                status: error?.status ?? null,
+                            })
                             if (isExperimentConflictError(error)) {
                                 lemonToast.error(
                                     error.data?.detail ||
@@ -3725,6 +3761,11 @@ export const experimentLogic = kea<experimentLogicType>([
                                 } catch {
                                     actions.loadExperiment()
                                 }
+                            } else if (error?.status === undefined) {
+                                // The loader onFailure handler in initKea toasts only errors that carry an HTTP
+                                // status. Without this toast, a request that got no response (offline, blocked,
+                                // dropped) would fail with no feedback.
+                                lemonToast.error('Could not save the experiment. Check your connection and try again.')
                             }
                             throw error
                         }
@@ -4162,3 +4203,17 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
 ])
+
+/**
+ * Saves an update through the update queue of the mounted experiment logic and resolves to whether it saved. For a
+ * caller outside the logic: awaiting `asyncActions.updateExperiment()` resolves even when the save fails, and the
+ * loader still reports the error.
+ */
+export async function saveExperimentUpdate(
+    experimentId: ExperimentIdType,
+    update: ExperimentUpdatePayload
+): Promise<boolean> {
+    const logic = experimentLogic({ experimentId })
+    logic.actions.updateExperiment(update)
+    return await inflightUpdateSaved(logic.cache)
+}
