@@ -337,19 +337,22 @@ describe('RequestInterceptor', () => {
                 () => mockFetch.mockResolvedValue({ status: 200, headers: {}, text: jest.fn().mockResolvedValue('') }),
                 0,
             ],
-        ])('counts a stylesheet with %s once, even when the browser response fails', async (_label, setup, expectedFailed) => {
-            setup()
-            const { page, interceptor } = await createInterceptor()
-            const handler = getRequestHandler(page.page)
-            const req = mockRequest('stylesheet')
-            ;(req.respond as jest.Mock).mockRejectedValueOnce(new Error('Target closed'))
+        ])(
+            'counts a stylesheet with %s once, even when the browser response fails',
+            async (_label, setup, expectedFailed) => {
+                setup()
+                const { page, interceptor } = await createInterceptor()
+                const handler = getRequestHandler(page.page)
+                const req = mockRequest('stylesheet')
+                ;(req.respond as jest.Mock).mockRejectedValueOnce(new Error('Target closed'))
 
-            handler(req)
-            await new Promise(process.nextTick)
-            await new Promise(process.nextTick)
+                handler(req)
+                await new Promise(process.nextTick)
+                await new Promise(process.nextTick)
 
-            expect(interceptor.getStylesheetStats()).toEqual({ requested: 1, failed: expectedFailed })
-        })
+                expect(interceptor.getStylesheetStats()).toEqual({ requested: 1, failed: expectedFailed })
+            }
+        )
 
         it('removes request from tracked when fallback respond also fails', async () => {
             mockFetch.mockRejectedValue(new Error('ETIMEDOUT'))

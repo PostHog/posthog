@@ -4,7 +4,6 @@ import { Frame, HTTPRequest } from 'puppeteer'
 import { fetch } from '~/common/utils/request'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
-import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 import type { StylesheetStats } from '~/session-replay/recording-rasterizer/types'
 
 import { BLOCK_REQUEST_PREFIX, BlockSource } from './block-proxy'
@@ -163,7 +162,6 @@ export class RequestInterceptor {
         if (failed) {
             this.stylesheets.failed++
         }
-        RasterizationMetrics.observeStylesheetProxy(failed ? 'failed' : 'success')
     }
 
     private async proxyStylesheet(request: HTTPRequest): Promise<void> {
