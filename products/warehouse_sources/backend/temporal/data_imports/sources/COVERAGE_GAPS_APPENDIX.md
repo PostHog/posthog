@@ -4944,10 +4944,10 @@ Today (10): `add_ons`, `applied_coupons`, `billable_metrics`, `coupons`, `credit
 
 Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/openapi.yaml>
 
-- [ ] `GET /wallets and GET /wallet_transactions` — prepaid credit balances and top-ups; an entire revenue mechanism is missing (high)
-- [ ] `GET /payments` — actual cash collection against the invoices already synced (high)
-- [ ] `GET /plans/{code}/charges (and /charges/{charge_code}/filters)` — lookup joining plans to billable metrics; without it, fees cannot be traced to pricing rules (high)
-- [ ] `GET /events` — the raw usage events that every fee is derived from (high)
+- [x] `GET /wallets and GET /wallet_transactions` — prepaid credit balances and top-ups; an entire revenue mechanism is missing (high)
+- [x] `GET /payments` — actual cash collection against the invoices already synced (high)
+- [x] `GET /plans/{code}/charges (and /charges/{charge_code}/filters)` — lookup joining plans to billable metrics; without it, fees cannot be traced to pricing rules (high)
+- [x] `GET /events` — the raw usage events that every fee is derived from (high)
 - [ ] `GET /taxes` — lookup resolving tax codes applied on invoices, fees and customers (medium)
 - [ ] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
 - [ ] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
@@ -7269,6 +7269,16 @@ Diffed against: <https://docs.reply.io/llms.txt>
 - [ ] `reports/list-linkedin-activity` — LinkedIn connect/message/InMail events for multichannel sequences (medium)
 - [ ] `sequence-folders/list-all-sequence-folders` — lookup grouping sequences into folders for team-level rollups (medium)
 - [ ] `linkedin-accounts/list-linkedin-accounts` — sending-account dimension for LinkedIn, mirroring email_accounts which is already synced (medium)
+
+## Resend — gaps
+
+Today (8): `audiences`, `broadcast_clicked_links`, `broadcasts`, `contacts`, `domains`, `email_metrics`, `emails`, `suppressions`
+
+Diffed against: <https://resend.com/docs/llms.txt>
+
+- [x] `/suppressions` — suppressed recipients with their origin (bounce, complaint, manual), which explain delivery gaps (medium) — synced as `suppressions`
+- [x] `/emails/metrics` — the account's delivery and engagement metrics per day, the headline numbers for sending health (high) — synced as `email_metrics`
+- [x] `/broadcasts/{broadcast_id}/clicked-links` — per-link click counts for each broadcast (medium) — synced as `broadcast_clicked_links`
 
 ## Retently — gaps
 
