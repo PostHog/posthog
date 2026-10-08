@@ -12,7 +12,7 @@ export const SDKSnippet = ({ sdk, sdkInstructions }: SDKSnippetProps): JSX.Eleme
         <div>
             <div className="mb-8">
                 <h3 className="text-xl font-bold mb-2">Integrate PostHog with {sdk.name}</h3>
-                <Link className="" to={sdk.docsLink} target="_blank" targetBlankIcon disableDocsPanel>
+                <Link className="" to={sdk.docsLink} target="_blank" targetBlankIcon>
                     Read the docs
                 </Link>
             </div>
