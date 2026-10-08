@@ -219,6 +219,9 @@ def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
             fields[field] = value
     if _PREFERRED_STATUS_FIELD in raw:
         fields["response_status"] = raw[_PREFERRED_STATUS_FIELD]
+    elif _as_int(fields.get("response_status")) == 0:
+        # The browser reports 0 for a cross-origin response without `Timing-Allow-Origin`, even when it loaded.
+        fields.pop("response_status")
     if isinstance(raw.get("name"), str):
         fields["name"] = raw["name"]
 
@@ -284,7 +287,8 @@ def _is_interesting(request: NetworkRequest) -> bool:
     """Keep failures and slow requests; drop the successful traffic that explains nothing.
 
     Status 0 counts as a failure: wrapped fetch/xhr reports it when the request never completed, which is
-    a blocked, aborted or offline request, and that is exactly what a stuck spinner looks like.
+    a blocked, aborted or offline request, and that is exactly what a stuck spinner looks like. The
+    performance observer's 0 never gets here, because `_normalize` drops it as unknown.
     """
     if request.status is not None and (request.status >= 400 or request.status == 0):
         return True
