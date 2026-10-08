@@ -33,12 +33,17 @@ from products.signals.backend.emission.datadog_error_spans import (
     span_source_id,
 )
 from products.signals.backend.emission.datadog_incidents import datadog_incident_emitter
+from products.signals.backend.emission.datadog_monitor_alerts import (
+    datadog_monitor_alert_emitter,
+    monitor_alert_source_id,
+)
 from products.signals.backend.emission.fetchers.grouped_warehouse import (
     MAX_GROUP_PAGES,
     GroupedWarehouseRecordFetcher,
     week_period,
 )
 from products.signals.backend.emission.registry import _SIGNAL_TABLE_CONFIGS, SignalSourceTableConfig
+from products.signals.backend.emission.tests.test_datadog_monitor_alerts import MOCK_DATADOG_MONITOR_ALERT_RECORD
 from products.signals.backend.models import SignalEmissionRecord
 
 MOCK_DATADOG_ERROR_ISSUE_RECORD: dict = {
@@ -263,6 +268,41 @@ class TestDatadogGroupSourceIds:
             ),
             ("log_other_service", log_source_id, MOCK_DATADOG_ERROR_LOG_RECORD, {"service": "billing-api"}, False),
             (
+                "alert_renotification_in_same_cycle",
+                monitor_alert_source_id,
+                MOCK_DATADOG_MONITOR_ALERT_RECORD,
+                {"id": "evt-2", "timestamp": "2026-07-15T10:30:00.000Z"},
+                True,
+            ),
+            (
+                "alert_other_cycle",
+                monitor_alert_source_id,
+                MOCK_DATADOG_MONITOR_ALERT_RECORD,
+                {"alert_cycle_key": "cycle-def"},
+                False,
+            ),
+            (
+                "alert_other_monitor",
+                monitor_alert_source_id,
+                MOCK_DATADOG_MONITOR_ALERT_RECORD,
+                {"monitor_id": "1002"},
+                False,
+            ),
+            (
+                "alert_without_cycle_other_event",
+                monitor_alert_source_id,
+                {**MOCK_DATADOG_MONITOR_ALERT_RECORD, "alert_cycle_key": ""},
+                {"id": "evt-2"},
+                False,
+            ),
+            (
+                "alert_without_cycle_same_event",
+                monitor_alert_source_id,
+                {**MOCK_DATADOG_MONITOR_ALERT_RECORD, "alert_cycle_key": ""},
+                {"timestamp": "2026-07-15T10:30:00.000Z"},
+                True,
+            ),
+            (
                 "log_next_week",
                 log_source_id,
                 MOCK_DATADOG_ERROR_LOG_RECORD,
@@ -349,6 +389,11 @@ class TestDatadogExtraContract:
                 "incident",
                 lambda: datadog_incident_emitter(1, MOCK_DATADOG_INCIDENT_RECORD),
                 {"kind", "severity", "state", "created"},
+            ),
+            (
+                "monitor_alert",
+                lambda: datadog_monitor_alert_emitter(1, MOCK_DATADOG_MONITOR_ALERT_RECORD),
+                {"kind", "monitor_id", "state", "priority", "service", "monitor_type", "alert_url"},
             ),
         ]
     )

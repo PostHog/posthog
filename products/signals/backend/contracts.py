@@ -800,7 +800,7 @@ class DatadogSignalExtra(SignalExtraBase):
     # One schema serves every Datadog table, because a variant is keyed by (source_product, source_type).
     # `kind` says which record kind the signal came from.
     # Each emitter fills only the fields its kind has, so every field except `kind` is optional.
-    kind: Literal["incident", "error_tracking_issue", "error_span", "error_log"]
+    kind: Literal["incident", "error_tracking_issue", "error_span", "error_log", "monitor_alert"]
     severity: str | None = None
     state: str | None = None
     created: str | None = None
@@ -816,6 +816,10 @@ class DatadogSignalExtra(SignalExtraBase):
     window_total_count: str | None = None
     window_impacted_users: str | None = None
     occurrences: str | None = None
+    monitor_id: str | None = None
+    monitor_type: str | None = None
+    priority: str | None = None
+    alert_url: str | None = None
 
 
 class DatadogSignalInput(SignalInputBase):
