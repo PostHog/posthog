@@ -23,6 +23,7 @@ import {
     RENDER_UI_TOOL_NAME,
     RENDER_UI_TOOL_TITLE,
 } from '@/tools/render-ui'
+import { RUN_CODE_TOOL_DESCRIPTION, RUN_CODE_TOOL_NAME, runCodeSchema } from '@/tools/run-code'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import { trackSkillInvoked } from './analytics'
@@ -106,6 +107,16 @@ export class InstructionsBuilder {
             title: 'Execute PostHog command',
             description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
+            annotations: { ...EXEC_TOOL_ANNOTATIONS },
+        }
+    }
+
+    buildRunCodeToolEntry(): McpTool {
+        return {
+            name: RUN_CODE_TOOL_NAME,
+            title: 'Run a PostHog script',
+            description: RUN_CODE_TOOL_DESCRIPTION,
+            inputSchema: toMcpInputSchema(runCodeSchema),
             annotations: { ...EXEC_TOOL_ANNOTATIONS },
         }
     }

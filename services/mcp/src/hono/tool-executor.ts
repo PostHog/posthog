@@ -44,6 +44,7 @@ import {
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
+import { formatCodeRunOutcome, runCode, RUN_CODE_TOOL_NAME, runCodeSchema } from '@/tools/run-code'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
@@ -166,8 +167,12 @@ export class ToolExecutor {
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
+            const entryTool =
+                state.requestContext.mode === 'code'
+                    ? this.instructionsBuilder.buildRunCodeToolEntry()
+                    : this.instructionsBuilder.buildExecToolEntry(state)
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
+            return [entryTool, ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -188,6 +193,9 @@ export class ToolExecutor {
         if (state.useSingleExec) {
             if (toolName === 'exec') {
                 return this.instructionsBuilder.buildExecToolEntry(state)
+            }
+            if (toolName === RUN_CODE_TOOL_NAME && state.requestContext.mode === 'code') {
+                return this.instructionsBuilder.buildRunCodeToolEntry()
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
                 return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
@@ -253,6 +261,10 @@ export class ToolExecutor {
     ): Promise<unknown> {
         if (toolName === 'exec') {
             return this.callExecTool(callParams, state, analyticsMeta)
+        }
+
+        if (toolName === RUN_CODE_TOOL_NAME && state.requestContext.mode === 'code') {
+            return this.callRunCodeTool(callParams, state, analyticsMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -823,6 +835,8 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                // A script cannot pass `--confirm`, so code mode refuses destructive tools outright.
+                requireDestructiveConfirmation: state.requestContext.mode === 'code',
                 builtInSkillHint: this.builtInSkillHint(state),
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
@@ -839,6 +853,64 @@ export class ToolExecutor {
             handler: (ctx, args) => execTool.handler(ctx, args as { command: string }),
             _meta: execTool._meta,
         }
+    }
+
+    /**
+     * Runs an agent-written script whose only exit is the exec dispatcher. Each
+     * `posthog.*` call is a full exec command, so it gets the same catalog,
+     * permissions, validation, analytics and error handling as an exec call.
+     */
+    private async callRunCodeTool(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        analyticsMeta?: ToolCallAnalyticsMeta
+    ): Promise<unknown> {
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const validation = runCodeSchema.safeParse(toolArgs)
+        if (!validation.success) {
+            toolCallsTotal.inc({ tool: RUN_CODE_TOOL_NAME, status: 'validation_error' })
+            const message = formatInputValidationError(RUN_CODE_TOOL_NAME, validation.error)
+            const rejection = new ToolInputValidationError(
+                message,
+                describeValidationError(validation.error, runCodeSchema)
+            )
+            void trackToolCall(
+                RUN_CODE_TOOL_NAME,
+                0,
+                true,
+                state,
+                errorAnalyticsProperties(classifyToolError(rejection, RUN_CODE_TOOL_NAME), rejection),
+                analyticsMeta
+            )
+            return { content: [{ type: 'text', text: message }], isError: true }
+        }
+
+        const exec = async (command: string): Promise<unknown> =>
+            execResultValue(
+                await this.callExecTool({ arguments: { command } }, stateForToolCall(state, undefined), analyticsMeta)
+            )
+
+        const stop = toolCallDurationSeconds.startTimer({ tool: RUN_CODE_TOOL_NAME })
+        const startMs = Date.now()
+        const outcome = await runCode(validation.data.code, {
+            search: (query) => exec(`search ${query}`),
+            schema: (toolName) => exec(`info --json ${execToolToken(toolName)}`),
+            call: (toolName, args) => exec(`call --json ${execToolToken(toolName)} ${JSON.stringify(args)}`),
+        })
+        const status = outcome.ok ? 'success' : 'error'
+        toolCallsTotal.inc({ tool: RUN_CODE_TOOL_NAME, status })
+        stop({ status })
+
+        const text = formatCodeRunOutcome(outcome)
+        void trackToolCall(
+            RUN_CODE_TOOL_NAME,
+            Date.now() - startMs,
+            !outcome.ok,
+            state,
+            { input_tokens: estimateTokens(validation.data), output_tokens: estimateTokens(text) },
+            analyticsMeta
+        )
+        return { content: [{ type: 'text', text }], ...(outcome.ok ? {} : { isError: true }) }
     }
 
     private async callRenderUiTool(
@@ -909,6 +981,31 @@ export class ToolExecutor {
             const sessionUuid = await sessionUuidForError(state)
             return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
         }
+    }
+}
+
+/** A name starting with a dash would be read as a `call` flag such as `--confirm`. */
+function execToolToken(toolName: string): string {
+    if (!/^[^\s-]\S*$/.test(toolName)) {
+        throw new Error(`Invalid tool name: ${JSON.stringify(toolName)}`)
+    }
+    return toolName
+}
+
+/**
+ * The value a script receives from an exec command. `--json` makes the text
+ * channel carry the tool's JSON, and an errored result becomes an exception.
+ */
+function execResultValue(response: unknown): unknown {
+    const { content, isError } = response as { content?: { type: string; text?: string }[]; isError?: boolean }
+    const text = content?.find((part) => part.type === 'text')?.text ?? ''
+    if (isError) {
+        throw new Error(text)
+    }
+    try {
+        return JSON.parse(text)
+    } catch {
+        return text
     }
 }
 
