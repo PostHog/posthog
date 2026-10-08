@@ -2,7 +2,8 @@ from django.conf import settings
 from django.db import migrations
 
 # The repositories the hardcoded allowlists covered: automatic Flash reviews ran only in
-# PostHog/posthog, and the label trigger also accepted PostHog/ai-gateway.
+# PostHog/posthog, and the label trigger also accepted PostHog/ai-gateway. Both become added
+# repositories, so a Flash default now also applies in PostHog/ai-gateway.
 AUTOMATIC_REVIEWS_REPOSITORY = "PostHog/posthog"
 LABEL_TRIGGER_ONLY_REPOSITORY = "PostHog/ai-gateway"
 
@@ -10,7 +11,6 @@ LABEL_TRIGGER_ONLY_REPOSITORY = "PostHog/ai-gateway"
 def seed_review_repositories(apps, schema_editor):
     ReviewUserSettings = apps.get_model("review_hog", "ReviewUserSettings")
     ReviewRepository = apps.get_model("review_hog", "ReviewRepository")
-    ReviewUserRepositoryChoice = apps.get_model("review_hog", "ReviewUserRepositoryChoice")
     Team = apps.get_model("posthog", "Team")
 
     ReviewUserSettings.objects.filter(review_authored_prs=True, default_review_mode="follow").update(
@@ -31,23 +31,6 @@ def seed_review_repositories(apps, schema_editor):
             team_id=team_id,
             full_name__iexact=full_name,
             defaults={"full_name": full_name, "flash_for": "listed", "exclude_bots": True},
-        )
-
-    # A Flash default applies in every added repository, but the old switch only covered
-    # PostHog/posthog. An "off" choice for the label-only repository keeps those users unreviewed
-    # there until they change it.
-    label_only_repository = ReviewRepository.objects.get(
-        team_id=team_id, full_name__iexact=LABEL_TRIGGER_ONLY_REPOSITORY
-    )
-    flash_user_ids = ReviewUserSettings.objects.filter(team_id=team_id, default_review_mode="flash").values_list(
-        "user_id", flat=True
-    )
-    for user_id in flash_user_ids:
-        ReviewUserRepositoryChoice.objects.get_or_create(
-            team_id=team_id,
-            user_id=user_id,
-            repository=label_only_repository,
-            defaults={"mode": "off"},
         )
 
 

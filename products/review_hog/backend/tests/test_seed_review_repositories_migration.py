@@ -25,7 +25,7 @@ class TestSeedReviewRepositoriesMigration(BaseTest):
         ReviewUserSettings.objects.for_team(self.team.id).create(team_id=self.team.id, user_id=user.id, **fields)
         return user
 
-    def test_opted_in_users_keep_flash_in_posthog_only(self) -> None:
+    def test_opted_in_users_get_flash_in_seeded_repositories(self) -> None:
         opted_in = self._settings("opted-in@example.com", review_authored_prs=True)
         not_opted_in = self._settings("not-opted-in@example.com", review_authored_prs=False)
 
@@ -45,7 +45,4 @@ class TestSeedReviewRepositoriesMigration(BaseTest):
             ("PostHog/posthog", "listed"),
         ]
         assert not ReviewRepositoryPerson.objects.for_team(self.team.id).exists()
-        choices = ReviewUserRepositoryChoice.objects.for_team(self.team.id)
-        assert list(choices.values_list("user_id", "repository__full_name", "mode")) == [
-            (opted_in.id, "PostHog/ai-gateway", "off")
-        ]
+        assert not ReviewUserRepositoryChoice.objects.for_team(self.team.id).exists()
