@@ -9,6 +9,9 @@ import { workflowLogic } from '../../../workflowLogic'
 import { aiTaskInstructionsCompareLogic, findAiTaskPrompt } from './aiTaskInstructionsCompareLogic'
 import { InstructionsDiff } from './InstructionsDiff'
 
+// Fills the h-64 result box under the one-line legend, so the editor is the only scroll area in the box.
+const DIFF_HEIGHT = 'calc(16rem - 1.25rem - 2px)'
+
 export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): JSX.Element | null {
     const { logicProps, originalWorkflow, workflow } = useValues(workflowLogic)
     const logic = aiTaskInstructionsCompareLogic({ workflowId: logicProps.id ?? 'new', actionId })
@@ -49,8 +52,9 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
     const comparedPrompt =
         selectedVersion === null ? findAiTaskPrompt(originalWorkflow.actions, actionId) : selectedRevisionPrompt
     const versionName = selectedVersion === null ? 'the live version' : `v${selectedVersion}`
-    const versionSubject = selectedVersion === null ? 'The live version' : `Version ${selectedVersion}`
-    const pastVersionOptions = revisionOptions.filter((option) => option.value !== originalWorkflow.version)
+    // The editor's live copy can be older than the list, which loads on each open. A newer version is not
+    // past, and listing it would sit beside a stale "Live version" label.
+    const pastVersionOptions = revisionOptions.filter((option) => option.value < originalWorkflow.version)
 
     return (
         <div className="flex flex-col gap-2 rounded border p-2" data-attr="workflow-ai-task-compare">
@@ -60,7 +64,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     size="small"
                     value={selectedVersion}
                     onChange={selectVersion}
-                    loading={revisionsResponseLoading}
+                    loading={revisionsResponseLoading && !revisionsResponse}
                     aria-label="Version to compare with"
                     options={[
                         { value: null, label: `Live version (v${originalWorkflow.version})` },
@@ -79,7 +83,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
             )}
             {revisionsLoadFailed && (
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-danger">Could not load past versions.</span>
+                    <span className="text-sm text-danger">Couldn't load past versions.</span>
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadRevisions()}>
                         Try again
                     </LemonButton>
@@ -89,7 +93,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
             <div className="ph-no-capture h-64 overflow-auto">
                 {selectedVersion !== null && revisionLoadFailed ? (
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm text-danger">{`Could not load ${versionName}.`}</span>
+                        <span className="text-sm text-danger">{`Couldn't load ${versionName}.`}</span>
                         <LemonButton size="xsmall" type="secondary" onClick={() => loadRevision(selectedVersion)}>
                             Try again
                         </LemonButton>
@@ -97,7 +101,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                 ) : comparedPrompt === undefined ? (
                     <LemonSkeleton className="h-24 w-full" />
                 ) : comparedPrompt === null ? (
-                    <span className="text-sm text-secondary">{`${versionSubject} doesn't have this AI task step.`}</span>
+                    <span className="text-sm text-secondary">{`This AI task step isn't in ${versionName}.`}</span>
                 ) : comparedPrompt === currentPrompt ? (
                     <span className="text-sm text-secondary">{`No differences from ${versionName}.`}</span>
                 ) : (
@@ -107,7 +111,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                         </span>
                         {/* Keeps a failed editor load inside this box, so the rest of the step panel stays usable. */}
                         <ErrorBoundary>
-                            <InstructionsDiff before={comparedPrompt} after={currentPrompt} />
+                            <InstructionsDiff before={comparedPrompt} after={currentPrompt} height={DIFF_HEIGHT} />
                         </ErrorBoundary>
                     </div>
                 )}

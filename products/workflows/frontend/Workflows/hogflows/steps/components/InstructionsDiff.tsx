@@ -26,7 +26,15 @@ const DIFF_OPTIONS: MonacoDiffEditorProps['options'] = {
     ignoreTrimWhitespace: false,
 }
 
-export function InstructionsDiff({ before, after }: { before: string; after: string }): JSX.Element {
+export function InstructionsDiff({
+    before,
+    after,
+    height,
+}: {
+    before: string
+    after: string
+    height: MonacoDiffEditorProps['height']
+}): JSX.Element {
     const isDarkMode = useBodyIsDark()
 
     // Monaco reads empty text as one blank line, so a diff against it would show that line as changed.
@@ -52,6 +60,7 @@ export function InstructionsDiff({ before, after }: { before: string; after: str
                     language="markdown"
                     theme={isDarkMode ? 'vs-dark' : 'vs'}
                     options={DIFF_OPTIONS}
+                    height={height}
                     loading={<LemonSkeleton className="h-24 w-full" />}
                 />
             </Suspense>
