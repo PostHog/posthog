@@ -179,13 +179,23 @@ class StaleFeatureFlagsCheck(HealthCheck):
         stale_threshold = stale_flag_threshold()
 
         stale_rows = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
-        stale_candidates = _v1_flags(stale_rows)
+        # A never-called row's evidence is its configuration, and the SQL still accepts a
+        # multivariate flag whose reachable paths serve two variants. The checker settles that row
+        # the same way `get_status` does, so the payload never claims a fixed result the checker
+        # denies. A usage-stale row keeps its evidence whatever the configuration serves.
+        stale_candidates = [
+            flag
+            for flag in _v1_flags(stale_rows)
+            if flag.last_called_at is not None
+            or FeatureFlagStatusChecker(feature_flag=flag).is_flag_fully_rolled_out(flag)[0]
+        ]
         # Only a never-called stale flag can come back from the rollout query too: a usage-stale
         # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
         # those ids beats fetching the rows again and dropping them in Python, and
         # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity. It reads
         # `stale_rows`, not `stale_candidates`, so a never-called non-v1 row also stays out of the
-        # rollout query instead of being fetched and logged a second time.
+        # rollout query instead of being fetched and logged a second time. A never-called row the
+        # checker rejected above stays out too, because the rollout query asks the same checker.
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
@@ -276,16 +286,17 @@ def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
 def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     """Whether the matcher can return more than the one result the checker named.
 
-    `FeatureFlagStatusChecker` reads `groups` and `multivariate` and asks whether some release
-    condition is at 100% with no properties. That is necessary for a fixed result and not
-    sufficient, so this class needs the rest of the runtime model before it calls a flag constant.
-    The checker stays as it is: it backs the flag status endpoint, the stale badge, bulk delete and
-    Max, and the raw SQL behind the public `active=STALE` filter mirrors it. A follow-up has to
-    reconcile the two meanings of full rollout; until then this guard holds the stricter one and
-    only the effectively-full-rollout class reads it.
+    `FeatureFlagStatusChecker.is_flag_fully_rolled_out`, which `detect` checks next to this guard,
+    holds the shared rule for which variant a multivariate flag serves. The keys below are the rest
+    of the runtime model. Each one decides the result ahead of the release conditions the checker
+    reads, and none of them changes which variant a reached condition serves. The checker reads
+    aggregation too, through `first_deciding_condition`, and this guard is the stricter of the two:
+    the checker calls a flag whose conditions all aggregate on one group type fully rolled out,
+    because every request it addresses carries the key, while this guard rejects any set index.
 
-    The other candidate source is left alone. Its evidence is that PostHog stopped receiving calls,
-    which none of this contradicts.
+    The other candidate source is left alone. A usage-stale row's evidence is that PostHog stopped
+    receiving calls, which none of this contradicts. `detect` confirms a never-called row with the
+    checker's full-rollout verdict only, not with this function.
     """
     filters = flag.filters or {}
     # Two siblings encode part of the same evaluation order. `group_cohort_restriction_blocker` in
@@ -303,79 +314,10 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     # person aggregation, so only a set index excludes.
     if flag.bucketing_identifier == "device_id" or filters.get("feature_enrollment"):
         return True
-    groups = filters.get("groups") or []
     if filters.get("aggregation_group_type_index") is not None:
         return True
-    if any(group.get("aggregation_group_type_index") is not None for group in groups):
-        return True
-    return not _multivariate_results_agree(flag)
-
-
-def _multivariate_results_agree(flag: FeatureFlag) -> bool:
-    """Whether every user a multivariate flag can reach receives the same variant.
-
-    The matcher reads the release conditions in declaration order and stops at the first one that
-    matches, so a condition declared before the blanket one decides the result for the users it
-    matches. A condition carrying a `variant` override serves that variant, and any other condition
-    serves whatever the variant distribution gives. The flag is constant only when every one of
-    those paths lands on the same variant.
-
-    Boolean flags are constant by this test, because every condition that matches returns true.
-    """
-    variants = ((flag.filters or {}).get("multivariate") or {}).get("variants") or []
-    if not variants:
-        return True
-    return _sole_served_variant(flag) is not None
-
-
-def _sole_served_variant(flag: FeatureFlag) -> str | None:
-    """The one variant that every reachable path serves, or None when the paths disagree.
-
-    A boolean flag carries no variants and returns None, so a caller must not read None as "the
-    flag is not constant". `_multivariate_results_agree` holds that distinction.
-    """
-    filters = flag.filters or {}
-    variants = ((filters.get("multivariate") or {}).get("variants")) or []
-
     groups = filters.get("groups") or []
-    checker = FeatureFlagStatusChecker(feature_flag=flag)
-    decider = next((index for index, group in enumerate(groups) if checker.is_group_fully_rolled_out(group)), None)
-    if decider is None:
-        return None
-
-    distributed = _sole_reachable_variant(variants)
-    variant_keys = {variant.get("key") for variant in variants}
-    results = set()
-    for group in groups[: decider + 1]:
-        # A missing rollout_percentage evaluates to 100% at runtime, matching `get_rollout_summary`.
-        percentage = group.get("rollout_percentage")
-        if percentage is not None and percentage <= 0:
-            continue
-        # The matcher ignores an override naming a variant the flag does not configure, and the
-        # distribution decides instead.
-        override = group.get("variant")
-        results.add(override if override in variant_keys else distributed)
-    # `None` is in the set when a path falls through to a distribution that is not itself constant.
-    if len(results) != 1:
-        return None
-    (served,) = results
-    return served
-
-
-def _sole_reachable_variant(variants: list[dict]) -> str | None:
-    """The only variant the distribution can serve, or None when a user can land on more than one.
-
-    Variants take cumulative slices of the hash space in declaration order, so the first variant
-    with a non-zero rollout takes the low hashes. Only that variant exists when it takes the whole
-    space. A list such as `[40, 100]` is overallocated: the 100 does not make the flag constant,
-    because the 40 still owns the low hashes.
-    """
-    for variant in variants:
-        percentage = variant.get("rollout_percentage") or 0
-        if percentage <= 0:
-            continue
-        return variant.get("key") if percentage >= 100 else None
-    return None
+    return any(group.get("aggregation_group_type_index") is not None for group in groups)
 
 
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
@@ -466,14 +408,6 @@ def _build_result(flag: FeatureFlag, now: datetime, stale_threshold: datetime) -
     checker = FeatureFlagStatusChecker(feature_flag=flag)
     summary = checker.get_rollout_summary(flag)
     rollout_state, winning_variant = checker.rollout_state_and_variant(flag, summary)
-
-    # The checker returns a condition's `variant` override without testing it against the variants
-    # the flag configures, so a legacy row naming an absent key reaches the payload and the
-    # remediation then names a variant nobody receives. Prefer the variant the matcher serves. A
-    # flag whose reachable paths disagree has no such variant, so it keeps the checker's value.
-    served_variant = _sole_served_variant(flag)
-    if served_variant is not None:
-        winning_variant = served_variant
 
     # Read off the flag rather than off the query that found it, so the payload describes the row
     # a reader opens. Every candidate is old enough and serves a fixed result or went cold, so the
