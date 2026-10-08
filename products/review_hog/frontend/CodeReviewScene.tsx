@@ -230,7 +230,7 @@ function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element
     return (
         <Tooltip title={`${scopeOption?.tooltip}. Set by the Mine / Everyone filter on recent reviews.`}>
             <span className="text-xxs text-tertiary">
-                Last {reportCount} completed review{reportCount === 1 ? '' : 's'} · {scopeOption?.label}
+                <span translate="no">{`Last ${reportCount} completed review${reportCount === 1 ? '' : 's'} · ${scopeOption?.label}`}</span>
             </span>
         </Tooltip>
     )
@@ -1597,8 +1597,8 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
                     </span>
                 </div>
                 <p className="m-0 text-xs text-secondary">
-                    Of the {judged} findings reviewers raised in these reviews, this is how much noise validation kept
-                    off pull requests.
+                    Of the <span translate="no">{judged}</span> findings reviewers raised in these reviews, this is how
+                    much noise validation kept off pull requests.
                 </p>
             </div>
             <Tooltip
@@ -1625,7 +1625,7 @@ function ValidatorEffectivenessCard(): JSX.Element | null {
                         )}
                     </div>
                     <span className="w-24 shrink-0 text-right text-xs tabular-nums text-secondary">
-                        {dismissed} of {judged} dismissed
+                        <span translate="no">{`${dismissed} of ${judged} dismissed`}</span>
                     </span>
                 </div>
             </Tooltip>
