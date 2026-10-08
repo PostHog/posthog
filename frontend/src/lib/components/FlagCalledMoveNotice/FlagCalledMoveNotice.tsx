@@ -6,11 +6,10 @@ import { showsFlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/s
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { isHttpsUrl } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
-
-const FLAG_CALLED_MOVE_DOCS_URL: string | null = null
 
 interface FlagCalledMoveNoticeProps {
     name: string | null | undefined
@@ -32,6 +31,8 @@ export function FlagCalledMoveNotice({ name, groupType, className }: FlagCalledM
         return null
     }
 
+    const announcementUrl = getFeatureFlagPayload(FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES)?.url
+
     return (
         <div className={cn('flex items-start gap-1.5', className)} data-attr="flag-called-move-notice">
             <IconWarning className="shrink-0 mt-0.5 text-warning" />
@@ -40,10 +41,10 @@ export function FlagCalledMoveNotice({ name, groupType, className }: FlagCalledM
                 <code>posthog.flag_evaluations</code>. Once the move finishes for your organization, insights and
                 queries on this event will stop returning results, and you can query{' '}
                 <code>posthog.flag_evaluations</code> instead.
-                {FLAG_CALLED_MOVE_DOCS_URL && (
+                {typeof announcementUrl === 'string' && isHttpsUrl(announcementUrl) && (
                     <>
                         {' '}
-                        <Link to={FLAG_CALLED_MOVE_DOCS_URL} target="_blank">
+                        <Link to={announcementUrl} target="_blank" data-attr="flag-called-move-notice-announcement">
                             Learn more
                         </Link>
                     </>
