@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import DatabaseError
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -80,6 +81,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             ("surrounding_whitespace", "  Hedgebox  "),
         ]
     )
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_cannot_create_project_with_duplicate_name_in_same_organization(self, _name, duplicate_name):
         self._set_unlimited_projects()
         Project.objects.create_with_team(organization=self.organization, name="Hedgebox", initiating_user=self.user)
@@ -90,6 +92,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIn("already a project called", response.json()["detail"])
         self.assertEqual(Project.objects.filter(organization=self.organization, name__iexact="hedgebox").count(), 1)
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_cannot_create_project_duplicating_a_stored_name_with_whitespace(self):
         # The stored side is trimmed too: a legacy name saved with surrounding whitespace
         # still blocks its clean form (and vice versa is covered by the parameterized test)
@@ -101,6 +104,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already a project called", response.json()["detail"])
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_can_create_project_with_same_name_as_project_in_another_organization(self):
         self._set_unlimited_projects()
         other_organization = Organization.objects.create(name="Other org")
@@ -111,6 +115,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Hedgebox")
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_cannot_create_project_with_pending_duplicate_name(self):
         self._set_unlimited_projects()
         self.project.is_pending_deletion = True
@@ -121,6 +126,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already a project called", response.json()["detail"])
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_creating_projects_without_name_generates_unique_default_names(self):
         self._set_unlimited_projects()
         # The fixture project already holds the plain default name
@@ -192,6 +198,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_with_limited_feature(self):
         # Set project limit to 2
         self.organization.available_product_features = [
@@ -217,6 +224,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_with_unlimited_feature(self):
         # Set unlimited projects
         self.organization.available_product_features = [
@@ -236,8 +244,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @parameterized.expand([("limited", 2), ("unlimited", None)])
-    @patch("posthog.api.project.is_hobby", return_value=True)
-    def test_hobby_project_limit_ignores_legacy_entitlement(self, _name, limit, _mock_is_hobby):
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_project_limit_ignores_legacy_entitlement(self, _name, limit):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": limit}
         ]
@@ -249,8 +257,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("posthog.api.project.is_hobby", return_value=True)
-    def test_hobby_can_create_first_non_demo_project(self, _mock_is_hobby):
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_can_create_first_non_demo_project(self):
         self.team.is_demo = True
         self.team.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -259,6 +267,19 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/", {"name": "First Project"})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+    def test_hobby_can_update_existing_project_with_legacy_entitlement(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 2}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"name": "Renamed project"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
@@ -276,6 +297,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         ]
         self.organization.save()
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_drops_ai_context_account_property_ids(self):
         self._set_unlimited_projects()
         from products.customer_analytics.backend.facade.testing import create_custom_property_definition
@@ -302,6 +324,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
         assert malformed.status_code == status.HTTP_400_BAD_REQUEST
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_rejects_paid_logs_retention_without_feature(self):
         self._set_unlimited_projects()
 
@@ -314,6 +337,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("30 days", response.json()["detail"])
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_allows_base_logs_retention_without_feature(self):
         self._set_unlimited_projects()
 
@@ -326,6 +350,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["logs_settings"]["retention_days"], 14)
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_allows_paid_logs_retention_with_matching_feature(self):
         self._set_unlimited_projects_with_logs_retention(AvailableFeature.LOGS_RETENTION_30D)
 
@@ -338,6 +363,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["logs_settings"]["retention_days"], 30)
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_creation_rejects_invalid_logs_retention(self):
         self._set_unlimited_projects()
 
@@ -392,6 +418,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response.json()["detail"], "You need to be an organization admin or above to create new projects."
         )
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_member_can_create_project_when_org_allows(self):
         self._set_unlimited_projects()
         self.organization.members_can_create_projects = True
@@ -404,6 +431,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_member_cannot_set_admin_only_fields_when_creating_project(self):
         # A member allowed to create projects must not be able to set admin-only team fields like
         # receive_org_level_activity_logs, which would grant org-wide activity log access.
@@ -422,6 +450,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIn("receive_org_level_activity_logs", response.json()["detail"])
         self.assertFalse(self.organization.teams.filter(receive_org_level_activity_logs=True).exists())
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_admin_can_set_admin_only_fields_when_creating_project(self):
         self._set_unlimited_projects()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -440,6 +469,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             ("owner", OrganizationMembership.Level.OWNER),
         ]
     )
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_admins_and_owners_can_always_create_project_when_members_blocked(self, _name, level):
         self._set_unlimited_projects()
         self.organization.members_can_create_projects = False
@@ -455,6 +485,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         mock_create_notification.assert_not_called()
 
     @patch("posthog.api.project.create_notification")
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_member_project_creation_notifies_org_admins(self, mock_create_notification):
         from posthog.models import User
 
@@ -492,6 +523,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertNotIn(self.user.id, targeted_user_ids)
 
     @patch("posthog.api.project.create_notification")
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_admin_project_creation_does_not_notify(self, mock_create_notification):
         self._set_unlimited_projects()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -503,6 +535,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         mock_create_notification.assert_not_called()
 
     @patch("posthog.models.organization.Organization.teams")
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_hard_limit_projects(self, mock_teams):
         # Set unlimited projects
         self.organization.available_product_features = [
@@ -530,6 +563,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_demo_projects_not_counted_toward_limit(self):
         # Set project limit to 2
         self.organization.available_product_features = [
@@ -1362,6 +1396,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.project.name, "Renamed project")
         self.assertEqual(self.team.name, "Renamed project")
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_customer_analytics_config_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -1560,6 +1595,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.json()["tags"], ["keep"])
         self.assertEqual(set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)), {"keep"})
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_project_can_be_created_with_tags(self):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 2}

@@ -18,6 +18,7 @@ describe('organizationLogic', () => {
         ['hobby before its first project', false, false, false, false, false],
         ['hobby with a legacy project entitlement', false, false, false, true, true],
         ['hobby with no visible teams', false, false, false, true, true],
+        ['hobby without project permission data', false, false, false, null, true],
         ['cloud without a project entitlement', true, false, false, true, false],
         ['local development', false, true, false, true, false],
         ['test mode', false, false, true, true, false],
@@ -33,7 +34,7 @@ describe('organizationLogic', () => {
         logic = organizationLogic()
 
         expect(Boolean(logic.values.projectCreationForbiddenReason)).toBe(blocked)
-        if (blocked) {
+        if (blocked && hasProject === true) {
             expect(logic.values.projectCreationForbiddenReason).toContain('Self-hosted PostHog supports one project')
         }
     })

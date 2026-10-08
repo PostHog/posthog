@@ -5708,8 +5708,11 @@ export interface OrganizationApi {
     readonly is_ai_training_cta_shown: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa: boolean
-    /** Whether this organization has a non-demo project, including projects hidden from the requesting user. */
-    readonly has_non_demo_project: boolean
+    /**
+     * Whether this organization has a non-demo project, including hidden projects. Null when the user cannot create projects.
+     * @nullable
+     */
+    readonly has_non_demo_project: boolean | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**

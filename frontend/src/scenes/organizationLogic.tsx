@@ -61,7 +61,11 @@ function getSelfHostedProjectLimitReason(
         return null
     }
 
-    return organization.has_non_demo_project !== false
+    if (organization.has_non_demo_project == null) {
+        return 'Project creation is unavailable until organization permissions load.'
+    }
+
+    return organization.has_non_demo_project
         ? 'Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.'
         : null
 }

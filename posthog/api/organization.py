@@ -49,6 +49,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
+    can_create_project_in_organization,
     extract_organization,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
@@ -243,7 +244,7 @@ class OrganizationSerializer(
         help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
     has_non_demo_project = serializers.SerializerMethodField(
-        help_text="Whether this organization has a non-demo project, including projects hidden from the requesting user."
+        help_text="Whether this organization has a non-demo project, including hidden projects. Null when the user cannot create projects."
     )
 
     class Meta:
@@ -346,8 +347,11 @@ class OrganizationSerializer(
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.joined_at.isoformat() if membership is not None else None
 
-    @extend_schema_field(serializers.BooleanField())
-    def get_has_non_demo_project(self, organization: Organization) -> bool:
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_has_non_demo_project(self, organization: Organization) -> bool | None:
+        membership = self.user_permissions.organization_memberships.get(organization.pk)
+        if not can_create_project_in_organization(organization, membership):
+            return None
         return organization.teams.exclude(is_demo=True).exists()
 
     @tracer.start_as_current_span("organization_serializer.teams")
