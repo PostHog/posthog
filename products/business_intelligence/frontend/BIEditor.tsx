@@ -12,15 +12,16 @@ import {
     parseBIShelfPillDragData,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIFilterControl } from 'products/business_intelligence/frontend/BIFilterControl'
+import { BIChartTypes } from 'products/business_intelligence/frontend/components/BIChartTypes'
 import { BIDataPane } from 'products/business_intelligence/frontend/components/BIDataPane'
 import { BIFieldPill } from 'products/business_intelligence/frontend/components/BIFieldPill'
 import { BIFiltersCard } from 'products/business_intelligence/frontend/components/BIFiltersCard'
 import { BIMarksCard } from 'products/business_intelligence/frontend/components/BIMarksCard'
 import { BIShelfStrip } from 'products/business_intelligence/frontend/components/BIShelfStrip'
-import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 import { BIToolbar } from 'products/business_intelligence/frontend/components/BIToolbar'
 
 import { BIAnalysisControls } from './BIAnalysisControls'
+import { BILocalFieldModal } from './BILocalFieldModal'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
 import { BIResultFiltersCard } from './components/BIResultFiltersCard'
 
@@ -29,7 +30,7 @@ import { BIResultFiltersCard } from './components/BIResultFiltersCard'
  * shelves above the view, and a chart picker on the right.
  */
 export function BIEditor({ tabId, children }: { tabId: string; children: ReactNode }): JSX.Element {
-    const { config, showMeOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
+    const { config, chartTypesOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
     const { removeFieldFromShelf, setActiveDropShelf } = useActions(biEditorLogic({ tabId }))
     const containerRef = useRef<HTMLDivElement>(null)
     const cardsRef = useRef<HTMLDivElement>(null)
@@ -71,6 +72,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
             >
                 <BIToolbar />
                 <BICalculatedMeasureModal />
+                <BILocalFieldModal />
                 <BIMeasureSettingsModal />
                 <div className="flex min-h-0 flex-1">
                     <div
@@ -128,7 +130,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         </BIShelfStrip>
                         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
                     </div>
-                    {showMeOpen || config.filters.length > 0 ? (
+                    {chartTypesOpen || config.filters.length > 0 ? (
                         <div className="hidden w-44 shrink-0 flex-col overflow-y-auto border-l bg-surface-primary @3xl/bi-editor:flex @6xl/bi-editor:w-80">
                             {config.filters.length > 0 && (
                                 <section className="border-b p-2" aria-label="Quick filters">
@@ -140,7 +142,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                                     </div>
                                 </section>
                             )}
-                            {showMeOpen && <BIShowMe docked />}
+                            {chartTypesOpen && <BIChartTypes docked />}
                         </div>
                     ) : null}
                 </div>

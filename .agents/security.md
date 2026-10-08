@@ -1,5 +1,19 @@
 # Security guidelines for agents
 
+## Routing security fixes
+
+**Security fixes are developed in private, never in this public repo.**
+A public PR, branch, issue, or comment about a vulnerability discloses it before the fix is deployed.
+
+- **Where:** open the change against the private mirror **`PostHog/posthog-private`**, not `PostHog/posthog`.
+- **Branch name:** start it with **`security/`**, for example `security/idor-dashboards`.
+- **Never on `PostHog/posthog`:** no PR, branch, or issue that fixes or describes a security weakness, however small or obvious, and no test that demonstrates the exploit.
+- **What counts:** closing an access-control or IDOR gap, an injection (SQL, HogQL, command, path), SSRF, an auth, session, or token weakness, secret exposure, XSS, CSRF, an open redirect, or any change whose purpose is to close an exploitable hole.
+- **If unsure, treat it as a security fix** and route it privately.
+- **Reporting:** keep audit and review findings in the session or private channels; never paste exploit details or vulnerable paths into a public PR, issue, or comment.
+
+This section is about where the fix lands; the rest of this doc is about writing secure code.
+
 ## Principle of Least Privilege
 
 Default to the smallest permission, narrowest field set, and shortest scope that still works. If a change needs more access than what's already in place, stop and reconsider the design before widening it.
@@ -198,6 +212,9 @@ A script or request that goes to another PostHog subdomain needs its host in the
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
 On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
 It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
+A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
+Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
+A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
 Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.

@@ -2,16 +2,22 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile } from 'lib/utils/dom'
 
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowTemplateChooser } from './templates/WorkflowTemplateChooser'
 import { workflowTemplatesLogic } from './templates/workflowTemplatesLogic'
+import { WorkflowTemplateTypePicker } from './templates/WorkflowTemplateTypePicker'
 
 export function NewWorkflowModal(): JSX.Element {
     const { hideNewWorkflowModal } = useActions(newWorkflowLogic)
     const { newWorkflowModalVisible } = useValues(newWorkflowLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
 
     const { templateFilter, tagFilter, availableTags } = useValues(workflowTemplatesLogic)
     const { setTemplateFilter, setTagFilter } = useActions(workflowTemplatesLogic)
@@ -41,6 +47,7 @@ export function NewWorkflowModal(): JSX.Element {
                             // A focused input makes iOS pan the viewport on swipe instead of scrolling the list.
                             autoFocus={!isMobile()}
                         />
+                        {newNavigationEnabled && <WorkflowTemplateTypePicker />}
                         {availableTags.length > 0 && (
                             <LemonSelect
                                 className="shrink-0 min-w-56 whitespace-nowrap"

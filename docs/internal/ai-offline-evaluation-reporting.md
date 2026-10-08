@@ -3,6 +3,7 @@
 The sandboxed evaluation harness in `products/posthog_ai/eval_harness/` reports scorer results as PostHog `$ai_evaluation` events.
 With the Braintrust engine, each suite runs once and the harness sends the resulting scores to PostHog when uploads are enabled.
 Reporting does not run the agent or scorers again.
+Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../../products/posthog_ai/eval_harness/README.md) for suite discovery and execution.
 
 ## Capture settings
 
@@ -19,7 +20,6 @@ Ordinary PostHog SDK clients and trace clients retain their existing `TEST` and 
 
 Each event contains the existing experiment, case, and metric properties, including input, output, and expected values when available.
 Result reporting uses the existing event schema.
-The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate reporter and is outside this behavior.
 
 ## Postgres experiment ingestion
 

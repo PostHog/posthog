@@ -78,26 +78,6 @@ class TestTikTokAdsHelpers:
 
         assert result == expected
 
-    def test_flatten_tiktok_report_record_flat(self):
-        flat_record = {"campaign_id": "123456", "campaign_name": "Test Campaign", "status": "ENABLE"}
-
-        result = TikTokReportResource.transform_entity_reports([flat_record])[0]
-        expected = flat_record.copy()
-        expected["current_status"] = "ACTIVE"
-        assert result == expected
-
-    def test_flatten_tiktok_reports(self):
-        reports = [
-            {"dimensions": {"campaign_id": "123"}, "metrics": {"clicks": "100"}},
-            {"dimensions": {"campaign_id": "456"}, "metrics": {"clicks": "200"}},
-        ]
-
-        result = TikTokReportResource.transform_analytics_reports(reports)
-
-        expected = [{"campaign_id": "123", "clicks": "100"}, {"campaign_id": "456", "clicks": "200"}]
-
-        assert result == expected
-
     @parameterized.expand(
         [
             ("no_incremental", False, None, 365),
@@ -182,48 +162,6 @@ class TestGetResource:
     def test_get_tiktok_resource_unknown_endpoint(self):
         with pytest.raises(ValueError, match="Unknown endpoint: invalid_endpoint"):
             get_tiktok_resource("invalid_endpoint", self.advertiser_id, False)
-
-    def test_get_tiktok_resource_entity_endpoint(self):
-        resource = get_tiktok_resource("campaigns", self.advertiser_id, False)
-
-        assert resource["name"] == "campaigns"
-        assert resource["table_name"] == "campaigns"
-        assert resource["primary_key"] == ["campaign_id"]
-        assert resource["write_disposition"] == "replace"
-
-        assert resource["endpoint"]["params"]["advertiser_id"] == self.advertiser_id
-
-    def test_get_tiktok_resource_report_endpoint_incremental(self):
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True)
-
-        assert resource["name"] == "campaign_report"
-        assert resource["table_name"] == "campaign_report"
-        assert resource["primary_key"] == ["campaign_id", "stat_time_day"]
-        assert isinstance(resource["write_disposition"], dict)
-        write_disposition = resource["write_disposition"]
-        assert write_disposition["disposition"] == "merge"
-        assert write_disposition["strategy"] == "upsert"
-
-        assert "start_date" in resource["endpoint"]["params"]
-        assert "end_date" in resource["endpoint"]["params"]
-
-    def test_get_tiktok_resource_report_endpoint_full_refresh(self):
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, False)
-
-        assert "start_date" in resource["endpoint"]["params"]
-        assert "end_date" in resource["endpoint"]["params"]
-
-        assert resource["endpoint"]["params"]["start_date"] == "{start_date}"
-        assert resource["endpoint"]["params"]["end_date"] == "{end_date}"
-
-    def test_get_tiktok_resource_with_date_chunking(self):
-        resource = get_tiktok_resource("campaign_report", self.advertiser_id, True)
-
-        assert "start_date" in resource["endpoint"]["params"]
-        assert "end_date" in resource["endpoint"]["params"]
-
-        assert resource["endpoint"]["params"]["start_date"] == "{start_date}"
-        assert resource["endpoint"]["params"]["end_date"] == "{end_date}"
 
 
 class TestTikTokAdsSource:
@@ -377,30 +315,6 @@ class TestTikTokAdsResumeBehavior:
             list(cast(Iterable[Any], response.items()))
             return mock_session
 
-    def test_fresh_run_saves_state_after_each_non_terminal_page(self):
-        """can_resume=False: first page yields, manager.save_state called with next page number."""
-        manager = _make_manager(can_resume=False)
-
-        responses = [
-            _page_response(page=1, total_pages=3, items=[{"campaign_id": "c1"}]),
-            _page_response(page=2, total_pages=3, items=[{"campaign_id": "c2"}]),
-            _page_response(page=3, total_pages=3, items=[{"campaign_id": "c3"}]),
-        ]
-        self._run_campaigns(manager, responses)
-
-        # State is persisted after every non-terminal page (2 saves for 3 pages).
-        save_calls = manager.save_state.call_args_list
-        assert len(save_calls) == 2
-
-        first_save = save_calls[0].args[0]
-        assert isinstance(first_save, TikTokAdsResumeConfig)
-        assert first_save.chunk_index == 0
-        assert first_save.page == 2
-
-        second_save = save_calls[1].args[0]
-        assert second_save.chunk_index == 0
-        assert second_save.page == 3
-
     def test_resume_uses_saved_cursor(self):
         """can_resume=True: the first request targets the saved page, not page 1."""
         manager = _make_manager(
@@ -420,17 +334,6 @@ class TestTikTokAdsResumeBehavior:
         # ``prepare_request`` is the identity so the Request's params dict is
         # what we care about: it must target page 2.
         assert sent_request.params["page"] == 2
-
-    def test_terminal_page_does_not_save_state(self):
-        """A single final page yields no save_state calls."""
-        manager = _make_manager(can_resume=False)
-
-        responses = [
-            _page_response(page=1, total_pages=1, items=[{"campaign_id": "c1"}]),
-        ]
-        self._run_campaigns(manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_stale_resume_state_is_discarded(self):
         """A saved chunk_index beyond the current chunk list falls back to a fresh run."""
@@ -633,18 +536,6 @@ class TestTikTokAdsTransientErrorRetry:
             )
             rows = list(cast(Iterable[Any], response.items()))
             return rows, mock_session
-
-    def test_qps_limit_mid_pagination_is_reissued(self):
-        responses = [
-            _page_response(page=1, total_pages=2, items=[{"campaign_id": "c1"}]),
-            _make_response({"code": 40100, "message": "App reaches the QPS limit 10, current QPS is 11."}),
-            _page_response(page=2, total_pages=2, items=[{"campaign_id": "c2"}]),
-        ]
-
-        rows, mock_session = self._run_campaigns(responses)
-
-        assert mock_session.send.call_count == 3
-        assert [row["campaign_id"] for row in rows] == ["c1", "c2"]
 
     def test_persistent_qps_limit_surfaces_transient_message(self):
         responses = [

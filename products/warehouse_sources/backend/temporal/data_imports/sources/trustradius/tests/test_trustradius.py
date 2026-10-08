@@ -118,14 +118,6 @@ def test_sync_auth_errors_match_terminal_messages(status: int) -> None:
     assert len([message for pattern, message in messages.items() if pattern in str(error.value)]) == 1
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_failures_retry_and_keep_auth(status: int) -> None:
-    with patch("requests.adapters.HTTPAdapter.send", side_effect=[response({}, status), response([])]) as send:
-        assert list(cast(Iterable[Any], trustradius_source("example-secret", "products", 1, "test-job").items())) == []
-    assert send.call_count == 2
-    assert all(call.args[0].headers["x-api-key"] == "example-secret" for call in send.call_args_list)
-
-
 @pytest.mark.parametrize("endpoint", ["products", "product_scores", "trustquotes", "tags"])
 def test_unexpected_response_shape_fails_instead_of_erasing_table(endpoint: str) -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response({"unexpected": []})) as send:

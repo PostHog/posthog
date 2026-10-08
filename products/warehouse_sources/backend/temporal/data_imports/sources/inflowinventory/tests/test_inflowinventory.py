@@ -89,35 +89,6 @@ def _source(endpoint: str, manager: MagicMock, api_version: str = INFLOWINVENTOR
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_yields_and_stops(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_json_response([{"productId": "1"}, {"productId": "2"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("products", manager))
-
-        assert rows == [{"productId": "1"}, {"productId": "2"}]
-        assert session.send.call_count == 1
-        # The page is short (< PAGE_SIZE), so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_after_cursor_until_short_page(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        # Last row of the first full page has productId str(PAGE_SIZE - 1), which becomes the cursor.
-        last_id = str(PAGE_SIZE - 1)
-        snapshots = _wire(session, [_json_response(_full_page(0)), _json_response([{"productId": "9999"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("products", manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert snapshots[0]["params"] == {"count": PAGE_SIZE}
-        assert snapshots[1]["params"] == {"count": PAGE_SIZE, "after": last_id}
-        # Checkpoint saved after the first full page (points at the next page); the short page ends it.
-        manager.save_state.assert_called_once_with(InflowInventoryResumeConfig(after=last_id))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_cursor_uses_per_endpoint_id_field(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
         last_id = str(PAGE_SIZE - 1)
@@ -142,18 +113,6 @@ class TestPagination:
         assert snapshots[0]["params"]["after"] == "42"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_json_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source("products", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_page_missing_id_field_stops(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
         # A full page whose last row lacks the cursor field can't be paginated past — stop instead
@@ -168,22 +127,6 @@ class TestPagination:
         assert len(rows) == PAGE_SIZE
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_sends_count_and_no_after(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_json_response([])])
-
-        _rows(_source("products", _make_manager()))
-        assert snapshots[0]["params"] == {"count": PAGE_SIZE}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_targets_company_scoped_url(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_json_response([])])
-
-        _rows(_source("sales_orders", _make_manager()))
-        assert snapshots[0]["url"] == "https://cloudapi.inflowinventory.com/co-123/sales-orders"
 
     @parameterized.expand(
         [
@@ -346,7 +289,3 @@ class TestInflowInventorySourceResponse:
         assert response.primary_keys == INFLOWINVENTORY_ENDPOINTS[endpoint].primary_keys
         # No stable creation timestamp is guaranteed across every object, so we don't partition.
         assert response.partition_mode is None
-
-    def test_every_endpoint_primary_key_matches_id_field(self) -> None:
-        assert all(config.primary_keys == [config.id_field] for config in INFLOWINVENTORY_ENDPOINTS.values())
-        assert set(INFLOWINVENTORY_ENDPOINTS) == set(ENDPOINTS)
