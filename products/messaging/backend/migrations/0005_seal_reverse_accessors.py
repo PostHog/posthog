@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("messaging", "0004_alter_messagesuppression_source"),
         ("posthog", "1394_backfill_secret_tokens_to_psak"),
