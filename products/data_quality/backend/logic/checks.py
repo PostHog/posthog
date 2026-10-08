@@ -26,7 +26,15 @@ from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
-from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import (
+    CheckSeverity,
+    CheckType,
+    SubjectHealth,
+    SubjectStatus,
+    SubjectType,
+    SuiteRunStatus,
+    SuiteRunTrigger,
+)
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from . import posthog_tables
 from .compiler import related_subject_ref
@@ -40,6 +48,7 @@ from .errors import (
 )
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
+from .jev_question import QuestionConfig
 from .registry import get_spec
 from .schedules import provision_schedule
 from .serialization import canonical_config, compute_fingerprint
@@ -116,6 +125,11 @@ def validate_check(
         raise CheckConfigError("A check on a metric takes no column. Remove the column and save again.")
     if parsed.lookback_hours is not None and not subject.time_column:
         raise CheckConfigError(f"A {subject_type} has no time column, so it cannot take a lookback_hours window.")
+    if check_type == CheckType.QUESTION:
+        question_config = QuestionConfig.model_validate(parsed)
+        for name in question_config.input_columns(column_name):
+            if subject_column_type(team.id, subject_type, subject_uuid, name) is None:
+                raise CheckConfigError("A selected question field is not available on the subject.")
     _require_selectable_posthog_column(subject, column_name)
     spec.referenced_table_names(parsed, subject)
     # After the subject resolves, so the column type is only looked up for a check that could run.
@@ -172,6 +186,11 @@ def upsert_check(
     )
     existing = _find_by_fingerprint(team.id, subject_type, subject_uuid, fingerprint)
     fields = {key: value for key, value in optional.items() if key in _UPSERTABLE_FIELDS and value is not None}
+
+    if check_type == CheckType.QUESTION:
+        if fields.get("severity", CheckSeverity.WARN) != CheckSeverity.WARN:
+            raise CheckConfigError("Question checks support warning severity only.")
+        fields["severity"] = CheckSeverity.WARN
 
     # Checked here rather than before the fingerprint lookup: re-proposing an identical named check
     # must upsert, and a name conflict with *itself* is not a conflict.
@@ -295,6 +314,10 @@ def _commit_edit(
     requested: dict[str, Any],
     candidate: _CandidateDefinition,
 ) -> DataQualityCheck:
+    if candidate.check_type == CheckType.QUESTION:
+        if requested.get("severity", CheckSeverity.WARN) != CheckSeverity.WARN:
+            raise CheckConfigError("Question checks support warning severity only.")
+        requested["severity"] = CheckSeverity.WARN
     _ensure_definition_available(check, candidate.fingerprint)
     if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
         raise NameConflictError()

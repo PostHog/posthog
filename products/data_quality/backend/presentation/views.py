@@ -590,7 +590,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         self._require_referenced_subject_access(check.check_type, check.config, subject=self._check_identity(check))
         runs = self._readable_runs(
             DataQualityCheckRun.objects.for_team(self.team_id).filter(quality_check=check)
-        ).select_related("quality_check")
+        ).select_related("quality_check", "question_execution")
         return Response(
             DataQualityCheckRunSerializer(list(runs.order_by("-created_at")[:_RECENT_RUNS_LIMIT]), many=True).data
         )
@@ -837,7 +837,7 @@ class DataQualityRunViewSet(
         suite_run = self.get_object()
         runs = list(
             self._readable_runs(DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run))
-            .select_related("quality_check")
+            .select_related("quality_check", "question_execution")
             .order_by("-created_at")
         )
         serializer = DataQualityCheckRunSerializer(

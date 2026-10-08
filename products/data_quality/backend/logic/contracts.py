@@ -4,12 +4,16 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from posthog.dataclasses import frozen
+
 from ..facade.enums import SubjectType
 
 if TYPE_CHECKING:
     from posthog.hogql import ast
 
     from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
+
+    from .jev_question import QuestionConfig
 
 
 class Evaluation(StrEnum):
@@ -72,6 +76,13 @@ class CheckPlan:
     evaluation: Evaluation = Evaluation.ZERO_ROWS_PASS
 
 
+@frozen
+class BulkQuestionPlan:
+    subject: SubjectRef
+    column_name: str
+    config: "QuestionConfig"
+
+
 @dataclass(frozen=True)
 class CompiledCheck:
     """A check ready to execute.
@@ -87,3 +98,9 @@ class CompiledCheck:
     printed_failing_rows_query: str
     failing_rows: "ast.SelectQuery | ast.SelectSetQuery"
     evaluation: Evaluation
+
+
+@frozen
+class PreparedQuestion:
+    execution_id: str
+    chunk_count: int
