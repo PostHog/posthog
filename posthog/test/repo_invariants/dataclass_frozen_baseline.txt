@@ -740,8 +740,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/lacework.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lago/lago.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lago/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lambda_labs/lambda_labs.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lambda_labs/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/langfuse/langfuse.py
