@@ -34,14 +34,33 @@ class CanvasAccess(LabeledStrEnum):
     DELETE = "delete"
 
 
-CANVAS_KIND_FREEFORM = "freeform"
-CANVAS_KIND_GRID = "grid"
-CANVAS_KIND_COMPONENT = "component"
-CANVAS_KINDS = [CANVAS_KIND_FREEFORM, CANVAS_KIND_GRID, CANVAS_KIND_COMPONENT]
+# The labels repeat the values because the published OpenAPI enums list these exact pairs.
+class CanvasKind(LabeledStrEnum):
+    FREEFORM = "freeform", "freeform"
+    GRID = "grid", "grid"
+    COMPONENT = "component", "component"
 
-CANVAS_STATE_SCOPE_USER = "user"
-CANVAS_STATE_SCOPE_SHARED = "shared"
-CANVAS_STATE_SCOPES = [CANVAS_STATE_SCOPE_USER, CANVAS_STATE_SCOPE_SHARED]
+
+class CanvasStateScope(LabeledStrEnum):
+    USER = "user", "user"
+    SHARED = "shared", "shared"
+
+
+class CanvasPlacementStatus(LabeledStrEnum):
+    PENDING = "pending", "pending"
+    GENERATING = "generating", "generating"
+    LIVE = "live", "live"
+    FAILED = "failed", "failed"
+
+
+CANVAS_KIND_FREEFORM = CanvasKind.FREEFORM.value
+CANVAS_KIND_GRID = CanvasKind.GRID.value
+CANVAS_KIND_COMPONENT = CanvasKind.COMPONENT.value
+CANVAS_KINDS = CanvasKind.values
+
+CANVAS_STATE_SCOPE_USER = CanvasStateScope.USER.value
+CANVAS_STATE_SCOPE_SHARED = CanvasStateScope.SHARED.value
+CANVAS_STATE_SCOPES = CanvasStateScope.values
 
 CANVAS_BUILD_STATUS_READY = "ready"
 CANVAS_BUILD_STATUS_FAILED = "failed"

@@ -28,6 +28,8 @@ export type RawRequest = {
     contentEncoding?: string
     /** Parsed from the URL. Django reads `compression` from the query string for POST. */
     query?: URLSearchParams
+    /** Envoy appends `-shadow` to the Host of a mirrored copy. */
+    mirrored?: boolean
 }
 
 /** The decoded body, plus the form fields Django's `get_token` reads directly off `request.POST`. */
