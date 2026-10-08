@@ -1,7 +1,7 @@
 # PostHog TUI (command centre)
 
 An Ink terminal app for PostHog Tasks: a sidebar of your work, tmux-like split panes, and pi chats in the cloud or on this machine.
-pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read for display only.
+pi is the harness it starts locally. In the cloud a chat runs pi, or Claude Code on the user's own Claude plan; other ACP logs (Codex) are read for display only.
 
 ## What it does
 
@@ -14,7 +14,7 @@ pi is the only harness it starts or talks to. ACP logs (Claude, Codex) are read 
 - Composer: slash commands with floating suggestions, `!` shell mode, pasted and dropped images, a message sent mid-turn steers the agent, a failed send goes back into the composer, Esc stops the agent and double Esc clears.
 - Notices: a chat's notice sits right-aligned in a row kept above its composer. The composer's top rule shows the agent's background shells, the context donut and the cost.
 - Sign-in from inside the app (OAuth, or a local dev login), with the layout saved between runs.
-- Settings (Ctrl+; or `/settings`): local chats can run on the user's own ChatGPT plan after a browser login kept in pi's `~/.pi/agent/auth.json`. Cloud chats stay on PostHog.
+- Settings (Ctrl+; or `/settings`): local chats can run on the user's own ChatGPT plan after a browser login kept in pi's `~/.pi/agent/auth.json`. Cloud chats can run Claude Code on the user's own Claude plan with a `claude setup-token` token, pasted once and kept in `~/.config/posthog-tui/claude-token`; the TUI hands it to each run's sandbox when asked, so it must be open while a chat starts.
 
 ## Run and test
 
@@ -38,8 +38,8 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `cli.mjs`, `main.tsx` | Vite module runner, hot reload, terminal setup and teardown. A load that fails shows its error and keeps the process (and its local agents) alive; Enter tries again, and so does the next change to the code |
 | `layout.ts` | Workspaces (splits only), the one main view, focus, new chats (`newChat`, `newChatIn`), persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
-| `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default, and whether local chats use the ChatGPT plan |
-| `settings.ts`, `chatgpt.ts` | The settings screen's rows and keys, and pi's ChatGPT login, logout and who is logged in. `startLocal` in `cloud.ts` starts a chat on the ChatGPT model when the plan is on, and the picker lets that provider through |
+| `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default, and whether local chats use the ChatGPT plan and cloud chats the Claude plan |
+| `settings.ts`, `chatgpt.ts`, `claudeToken.ts` | The settings screen's rows and keys; pi's ChatGPT login, logout and who is logged in; the Claude token file and the engine's store over it. `startLocal` in `cloud.ts` starts a chat on the ChatGPT model when the plan is on, and the picker lets that provider through. `PiChats.start` takes the cloud harness, and `reply` continues pi and Claude runs |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots. A split task has two rows, so a workspace row's selection key is its pane |
 | `search.ts` | The task search's result rows and query editing; `hooks/useSearch.ts` asks the server after a pause in typing |
 | `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |

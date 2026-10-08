@@ -300,12 +300,66 @@ describe("PiChats", () => {
     });
   });
 
-  it("refuses to continue a chat that was not started with pi", async () => {
-    const { chats } = setup();
-    const claude = { ...task("completed"), runtime: "acp" } as Task;
+  describe("on the user's Claude plan", () => {
+    const claude = (runStatus: string): Task =>
+      ({ ...task(runStatus), runtime: "acp" }) as Task;
 
-    await expect(chats.reply(claude, "hi")).rejects.toThrow(
-      "Only pi chats can be continued here",
+    it("starts a new chat as a Claude Code cloud run that asks for the plan token", async () => {
+      const { api, chats } = setup();
+
+      await chats.start("Fix the flaky test", [], undefined, "claude");
+
+      expect(api.createTask).toHaveBeenCalledWith({
+        description: "Fix the flaky test",
+        repository: "posthog/posthog",
+        runtime: "acp",
+        runtime_adapter: "claude",
+      });
+      expect(api.createTaskRun).toHaveBeenCalledWith("t1", {
+        environment: "cloud",
+        mode: "interactive",
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      });
+    });
+
+    it("sends a reply into a Claude run that is still going", async () => {
+      const { sendMessage, chats } = setup();
+
+      await chats.reply(claude("in_progress"), "Also update the docs");
+
+      expect(sendMessage).toHaveBeenCalledWith(
+        "t1",
+        "r1",
+        "Also update the docs",
+        [],
+      );
+    });
+
+    it("continues a finished Claude run with a new run on the same plan", async () => {
+      const { api, chats } = setup();
+
+      await chats.reply(claude("completed"), "Keep going");
+
+      expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+        resumeFromRunId: "r1",
+        pendingUserMessage: "Keep going",
+      });
+    });
+  });
+
+  it("refuses to continue a chat from another harness", async () => {
+    const { chats } = setup();
+    const codex = {
+      ...task("completed"),
+      runtime: "acp",
+      latest_run: { ...task("completed").latest_run, runtime_adapter: "codex" },
+    } as unknown as Task;
+
+    await expect(chats.reply(codex, "hi")).rejects.toThrow(
+      "Only pi and Claude chats can be continued here",
     );
   });
 

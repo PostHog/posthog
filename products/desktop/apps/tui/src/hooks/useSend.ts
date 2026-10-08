@@ -18,7 +18,7 @@ import {
 } from "../layout";
 import type { LocalSession } from "../local";
 import { parseSlash } from "../models";
-import type { ChatPlace } from "../prefs";
+import { type ChatPlace, loadPrefs } from "../prefs";
 import type { Sheet } from "../sheet";
 import { parseShell } from "../shell";
 import type { Notice } from "./useNotice";
@@ -385,7 +385,12 @@ export function useSend({
           if (resumed)
             setFresh((tasks) => new Map(tasks).set(resumed.id, resumed));
         })
-      : chats.start(text, images, repos.reposFor(paneId))
+      : chats.start(
+          text,
+          images,
+          repos.reposFor(paneId),
+          loadPrefs().cloudClaudePlan ? "claude" : "pi",
+        )
     ).then(
       (task) => {
         if (current) reopened(current.id, false);

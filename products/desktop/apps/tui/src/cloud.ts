@@ -18,6 +18,7 @@ import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-s
 import type { TuiAuth } from "./auth";
 import { CHATGPT_MODEL, chatgptAccount } from "./chatgpt";
 import { currentRepository, PiChats } from "./chats";
+import { claudeTokenStore } from "./claudeToken";
 import { LOG_PATH } from "./errors";
 import { LocalSession } from "./local";
 import { LocalChats } from "./localChats";
@@ -121,14 +122,20 @@ export function createCloud(
     );
     return { apiHost: auth.apiHost, teamId: await teamId };
   };
+  // The engine sends a Claude plan token only to a run the signed-in account started; the token file is that account's.
+  const contextWithAccount = async (options?: { includeAccount?: boolean }) =>
+    options?.includeAccount
+      ? { ...(await context()), accountKey: auth.apiHost }
+      : context();
   const engine = createCloudTaskEngine({
     auth: {
       authenticatedFetch: authenticatedFetch(auth),
-      getCloudContext: context,
+      getCloudContext: contextWithAccount,
     },
     analytics: noAnalytics,
     logger,
     transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
+    claudeSubscriptionTokenStore: claudeTokenStore(),
   });
   const runs = new CloudRuns(
     engine,

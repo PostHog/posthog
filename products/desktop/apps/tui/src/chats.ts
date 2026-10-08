@@ -1,6 +1,24 @@
 import { execFileSync } from "node:child_process";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { Task } from "@posthog/shared";
+
+// Which agent a cloud chat runs: pi on PostHog, or Claude Code on the user's own Claude plan.
+export type CloudHarness = "pi" | "claude";
+
+const CLAUDE_RUN = {
+  adapter: "claude",
+  claudeModelAccess: "own-subscription",
+} as const;
+
+const harnessOf = (task: Task): CloudHarness | null =>
+  task.runtime === "pi"
+    ? "pi"
+    : task.runtime === "acp" &&
+        (task.latest_run as { runtime_adapter?: string } | null)
+          ?.runtime_adapter !== "codex"
+      ? "claude"
+      : null;
+
 import { savedImage } from "./images";
 import type { SentImage } from "./transcript";
 
@@ -76,11 +94,14 @@ export class PiChats {
     prompt: string,
     images: SentImage[] = [],
     repositories: string[] = this.repository ? [this.repository] : [],
+    harness: CloudHarness = "pi",
   ): Promise<Task> {
     const task = await this.api.createTask({
       description: prompt,
       repository: repositories[0],
-      runtime: "pi",
+      ...(harness === "pi"
+        ? { runtime: "pi" }
+        : { runtime: "acp", runtime_adapter: "claude" }),
       // One repository needs nothing more: the server finds the GitHub connection that reaches it. Several need the
       // list and that connection named; the client's type does not list `repositories` yet.
       ...(repositories.length > 1
@@ -90,7 +111,7 @@ export class PiChats {
     const run = await this.api.createTaskRun(task.id, {
       environment: "cloud",
       mode: "interactive",
-      piRuntime: true,
+      ...(harness === "pi" ? { piRuntime: true } : CLAUDE_RUN),
     });
     const artifactIds =
       images.length > 0
@@ -201,8 +222,9 @@ export class PiChats {
     images: SentImage[] = [],
     onReopen?: (resumed?: Task) => void,
   ): Promise<Task> {
-    if (task.runtime !== "pi") {
-      throw new Error("Only pi chats can be continued here");
+    const harness = harnessOf(task);
+    if (!harness) {
+      throw new Error("Only pi and Claude chats can be continued here");
     }
     const run = task.latest_run;
     if (!run) return this.start(prompt, images);
@@ -246,7 +268,7 @@ export class PiChats {
         ? await this.uploads.toTask(task.id, filesOf(images))
         : [];
     return this.api.runTaskInCloud(task.id, null, {
-      piRuntime: true,
+      ...(harness === "pi" ? { piRuntime: true } : CLAUDE_RUN),
       resumeFromRunId: run.id,
       pendingUserMessage: prompt,
       ...pendingArtifacts(artifactIds),
