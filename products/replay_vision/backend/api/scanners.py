@@ -100,7 +100,8 @@ from products.replay_vision.backend.jev_watch_feed import (
     JevWatchReason,
     load_watch_ranks,
     rank_watch_feed_by_jev,
-    watch_feed_ranker,
+    ranker_mode,
+    watch_feed_ranker_variant,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -1786,6 +1787,15 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "clients read it from here rather than evaluating the flag themselves."
         ),
     )
+    ranker_variant = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, "
+            "`jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from "
+            "control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, "
+            "which is the exposure the experiment counts."
+        ),
+    )
 
 
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
@@ -2486,8 +2496,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow
         # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
         # the hourly sweep cached. Neither arm makes a model call here. The response names the
-        # ranker that ordered it, so the shadow arm reads as weighted-score to the client.
-        ranker = "jev" if watch_feed_ranker(self.team_id) == "jev" else "weighted-score"
+        # ranker that ordered it, so the shadow arm reads as weighted-score to the client, and the
+        # flag variant separately, which the client reports as the experiment's exposure.
+        variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
+        ranker = "jev" if ranker_mode(variant) == "jev" else "weighted-score"
         if ranker == "jev":
             ranks = load_watch_ranks(self.team_id, allowed_ids)
             probabilities = ranks.probabilities
@@ -2545,7 +2557,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results, "ranker": ranker})
+        return Response({"results": results, "ranker": ranker, "ranker_variant": variant})
 
     @extend_schema(
         request=ObserveRequestSerializer,
