@@ -1,9 +1,9 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { dispatchExperimentSave, experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
@@ -20,9 +20,8 @@ import { StatsMethodSelector } from 'products/experiments/frontend/components/St
 import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 export function StatsMethodModal(): JSX.Element {
-    const { experiment, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
+    const { experiment, experimentId, statsMethod, experimentUpdateLoading } = useValues(experimentLogic)
     const { setExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { updateExperimentSettings } = useAsyncActions(experimentLogic)
     const { closeStatsEngineModal } = useActions(modalsLogic)
     const { isStatsEngineModalOpen } = useValues(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
@@ -30,6 +29,15 @@ export function StatsMethodModal(): JSX.Element {
     const onClose = (): void => {
         restoreUnmodifiedExperiment()
         closeStatsEngineModal()
+    }
+
+    const onSave = async (): Promise<void> => {
+        const outcome = await dispatchExperimentSave(experimentId, (actions) =>
+            actions.updateExperimentSettings({ stats_config: experiment.stats_config })
+        )
+        if (outcome === 'saved') {
+            closeStatsEngineModal()
+        }
     }
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
@@ -124,19 +132,7 @@ export function StatsMethodModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        loading={experimentUpdateLoading}
-                        onClick={async () => {
-                            try {
-                                await updateExperimentSettings({ stats_config: experiment.stats_config })
-                            } catch {
-                                // Keep the modal open so the user can retry
-                                return
-                            }
-                            closeStatsEngineModal()
-                        }}
-                    >
+                    <LemonButton type="primary" loading={experimentUpdateLoading} onClick={() => void onSave()}>
                         Save
                     </LemonButton>
                 </div>

@@ -1,20 +1,19 @@
-import { useAsyncActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconArrowRight, IconCalendar } from '@posthog/icons'
-import { LemonButton, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { isExperimentConflictError } from 'scenes/experiments/utils'
+import { type ExperimentSaveOutcome, dispatchExperimentSave, experimentLogic } from 'scenes/experiments/experimentLogic'
 
 interface DateTriggerProps {
     date: string | null | undefined
     boundary: 'start' | 'end'
-    onChange: (date: string) => Promise<unknown>
+    onChange: (date: string) => Promise<ExperimentSaveOutcome>
 }
 
 function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Element {
@@ -36,14 +35,9 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
                 <LemonCalendarSelect
                     value={date ? dayjs(date) : null}
                     onChange={async (value) => {
-                        try {
-                            await onChange(value.toISOString())
+                        // The save reports its own error, so a failed save only keeps the picker open for a retry.
+                        if ((await onChange(value.toISOString())) === 'saved') {
                             setIsOpen(false)
-                        } catch (error: any) {
-                            // A conflict already toasts and reloads inside updateExperiment; keep the picker open either way.
-                            if (!isExperimentConflictError(error)) {
-                                lemonToast.error(error?.detail || `Could not save the ${boundary} date. Try again.`)
-                            }
                         }
                     }}
                     onClose={() => setIsOpen(false)}
@@ -78,17 +72,28 @@ function DateTrigger({ date, boundary, onChange }: DateTriggerProps): JSX.Elemen
 }
 
 export function ExperimentDateRange(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { changeExperimentStartDate, changeExperimentEndDate } = useAsyncActions(experimentLogic)
+    const { experiment, experimentId } = useValues(experimentLogic)
 
     return (
         <div className="flex items-center gap-0.5" data-attr="experiment-date-range">
             <Tooltip title="Duration">
                 <IconCalendar className="text-secondary text-base shrink-0 mr-1" />
             </Tooltip>
-            <DateTrigger date={experiment.start_date} boundary="start" onChange={changeExperimentStartDate} />
+            <DateTrigger
+                date={experiment.start_date}
+                boundary="start"
+                onChange={(date) =>
+                    dispatchExperimentSave(experimentId, (actions) => actions.changeExperimentStartDate(date))
+                }
+            />
             <IconArrowRight className="text-tertiary shrink-0" />
-            <DateTrigger date={experiment.end_date} boundary="end" onChange={changeExperimentEndDate} />
+            <DateTrigger
+                date={experiment.end_date}
+                boundary="end"
+                onChange={(date) =>
+                    dispatchExperimentSave(experimentId, (actions) => actions.changeExperimentEndDate(date))
+                }
+            />
         </div>
     )
 }

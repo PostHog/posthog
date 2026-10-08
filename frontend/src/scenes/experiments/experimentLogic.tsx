@@ -372,12 +372,14 @@ async function inflightUpdateSaved(cache: Record<string, any>): Promise<boolean>
     return (await inflightUpdateOutcome(cache)) === 'saved'
 }
 
+export type ExperimentSaveOutcome = 'saved' | 'conflict' | 'failed'
+
 /**
  * {@link inflightUpdateSaved} for a caller that must know how the save failed. After a `conflict`, the loader has
  * replaced the experiment with the server's copy and kept only the scalar fields of the rejected update, so metric
  * lists can differ from the ones the caller started with.
  */
-async function inflightUpdateOutcome(cache: Record<string, any>): Promise<'saved' | 'conflict' | 'failed'> {
+async function inflightUpdateOutcome(cache: Record<string, any>): Promise<ExperimentSaveOutcome> {
     const updatePromise: Promise<Experiment> | undefined = cache.inflightUpdate?.promise
     if (!updatePromise) {
         return 'failed'
@@ -2312,7 +2314,13 @@ export const experimentLogic = kea<experimentLogicType>([
             // Read the old date before the save, because the save stores the response in values.experiment.
             const oldStartDate = values.experiment?.start_date
             actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
-            if (!(await inflightUpdateSaved(cache))) {
+            const outcome = await inflightUpdateOutcome(cache)
+            if (outcome !== 'saved') {
+                // After a conflict, the loader keeps the rejected date in local state for review. The open date picker
+                // still holds the picked date, so put back the server's date and do not show a date that did not save.
+                if (outcome === 'conflict' && values.unmodifiedExperiment) {
+                    actions.setExperiment({ start_date: values.unmodifiedExperiment.start_date })
+                }
                 return
             }
             if (values.experiment) {
@@ -2328,7 +2336,11 @@ export const experimentLogic = kea<experimentLogicType>([
             // Read the old date before the save, because the save stores the response in values.experiment.
             const oldEndDate = values.experiment?.end_date
             actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
-            if (!(await inflightUpdateSaved(cache))) {
+            const outcome = await inflightUpdateOutcome(cache)
+            if (outcome !== 'saved') {
+                if (outcome === 'conflict' && values.unmodifiedExperiment) {
+                    actions.setExperiment({ end_date: values.unmodifiedExperiment.end_date })
+                }
                 return
             }
             if (values.experiment) {
@@ -3997,6 +4009,21 @@ export const experimentLogic = kea<experimentLogicType>([
 ])
 
 /**
+ * Runs `dispatch` on the mounted experiment logic and resolves to the outcome of the save that it queued. A caller
+ * outside the logic needs this, because the async action resolves even when the save fails.
+ */
+export async function dispatchExperimentSave(
+    experimentId: ExperimentIdType,
+    dispatch: (actions: experimentLogicType['actions']) => void
+): Promise<ExperimentSaveOutcome> {
+    const logic = experimentLogic({ experimentId })
+    dispatch(logic.actions)
+    // kea runs a listener synchronously up to its first `await`, and the loader queues its request before it returns.
+    // So this reads the save that `dispatch` queued, if its listener calls `updateExperiment` before any `await`.
+    return await inflightUpdateOutcome(logic.cache)
+}
+
+/**
  * Saves an update through the update queue of the mounted experiment logic and resolves to whether it saved. For a
  * caller outside the logic: awaiting `asyncActions.updateExperiment()` resolves even when the save fails, and the
  * loader still reports the error.
@@ -4005,7 +4032,5 @@ export async function saveExperimentUpdate(
     experimentId: ExperimentIdType,
     update: ExperimentUpdatePayload
 ): Promise<boolean> {
-    const logic = experimentLogic({ experimentId })
-    logic.actions.updateExperiment(update)
-    return await inflightUpdateSaved(logic.cache)
+    return (await dispatchExperimentSave(experimentId, (actions) => actions.updateExperiment(update))) === 'saved'
 }
