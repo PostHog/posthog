@@ -11,6 +11,9 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -443,6 +446,7 @@ def _get_build_rows(
         remaining = job_urls[job_urls.index(resume.next_job_url) :]
         logger.debug(f"Jenkins: resuming builds fan-out from {resume.next_job_url}")
 
+    job_checkpoint = BoundaryCheckpoint(batcher, resumable_source_manager)
     for index, job_url in enumerate(remaining):
         for build in _iter_job_builds(session, job_url, auth, logger, watermark_ms):
             batcher.batch(build)
@@ -452,8 +456,9 @@ def _get_build_rows(
         # Bookmark the NEXT job only after the current one is fully yielded, so a crash resumes at an
         # unprocessed job rather than re-emitting one whose rows already landed. The incremental
         # watermark finalizes at job end (desc sort_mode), so a bounded re-pull on crash is safe.
+        # The batcher can hold builds of this job, and a bookmark at the next job skips them.
         if index + 1 < len(remaining):
-            resumable_source_manager.save_state(JenkinsResumeConfig(next_job_url=remaining[index + 1]))
+            yield from job_checkpoint.save(JenkinsResumeConfig(next_job_url=remaining[index + 1]))
 
 
 def get_rows(

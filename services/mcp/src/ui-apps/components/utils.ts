@@ -4,6 +4,30 @@ export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType
     return query?.trendsFilter?.display || 'ActionsLineGraph'
 }
 
+export interface InsightQueryProperties {
+    queryKind?: string
+    querySourceKind?: string
+    display?: string
+    funnelVizType?: string
+}
+
+export function insightQueryProperties(query: unknown): InsightQueryProperties {
+    if (typeof query !== 'object' || query === null) {
+        return {}
+    }
+    const node = query as Record<string, unknown>
+    const hasSource = typeof node.source === 'object' && node.source !== null
+    const source = (hasSource ? node.source : node) as Record<string, any>
+    const defaultDisplay =
+        source.kind === 'TrendsQuery' || source.kind === 'StickinessQuery' ? 'ActionsLineGraph' : undefined
+    return {
+        queryKind: typeof node.kind === 'string' ? node.kind : undefined,
+        querySourceKind: hasSource && typeof source.kind === 'string' ? source.kind : undefined,
+        display: source.trendsFilter?.display ?? source.stickinessFilter?.display ?? defaultDisplay,
+        funnelVizType: source.funnelsFilter?.funnelVizType,
+    }
+}
+
 export function formatNumber(value: number): string {
     if (value >= 1_000_000) {
         return `${(value / 1_000_000).toFixed(1)}M`

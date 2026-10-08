@@ -105,7 +105,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.63.0",
+    "posthoganalytics==7.64.1",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -117,7 +117,7 @@ dependencies = [
     "pymssql==2.3.8",
     "pymysql==1.1.1",
     "pymongo==4.15.2",
-    "pyroscope-io~=1.0.3",
+    "pyroscope-io~=1.2.4",
     "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
     "python-docx==1.2.0",
@@ -212,7 +212,7 @@ dependencies = [
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
     "limits==5.8.0",
-    "deltalite==0.1.10",
+    "deltalite==0.1.11",
     "posthog-hogland==0.4.1",
     "requests-oauthlib~=2.0.0",
 ]
@@ -719,10 +719,6 @@ ignore_imports = [
     # the facade.
     "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.message_templates",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_revision",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.workflow_proposal",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.timing_reschedule",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.tasks.hog_flows",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
@@ -868,7 +864,6 @@ ignore_imports = [
     "products.logs.backend.facade.retention_views -> products.logs.backend.presentation.views.retention_api",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
-    "products.workflows.backend.facade.api -> products.workflows.backend.presentation.views.hog_flow",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
     "products.experiments.backend.facade.api -> rest_framework",

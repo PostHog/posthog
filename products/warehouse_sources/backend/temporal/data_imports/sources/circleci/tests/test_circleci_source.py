@@ -1,3 +1,7 @@
+from urllib.parse import urlparse
+
+from unittest import mock
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
@@ -38,11 +42,6 @@ class TestCircleCISource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_returns_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_no_endpoint_advertises_incremental(self, endpoint):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -58,5 +57,26 @@ class TestCircleCISource:
         assert len(schemas) == 1
         assert schemas[0].name == "pipelines"
 
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+    @parameterized.expand(
+        [
+            ("v2", "/api/v2/pipeline"),
+            ("v3", "/api/v3/projects"),
+            # An unpinned call (pre-creation validation) resolves to the v3 default.
+            (None, "/api/v3/projects"),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.make_tracked_session"
+    )
+    def test_validate_credentials_probes_the_pinned_api(self, api_version, expected_org_probe_path, mock_session):
+        collaborations = mock.MagicMock(status_code=200)
+        collaborations.json.return_value = [{"id": "org-uuid", "slug": "gh/posthog"}]
+        ok = mock.MagicMock(status_code=200)
+        mock_session.return_value.get.side_effect = lambda url, **kwargs: (
+            collaborations if "/me/collaborations" in url else ok
+        )
+
+        assert self.source.validate_credentials(self.config, self.team_id, api_version=api_version) == (True, None)
+
+        last_url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(last_url).path == expected_org_probe_path

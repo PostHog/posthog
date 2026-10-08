@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, reducers } from 'kea'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-export const HOME_TAB_DEFAULT_DATE_RANGE: DateRange = { date_from: '-30d', date_to: null }
+export const HOME_TAB_DEFAULT_DATE_RANGE: DateRange = { date_from: '-7d', date_to: null }
 
 export type HomeTabMetricKey = 'active_users' | 'sessions' | 'new_users' | 'session_duration' | 'daily_active_users'
 export type HomeTabContentKey = 'top_pages' | 'top_screens'
@@ -56,7 +56,7 @@ export const homeTabDefaultLogic = kea<homeTabDefaultLogicType>([
             HOME_TAB_DEFAULT_DATE_RANGE,
             {
                 setDates: (_, { dateFrom, dateTo, explicitDate }) => ({
-                    date_from: dateFrom ?? '-30d',
+                    date_from: dateFrom ?? HOME_TAB_DEFAULT_DATE_RANGE.date_from,
                     date_to: dateTo,
                     explicitDate,
                 }),

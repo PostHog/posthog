@@ -41,12 +41,12 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                             }}
                             to={
                                 queries.worksheet
-                                    ? `${urls.businessIntelligence()}#q=${encodeURIComponent(JSON.stringify(queries.worksheet))}`
+                                    ? `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(queries.worksheet))}`
                                     : undefined
                             }
                             disabledReason={
                                 !queries.worksheet
-                                    ? 'Open comparison-period rows below to explore their original dates'
+                                    ? 'Maximum filter group depth reached. View the underlying rows instead.'
                                     : undefined
                             }
                         >

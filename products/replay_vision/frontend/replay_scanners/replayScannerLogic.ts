@@ -2727,8 +2727,6 @@ function scannerEditorPaths(scannerId: string): string[] {
         ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
         // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
         scannerStepUrl('overview', scannerId),
-        // Retired step: the redirect off it must not trip the unsaved-changes guard.
-        urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }
 

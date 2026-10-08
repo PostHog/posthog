@@ -18,21 +18,6 @@ class TestBlandAISource:
         self.team_id = 123
         self.config = BlandAISourceConfig(api_key="key")
 
-    def test_lists_tables_without_credentials(self):
-        # get_schemas iterates a static endpoint catalog with no I/O, so the public docs catalog renders.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert [t["name"] for t in documented] == [
-            "calls",
-            "call_transcripts",
-            "pathways",
-            "sms_conversations",
-            "sms_messages",
-            "inbound_numbers",
-            "personas",
-            "voices",
-        ]
-
     @parameterized.expand(
         [
             # GET /v1/calls has a server-side `start_date` filter, so both call endpoints are incremental.

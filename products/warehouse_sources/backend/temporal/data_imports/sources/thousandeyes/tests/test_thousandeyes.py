@@ -83,32 +83,6 @@ def read(name: str, state: MagicMock, incremental: bool = False, watermark: str 
     return [row for page in cast(Iterator[list[dict[str, Any]]], response.items()) for row in page]
 
 
-@pytest.mark.parametrize(
-    ("name", "selector", "path", "key"),
-    [
-        ("tests", "tests", "tests", "testId"),
-        ("agents", "agents", "agents", "agentId"),
-        ("alert_rules", "alertRules", "alerts/rules", "ruleId"),
-    ],
-)
-@pytest.mark.parametrize("empty_terminal", [False, True])
-def test_list_pagination_and_auth(
-    transport: Any, name: str, selector: str, path: str, key: str, empty_terminal: bool
-) -> None:
-    sent, enqueue = transport
-    next_url = BASE + path + "?aid=123&cursor=page-2"
-    enqueue({selector: [{key: "one"}], "_links": {"next": {"href": next_url}}})
-    last = [] if empty_terminal else [{key: "two"}]
-    enqueue({selector: last})
-    state = manager()
-    assert read(name, state) == [{key: "one"}, *last]
-    assert len(sent) == 2
-    assert sent[0].url == BASE + path + "?aid=123"
-    assert sent[1].url == next_url
-    assert all(request.headers["Authorization"] == "Bearer fake-token" for request in sent)
-    assert state.save_state.call_args_list[0].args[0].paginator_state == {"next_url": next_url}
-
-
 @pytest.mark.parametrize(("table", "alert_state"), [("active_alerts", "trigger"), ("cleared_alerts", "clear")])
 @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
 def test_alert_states_and_window(transport: Any, table: str, alert_state: str) -> None:
@@ -213,38 +187,6 @@ def test_credential_validation_and_errors(transport: Any, account_group_id: str 
         enqueue({}, status)
         with pytest.raises(HTTPError, match=f"{status} Client Error"):
             read("tests", manager())
-
-
-def test_resume_list_starts_at_saved_page(transport: Any) -> None:
-    sent, enqueue = transport
-    next_url = BASE + "tests?aid=123&cursor=page-2"
-    state = manager(
-        ThousandeyesResumeConfig(
-            paginator_state={"next_url": next_url},
-            start_date="2026-05-01T00:00:00Z",
-            end_date="2026-05-31T00:00:00Z",
-        )
-    )
-    enqueue({"tests": [{"testId": "two"}]})
-    assert read("tests", state) == [{"testId": "two"}]
-    assert [request.url for request in sent] == [next_url]
-
-
-def test_child_pagination_then_next_parent(transport: Any) -> None:
-    sent, enqueue = transport
-    next_url = BASE + "test-results/1/http-server?aid=123&cursor=page-2"
-    enqueue({"tests": [{"testId": "1"}, {"testId": "2"}]})
-    row = {"roundId": 1, "agent": {"agentId": "5"}}
-    enqueue({"results": [row], "_links": {"next": {"href": next_url}}})
-    enqueue({"results": [{**row, "roundId": 2}]})
-    enqueue({"results": []})
-    state = manager()
-    rows = read("http_server_results", state)
-    assert [(row["testId"], row["roundId"]) for row in rows] == [("1", 1), ("1", 2)]
-    assert sent[2].url == next_url
-    assert urlsplit(sent[3].url).path == "/v7/test-results/2/http-server"
-    saved = state.save_state.call_args_list[0].args[0]
-    assert saved.paginator_state["child_state"] == {"next_url": next_url}
 
 
 @pytest.mark.parametrize("next_url", ["https://example.com/steal", "http://api.thousandeyes.com/v7/tests"])

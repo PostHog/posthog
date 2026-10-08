@@ -730,6 +730,8 @@ def google_search_console_source(
             start_row = resume_start_row if (resume_date is not None and iso == resume_date) else 0
 
             while True:
+                # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+                resumable_source_manager.safe_point()
                 rows = _query_search_analytics(
                     session=session,
                     site_url=site_url,

@@ -25,6 +25,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -90,6 +91,7 @@ import {
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
@@ -143,7 +145,7 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
-    resolveSharedMetric,
+    sharedMetricEffectiveQuery,
     sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toFlagVariantsInput,
@@ -230,6 +232,11 @@ export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null
     }
 }
 
+/** The release conditions modal saves the flag through the flag API, then patches only `feature_flag` in. */
+function replacesFlagWithoutHealth(update: Partial<Experiment>): boolean {
+    return 'feature_flag' in update && !('health' in update)
+}
+
 function generateRefreshId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
@@ -289,6 +296,40 @@ export function getSectionMetricUuids(experiment: Experiment, isSecondary: boole
         ({ metadata }) => metadata?.type === (isSecondary ? 'secondary' : 'primary')
     )
     return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
+}
+
+function isPrimaryMetric(experiment: Experiment, uuid: string): boolean {
+    const sharedMetric = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).find(
+        ({ query }) => query?.uuid === uuid
+    )
+    return sharedMetric ? sharedMetric.metadata.type === 'primary' : experiment.metrics.some((m) => m.uuid === uuid)
+}
+
+/**
+ * kea-loaders turns a rejected loader into a failure action, so awaiting `asyncActions.updateExperiment()` does
+ * not throw. Call this right after dispatching `updateExperiment`: it awaits the queued request of that dispatch
+ * and returns whether the save succeeded. The loader still owns error reporting and conflict recovery.
+ */
+async function inflightUpdateSaved(cache: Record<string, any>): Promise<boolean> {
+    return (await inflightUpdateOutcome(cache)) === 'saved'
+}
+
+/**
+ * {@link inflightUpdateSaved} for a caller that must know how the save failed. After a `conflict`, the loader has
+ * replaced the experiment with the server's copy and kept only the scalar fields of the rejected update, so metric
+ * lists can differ from the ones the caller started with.
+ */
+async function inflightUpdateOutcome(cache: Record<string, any>): Promise<'saved' | 'conflict' | 'failed'> {
+    const updatePromise: Promise<Experiment> | undefined = cache.inflightUpdate?.promise
+    if (!updatePromise) {
+        return 'failed'
+    }
+    try {
+        await updatePromise
+        return 'saved'
+    } catch (error) {
+        return isExperimentConflictError(error) ? 'conflict' : 'failed'
+    }
 }
 
 // Max concurrent metric queries to avoid overwhelming the celery queue's
@@ -1646,7 +1687,9 @@ export const experimentLogic = kea<experimentLogicType>([
             { ...NEW_EXPERIMENT } as Experiment,
             {
                 setExperiment: (state, { experiment }) => {
-                    return { ...state, ...experiment }
+                    const updated = { ...state, ...experiment }
+                    // Findings about the previous flag would show a stale banner until the next load.
+                    return replacesFlagWithoutHealth(experiment) ? { ...updated, health: undefined } : updated
                 },
                 setExposureCriteria: (
                     state,
@@ -1817,7 +1860,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
                     const newMetric = {
-                        ...resolveSharedMetric(savedMetric),
+                        ...sharedMetricEffectiveQuery(savedMetric),
                         uuid: newUuid,
                         name,
                     }
@@ -1884,7 +1927,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         [metricsKey]: metrics,
                     }
                 },
-                removeMetricBreakdown: (state, { uuid, index }) => {
+                removeMetricBreakdown: (state, { uuid, index, breakdown }) => {
                     /**
                      * Check if the UUID belongs to a shared metric
                      * Shared Metric types are confusing. The query property
@@ -1896,13 +1939,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     )
 
                     if (savedMetricIndex !== -1) {
-                        // Handle shared metric - update saved_metrics metadata
+                        // Handle shared metric - update saved_metrics metadata. The scene shows the breakdowns
+                        // of the link's effective_query, which only the API resolves, so that list can differ
+                        // from metadata.breakdowns until the save returns. Remove the breakdown by value, so
+                        // that an index into the shown list never removes a different breakdown.
                         const savedMetric = savedMetrics[savedMetricIndex]
+                        const breakdowns = savedMetric.metadata?.breakdowns || []
+                        const position = breakdowns.findIndex((candidate) => objectsEqual(candidate, breakdown))
                         savedMetrics[savedMetricIndex] = {
                             ...savedMetric,
                             metadata: {
                                 ...savedMetric.metadata,
-                                breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index),
+                                breakdowns: breakdowns.filter((_, i) => i !== position),
                             },
                         }
 
@@ -2332,24 +2380,32 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
-            await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
-            // eslint-disable-next-line no-unused-expressions
+            // Read the old date before the save, because the save stores the response in values.experiment.
+            const oldStartDate = values.experiment?.start_date
+            actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             if (values.experiment) {
                 posthog.capture('experiment start date changed', {
                     ...getEventPropertiesForExperiment(values.experiment),
-                    old_start_date: values.experiment.start_date,
+                    old_start_date: oldStartDate,
                     new_start_date: startDate,
                 })
             }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
-            await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
-            // eslint-disable-next-line no-unused-expressions
+            // Read the old date before the save, because the save stores the response in values.experiment.
+            const oldEndDate = values.experiment?.end_date
+            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             if (values.experiment) {
                 posthog.capture('experiment end date changed', {
                     ...getEventPropertiesForExperiment(values.experiment),
-                    old_end_date: values.experiment.end_date,
+                    old_end_date: oldEndDate,
                     new_end_date: endDate,
                 })
             }
@@ -2659,25 +2715,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
             })
-
-            // kea-loaders turns a rejected loader into a failure action, so awaiting its async action does
-            // not throw. Await the underlying queued request instead to keep the existing result caches when
-            // the save fails. The loader still owns error reporting and optimistic-concurrency recovery.
-            const updatePromise = cache.inflightUpdate?.promise
-            if (!updatePromise) {
-                return
-            }
-            try {
-                await updatePromise
-            } catch {
+            const outcome = await inflightUpdateOutcome(cache)
+            // After most failures the previous experiment and its results remain valid and visible. After a
+            // conflict the loader has swapped in the server's metric lists, so the previous results no longer
+            // pair with them.
+            if (outcome === 'failed') {
                 return
             }
 
-            // Metric results are positional. Once the metric list has saved, keeping the previous arrays
+            // Metric results are positional. Once the metric list has changed, keeping the previous arrays
             // around can briefly pair a result with the wrong metric (and gives no feedback while the
             // updated results are computed). Clear both result stores so every metric in the updated list
-            // renders its existing per-variant loading skeleton. Do this only after a successful save: if
-            // the update fails, the previous experiment and its results remain valid and visible.
+            // renders its existing per-variant loading skeleton.
             actions.clearMetricsResults()
             const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
             metricsLogic.actions.setPrimaryMetricsResults([])
@@ -2685,8 +2734,9 @@ export const experimentLogic = kea<experimentLogicType>([
             metricsLogic.actions.setSecondaryMetricsResults([])
             metricsLogic.actions.setSecondaryMetricsResultsErrors([])
 
-            // Reload results for added/edited metrics
-            actions.refreshExperimentResults(true, 'metric_config_change')
+            // Reload results for added/edited metrics. After a conflict this edit did not save, so nothing
+            // needs a recompute and cached results are enough.
+            actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateExposureCriteria: async () => {
             actions.updateExperiment({
@@ -2695,12 +2745,25 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 update_feature_flag_params: false,
             })
+            const outcome = await inflightUpdateOutcome(cache)
+            if (outcome !== 'saved') {
+                // The modal closes before the save settles. After a conflict the loader keeps the edit for
+                // review. After any other failure, put back the saved criteria, so the page does not show
+                // criteria that the server does not have.
+                if (outcome === 'failed' && values.unmodifiedExperiment) {
+                    actions.setExperiment({ exposure_criteria: values.unmodifiedExperiment.exposure_criteria })
+                }
+                return
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update }) => {
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
-            await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            actions.updateExperiment({ ...update, update_feature_flag_params: false })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
             // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
             lemonToast.success(
                 values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
@@ -3363,9 +3426,16 @@ export const experimentLogic = kea<experimentLogicType>([
                     }))
             }
 
-            await asyncActions.updateExperiment(update)
+            actions.updateExperiment(update)
+            // After a conflict the loader has swapped in the server's metric lists, so the results must
+            // follow that layout too.
+            if ((await inflightUpdateOutcome(cache)) === 'failed') {
+                return
+            }
 
-            if (!canReuseResults) {
+            // The save can wait behind other updates in the queue, and a results load can start meanwhile.
+            // A realign would then overwrite the arrays that this load fills.
+            if (!canReuseResults || values.primaryMetricsResultsLoading || values.secondaryMetricsResultsLoading) {
                 actions.refreshExperimentResults(true, 'metric_config_change')
                 return
             }
@@ -3412,7 +3482,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
@@ -3435,6 +3505,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(updatePayload)
+            // The reload reads a shared metric's effective_query, which only the save response carries.
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             // Adding a breakdown changes how the metric is computed, so re-run results. The recalculation
             // flow reuses the current window (metric_config_change), so this breakdown recomputes on its
@@ -3448,7 +3522,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
@@ -3471,6 +3545,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             actions.updateExperiment(updatePayload)
+            // The reload reads a shared metric's effective_query, which only the save response carries.
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             // Removing a breakdown changes how the metric is computed, so re-run results. On the
             // recalculation flow this reuses the current window (metric_config_change), so this metric
@@ -3508,14 +3586,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             /**
              * figure out if it's a primary metric
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
 
             /**
              * updating a breakdown limit triggers a recalculation.
@@ -3553,14 +3632,15 @@ export const experimentLogic = kea<experimentLogicType>([
             /**
              * guard against failed persist calling recalculations by awaiting the experiment save
              */
-            await asyncActions.updateExperiment(updatePayload)
+            actions.updateExperiment(updatePayload)
+            if (!(await inflightUpdateSaved(cache))) {
+                return
+            }
 
             /**
              * find if the updated metris is primary
              */
-            const isPrimary = sharedMetric
-                ? sharedMetric.metadata.type === 'primary'
-                : values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = isPrimaryMetric(values.experiment, uuid)
             /**
              * updating a breakdown limit triggers a recalculation.
              */
@@ -3573,48 +3653,51 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
+            // Build the list only after the queued saves land. A toggle sent while another one is unsaved
+            // (the toast's Undo, for example) would otherwise send the older list and revert that change.
+            while (cache.inflightUpdate) {
+                await cache.inflightUpdate.promise.catch(() => {})
+            }
             const current = values.excludedVariants
             const next = excluded
                 ? Array.from(new Set([...current, variantKey]))
                 : current.filter((k: string) => k !== variantKey)
 
-            try {
-                // excluded_variants is the canonical column; the backend mirrors it into the
-                // deprecated `parameters` blob. No need to resend feature_flag_variants — the
-                // backend validates exclusions against the linked flag. The column updates
-                // atomically, so we just send the new list.
-                await asyncActions.updateExperiment({
-                    excluded_variants: next,
-                })
-                lemonToast.success(
-                    excluded
-                        ? `Variant ${variantKey} excluded from analysis`
-                        : `Variant ${variantKey} re-included in analysis`,
-                    {
-                        button: {
-                            label: 'Undo',
-                            action: () => actions.setVariantExcluded(variantKey, !excluded),
-                        },
-                    }
-                )
-                // Re-fetch results since the variant set changed. On the recalculation flow this advances the
-                // window (experiment_config_change), so every metric recomputes; legacy uses the per-metric
-                // loaders. Exposures refresh either way.
-                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                    // eslint-disable-next-line no-unused-expressions
-                    values.experiment &&
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
-                            'experiment_config_change'
-                        )
-                } else {
-                    actions.loadPrimaryMetricsResults(true)
-                    actions.loadSecondaryMetricsResults(true)
-                }
-                actions.loadExposures(true)
-            } catch (error) {
-                lemonToast.error('Could not update variant exclusion. Please try again.')
-                throw error
+            // excluded_variants is the canonical column; the backend mirrors it into the
+            // deprecated `parameters` blob. No need to resend feature_flag_variants — the
+            // backend validates exclusions against the linked flag. The column updates
+            // atomically, so we just send the new list.
+            actions.updateExperiment({
+                excluded_variants: next,
+            })
+            if (!(await inflightUpdateSaved(cache))) {
+                return
             }
+            lemonToast.success(
+                excluded
+                    ? `Variant ${variantKey} excluded from analysis`
+                    : `Variant ${variantKey} re-included in analysis`,
+                {
+                    button: {
+                        label: 'Undo',
+                        action: () => actions.setVariantExcluded(variantKey, !excluded),
+                    },
+                }
+            )
+            // Re-fetch results since the variant set changed. On the recalculation flow this advances the
+            // window (experiment_config_change), so every metric recomputes; legacy uses the per-metric
+            // loaders. Exposures refresh either way.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                // eslint-disable-next-line no-unused-expressions
+                values.experiment &&
+                    experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                        'experiment_config_change'
+                    )
+            } else {
+                actions.loadPrimaryMetricsResults(true)
+                actions.loadSecondaryMetricsResults(true)
+            }
+            actions.loadExposures(true)
         },
     })),
     loaders(({ actions, values, cache }) => ({
@@ -3662,6 +3745,11 @@ export const experimentLogic = kea<experimentLogicType>([
                             actions.setExperiment(response)
                             return response
                         } catch (error: any) {
+                            posthog.capture('experiment save failed', {
+                                experiment_id: values.experimentId,
+                                fields: Object.keys(update).filter((field) => field !== 'update_feature_flag_params'),
+                                status: error?.status ?? null,
+                            })
                             if (isExperimentConflictError(error)) {
                                 lemonToast.error(
                                     error.data?.detail ||
@@ -3681,6 +3769,11 @@ export const experimentLogic = kea<experimentLogicType>([
                                 } catch {
                                     actions.loadExperiment()
                                 }
+                            } else if (error?.status === undefined) {
+                                // The loader onFailure handler in initKea toasts only errors that carry an HTTP
+                                // status. Without this toast, a request that got no response (offline, blocked,
+                                // dropped) would fail with no feedback.
+                                lemonToast.error('Could not save the experiment. Check your connection and try again.')
                             }
                             throw error
                         }
@@ -3944,6 +4037,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
+                // The server computes the same warning (products/experiments/backend/health/checks/flag_state.py)
+                // for people with the experiment-health-findings flag. The rules below cover everyone else.
+                if (experiment.health) {
+                    return experimentWarningFromHealth(experiment.health)
+                }
+
                 // A deleted flag distributes no traffic, so flag-state warnings don't apply.
                 if (experiment.feature_flag?.deleted) {
                     return null
@@ -4118,3 +4217,17 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
 ])
+
+/**
+ * Saves an update through the update queue of the mounted experiment logic and resolves to whether it saved. For a
+ * caller outside the logic: awaiting `asyncActions.updateExperiment()` resolves even when the save fails, and the
+ * loader still reports the error.
+ */
+export async function saveExperimentUpdate(
+    experimentId: ExperimentIdType,
+    update: ExperimentUpdatePayload
+): Promise<boolean> {
+    const logic = experimentLogic({ experimentId })
+    logic.actions.updateExperiment(update)
+    return await inflightUpdateSaved(logic.cache)
+}

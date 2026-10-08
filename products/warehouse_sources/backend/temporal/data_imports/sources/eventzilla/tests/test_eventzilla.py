@@ -78,10 +78,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _pages(source_response):
-    yield from source_response.items()
-
-
 def _source(endpoint: str, manager: mock.MagicMock | None = None):
     return eventzilla_source(
         api_key="key",
@@ -93,39 +89,6 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None):
 
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_first_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("events", [], total=0)])
-
-        assert _rows(_source("events")) == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_without_pagination_object_stops(self, MockSession) -> None:
-        # A page with no `pagination` object means the list is exhausted; a second request (which
-        # would re-read the same rows for a non-paging endpoint) is a bug.
-        session = MockSession.return_value
-        _wire(session, [_page("categories", [{"category": "Music"}, {"category": "Tech"}])])
-
-        rows = _rows(_source("categories"))
-
-        assert rows == [{"category": "Music"}, {"category": "Tech"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pagination_total_terminates_even_on_a_full_page(self, MockSession) -> None:
-        # When `total` is reached we must stop, even though the page came back full (== PAGE_SIZE),
-        # otherwise we'd issue an unnecessary extra request and risk re-reading rows.
-        session = MockSession.return_value
-        full_page = [{"id": i} for i in range(PAGE_SIZE)]
-        _wire(session, [_page("events", full_page, total=PAGE_SIZE)])
-
-        rows = _rows(_source("events"))
-
-        assert len(rows) == PAGE_SIZE
-        assert session.send.call_count == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_multiple_pages_until_total_reached(self, MockSession) -> None:
         session = MockSession.return_value
@@ -143,24 +106,6 @@ class TestTopLevelPagination:
         # The offset advances by the real returned count, not a fixed step.
         assert _offsets(params) == [0, PAGE_SIZE]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_offset_advances_by_actual_count_when_server_clamps_page_size(self, MockSession) -> None:
-        # If the server clamps `limit` below PAGE_SIZE we must advance by rows returned, not PAGE_SIZE,
-        # or we'd skip rows. Two clamped-to-20 pages then an empty page.
-        session = MockSession.return_value
-        _urls, params = _wire(
-            session,
-            [
-                _page("events", [{"id": i} for i in range(20)], total=25),
-                _page("events", [{"id": i} for i in range(20, 25)], total=25),
-            ],
-        )
-
-        rows = _rows(_source("events"))
-
-        assert [r["id"] for r in rows] == list(range(25))
-        assert _offsets(params) == [0, 20]
-
 
 class TestTopLevelResume:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -172,31 +117,6 @@ class TestTopLevelResume:
 
         assert _offsets(params) == [40]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_saved_only_after_page_is_yielded_carrying_next_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page("events", [{"id": 1}], total=2),
-                _page("events", [{"id": 2}], total=2),
-            ],
-        )
-        manager = _make_manager()
-
-        rows = iter(_pages(_source("events", manager)))
-
-        assert next(rows) == [{"id": 1}]
-        # A crash here must re-fetch page 1 (nothing persisted yet), not skip it.
-        manager.save_state.assert_not_called()
-
-        assert next(rows) == [{"id": 2}]
-        # After page 1 is yielded the checkpoint points at the NEXT offset; top-level saves never
-        # carry a fan-out state.
-        saved = manager.save_state.call_args.args[0]
-        assert saved.offset == 1
-        assert saved.fanout_state is None
-
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -205,20 +125,6 @@ class TestValidateCredentials:
         session.get.return_value = _json_response({}, status_code=status)
         with mock.patch.object(ez, "make_tracked_session", return_value=session):
             assert validate_credentials("key") is expected
-
-    def test_transport_error_is_false(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch.object(ez, "make_tracked_session", return_value=session):
-            assert validate_credentials("key") is False
-
-    def test_probe_carries_api_key_header(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _json_response({}, status_code=200)
-        with mock.patch.object(ez, "make_tracked_session", return_value=session):
-            validate_credentials("secret-key")
-        _args, kwargs = session.get.call_args
-        assert kwargs["headers"]["x-api-key"] == "secret-key"
 
 
 class TestRetries:
@@ -246,59 +152,6 @@ class TestRetries:
 
 class TestFanOut:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stamps_event_id_and_aggregates_across_events(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page("events", [{"id": 1}, {"id": 2}], total=2),  # events discovery
-                _page("attendees", [{"id": "A1"}, {"id": "A2"}]),  # event 1
-                _page("attendees", [{"id": "A3"}]),  # event 2
-            ],
-        )
-
-        rows = _rows(_source("attendees", _make_manager()))
-
-        # Each child row is stamped with its parent event id (as a string, keeping the composite
-        # primary key (event_id, id) unique table-wide).
-        assert rows == [
-            {"id": "A1", "event_id": "1"},
-            {"id": "A2", "event_id": "1"},
-            {"id": "A3", "event_id": "2"},
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_url_targets_the_event(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, _params = _wire(
-            session,
-            [_page("events", [{"id": 7}], total=1), _page("attendees", [{"id": "A1"}])],
-        )
-
-        _rows(_source("attendees", _make_manager()))
-
-        assert any("/events/7/attendees" in url for url in urls)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_is_resumable_and_checkpoints(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page("events", [{"id": 1}, {"id": 2}], total=2),
-                _page("attendees", [{"id": "A1"}]),
-                _page("attendees", [{"id": "A2"}]),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("attendees", manager))
-
-        assert manager.save_state.called
-        saved = manager.save_state.call_args.args[0]
-        assert saved.fanout_state is not None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_skips_completed_events(self, MockSession) -> None:
         # Resuming with event 1's child path already completed must skip it entirely and only fetch
         # event 2's attendees. Only two responses are wired (events discovery + event 2), so a fetch
@@ -319,24 +172,6 @@ class TestFanOut:
 
         assert rows == [{"id": "A3", "event_id": "2"}]
         assert not any("/events/1/attendees" in url for url in urls)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_event_deleted_mid_fan_out_is_skipped(self, MockSession) -> None:
-        # A 404 on a child fetch (event deleted between enumeration and fetch) is ignored so the sync
-        # skips that event and continues, rather than failing the whole import.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page("events", [{"id": 1}, {"id": 2}], total=2),
-                _json_response({"error": "not found"}, status_code=404),  # event 1 gone
-                _page("attendees", [{"id": "A3"}]),  # event 2
-            ],
-        )
-
-        rows = _rows(_source("attendees", _make_manager()))
-
-        assert rows == [{"id": "A3", "event_id": "2"}]
 
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)

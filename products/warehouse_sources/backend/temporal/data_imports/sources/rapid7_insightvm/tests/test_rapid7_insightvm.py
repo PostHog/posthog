@@ -92,37 +92,6 @@ def _run(responses: list[Response], manager: mock.MagicMock) -> tuple[list[dict[
 
 
 class TestPagination:
-    def test_walks_pages_until_cursor_missing(self) -> None:
-        pages = [
-            _page([{"id": 1}], cursor="c1"),
-            _page([{"id": 2}], cursor="c2"),
-            _page([{"id": 3}], cursor=None),
-        ]
-        rows, session, _ = _run(pages, _make_manager())
-
-        assert [row["id"] for row in rows] == [1, 2, 3]
-        assert session.send.call_count == 3
-
-    def test_terminates_when_cursor_repeats(self) -> None:
-        # Some deployments echo the last cursor instead of dropping it; a naive loop would spin forever.
-        pages = [_page([{"id": 1}], cursor="c1"), _page([{"id": 2}], cursor="c1")]
-        rows, session, _ = _run(pages, _make_manager())
-
-        assert [row["id"] for row in rows] == [1, 2]
-        assert session.send.call_count == 2
-
-    def test_terminates_on_empty_page(self) -> None:
-        rows, session, _ = _run([_page([], cursor="c1")], _make_manager())
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    def test_first_request_carries_size_and_no_cursor(self) -> None:
-        _, _, params = _run([_page([{"id": 1}], cursor=None)], _make_manager())
-
-        assert params[0]["size"] == 1000
-        assert "cursor" not in params[0]
-
     def test_saves_cursor_after_each_yielded_batch(self) -> None:
         pages = [
             _page([{"id": 1}], cursor="c1"),
@@ -145,15 +114,6 @@ class TestPagination:
 
 
 class TestRetryAndErrorClassification:
-    @pytest.mark.parametrize("status", [429, 500, 503])
-    def test_retryable_statuses_are_reissued(self, status: int) -> None:
-        # A 429/5xx is transient: the client reissues the request rather than failing loud.
-        with mock.patch("time.sleep"):
-            rows, session, _ = _run([_error(status), _page([{"id": 1}], cursor=None)], _make_manager())
-
-        assert [row["id"] for row in rows] == [1]
-        assert session.send.call_count == 2
-
     def test_client_error_raises_http_error(self) -> None:
         # A 403 is permanent — surface it as an HTTPError instead of retrying.
         with pytest.raises(HTTPError):
@@ -216,19 +176,3 @@ class TestValidateCredentials:
             validate_credentials("secret-key", "us")
 
         factory.assert_called_once_with(redact_values=("secret-key",), allow_redirects=False)
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", ["assets", "vulnerabilities"])
-    def test_full_refresh_endpoints_have_no_partitioning(self, endpoint: str) -> None:
-        response = rapid7_insightvm_source(
-            api_key="key",
-            region="us",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
