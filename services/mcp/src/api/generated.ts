@@ -55220,6 +55220,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsSearchMetrics {
+      /** Fraction of Google Search ad impressions shown as the first ad. */
+      absoluteTopImpressionRate?: number | null;
       clicks: number;
       conversions?: number | null;
       cost?: number | null;
@@ -55228,9 +55230,13 @@ export namespace Schemas {
       ctr?: number | null;
       impressions: number;
       position?: number | null;
+      /** Fraction of Google Search ad impressions shown among the top ads. */
+      topImpressionRate?: number | null;
     }
 
     export interface MarketingAnalyticsSearchRow {
+      /** Fraction of Google Search ad impressions shown as the first ad. */
+      absoluteTopImpressionRate?: number | null;
       clicks: number;
       conversions?: number | null;
       cost?: number | null;
@@ -55245,6 +55251,8 @@ export namespace Schemas {
       platform: Platform;
       position?: number | null;
       previous?: MarketingAnalyticsSearchMetrics | null;
+      /** Fraction of Google Search ad impressions shown among the top ads. */
+      topImpressionRate?: number | null;
     }
 
     export interface MarketingAnalyticsSearchQueryResponse {
