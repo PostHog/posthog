@@ -229,10 +229,12 @@ def classify_failure_type(exception: Exception | str) -> str:
     if isinstance(exception, Exception):
         if isinstance(exception, TIMEOUT_ERRORS) or _is_playwright_timeout(exception):
             return FAILURE_TYPE_TIMEOUT_GENERATION
-        if isinstance(exception, USER_QUERY_ERRORS):
-            return FAILURE_TYPE_USER
+        # Some transient errors subclass a user-query error (a file change mid-read is an
+        # ExposedCHQueryError), so retryable types win, matching the name path below.
         if isinstance(exception, EXCEPTIONS_TO_RETRY):
             return FAILURE_TYPE_SYSTEM
+        if isinstance(exception, USER_QUERY_ERRORS):
+            return FAILURE_TYPE_USER
         return FAILURE_TYPE_UNKNOWN
 
     # Stored exception-class names (historical rows, backfill) only carry the name, so fall back to
