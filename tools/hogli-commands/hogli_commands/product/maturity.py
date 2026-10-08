@@ -30,8 +30,6 @@ from .ast_helpers import (
     get_frozen_dataclass_names,
     get_model_names,
     get_orm_bound_serializer_names,
-    get_public_function_names,
-    has_any_function_defs,
     imports_any,
     view_facade_usage,
 )
@@ -39,8 +37,11 @@ from .isolation import (
     IsolationRung,
     IsolationStatus,
     compute_isolation_status,
+    facade_function_names,
     has_legacy_interface_leaks,
+    has_real_facade,
     has_tach_interface,
+    iter_facade_logic_modules,
     presentation_bypass_entries,
 )
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
@@ -271,43 +272,41 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             "the public contract other products read against."
         )
 
-    # Facade — must have actual function definitions, not just re-exports
+    # Facade — must have actual function definitions in some facade module, not just re-exports
     facade_path = backend_dir / "facade" / "api.py"
-    real_facade = False
-    if facade_path.exists():
-        real_facade = has_any_function_defs(facade_path)
-        if not real_facade:
-            parts.append("facade (re-export only)")
-            next_steps.append(
-                "backend/facade/api.py only re-exports; it doesn't define any functions. Move "
-                "logic into real `def` entrypoints (`list_*`, `get_*`, `create_*`, `update_*`, "
-                "`delete_*`) that map ORM rows to contract dataclasses before returning."
-            )
+    fn_names = facade_function_names(backend_dir)
+    real_facade = has_real_facade(backend_dir)
+    if real_facade:
+        impure = any(imports_any(path, ["rest_framework"]) for path in iter_facade_logic_modules(backend_dir))
+        if not impure:
+            score += 20
         else:
-            impure = imports_any(facade_path, ["rest_framework"])
-            fn_names = get_public_function_names(facade_path)
-            if not impure:
-                score += 20
-            else:
-                score += 5
-                parts.append("facade (impure)")
-                next_steps.append(
-                    "Remove `rest_framework` imports from backend/facade/api.py. The facade must "
-                    "return contract dataclasses; serializing to DRF Response belongs in "
-                    "presentation/views.py."
-                )
+            score += 5
+            parts.append("facade (impure)")
+            next_steps.append(
+                "Remove `rest_framework` imports from the backend/facade/ modules. The facade must "
+                "return contract dataclasses; serializing to DRF Response belongs in "
+                "presentation/views.py."
+            )
 
-            if len(fn_names) >= 3:
-                score += 20
-                parts.append(f"facade ({len(fn_names)} methods)")
-            elif fn_names:
-                score += 5
-                parts.append(f"facade (stub, {len(fn_names)} method)")
-                next_steps.append(
-                    f"Facade is a stub ({len(fn_names)} method). Add a method per capability the "
-                    "product exposes — list, retrieve, create, update, delete, plus any async "
-                    "task entrypoints. Each viewset action and Celery task should call exactly one."
-                )
+        if len(fn_names) >= 3:
+            score += 20
+            parts.append(f"facade ({len(fn_names)} methods)")
+        elif fn_names:
+            score += 5
+            parts.append(f"facade (stub, {len(fn_names)} method)")
+            next_steps.append(
+                f"Facade is a stub ({len(fn_names)} method). Add a method per capability the "
+                "product exposes — list, retrieve, create, update, delete, plus any async "
+                "task entrypoints. Each viewset action and Celery task should call exactly one."
+            )
+    elif facade_path.exists():
+        parts.append("facade (re-export only)")
+        next_steps.append(
+            "backend/facade/api.py only re-exports; it doesn't define any functions. Move "
+            "logic into real `def` entrypoints (`list_*`, `get_*`, `create_*`, `update_*`, "
+            "`delete_*`) that map ORM rows to contract dataclasses before returning."
+        )
     else:
         parts.append("no facade")
         next_steps.append(
@@ -429,8 +428,7 @@ def score_presentation(name: str, backend_dir: Path, pyproject_text: str | None 
     orm_queries = len(orm_locations)
 
     # Check if the facade is real (has function definitions, not re-exports)
-    facade_api = backend_dir / "facade" / "api.py"
-    real_facade = facade_api.exists() and has_any_function_defs(facade_api)
+    real_facade = has_real_facade(backend_dir)
 
     # Ground truth wins over the AST heuristic: each open import-linter deferral is a
     # view that still bypasses the facade, so the product is not internally sealed.

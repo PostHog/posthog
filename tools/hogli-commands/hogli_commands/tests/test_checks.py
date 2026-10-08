@@ -39,10 +39,12 @@ from hogli_commands.product.isolation import (
     IsolationRung,
     facade_carveout_modules,
     facade_class_imports,
+    facade_function_names,
     facade_model_crossings,
     facade_shape_findings,
     facade_unapproved_wiring,
     has_narrowed_turbo_inputs,
+    has_real_facade,
     permanent_interface_modules,
     routes_in_turbo_inputs,
     uncovered_carveout_modules,
@@ -419,6 +421,40 @@ class TestIsolationChainTurnOn:
         ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
         result = chain_check.run(ctx)
         assert not any("inert" in i for i in result.issues)
+
+
+class TestHasRealFacade:
+    @pytest.mark.parametrize(
+        "facade_files, expected_names",
+        [
+            pytest.param({"api.py": "def list_items() -> list[int]:\n    return []\n"}, ["list_items"], id="api_py"),
+            pytest.param(
+                {
+                    "api.py": "from .writes import create_item as create_item\n",
+                    "writes.py": "def create_item() -> None:\n    pass\n",
+                },
+                ["create_item"],
+                id="submodule_with_reexport_only_api",
+            ),
+            pytest.param(
+                {"nested/reads.py": "def get_item() -> None:\n    pass\n"}, ["get_item"], id="nested_submodule"
+            ),
+            pytest.param({"api.py": "from .writes import create_item\n"}, [], id="reexport_only"),
+            pytest.param(
+                {"enums.py": "def label() -> str:\n    return ''\n", "testing.py": "def fake() -> None:\n    pass\n"},
+                [],
+                id="only_contracts_enums_testing",
+            ),
+            pytest.param({"test_api.py": "def test_it() -> None:\n    pass\n"}, [], id="test_module_ignored"),
+        ],
+    )
+    def test_functions_in_any_facade_module(
+        self, tmp_path: Path, facade_files: dict[str, str], expected_names: list[str]
+    ) -> None:
+        _, backend_dir = _write_facade_product(tmp_path, facade_files=facade_files)
+
+        assert facade_function_names(backend_dir) == expected_names
+        assert has_real_facade(backend_dir) is bool(expected_names)
 
 
 class TestIsolationRung:
