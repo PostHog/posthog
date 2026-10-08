@@ -74,6 +74,14 @@ const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
 const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
 
+type QuerySubmitTelemetry = {
+    client_query_id?: string
+    submit_attempts: number
+    retry_wait_ms: number
+    retry_status: number | null
+    retry_recovered: boolean
+}
+
 function capacityWaitMs(error: unknown): number | undefined {
     if (!(error instanceof ApiError) || error.status !== 503) {
         return undefined
@@ -200,6 +208,7 @@ export async function pollForResults(
  */
 async function executeQuery<N extends DataNode>(
     queryNode: N,
+    submitTelemetry: QuerySubmitTelemetry,
     methodOptions?: ApiMethodOptions,
     refresh?: RefreshType,
     queryId?: string,
@@ -225,17 +234,34 @@ async function executeQuery<N extends DataNode>(
         const refreshParam: RefreshType = refresh || 'blocking'
         // Share a client ID for tracing and cancellation; it does not guarantee a single execution.
         const clientQueryId = queryId || uuid()
+        const submitStartedAt = performance.now()
+        let requestDurationMs = 0
+        let retryStatus: number | null = retriedAfterExpiry ? 404 : null
 
         const response = await retryWithBackoff(
-            () =>
-                api.query(queryNode, {
-                    requestOptions: methodOptions,
-                    clientQueryId,
-                    refresh: refreshParam,
-                    filtersOverride,
-                    variablesOverride,
-                    limitContext,
-                }),
+            async () => {
+                submitTelemetry.client_query_id = clientQueryId
+                submitTelemetry.submit_attempts++
+                if (retryStatus !== null) {
+                    submitTelemetry.retry_status = retryStatus
+                }
+                const requestStartedAt = performance.now()
+                try {
+                    return await api.query(queryNode, {
+                        requestOptions: methodOptions,
+                        clientQueryId,
+                        refresh: refreshParam,
+                        filtersOverride,
+                        variablesOverride,
+                        limitContext,
+                    })
+                } catch (error) {
+                    retryStatus = error instanceof ApiError ? (error.status ?? null) : null
+                    throw error
+                } finally {
+                    requestDurationMs += performance.now() - requestStartedAt
+                }
+            },
             {
                 maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
                 initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
@@ -245,7 +271,13 @@ async function executeQuery<N extends DataNode>(
                 getDelayMs: capacityWaitMs,
                 maxRetryTimeMs: TRANSIENT_SUBMIT_RETRY_BUDGET_MS,
             }
-        )
+        ).finally(() => {
+            // Exclude request time so slow responses do not look like long retry waits.
+            submitTelemetry.retry_wait_ms += Math.max(
+                0,
+                Math.round(performance.now() - submitStartedAt - requestDurationMs)
+            )
+        })
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -253,12 +285,19 @@ async function executeQuery<N extends DataNode>(
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
+            submitTelemetry.retry_recovered =
+                submitTelemetry.submit_attempts > 1 && (!('results' in response) || response.results != null)
             return response
         }
 
         if (acceptStaleCache && 'is_cached' in response && response.is_cached) {
             // Cached results are already present alongside a background recompute, so use them
             // now rather than discarding them to poll a job that may take a while (or be stuck).
+            submitTelemetry.retry_recovered =
+                submitTelemetry.submit_attempts > 1 &&
+                'results' in response &&
+                response.results != null &&
+                !response.query_status.error
             return response
         }
 
@@ -297,6 +336,7 @@ async function executeQuery<N extends DataNode>(
         }
         return await executeQuery(
             queryNode,
+            submitTelemetry,
             methodOptions,
             refresh === 'force_async' ? 'async' : refresh,
             queryId,
@@ -309,6 +349,8 @@ async function executeQuery<N extends DataNode>(
             true
         )
     }
+    submitTelemetry.retry_recovered =
+        submitTelemetry.submit_attempts > 1 && statusResponse.results != null && !statusResponse.error
     return statusResponse.results
 }
 
@@ -327,6 +369,13 @@ export async function performQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
+    const submitTelemetry: QuerySubmitTelemetry = {
+        client_query_id: queryId,
+        submit_attempts: 0,
+        retry_wait_ms: 0,
+        retry_status: null,
+        retry_recovered: false,
+    }
     const startTime = performance.now()
 
     try {
@@ -336,6 +385,7 @@ export async function performQuery<N extends DataNode>(
         } else {
             response = await executeQuery(
                 queryNode,
+                submitTelemetry,
                 methodOptions,
                 refresh,
                 queryId,
@@ -376,6 +426,7 @@ export async function performQuery<N extends DataNode>(
             data_warehouse_source_ids: warehouseSources.map((s) => s.id),
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
+            ...submitTelemetry,
         })
         return response
     } catch (e) {
@@ -392,6 +443,8 @@ export async function performQuery<N extends DataNode>(
                 error_code: error?.code ?? null,
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
+                ...submitTelemetry,
+                retry_recovered: false,
             })
         }
         throw e
