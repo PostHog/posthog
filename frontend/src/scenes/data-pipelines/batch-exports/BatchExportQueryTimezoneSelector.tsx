@@ -6,17 +6,17 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
-import { TimestampTimezoneChoice, batchExportHogQLQueryLogic } from './batchExportHogQLQueryLogic'
+import { QueryTimezoneChoice, batchExportHogQLQueryLogic } from './batchExportHogQLQueryLogic'
 
-export function BatchExportTimestampTimezoneSelect(): JSX.Element {
+export function BatchExportQueryTimezoneSelector(): JSX.Element {
     const formLogic = useMountedLogic(batchExportConfigFormLogic)
     const { configurationErrors } = useValues(formLogic)
     const logic = batchExportHogQLQueryLogic(formLogic.props)
-    const { projectTimezone, defaultTimezone, teamConvertToProjectTimezone, timestampTimezoneChoice } = useValues(logic)
-    const { setTimestampTimezone } = useActions(logic)
+    const { projectTimezone, defaultTimezone, teamConvertToProjectTimezone, queryTimezoneChoice } = useValues(logic)
+    const { setQueryTimezone } = useActions(logic)
 
     let help: React.ReactNode = null
-    if (timestampTimezoneChoice === 'project_timezone') {
+    if (queryTimezoneChoice === 'project_timezone') {
         help = (
             <>
                 If the project timezone changes in{' '}
@@ -26,10 +26,10 @@ export function BatchExportTimestampTimezoneSelect(): JSX.Element {
                 , this export uses the new timezone from its next run.
             </>
         )
-    } else if (timestampTimezoneChoice === 'default' && teamConvertToProjectTimezone === null) {
+    } else if (queryTimezoneChoice === 'default' && teamConvertToProjectTimezone === null) {
         help =
             'The default is the project timezone. If the default or the project timezone changes, this export uses the new one from its next run.'
-    } else if (timestampTimezoneChoice === 'default') {
+    } else if (queryTimezoneChoice === 'default') {
         help = (
             <>
                 This project's <code>convertToProjectTimezone</code> modifier was set to{' '}
@@ -52,16 +52,16 @@ export function BatchExportTimestampTimezoneSelect(): JSX.Element {
             help={help}
             error={configurationErrors.hogql_modifiers}
         >
-            <LemonSelect<TimestampTimezoneChoice>
+            <LemonSelect<QueryTimezoneChoice>
                 fullWidth
-                value={timestampTimezoneChoice}
-                onChange={setTimestampTimezone}
+                value={queryTimezoneChoice}
+                onChange={setQueryTimezone}
                 options={[
                     { value: 'default', label: `Use default (${defaultTimezone})` },
                     { value: 'utc', label: 'Always use UTC' },
                     { value: 'project_timezone', label: `Always use project timezone (${projectTimezone})` },
                 ]}
-                data-attr="batch-export-hogql-timestamp-timezone"
+                data-attr="batch-export-hogql-query-timezone"
             />
         </LemonField.Pure>
     )

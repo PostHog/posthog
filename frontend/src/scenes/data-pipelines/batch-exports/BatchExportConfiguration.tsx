@@ -39,7 +39,7 @@ import {
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportHogQLQueryEditor } from './BatchExportHogQLQueryEditor'
-import { BatchExportTimestampTimezoneSelect } from './BatchExportTimestampTimezoneSelect'
+import { BatchExportQueryTimezoneSelector } from './BatchExportQueryTimezoneSelector'
 import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -407,7 +407,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                 </p>
                             </div>
                             <div className="max-w-160 mb-2">
-                                <BatchExportTimestampTimezoneSelect />
+                                <BatchExportQueryTimezoneSelector />
                             </div>
                             <LemonField name="hogql_query">
                                 <BatchExportHogQLQueryEditor />

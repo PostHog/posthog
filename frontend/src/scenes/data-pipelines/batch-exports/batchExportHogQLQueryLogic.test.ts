@@ -11,7 +11,7 @@ import { BatchExportConfiguration } from '~/types'
 
 import { BatchExportConfigFormLogicProps, batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
-    TimestampTimezoneChoice,
+    QueryTimezoneChoice,
     batchExportHogQLEditorTabId,
     batchExportHogQLQueryLogic,
 } from './batchExportHogQLQueryLogic'
@@ -104,7 +104,7 @@ describe('batchExportHogQLQueryLogic', () => {
     // `team.modifiers`, a team that turned the modifier off through the API sees its project timezone in the form
     // while its exports run in UTC.
     test.each<
-        [string, HogQLQueryModifiers | undefined, HogQLQueryModifiers | null, TimestampTimezoneChoice, string, string]
+        [string, HogQLQueryModifiers | undefined, HogQLQueryModifiers | null, QueryTimezoneChoice, string, string]
     >([
         ['the team leaves it unset', undefined, null, 'default', PROJECT_TIMEZONE, PROJECT_TIMEZONE],
         ['the team turns it off', { convertToProjectTimezone: false }, null, 'default', 'UTC', 'UTC'],
@@ -130,7 +130,7 @@ describe('batchExportHogQLQueryLogic', () => {
             await initLogic(teamModifiers, exportModifiers)
 
             await expectLogic(logic).toMatchValues({
-                timestampTimezoneChoice: choice,
+                queryTimezoneChoice: choice,
                 defaultTimezone,
                 queryTimezone,
             })
@@ -145,7 +145,7 @@ describe('batchExportHogQLQueryLogic', () => {
     // The form controls only `convertToProjectTimezone`. Other keys can come from the API, and the backend replaces
     // the whole `hogql_modifiers` object on save, so changing the choice must keep them. The editor must get the
     // same modifiers, or the preview runs with different settings from the export.
-    test.each<[string, HogQLQueryModifiers | null, TimestampTimezoneChoice, HogQLQueryModifiers | null]>([
+    test.each<[string, HogQLQueryModifiers | null, QueryTimezoneChoice, HogQLQueryModifiers | null]>([
         [
             'keeps other modifiers when it unsets the key',
             { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: false },
@@ -160,10 +160,10 @@ describe('batchExportHogQLQueryLogic', () => {
             { personsOnEventsMode: 'person_id_override_properties_joined', convertToProjectTimezone: true },
         ],
         ['adds the key when there are no modifiers', null, 'utc', { convertToProjectTimezone: false }],
-    ])('setTimestampTimezone %s', async (_, exportModifiers, choice, expectedModifiers) => {
+    ])('setQueryTimezone %s', async (_, exportModifiers, choice, expectedModifiers) => {
         await initLogic(undefined, exportModifiers)
 
-        logic.actions.setTimestampTimezone(choice)
+        logic.actions.setQueryTimezone(choice)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(formLogic.values.configuration.hogql_modifiers).toEqual(expectedModifiers)

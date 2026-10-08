@@ -46,7 +46,7 @@ WHERE timestamp >= {${DATA_INTERVAL_START_PLACEHOLDER}}
 const PLACEHOLDER_VALUE_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
 /** 'default' leaves `convertToProjectTimezone` unset, so the export follows the project's default. */
-export type TimestampTimezoneChoice = 'default' | 'project_timezone' | 'utc'
+export type QueryTimezoneChoice = 'default' | 'project_timezone' | 'utc'
 
 export function batchExportHogQLEditorTabId({ id, service }: BatchExportConfigFormLogicProps): string {
     return `batch-export-hogql-${id ?? `new-${service}`}`
@@ -65,12 +65,12 @@ export interface batchExportHogQLQueryLogicValues {
     previewInterval: BatchExportDataInterval
     previewStart: string
     queryTimezone: string
+    queryTimezoneChoice: QueryTimezoneChoice
     scheduleInterval: BatchExportInterval
     scheduleOffsetDay: number | null
     scheduleOffsetHour: number | null
     scheduleTimezone: string | null
     teamConvertToProjectTimezone: boolean | null
-    timestampTimezoneChoice: TimestampTimezoneChoice
     usesIntervalPlaceholders: boolean
 }
 
@@ -111,8 +111,8 @@ export interface batchExportHogQLQueryLogicActions {
     setSourceQuery: (sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode) => {
         sourceQuery: import('~/queries/schema/schema-general').DataVisualizationNode
     } // sqlEditorLogic
-    setTimestampTimezone: (choice: TimestampTimezoneChoice) => {
-        choice: TimestampTimezoneChoice
+    setQueryTimezone: (choice: QueryTimezoneChoice) => {
+        choice: QueryTimezoneChoice
     }
 }
 
@@ -132,7 +132,7 @@ export interface batchExportHogQLQueryLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         hogqlModifiers: (configuration: Record<string, any>) => HogQLQueryModifiers | null
-        timestampTimezoneChoice: (hogqlModifiers: HogQLQueryModifiers | null) => TimestampTimezoneChoice
+        queryTimezoneChoice: (hogqlModifiers: HogQLQueryModifiers | null) => QueryTimezoneChoice
         teamConvertToProjectTimezone: (currentTeam: TeamPublicType | TeamType | null) => boolean | null
         defaultTimezone: (
             teamConvertToProjectTimezone: boolean | null,
@@ -140,7 +140,7 @@ export interface batchExportHogQLQueryLogicMeta {
             projectTimezone: string
         ) => string
         queryTimezone: (
-            timestampTimezoneChoice: TimestampTimezoneChoice,
+            queryTimezoneChoice: QueryTimezoneChoice,
             defaultTimezone: string,
             projectTimezone: string
         ) => string
@@ -199,7 +199,7 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
             ],
         })),
         actions({
-            setTimestampTimezone: (choice: TimestampTimezoneChoice) => ({ choice }),
+            setQueryTimezone: (choice: QueryTimezoneChoice) => ({ choice }),
         }),
         selectors({
             hogqlModifiers: [
@@ -207,9 +207,9 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
                 (configuration: Record<string, any>): HogQLQueryModifiers | null =>
                     configuration.hogql_modifiers ?? null,
             ],
-            timestampTimezoneChoice: [
+            queryTimezoneChoice: [
                 (s) => [s.hogqlModifiers],
-                (hogqlModifiers: HogQLQueryModifiers | null): TimestampTimezoneChoice => {
+                (hogqlModifiers: HogQLQueryModifiers | null): QueryTimezoneChoice => {
                     const convertToProjectTimezone = hogqlModifiers?.convertToProjectTimezone
                     if (convertToProjectTimezone === undefined || convertToProjectTimezone === null) {
                         return 'default'
@@ -236,8 +236,8 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
                         : 'UTC',
             ],
             queryTimezone: [
-                (s) => [s.timestampTimezoneChoice, s.defaultTimezone, s.projectTimezone],
-                (choice: TimestampTimezoneChoice, defaultTimezone: string, projectTimezone: string): string =>
+                (s) => [s.queryTimezoneChoice, s.defaultTimezone, s.projectTimezone],
+                (choice: QueryTimezoneChoice, defaultTimezone: string, projectTimezone: string): string =>
                     choice === 'default' ? defaultTimezone : choice === 'project_timezone' ? projectTimezone : 'UTC',
             ],
             scheduleInterval: [
@@ -325,7 +325,7 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
             },
         })),
         listeners(({ actions, values, sharedListeners }) => ({
-            setTimestampTimezone: ({ choice }) => {
+            setQueryTimezone: ({ choice }) => {
                 // Only this key changes, so modifiers set through the API survive a save from the form
                 const next: HogQLQueryModifiers = { ...values.hogqlModifiers }
                 if (choice === 'default') {
