@@ -712,13 +712,6 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
-    # TODO: workflows presentation wave — the moved viewsets still reach in-product internals and
-    # sibling products (cdp, cohorts, feature_flags, messaging) directly. Thin each viewset to
-    # parse -> facade -> serialize and delete each entry. backend:contract-check stays off until
-    # this list is empty. Only delete entries here: a new import from these views goes through
-    # the facade.
-    "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.message_templates",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
