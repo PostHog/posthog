@@ -66,7 +66,7 @@ class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Langfuse",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Sync traces, observations, scores, sessions, prompts, and datasets from your Langfuse project.
+            caption="""Sync traces, observations, scores, sessions, prompts, datasets, and annotation queues from your Langfuse project.
 
 Find your project API keys in your Langfuse **Project settings > API Keys**. Set the host to match your data region (`https://cloud.langfuse.com` for EU, `https://us.cloud.langfuse.com` for US) or your self-hosted instance URL.""",
             iconPath="/static/services/langfuse.svg",
@@ -114,9 +114,10 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
         return {
             "401 Client Error": "Invalid Langfuse API keys. Check the project public key and secret key, and make sure the host matches your Langfuse data region.",
             "403 Client Error": "Your Langfuse API keys do not have access to this resource. Check the keys and try again.",
-            # Every LANGFUSE_ENDPOINTS path is a collection route (no resource id in the URL), so a
-            # 404 here means the route itself doesn't exist on this host - typically a self-hosted
-            # instance running a Langfuse version that predates this endpoint. Retrying never helps.
+            # Every LANGFUSE_ENDPOINTS path is a collection route, and get_rows skips a fan-out child
+            # whose parent was deleted, so a 404 here means the route itself doesn't exist on this
+            # host - typically a self-hosted instance running a Langfuse version that predates this
+            # endpoint. Retrying never helps.
             "404 Client Error": "This Langfuse endpoint was not found on your host. Self-hosted instances on an older Langfuse version may not support it yet - upgrade your instance or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The Langfuse host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Langfuse host must use HTTPS. Please update the host to use https://.",

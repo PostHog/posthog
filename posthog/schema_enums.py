@@ -246,17 +246,33 @@ class Style(StrEnum):
     PERCENT = "percent"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
+    ACTIONS_DONUT = "ActionsDonut"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     SCATTER_PLOT = "ScatterPlot"
     BOX_PLOT = "BoxPlot"
+
+
+class Summary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
 
 
 class Scale(StrEnum):
@@ -414,6 +430,11 @@ class Key5(StrEnum):
     SNAPSHOT_SOURCE = "snapshot_source"
 
 
+class AssistantRetentionDisplayType(StrEnum):
+    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
+    ACTIONS_BAR = "ActionsBar"
+
+
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
@@ -549,25 +570,22 @@ class AssistantTool(StrEnum):
     OPEN_ACCOUNT = "open_account"
 
 
-class Display(StrEnum):
-    AUTO = "Auto"
+class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
     ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
-    BOLD_NUMBER = "BoldNumber"
+    SLOPE_GRAPH = "SlopeGraph"
+    BOX_PLOT = "BoxPlot"
     METRIC = "Metric"
+    BOLD_NUMBER = "BoldNumber"
+    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
-    ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-    BOX_PLOT = "BoxPlot"
-    SLOPE_GRAPH = "SlopeGraph"
-    SCATTER_PLOT = "ScatterPlot"
 
 
 class MetricSummary(StrEnum):
@@ -790,13 +808,6 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class Curve(StrEnum):
@@ -2111,12 +2122,6 @@ class MetaAdsDefaultSources(StrEnum):
     THREADS = "threads"
 
 
-class Summary(StrEnum):
-    TOTAL = "total"
-    AVERAGE = "average"
-    LATEST = "latest"
-
-
 class MetricsAggregation(StrEnum):
     SUM = "sum"
     AVG = "avg"
@@ -2961,7 +2966,7 @@ class SurveyQuestionDescriptionContentType(StrEnum):
     TEXT = "text"
 
 
-class Display1(StrEnum):
+class Display(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
 
