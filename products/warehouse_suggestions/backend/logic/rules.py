@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import timedelta
 from enum import StrEnum
+from math import ceil
 from typing import Any
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product
@@ -67,7 +68,6 @@ class SubjectRules:
 
 @frozen
 class EligibilityRules:
-    min_view_readers: int
     min_view_reads: int
 
 
@@ -75,8 +75,13 @@ class EligibilityRules:
 class CertifyRules:
     top_share: float
     min_users: int
+    min_users_floor: int
+    min_user_share: float
     min_days: int
     min_surfaces: int
+
+    def users_needed(self, team_readers: int) -> int:
+        return max(self.min_users_floor, min(self.min_users, ceil(team_readers * self.min_user_share)))
 
 
 @frozen
@@ -178,8 +183,10 @@ RULES = Rules(
             {DataWarehouseSavedQueryOrigin.ENDPOINT, DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET}
         )
     ),
-    eligibility=EligibilityRules(min_view_readers=2, min_view_reads=50),
-    certify=CertifyRules(top_share=0.10, min_users=5, min_days=20, min_surfaces=2),
+    eligibility=EligibilityRules(min_view_reads=50),
+    certify=CertifyRules(
+        top_share=0.10, min_users=5, min_users_floor=2, min_user_share=0.5, min_days=20, min_surfaces=2
+    ),
     deprecate=DeprecateRules(
         min_days_with_data=30, seconds_floor=600.0, bytes_floor=float(TERABYTE), counts_background_reads=True
     ),

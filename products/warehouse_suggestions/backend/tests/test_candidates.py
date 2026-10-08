@@ -62,6 +62,27 @@ class TestCertifyCandidate(SimpleTestCase):
 
         assert [draft.subject_id for draft in result.drafts] == ([VIEW_ID] if expect_draft else [])
 
+    @parameterized.expand(
+        [
+            ("two_person_team_read_by_both", 2, 2, True),
+            ("solo_team", 1, 1, False),
+            ("small_team_read_by_half", 6, 3, True),
+            ("small_team_read_by_fewer_than_half", 6, 2, False),
+            ("large_team_caps_at_five", 100, 5, True),
+        ]
+    )
+    def test_people_floor_follows_team_size(
+        self, _name: str, team_readers: int, human_users: int, expect_draft: bool
+    ) -> None:
+        reads = team_reads(
+            {view_subject(VIEW_ID): busy_reads(**{**AT_CERTIFY_FLOORS, "human_users": human_users})},
+            readers=team_readers,
+        )
+
+        result = CertifyCandidate().evaluate(context(reads, views=[view(VIEW_ID)]))
+
+        assert [draft.subject_id for draft in result.drafts] == ([VIEW_ID] if expect_draft else [])
+
     def test_only_the_top_share_by_requests_times_people_is_proposed(self) -> None:
         views = [view(uuid4(), name=f"view_{position}") for position in range(10)]
         reads = team_reads(

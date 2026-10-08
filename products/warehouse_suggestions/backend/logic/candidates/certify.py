@@ -54,8 +54,9 @@ class CertifyCandidate(Candidate):
             return f"outside the top {rules.top_share:.0%} by requests times people"
         if subject in context.inventory.certified:
             return "already has a certification"
-        if reads.human_users < rules.min_users:
-            return f"read by {reads.human_users} people, needs {rules.min_users}"
+        users_needed = rules.users_needed(context.reads.readers)
+        if reads.human_users < users_needed:
+            return f"read by {reads.human_users} people, needs {users_needed}"
         if reads.human_days < min_days:
             return f"read on {reads.human_days} days, needs {min_days}"
         if len(reads.surfaces) < rules.min_surfaces:

@@ -82,6 +82,13 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
                 RollupRead(subject_id=view, day=TODAY - timedelta(days=2), request_id="b", user_id=2, duration_ms=900),
                 RollupRead(subject_id=view, day=TODAY - timedelta(days=40), request_id="old", user_id=3),
                 RollupRead(subject_id=view, day=TODAY, request_id="today", user_id=4),
+                RollupRead(
+                    subject_id=uuid4(),
+                    day=YESTERDAY,
+                    request_id="table",
+                    user_id=5,
+                    subject_kind=WarehouseSuggestionSubjectKind.TABLE,
+                ),
             ],
         )
 
@@ -90,6 +97,7 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         view_reads = reads.subjects[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=view)]
 
         assert rollup_days == RollupDays(days_with_data=3, recent_days_with_data=3)
+        assert (reads.readers, reads.view_readers, reads.view_reads) == (3, 2, 2)
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
         assert (view_reads.human_reads, view_reads.human_duration_ms, view_reads.alone_reads) == (3, 1300, 2)
         assert 100 <= view_reads.alone_duration_ms_median <= 300

@@ -67,11 +67,13 @@ def team_reads(
     days_with_data: int = 30,
     recent_days_with_data: int = 7,
     refreshes: Mapping[UUID, SubjectRefreshes] | None = None,
+    readers: int = 10,
 ) -> TeamReads:
     return TeamReads(
         window=ReadWindow.ending(TODAY, RULES),
         days_with_data=days_with_data,
         recent_days_with_data=recent_days_with_data,
+        readers=readers,
         view_readers=10,
         view_reads=1000,
         subjects=subjects,

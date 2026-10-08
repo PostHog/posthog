@@ -72,8 +72,7 @@ def explain_team(
 
 
 def is_eligible(reads: TeamReads, rules: EligibilityRules) -> bool:
-    reads_views = reads.view_readers >= rules.min_view_readers and reads.view_reads >= rules.min_view_reads
-    return reads_views or bool(reads.refreshes)
+    return reads.view_reads >= rules.min_view_reads or bool(reads.refreshes)
 
 
 def build_context(team: Team, reads: TeamReads, *, run_id: str, rules: Rules) -> CandidateContext:

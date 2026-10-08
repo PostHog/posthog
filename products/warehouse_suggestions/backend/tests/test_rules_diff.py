@@ -26,7 +26,7 @@ class TestRulesDiff(SimpleTestCase):
                 view_subject(quiet.id): busy_reads(human_requests=400, human_users=6),
             }
         )
-        proposed = override_rules(RULES, ["certify.top_share=1", "certify.min_users=7"])
+        proposed = override_rules(RULES, ["certify.top_share=1", "certify.min_users=7", "certify.min_user_share=1"])
         current = override_rules(RULES, ["certify.top_share=1"])
 
         diff = diff_candidates(
@@ -49,7 +49,7 @@ class TestRulesDiff(SimpleTestCase):
         reads = team_reads({view_subject(busy.id): busy_reads()})
         current, proposed = (
             context(reads, views=[busy], rules=override_rules(RULES, ["certify.top_share=1", *extra]))
-            for extra in ([], ["eligibility.min_view_readers=11"])
+            for extra in ([], ["eligibility.min_view_reads=1001"])
         )
 
         diff = diff_candidates(

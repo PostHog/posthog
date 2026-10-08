@@ -89,6 +89,7 @@ class TeamReads:
     window: ReadWindow
     days_with_data: int
     recent_days_with_data: int
+    readers: int
     view_readers: int
     view_reads: int
     subjects: Mapping[Subject, SubjectReads]
@@ -125,12 +126,13 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
     surface_sql, surface_params = surface_expression(rules.surfaces)
     params.update(human_params)
     params.update(surface_params)
-    view_readers, view_reads = _execute(TEAM_SQL.format(human=human_sql), params, team_id)[0]
+    readers, view_readers, view_reads = _execute(TEAM_SQL.format(human=human_sql), params, team_id)[0]
     surface_counts = _surface_counts(SURFACES_SQL.format(human=human_sql, surface=surface_sql), params, team_id)
     return TeamReads(
         window=window,
         days_with_data=rollup_days.days_with_data,
         recent_days_with_data=rollup_days.recent_days_with_data,
+        readers=readers,
         view_readers=view_readers,
         view_reads=view_reads,
         subjects=_subject_reads(SUBJECTS_SQL.format(human=human_sql), params, team_id, surface_counts),
@@ -181,10 +183,11 @@ WHERE {DAYS_FILTER}
 
 TEAM_SQL = f"""
 SELECT
-    uniqMergeIf(users, is_view_read),
-    uniqMergeIf(requests, is_view_read)
+    uniqMergeIf(users, is_human_read),
+    uniqMergeIf(users, is_human_read AND subject_kind = %(saved_query)s),
+    uniqMergeIf(requests, is_human_read AND subject_kind = %(saved_query)s)
 FROM (
-    SELECT *, read_kind = %(read)s AND subject_kind = %(saved_query)s AND {{human}} AS is_view_read
+    SELECT *, read_kind = %(read)s AND {{human}} AS is_human_read
     FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
     WHERE {WINDOW_FILTER}
 )
