@@ -73,6 +73,64 @@ def _calculate_months_for_period(start_timestamp: ast.Expr, end_timestamp: ast.E
     )
 
 
+def _sum_discount_amounts(discount_amounts: str) -> str:
+    # Stripe discount amounts look like `[{"amount": 100, ...}, {"amount": 200, ...}, ...]`, sum all amounts
+    return f"coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw({discount_amounts}))), 0)"
+
+
+def _invoice_discount_allocation_fields() -> list[ast.Expr]:
+    """
+    Invoices from older Stripe API versions can report an invoice-level discount in
+    `total_discount_amounts` while every line has empty `discount_amounts`. Allocate the part of
+    the invoice discount that the lines don't already carry across the discountable lines,
+    proportional to their remaining amount. Allocation uses cumulative sums, so the per-line
+    parts always add up to the unallocated discount after rounding.
+    """
+    line_discount_amount = _sum_discount_amounts("line, 'discount_amounts'")
+    invoice_discount_amount = _sum_discount_amounts("ifNull(total_discount_amounts, '[]')")
+    return [
+        ast.Alias(
+            alias="line_discount_amounts",
+            expr=parse_expr(f"arrayMap(line -> {line_discount_amount}, lines_data)"),
+        ),
+        ast.Alias(
+            alias="line_discountable_amounts",
+            expr=parse_expr(
+                """
+                arrayMap(
+                    (line, line_discount) -> if(
+                        JSONExtractRaw(line, 'discountable') != 'false',
+                        greatest(JSONExtractInt(line, 'amount') - line_discount, 0),
+                        0
+                    ),
+                    lines_data,
+                    line_discount_amounts
+                )
+                """
+            ),
+        ),
+        ast.Alias(
+            alias="cumulative_discountable_amounts",
+            expr=parse_expr("arrayCumSum(line_discountable_amounts)"),
+        ),
+        ast.Alias(
+            alias="invoice_discountable_amount",
+            expr=parse_expr("arraySum(line_discountable_amounts)"),
+        ),
+        ast.Alias(
+            alias="unallocated_discount_amount",
+            expr=parse_expr(
+                f"""
+                least(
+                    greatest({invoice_discount_amount} - arraySum(line_discount_amounts), 0),
+                    invoice_discountable_amount
+                )
+                """
+            ),
+        ),
+    ]
+
+
 def build(handle: SourceHandle) -> BuiltQuery:
     """
     Revenue Analytics Revenue Item View with Revenue Recognition Support
@@ -278,19 +336,23 @@ def build(handle: SourceHandle) -> BuiltQuery:
                         ast.Field(chain=["customer_id"]),
                         ast.Field(chain=["subscription_id"]),
                         ast.Field(chain=["discount"]),
+                        ast.Alias(
+                            alias="lines_data",
+                            expr=ast.Call(
+                                name="JSONExtractArrayRaw",
+                                args=[ast.Call(name="assumeNotNull", args=[ast.Field(chain=["lines", "data"])])],
+                            ),
+                        ),
+                        *_invoice_discount_allocation_fields(),
                         # Explode the `lines.data` field into an individual row per item
                         ast.Alias(
                             alias="data",
+                            expr=ast.Call(name="arrayJoin", args=[ast.Field(chain=["lines_data"])]),
+                        ),
+                        ast.Alias(
+                            alias="line_index",
                             expr=ast.Call(
-                                name="arrayJoin",
-                                args=[
-                                    ast.Call(
-                                        name="JSONExtractArrayRaw",
-                                        args=[
-                                            ast.Call(name="assumeNotNull", args=[ast.Field(chain=["lines", "data"])])
-                                        ],
-                                    ),
-                                ],
+                                name="indexOf", args=[ast.Field(chain=["lines_data"]), ast.Field(chain=["data"])]
                             ),
                         ),
                         ast.Alias(alias="invoice_item_id", expr=extract_json_string("data", "id")),
@@ -299,8 +361,14 @@ def build(handle: SourceHandle) -> BuiltQuery:
                         ast.Alias(
                             alias="discount_amount",
                             expr=parse_expr(
-                                # `data.discount_amounts` looks like `[{"amount": 100, ...}, {"amount": 200, ...}, ...]`, sum all amounts
-                                "coalesce(arraySum(arrayMap(x -> JSONExtractInt(x, 'amount'), JSONExtractArrayRaw(data, 'discount_amounts'))), 0)"
+                                """
+                                line_discount_amounts[line_index] + if(
+                                    invoice_discountable_amount > 0,
+                                    _toInt64(round(unallocated_discount_amount * cumulative_discountable_amounts[line_index] / invoice_discountable_amount))
+                                        - _toInt64(round(unallocated_discount_amount * (cumulative_discountable_amounts[line_index] - line_discountable_amounts[line_index]) / invoice_discountable_amount)),
+                                    0
+                                )
+                                """
                             ),
                         ),
                         ast.Alias(
