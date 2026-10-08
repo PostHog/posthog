@@ -12,7 +12,8 @@ class TrinoCompilationBudget(TraversingVisitor):
         self.remaining_nodes = MAX_TRINO_AST_NODES
 
     def consume_node(self, node: ast.AST | None) -> None:
-        if node is None:
+        # Type nodes share one resolved graph, so counting them charges each field reference for its whole scope.
+        if node is None or isinstance(node, ast.Type):
             return
         self.remaining_nodes -= 1
         if self.remaining_nodes < 0:
@@ -23,5 +24,7 @@ class TrinoCompilationBudget(TraversingVisitor):
             )
 
     def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
         self.consume_node(node)
         super().visit(node)
