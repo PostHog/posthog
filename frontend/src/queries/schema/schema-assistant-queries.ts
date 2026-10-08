@@ -1808,9 +1808,12 @@ export interface AssistantInsightVizNode {
  *
  * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `Metric` — big number with a change pill and a sparkline (a KPI or scorecard). Uses the first numeric Y column, one value per row.
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.
  * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
+ * - `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1820,9 +1823,12 @@ export interface AssistantInsightVizNode {
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
     | ChartDisplayType.BoldNumber
+    | ChartDisplayType.Metric
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
+    | ChartDisplayType.ActionsDonut
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -1980,9 +1986,11 @@ export interface AssistantDataVisualizationNode {
      *
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Headline number with its change over time (KPI, scorecard) → `Metric`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Categorical proportions → `ActionsPie`.
+     * - Categorical proportions → `ActionsPie` or `ActionsDonut`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Relationship between two numeric measures, one point per row → `ScatterPlot`.
      * - Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.
