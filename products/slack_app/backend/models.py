@@ -194,7 +194,7 @@ class SlackSettings(UUIDModel):
     auto_model_choice = models.BooleanField(
         null=True,
         blank=True,
-        help_text="Let PostHog pick the model and reasoning effort for each new task this user starts from Slack.",
+        help_text="Let PostHog pick the model for each new task this user starts from Slack.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

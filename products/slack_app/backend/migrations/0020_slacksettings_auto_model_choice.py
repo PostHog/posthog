@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
             name="auto_model_choice",
             field=models.BooleanField(
                 blank=True,
-                help_text="Let PostHog pick the model and reasoning effort for each new task this user starts from Slack.",
+                help_text="Let PostHog pick the model for each new task this user starts from Slack.",
                 null=True,
             ),
         ),

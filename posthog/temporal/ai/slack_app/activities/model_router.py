@@ -46,7 +46,7 @@ def classify_slack_app_model_router(
     options = options[:GATEWAY_MAX_CHOICE_OPTIONS]
     if len(options) < 2:
         return None
-    by_key = {option.key: option for option in options}
+    by_key = {option.model: option for option in options}
 
     # No TypeSafe fallback: the request is customer text, and TypeSafe is a third party.
     client = build_system_one_client(
@@ -77,8 +77,9 @@ def classify_slack_app_model_router(
 @activity.defn
 @close_db_connections
 def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) -> SlackAppModelOverride | None:
-    """A model named in the mention always wins, because the author asked for it. An effort
-    named alone still applies on top of the model the router picks.
+    """A model named in the mention always wins, because the author asked for it. The router
+    picks only a model: the effort comes from the mention, else from the stored default when
+    the router picks that default's model, else the model's own default.
     """
     override = input.model_override
     if (override is not None and override.model) or not input.event_text.strip():
@@ -115,7 +116,6 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
         posthog_user=user,
         routed=picked is not None,
         model=picked.model if picked else None,
-        reasoning_effort=picked.reasoning_effort if picked else None,
         option_count=len(options),
         has_repository=input.repository is not None,
     )

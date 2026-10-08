@@ -83,10 +83,12 @@ def _opt_in(integration: Integration) -> None:
     )
 
 
-def _client_picking_personal_default() -> MagicMock:
+def _client_picking(model: str | None = None) -> MagicMock:
     def decide(*, state: object, questions: Mapping[str, ChoiceQuestion]) -> SystemOneResult:
         criteria = questions["model"].criteria
-        choice = next(key for key, description in criteria.items() if PERSONAL_DEFAULT_NOTE in str(description))
+        choice = model or next(
+            key for key, description in criteria.items() if PERSONAL_DEFAULT_NOTE in str(description)
+        )
         return SystemOneResult(
             model="jev",
             answers={"model": ChoiceAnswer(choice=choice, confidence=0.9, probabilities={choice: 0.9})},
@@ -124,26 +126,31 @@ class TestRouteSlackAppModelActivity:
         build_client.assert_not_called()
 
     @pytest.mark.parametrize(
-        "override,expected_effort",
+        "picked,override,expected",
         [
-            (None, "high"),
-            (SlackAppModelOverride(model=None, reasoning_effort="low"), "low"),
+            (None, None, SlackAppModelOverride(model="gpt-6-sol", reasoning_effort="high")),
+            (
+                None,
+                SlackAppModelOverride(model=None, reasoning_effort="low"),
+                SlackAppModelOverride(model="gpt-6-sol", reasoning_effort="low"),
+            ),
+            ("claude-opus-5-5", None, SlackAppModelOverride(model="claude-opus-5-5", reasoning_effort=None)),
         ],
-        ids=["no_override", "effort_named_in_mention"],
+        ids=["picks_personal_default", "effort_named_in_mention", "picks_ladder_model"],
     )
-    def test_routed_mention_runs_on_the_picked_option(self, integration, user, override, expected_effort):
+    def test_routed_mention_runs_on_the_picked_model(self, integration, user, picked, override, expected):
         _opt_in(integration)
         update_user_ai_run_preferences(
             integration.team_id, user.id, runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high"
         )
         with (
             patch(FLAG, return_value=True),
-            patch(f"{MODULE}.build_system_one_client", return_value=_client_picking_personal_default()),
+            patch(f"{MODULE}.build_system_one_client", return_value=_client_picking(picked)),
             patch(f"{MODULE}.capture_slack_event"),
         ):
             result = classify_slack_app_model_router_activity(_input(integration, user, override))
 
-        assert result == SlackAppModelOverride(model="gpt-6-sol", reasoning_effort=expected_effort)
+        assert result == expected
 
     def test_router_failure_keeps_the_mention_on_its_default(self, integration, user):
         _opt_in(integration)
@@ -163,7 +170,7 @@ class TestRouteSlackAppModelActivity:
         update_user_ai_run_preferences(
             integration.team_id, user.id, runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high"
         )
-        client = _client_picking_personal_default()
+        client = _client_picking()
         with (
             patch(FLAG, return_value=True),
             patch("products.tasks.backend.facade.run_config.get_model_access_error", return_value=None),

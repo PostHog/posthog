@@ -1,9 +1,11 @@
 """The options the automatic model choice picks from for a new Slack task.
 
-The options are the capability ladder plus the stored defaults, and not every model and
-effort pair, because a System One choice question takes at most 16 options on the gateway.
-The decision model reads only the option text and scores each option against its own text,
-so the model and effort notes sit in each option and not once in the instructions.
+The router picks a model, not a reasoning effort: nothing in the first message tells how
+hard the task will turn out to be. The options are the models on the capability ladder plus
+the stored defaults, and not every model in the catalog, because a System One choice question
+takes at most 16 options on the gateway. The decision model reads only the option text and
+scores each option against its own text, so the model notes sit in each option and not once
+in the instructions.
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ from posthog.llm.system_one import JsonValue
 from products.slack_app.backend.services.model_catalogue import (
     CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
     COST_BASELINE_MODEL,
-    REASONING_EFFORT_DISPLAY_NAMES,
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     ModelChoice,
     available_model_choices,
@@ -34,10 +35,7 @@ _LUNA_NOTE = (
     "A light and very cheap model. Good for short answers, lookups, summaries and very small edits. "
     "Not good for changes across many files."
 )
-_SOL_NOTE = (
-    "A general coding model. Good for most code changes and debugging. "
-    "It becomes stronger as the reasoning effort goes up."
-)
+_SOL_NOTE = "A general coding model. Good for most code changes and debugging."
 
 # Keyed by id prefix, so a new version of a family gets its note without an edit. A model on
 # the capability ladder must match one, or the router picks it blind.
@@ -62,20 +60,11 @@ _MODEL_NOTES: dict[str, str] = {
     "gpt-5.6-sol": _SOL_NOTE,
 }
 
-_EFFORT_NOTES: dict[str, str] = {
-    "low": "Thinks briefly. Fastest and cheapest. Good when the answer is direct.",
-    "medium": "Thinks a moderate amount. Good for normal tasks with a clear goal.",
-    "high": "Thinks with care. Good for changes in several steps and for debugging.",
-    "xhigh": "Thinks at length. Good for hard bugs and changes across many files.",
-    "max": "Thinks as long as it needs. Slowest. Good only for the hardest problems.",
-    "ultracode": "The longest and most thorough coding mode. Good only for very large code changes.",
-}
-
 # User text stays in `state`. The instructions only name its fields, so the request cannot
 # become an instruction.
 MODEL_ROUTER_INSTRUCTIONS: dict[str, JsonValue] = {
     "task": (
-        "Pick the model and the reasoning effort for a new task that the PostHog agent runs. "
+        "Pick the model for a new task that the PostHog agent runs. "
         "The agent can change code in a repository, open pull requests, query PostHog data and change PostHog settings."
     ),
     "input": (
@@ -86,10 +75,7 @@ MODEL_ROUTER_INSTRUCTIONS: dict[str, JsonValue] = {
         "Pick the cheapest option that will most likely finish the task correctly on the first try. "
         "A failed run costs more than a smarter option, because the user must wait and ask again."
     ),
-    "cost": (
-        "Each option shows its cost per token. A higher reasoning effort uses more tokens, "
-        "so the run takes longer and costs more."
-    ),
+    "cost": "Each option shows its cost per token compared to a baseline model.",
     "pick_a_smarter_option_when": [
         "The request asks for a new feature, a refactor, or a change across many files.",
         "The request asks to find the cause of a bug, a flaky test, a crash or a performance problem.",
@@ -116,12 +102,10 @@ MODEL_ROUTER_INSTRUCTIONS: dict[str, JsonValue] = {
 @dataclass(frozen=True)
 class ModelRouterOption:
     model: str
+    # The effort saved with a stored default of this model, so picking that default keeps it.
+    # The decision model never sees or picks it.
     reasoning_effort: str | None
     description: str
-
-    @property
-    def key(self) -> str:
-        return f"{self.model} @ {self.reasoning_effort}" if self.reasoning_effort else self.model
 
 
 @dataclass(frozen=True)
@@ -150,16 +134,12 @@ def _model_note(model: str) -> str | None:
 
 def _describe(candidate: _Candidate) -> str:
     choice = candidate.choice
-    effort = candidate.reasoning_effort
     parts = [
-        display_name_for_model(choice.model)
-        + (f" at {label_for(effort, REASONING_EFFORT_DISPLAY_NAMES).lower()} reasoning effort." if effort else "."),
+        f"{display_name_for_model(choice.model)}.",
         f"Runtime: {label_for(choice.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}.",
     ]
     if model_note := _model_note(choice.model):
         parts.append(f"Model: {model_note}")
-    if effort and (effort_note := _EFFORT_NOTES.get(effort)):
-        parts.append(f"Effort: {effort_note}")
     if choice.cost_multiplier:
         parts.append(
             f"Cost per token compared to {display_name_for_model(COST_BASELINE_MODEL)}: {choice.cost_multiplier}."
@@ -187,16 +167,15 @@ def model_router_options(
     catalog = available_model_choices()
     offered = offered_model_choices()
 
-    candidates: dict[tuple[str, str | None], _Candidate] = {}
+    candidates: dict[str, _Candidate] = {}
 
     def add(
         choice: ModelChoice, effort: str | None, *, ladder_note: str | None = None, note: str | None = None
     ) -> None:
-        key = (choice.model, effort)
-        existing = candidates.get(key) or _Candidate(choice=choice, reasoning_effort=effort)
-        candidates[key] = _Candidate(
+        existing = candidates.get(choice.model) or _Candidate(choice=choice, reasoning_effort=effort)
+        candidates[choice.model] = _Candidate(
             choice=choice,
-            reasoning_effort=effort,
+            reasoning_effort=existing.reasoning_effort,
             ladder_note=existing.ladder_note or ladder_note,
             notes=(*existing.notes, note) if note else existing.notes,
         )
@@ -215,24 +194,22 @@ def model_router_options(
 
     for runtime_adapter, ladder in CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items():
         runtime_label = label_for(runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)
-        for index, notch in enumerate(ladder, start=1):
-            choice = find_model_choice(notch.model, offered)
+        # The ladder repeats a model at several efforts. The router picks only the model.
+        models = list(dict.fromkeys(notch.model for notch in ladder))
+        for index, model in enumerate(models, start=1):
+            choice = find_model_choice(model, offered)
             if choice is None:
                 continue
-            effort = filter_unsupported_effort(choice.runtime_adapter, choice.model, notch.effort)
             add(
                 choice,
-                effort,
-                ladder_note=f"Step {index} of {len(ladder)} on the {runtime_label} scale from fastest to smartest.",
+                None,
+                ladder_note=f"Step {index} of {len(models)} on the {runtime_label} scale from fastest to smartest.",
             )
 
-    # The check can be a network call per model, and the ladder repeats models across efforts.
-    models = {c.choice.model for c in candidates.values()}
-    allowed = {model for model in models if get_model_access_error(model, distinct_id=distinct_id) is None}
     return tuple(
         ModelRouterOption(model=c.choice.model, reasoning_effort=c.reasoning_effort, description=_describe(c))
         for c in candidates.values()
-        if c.choice.model in allowed
+        if get_model_access_error(c.choice.model, distinct_id=distinct_id) is None
     )
 
 

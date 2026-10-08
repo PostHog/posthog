@@ -919,7 +919,7 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
         # `views.publish` call over it, so the caveats go in the context line below.
         "description": {
             "type": "mrkdwn",
-            "text": "PostHog picks the model and reasoning effort for each new task you start.",
+            "text": "PostHog picks the model for each new task you start.",
         },
         "value": AUTO_MODEL_CHOICE_VALUE,
     }
