@@ -47,8 +47,13 @@ export interface metricsUsageTrackingLogicActions {
         error: string
         status: number | null
     } // metricsDashboardImportLogic
-    importedDashboardOpened: () => {
-        value: true
+    dashboardImportViewed: (
+        dashboardImport: import('products/metrics/frontend/generated/api.schemas').DashboardImportApi
+    ) => {
+        dashboardImport: import('products/metrics/frontend/generated/api.schemas').DashboardImportApi
+    } // metricsDashboardImportLogic
+    importedDashboardOpened: (dashboardId: number) => {
+        dashboardId: number
     } // metricsDashboardImportLogic
     loadSamplesSuccess: (
         samples: _MetricEventSampleApi[],
@@ -177,6 +182,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'openImportModal as dashboardImportOpened',
                 'startImportFailure as dashboardImportStartFailed',
                 'openImportedDashboard as importedDashboardOpened',
+                'openImport as dashboardImportViewed',
             ],
             metricsStarterDashboardLogic,
             ['openModal as starterDashboardOpened', 'createDashboardSuccess as starterDashboardCreated'],
@@ -350,6 +356,10 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         },
         importedDashboardOpened: () => {
             posthog.capture('metrics dashboard import dashboard opened')
+        },
+        // A running or ended import opened from the Import menu or from a message.
+        dashboardImportViewed: ({ dashboardImport }) => {
+            posthog.capture('metrics dashboard import viewed', { status: dashboardImport.status })
         },
         starterDashboardOpened: () => {
             posthog.capture('metrics starter dashboard opened')

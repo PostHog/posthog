@@ -1,11 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
-import { metricsDashboardImportsCreate, metricsDashboardImportsRetrieve } from 'products/metrics/frontend/generated/api'
+import { metricsDashboardImportsCreate, metricsDashboardImportsList } from 'products/metrics/frontend/generated/api'
 import type {
     DashboardImportApi,
     DashboardImportCreateApi,
@@ -17,19 +16,17 @@ import { metricsDashboardImportLogic } from './metricsDashboardImportLogic'
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsDashboardImportsCreate: jest.fn(),
-    metricsDashboardImportsRetrieve: jest.fn(),
+    metricsDashboardImportsList: jest.fn(),
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
 const mockCreate = jest.mocked(metricsDashboardImportsCreate)
-const mockRetrieve = jest.mocked(metricsDashboardImportsRetrieve)
-
-const IMPORT_ID = '0b5e7c3a-2f1d-4c8e-9a6b-3d2f1e0c9b8a'
+const mockList = jest.mocked(metricsDashboardImportsList)
 
 const importStatus = (overrides: Partial<DashboardImportApi> = {}): DashboardImportApi => ({
-    id: IMPORT_ID,
+    id: '0b5e7c3a-2f1d-4c8e-9a6b-3d2f1e0c9b8a',
     source: 'grafana',
     status: 'running',
     dashboard_name: 'Checkout service',
@@ -50,18 +47,10 @@ const COMPLETED = importStatus({
 describe('metricsDashboardImportLogic', () => {
     let logic: ReturnType<typeof metricsDashboardImportLogic.build>
 
-    const startRunningImport = (): void => {
-        mockCreate.mockResolvedValue(importStatus())
-        logic.actions.openImportModal('grafana')
-        logic.actions.setGrafanaJson('{"panels": []}')
-        logic.actions.startImport()
-    }
-
     beforeEach(() => {
-        localStorage.clear()
         initKeaTests()
         mockCreate.mockReset()
-        mockRetrieve.mockReset()
+        mockList.mockReset().mockResolvedValue([])
         jest.mocked(lemonToast.success).mockReset()
         jest.mocked(lemonToast.error).mockReset()
         logic = metricsDashboardImportLogic()
@@ -97,64 +86,43 @@ describe('metricsDashboardImportLogic', () => {
 
         expect(mockCreate).toHaveBeenCalledTimes(1)
         expect(mockCreate.mock.calls[0][1]).toEqual(body)
-        // An import that ends in the request shows its summary at once and has nothing to poll.
         expect(logic.values.step).toBe('summary')
-        expect(logic.values.activeImport).toBeNull()
     })
 
-    it.each<[string, () => void, string, () => void]>([
-        [
-            'completes',
-            () => mockRetrieve.mockResolvedValue(COMPLETED),
-            'summary',
-            () => expect(lemonToast.success).toHaveBeenCalledTimes(1),
-        ],
+    it.each<[string, DashboardImportApi, () => void]>([
+        ['completes', COMPLETED, () => expect(lemonToast.success).toHaveBeenCalledTimes(1)],
         [
             'fails',
-            () => mockRetrieve.mockResolvedValue(importStatus({ status: 'failed', error: 'The agent run failed.' })),
-            'summary',
+            importStatus({ status: 'failed', error: 'The agent run failed.' }),
             () => expect(lemonToast.error).toHaveBeenCalledTimes(1),
         ],
-        [
-            'is gone',
-            () => mockRetrieve.mockRejectedValue(new ApiError('Not found.', 404)),
-            'input',
-            () => expect(lemonToast.success).not.toHaveBeenCalled(),
-        ],
-    ])('polls a running import until it %s, then stops', async (_, settle, finalStep, expectMessage) => {
+    ])('polls the recent imports while one runs, and tells the user when it %s', async (_, ended, expectMessage) => {
         jest.useFakeTimers()
-        startRunningImport()
+        mockCreate.mockResolvedValue(importStatus())
+        mockList.mockResolvedValue([importStatus({ progress: 'Matched 1 of 3 panels.' })])
+        logic.actions.openImportModal('grafana')
+        logic.actions.setGrafanaJson('{"panels": []}')
+        logic.actions.startImport()
         await jest.advanceTimersByTimeAsync(0)
         logic.actions.closeImportModal()
-        expect(logic.values.step).toBe('progress')
+        expect(logic.values.runningImports.map((item) => item.progress)).toEqual(['Matched 1 of 3 panels.'])
 
-        mockRetrieve.mockResolvedValue(importStatus({ progress: 'Matched 1 of 3 panels.' }))
+        mockList.mockResolvedValue([ended])
         await jest.advanceTimersByTimeAsync(5000)
-        expect(logic.values.currentImport?.progress).toBe('Matched 1 of 3 panels.')
-
-        settle()
-        await jest.advanceTimersByTimeAsync(5000)
-        expect(logic.values.step).toBe(finalStep)
-        expect(logic.values.activeImport).toBeNull()
+        expect(logic.values.runningImports).toEqual([])
         expectMessage()
 
+        const calls = mockList.mock.calls.length
         await jest.advanceTimersByTimeAsync(30000)
-        expect(mockRetrieve).toHaveBeenCalledTimes(2)
+        expect(mockList).toHaveBeenCalledTimes(calls)
     })
 
-    it('finds the import that runs after a remount, and shows no form before its status arrives', async () => {
-        startRunningImport()
-        await expectLogic(logic).toDispatchActions(['startImportSuccess'])
-        logic.unmount()
+    it('blocks a fourth import while three run', async () => {
+        mockList.mockResolvedValue(['a', 'b', 'c'].map((id) => importStatus({ id })))
+        await expectLogic(logic, () => logic.actions.loadRecentImports()).toDispatchActions(['setRecentImports'])
+        logic.actions.openImportModal('grafana')
+        logic.actions.setGrafanaJson('{"panels": []}')
 
-        mockRetrieve.mockResolvedValue(COMPLETED)
-        logic = metricsDashboardImportLogic()
-        logic.mount()
-        expect(logic.values.step).toBe('progress')
-
-        await expectLogic(logic).toDispatchActions(['setCurrentImport'])
-        expect(mockRetrieve).toHaveBeenCalledWith(expect.any(String), IMPORT_ID)
-        expect(logic.values.step).toBe('summary')
-        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(logic.values.importDisabledReason).toBe('3 imports are running. Wait for one of them to finish.')
     })
 })

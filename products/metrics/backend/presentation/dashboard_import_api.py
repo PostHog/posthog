@@ -28,6 +28,7 @@ from posthog.rate_limit import (
 from products.metrics.backend.facade.api import (
     check_dashboard_panel_queries,
     get_dashboard_import,
+    list_dashboard_imports,
     start_dashboard_import,
 )
 from products.metrics.backend.facade.contracts import (
@@ -241,7 +242,7 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             201: DashboardImportSerializer,
             403: OpenApiResponse(description="AI data processing is off, the AI credits ran out, or no access."),
-            409: OpenApiResponse(description="The user already has an import that is running."),
+            409: OpenApiResponse(description="The user already has 3 imports that are running."),
         },
         description=(
             "Import a Grafana dashboard JSON model or a dashboard screenshot as a new dashboard. Panels that "
@@ -278,6 +279,14 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except DashboardImportError as error:
             raise ValidationError(str(error))
         return Response(DashboardImportSerializer(asdict(result)).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(responses={200: DashboardImportSerializer(many=True)})
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The user's dashboard imports of the last 7 days that used the agent, with the progress of the ones that run."""
+        self._require_import_flag(request)
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+        imports = list_dashboard_imports(team=self.team, user=cast(User, request.user))
+        return Response(DashboardImportSerializer([asdict(item) for item in imports], many=True).data)
 
     @extend_schema(responses={200: DashboardImportSerializer})
     def retrieve(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:

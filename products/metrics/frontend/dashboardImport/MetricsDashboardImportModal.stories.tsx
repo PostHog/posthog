@@ -49,7 +49,7 @@ export const ImportSummary: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {
             metricsDashboardImportLogic.actions.openImportModal('grafana')
-            metricsDashboardImportLogic.actions.startImportSuccess(COMPLETED_IMPORT, null)
+            metricsDashboardImportLogic.actions.startImportSuccess(COMPLETED_IMPORT)
         })
 
         return <MetricsDashboardImportModal />
