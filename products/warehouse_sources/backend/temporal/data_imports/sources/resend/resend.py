@@ -1,7 +1,10 @@
-import dataclasses
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -28,12 +31,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.resend.set
 )
 
 RESEND_BASE_URL = "https://api.resend.com"
-_EMAILS_DEFAULT_PAGE_SIZE = 100
+# Resend caps a metrics range at 10,000 periods and clamps the start to the plan's retention window,
+# so ten years of daily periods asks for everything the account still retains.
+_METRICS_LOOKBACK_DAYS = 3650
 
 
-@dataclasses.dataclass
+@frozen
 class ResendResumeConfig:
-    # Cursor for the /emails endpoint (Resend's `after` parameter).
+    # Cursor for the cursor-paginated endpoints (Resend's `after` parameter).
     next_cursor: Optional[str] = None
     # Pre-framework fan-out bookmark. Kept (with a default) so previously saved state still parses;
     # no longer written — fan-out resume now lives in fanout_state.
@@ -43,9 +48,10 @@ class ResendResumeConfig:
     fanout_state: Optional[dict] = None
 
 
-class ResendEmailsPaginator(BasePaginator):
-    """Keyset pagination for /emails: Resend pages with `limit` + `after`, where `after` is the id
-    of the last row on the previous page and `has_more` in the body signals whether more remain."""
+class ResendCursorPaginator(BasePaginator):
+    """Keyset pagination for Resend's cursor lists (/emails, /suppressions, clicked links): Resend
+    pages with `limit` + `after`, where `after` is the id of the last row on the previous page and
+    `has_more` in the body signals whether more remain."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -113,20 +119,16 @@ def _simple_resource(
     manager: ResumableSourceManager[ResendResumeConfig],
 ) -> Resource:
     """A single top-level list endpoint: flat (one page) or cursor-paginated (/emails)."""
-    is_emails = config.name == "emails"
+    is_cursor_paginated = config.page_size is not None
 
-    params: dict[str, Any] = {}
-    paginator: BasePaginator
-    if is_emails:
-        params["limit"] = config.page_size or _EMAILS_DEFAULT_PAGE_SIZE
-        paginator = ResendEmailsPaginator()
-    else:
-        paginator = SinglePagePaginator()
+    params = _endpoint_params(config)
+    if config.name == "email_metrics":
+        params["start_date"] = (datetime.now(UTC) - timedelta(days=_METRICS_LOOKBACK_DAYS)).date().isoformat()
 
     endpoint: Endpoint = {
         "path": config.path,
         "params": params,
-        "paginator": paginator,
+        "paginator": _paginator(config),
         # A missing `data` key yields a zero-row page (the API returns {"data": [...]}); tolerant,
         # matching the previous implementation's `data.get("data") or []`.
         "data_selector": "data",
@@ -138,7 +140,7 @@ def _simple_resource(
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if is_emails and manager.can_resume():
+    if is_cursor_paginated and manager.can_resume():
         resume = manager.load_state()
         if resume is not None and resume.next_cursor is not None:
             initial_paginator_state = {"next_cursor": resume.next_cursor}
@@ -159,13 +161,31 @@ def _simple_resource(
     )
 
 
-def _inject_audience_id(row: dict[str, Any]) -> dict[str, Any]:
-    # include_from_parent lands the parent id as `_audiences_id`; rename it to the `_audience_id`
-    # column the previous implementation injected onto every contact row.
-    audience_id = row.pop("_audiences_id", None)
-    if audience_id is not None:
-        row["_audience_id"] = audience_id
-    return row
+def _endpoint_params(config: ResendEndpointConfig) -> dict[str, Any]:
+    params = dict(config.params)
+    if config.page_size is not None:
+        params["limit"] = config.page_size
+    return params
+
+
+def _paginator(config: ResendEndpointConfig) -> BasePaginator:
+    return ResendCursorPaginator() if config.page_size is not None else SinglePagePaginator()
+
+
+def _parent_id_renamer(parent: str, resolve_param: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # include_from_parent lands the parent id as `_<parent>_id` (e.g. `_audiences_id`); rename it to
+    # `_<resolve_param>` (e.g. the `_audience_id` column the previous implementation injected onto
+    # every contact row).
+    source_key = f"_{parent}_id"
+    target_key = f"_{resolve_param}"
+
+    def rename(row: dict[str, Any]) -> dict[str, Any]:
+        parent_id = row.pop(source_key, None)
+        if parent_id is not None:
+            row[target_key] = parent_id
+        return row
+
+    return rename
 
 
 def _fan_out_resource(
@@ -175,16 +195,25 @@ def _fan_out_resource(
     job_id: str,
     manager: ResumableSourceManager[ResendResumeConfig],
 ) -> Resource:
-    """Fan the contacts endpoint out over every audience via a dependent resource: the framework
-    fetches audiences, then GETs each audience's contacts and injects the audience id per row."""
-    if config.parent is None:
+    """Fan a child endpoint out over every parent row via a dependent resource: the framework
+    fetches the parent list, then GETs each parent's children and injects the parent id per row."""
+    if config.parent is None or config.resolve_param is None:
         raise ValueError(f"Resend endpoint {config.name} has no parent configured")
 
     parent_config = RESEND_ENDPOINTS[config.parent]
 
     child_params: dict[str, Any] = {
-        "audience_id": {"type": "resolve", "resource": config.parent, "field": "id"},
+        **_endpoint_params(config),
+        config.resolve_param: {"type": "resolve", "resource": config.parent, "field": "id"},
     }
+    child_endpoint: Endpoint = {
+        "path": config.path,
+        "params": child_params,
+        "paginator": _paginator(config),
+        "data_selector": "data",
+    }
+    if config.ignore_child_404:
+        child_endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(auth),
@@ -199,14 +228,9 @@ def _fan_out_resource(
             },
             {
                 "name": config.name,
-                "endpoint": {
-                    "path": config.path,
-                    "params": child_params,
-                    "paginator": SinglePagePaginator(),
-                    "data_selector": "data",
-                },
+                "endpoint": child_endpoint,
                 "include_from_parent": ["id"],
-                "data_map": _inject_audience_id,
+                "data_map": _parent_id_renamer(config.parent, config.resolve_param),
             },
         ],
     }
@@ -252,7 +276,7 @@ def resend_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

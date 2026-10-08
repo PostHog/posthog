@@ -3540,6 +3540,7 @@ export interface CredentialApi {
  * * `Arcade` - Arcade
  * * `Neo4j` - Neo4j
  * * `TestDino` - TestDino
+ * * `ChessCom` - ChessCom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4917,6 +4918,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Arcade: 'Arcade',
     Neo4j: 'Neo4j',
     TestDino: 'TestDino',
+    ChessCom: 'ChessCom',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

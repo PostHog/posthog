@@ -52,8 +52,10 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden for url": "Chargebee authentication failed. Please check your API key and site name.",
-            "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
+            # Credential validation already read customers with this key, so a 403 here is one resource
+            # the key can't read, not a wrong key or site name.
+            "403 Client Error: Forbidden for url": "Your Chargebee API key can't read one of the tables you sync. Give the key read access to that data in Chargebee, then reconnect the source.",
+            "Unauthorized for url": "Chargebee rejected your API key. Update the key in your Chargebee settings, then reconnect the source.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

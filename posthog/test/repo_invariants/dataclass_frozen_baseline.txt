@@ -736,13 +736,10 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/koyeb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/kubecost.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/kustomer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/lacework.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lago/lago.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lago/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lambda_labs/lambda_labs.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lambda_labs/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/langfuse/langfuse.py
@@ -1014,8 +1011,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/replicate/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reply_io/reply_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reply_io/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/resend/resend.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/resend/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/retently/retently.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/retently/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/revenuecat/revenuecat.py
