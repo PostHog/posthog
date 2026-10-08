@@ -10,6 +10,18 @@ import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 export const MESSAGING_NAV_TAB_KEYS = ['library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type MessagingNavTabKey = (typeof MESSAGING_NAV_TAB_KEYS)[number]
 
+/** The tabs that configure sending. The new navigation groups them under one "Messaging" tab. */
+export const MESSAGING_SETUP_TAB_KEYS = ['channels', 'opt-outs', 'suppression', 'reputation'] as const
+export type MessagingSetupTabKey = (typeof MESSAGING_SETUP_TAB_KEYS)[number]
+
+export const MESSAGING_TAB_LABELS: Record<MessagingNavTabKey, string> = {
+    library: 'Library',
+    channels: 'Channels',
+    'opt-outs': 'Opt-outs',
+    suppression: 'Suppression list',
+    reputation: 'Reputation',
+}
+
 export const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
     library: <MessageTemplatesTable />,
     channels: <MessageChannels />,
@@ -18,31 +30,19 @@ export const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
     reputation: <WorkflowsReputation />,
 }
 
+export function isMessagingSetupTab(tab: string): tab is MessagingSetupTabKey {
+    return (MESSAGING_SETUP_TAB_KEYS as readonly string[]).includes(tab)
+}
+
 /**
  * Sending setup that every messaging surface shares: templates, senders, and who may be sent to.
  * Each surface renders them under its own URL, so switching tabs never leaves the surface.
  */
 export function messagingNavTabs(linkFor: (tab: MessagingNavTabKey) => string): LemonTab<MessagingNavTabKey>[] {
-    return [
-        { label: 'Library', key: 'library', link: linkFor('library'), content: MESSAGING_TAB_CONTENT.library },
-        { label: 'Channels', key: 'channels', link: linkFor('channels'), content: MESSAGING_TAB_CONTENT.channels },
-        {
-            label: 'Opt-outs',
-            key: 'opt-outs',
-            link: linkFor('opt-outs'),
-            content: MESSAGING_TAB_CONTENT['opt-outs'],
-        },
-        {
-            label: 'Suppression list',
-            key: 'suppression',
-            link: linkFor('suppression'),
-            content: MESSAGING_TAB_CONTENT.suppression,
-        },
-        {
-            label: 'Reputation',
-            key: 'reputation',
-            link: linkFor('reputation'),
-            content: MESSAGING_TAB_CONTENT.reputation,
-        },
-    ]
+    return MESSAGING_NAV_TAB_KEYS.map((key) => ({
+        label: MESSAGING_TAB_LABELS[key],
+        key,
+        link: linkFor(key),
+        content: MESSAGING_TAB_CONTENT[key],
+    }))
 }
