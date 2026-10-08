@@ -449,10 +449,11 @@ User RBAC stays on the **viewset** — it depends on the authenticated `request`
 A view that fetches a contract from the facade has no model instance for DRF's `get_object()` to check.
 It still checks object access through the same permission stack, with an `ObjectAccessRef` from `products/access_control/backend/facade/contracts.py` in place of the instance:
 
-- Override `get_object()` to fetch the contract through the facade, so a missing object is a 404.
-- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract.
-- Call `self.check_object_permissions(self.request, ref)`. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
-- Return the reference or the contract. `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
+- Override `safely_get_object()` to fetch the contract through the facade. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
+- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract and return it. Return `None` for a missing object, which becomes a 404.
+- The mixin's `get_object()` then calls `check_object_permissions` on the reference. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
+- `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
+- An action that needs the contract itself can fetch it, build the reference, and call `self.check_object_permissions(self.request, ref)` directly.
 
 Do not call `AccessControlPermission` methods by hand, and do not pass `UserAccessControl` or a required level into the facade.
 A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) needs the model instance, and a reference for it raises.
