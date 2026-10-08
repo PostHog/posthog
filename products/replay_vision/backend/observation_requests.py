@@ -30,7 +30,8 @@ from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
     ReplayObservationRequest,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
+from products.replay_vision.backend.queries.session_last_activity import fetch_session_last_activity
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 
@@ -39,6 +40,12 @@ logger = structlog.get_logger(__name__)
 COMPLETED_EVENT = "$replay_vision_request_completed"
 
 _SWEEP_PAGE_SIZE = 500
+
+# The longest a request waits for its sessions to end before scanning what has been recorded so far.
+MAX_SESSION_END_WAIT = timedelta(hours=6)
+
+# Each start launches up to 200 workflows, so a tick only starts a bounded number of waiting requests.
+MAX_STARTS_PER_TICK = 50
 
 # Leaves headroom inside the reconciler activity's own start-to-close timeout.
 _SWEEP_BUDGET_SECONDS = 30
@@ -107,8 +114,13 @@ def create_observation_request(
     inline: InlineScanSpec | None,
     idempotency_key: str | None,
     reference: str,
+    wait_for_session_end: bool = False,
 ) -> tuple[ReplayObservationRequest, bool]:
     """Start scans for the sessions and record them as one request. Returns (request, created).
+
+    With `wait_for_session_end` nothing starts yet: `start_waiting_requests` starts the scans once every
+    session has gone quiet, because a scan of a session still recording sees only part of it and the
+    (scanner, session) observation it writes can never be replaced by a later, complete one.
 
     A repeated idempotency key returns the first request untouched, so a caller that retries after a
     timeout never pays twice. The row is inserted before any scan starts, which makes the unique index
@@ -132,6 +144,8 @@ def create_observation_request(
                 reference=reference,
                 source=source,
                 created_by=user,
+                wait_for_session_end=wait_for_session_end,
+                inline_config=_inline_config(inline),
             )
     except IntegrityError:
         if not idempotency_key:
@@ -139,29 +153,97 @@ def create_observation_request(
         existing = ReplayObservationRequest.objects.for_team(team.id).get(idempotency_key=idempotency_key)
         return _same_caller(existing, team, source, user), False
 
+    if wait_for_session_end:
+        return request, True
     try:
-        if scanner is not None:
-            _, results = scan_existing_scanner(scanner=scanner, session_ids=session_ids, user=user)
-        else:
-            assert inline is not None
-            scan = run_inline_scan(
-                team=team,
-                user=user,
-                session_ids=session_ids,
-                scanner_type=inline.scanner_type,
-                scanner_config=inline.scanner_config,
-                model=inline.model,
-            )
-            scanner, results = scan.scanner, scan.results
+        _start_scans(request, scanner=scanner, inline=inline)
     except Exception:
         # Free the key so the caller's retry starts the scans instead of reading back an empty request.
         request.delete()
         raise
+    return request, True
 
+
+def _inline_config(inline: InlineScanSpec | None) -> dict[str, Any] | None:
+    if inline is None:
+        return None
+    return {
+        "scanner_type": ScannerType(inline.scanner_type).value,
+        "scanner_config": inline.scanner_config,
+        "model": inline.model,
+    }
+
+
+def _start_scans(
+    request: ReplayObservationRequest, *, scanner: ReplayScanner | None, inline: InlineScanSpec | None
+) -> None:
+    team, user = request.team, request.created_by
+    if scanner is not None:
+        _, results = scan_existing_scanner(scanner=scanner, session_ids=request.session_ids, user=user)
+    else:
+        assert inline is not None
+        scan = run_inline_scan(
+            team=team,
+            user=user,
+            session_ids=request.session_ids,
+            scanner_type=inline.scanner_type,
+            scanner_config=inline.scanner_config,
+            model=inline.model,
+        )
+        scanner, results = scan.scanner, scan.results
     request.scanner = scanner
     request.start_outcomes = results
-    request.save(update_fields=["scanner", "start_outcomes"])
-    return request, True
+    request.started_at = timezone.now()
+    request.save(update_fields=["scanner", "start_outcomes", "started_at"])
+
+
+def start_waiting_requests(*, now: datetime | None = None) -> int:
+    """Start the scans of waiting requests whose sessions have all gone quiet, or have waited long enough."""
+    now = now or timezone.now()
+    waiting = list(
+        ReplayObservationRequest.objects.unscoped()
+        .filter(wait_for_session_end=True, started_at__isnull=True, completed_at__isnull=True)
+        .select_related("team", "scanner", "created_by")
+        .order_by("created_at")[:MAX_STARTS_PER_TICK]
+    )
+    started = 0
+    for team_id in {r.team_id for r in waiting}:
+        team_requests = [r for r in waiting if r.team_id == team_id]
+        session_ids = sorted({sid for r in team_requests for sid in r.session_ids})
+        try:
+            last_activity = fetch_session_last_activity(team=team_requests[0].team, session_ids=session_ids, now=now)
+        except Exception:
+            logger.exception("replay_vision.observation_request.last_activity_failed", team_id=team_id)
+            continue
+        for request in team_requests:
+            if not _sessions_ended(request, last_activity, now):
+                continue
+            try:
+                _start_scans(request, scanner=request.scanner, inline=_inline_spec(request))
+            except Exception:
+                logger.exception("replay_vision.observation_request.deferred_start_failed", request_id=str(request.id))
+                continue
+            started += 1
+    return started
+
+
+def _sessions_ended(request: ReplayObservationRequest, last_activity: dict[str, datetime], now: datetime) -> bool:
+    if now - request.created_at >= MAX_SESSION_END_WAIT:
+        return True
+    quiet_since = now - SETTLE_INTERVAL
+    # A session missing from the recordings may still be ingesting, so it holds the request back too.
+    return all(sid in last_activity and last_activity[sid] <= quiet_since for sid in request.session_ids)
+
+
+def _inline_spec(request: ReplayObservationRequest) -> InlineScanSpec | None:
+    config = request.inline_config
+    if request.scanner_id is not None or not config:
+        return None
+    return InlineScanSpec(
+        scanner_type=ScannerType(config["scanner_type"]),
+        scanner_config=config["scanner_config"],
+        model=config["model"],
+    )
 
 
 def _same_caller(
@@ -201,8 +283,9 @@ def _progress(
 ) -> RequestProgress:
     age = now - request.created_at
     if not request.start_outcomes:
-        # Still starting, or the process starting it died; either way nothing has run to read back.
-        state = RequestSessionState.PENDING if age < _STARTUP_GRACE else RequestSessionState.FAILED
+        # Still waiting for its sessions to end, still starting, or the process starting it died.
+        grace = MAX_SESSION_END_WAIT + _STARTUP_GRACE if request.wait_for_session_end else _STARTUP_GRACE
+        state = RequestSessionState.PENDING if age < grace else RequestSessionState.FAILED
         return RequestProgress(
             sessions=[
                 RequestSession(session_id=sid, scan_outcome="failed", state=state, observation=None)
@@ -211,7 +294,7 @@ def _progress(
         )
     # A scan that outlives its workflow's timeout is dead even if its row still says running, and the
     # orphan reaper only catches up later.
-    expired = age > APPLY_SCANNER_EXECUTION_TIMEOUT
+    expired = now - (request.started_at or request.created_at) > APPLY_SCANNER_EXECUTION_TIMEOUT
     return RequestProgress(
         sessions=[
             _session(outcome, observations.get((request.scanner_id, outcome["session_id"])), expired)
@@ -297,8 +380,8 @@ def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
 
 
 def _completed_event(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> InternalEventEvent:
-    # Ids and states only: a destination forwards this off-platform, and the answers stay behind the
-    # session recording access that `GET /vision/requests/{id}/` enforces.
+    # Counts only: anyone who can add a destination receives this, so session ids and answers stay
+    # behind the recording access that `GET /vision/requests/{id}/` enforces.
     states = [s.state for s in progress.sessions]
     return InternalEventEvent(
         event=COMPLETED_EVENT,
@@ -317,13 +400,5 @@ def _completed_event(request: ReplayObservationRequest, progress: RequestProgres
                 for state in RequestSessionState
                 if state not in _UNSETTLED_STATES
             },
-            "sessions": [
-                {
-                    "session_id": s.session_id,
-                    "state": s.state.value,
-                    "observation_id": str(s.observation.id) if s.observation is not None else None,
-                }
-                for s in progress.sessions
-            ],
         },
     )

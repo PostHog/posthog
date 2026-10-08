@@ -1029,6 +1029,8 @@ export interface CreateObservationRequestApi {
      * @maxLength 200
      */
     reference?: string
+    /** Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are. */
+    wait_for_session_end?: boolean
 }
 
 /**

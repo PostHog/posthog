@@ -8,6 +8,7 @@ from posthog.models.utils import UUIDModel
 class ObservationRequestSource(models.TextChoices):
     USER = "user", "User"
     PROJECT_SECRET_API_KEY = "project_secret_api_key", "Project secret API key"
+    WORKFLOW = "workflow", "Workflow"
 
 
 class ReplayObservationRequest(TeamScopedRootMixin, UUIDModel):
@@ -39,7 +40,16 @@ class ReplayObservationRequest(TeamScopedRootMixin, UUIDModel):
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    wait_for_session_end = models.BooleanField(
+        default=False, help_text="Hold the scans until every session has ended, so each one is scanned whole."
+    )
+    inline_config = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The inline question's `{scanner_type, scanner_config, model}`, kept until a waiting request starts.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

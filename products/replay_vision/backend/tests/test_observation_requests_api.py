@@ -20,7 +20,12 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_requests import complete_settled_requests, request_progress
+from products.replay_vision.backend.observation_requests import (
+    MAX_SESSION_END_WAIT,
+    complete_settled_requests,
+    request_progress,
+    start_waiting_requests,
+)
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 
@@ -173,6 +178,17 @@ class TestObservationRequestAPI(APIBaseTest):
         )
 
         self.assertEqual((parent.status_code, response.status_code), (202, 400), response.json())
+
+    def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:
+        response = self.client.post(
+            self.url,
+            {"session_ids": ["s1"], "scanner_id": str(self.scanner.id), "wait_for_session_end": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202, response.json())
+        self.assertEqual((response.json()["status"], response.json()["sessions"][0]["state"]), ("running", "pending"))
+        self.start_workflow.assert_not_called()
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 
@@ -332,9 +348,8 @@ class TestCompleteSettledRequests(APIBaseTest):
         event = produce.call_args.kwargs["event"]
         self.assertEqual(event.event, "$replay_vision_request_completed")
         self.assertEqual(event.properties["reference"], "job-7")
-        self.assertEqual(
-            event.properties["sessions"], [{"session_id": "s1", "state": "skipped", "observation_id": None}]
-        )
+        # Anyone who can add a destination receives the event, so it names no sessions.
+        self.assertEqual((event.properties["skipped_count"], "sessions" in event.properties), (1, False))
 
     @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
     def test_announces_a_request_once(self, produce: MagicMock) -> None:
@@ -359,3 +374,53 @@ class TestCompleteSettledRequests(APIBaseTest):
         first.refresh_from_db()
         second.refresh_from_db()
         self.assertEqual((first.completed_at is None, second.completed_at is not None), (True, True))
+
+
+class TestStartWaitingRequests(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for target in ("api.trigger.async_to_sync", "api.trigger.sync_connect"):
+            patcher = patch(f"products.replay_vision.backend.{target}")
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+
+    @parameterized.expand(
+        [
+            ("quiet_long_enough", timedelta(minutes=40), timedelta(0), True),
+            ("still_recording", timedelta(minutes=5), timedelta(0), False),
+            ("not_recorded_yet", None, timedelta(0), False),
+            ("waited_too_long", timedelta(minutes=5), MAX_SESSION_END_WAIT, True),
+        ]
+    )
+    def test_starts_once_the_session_has_ended(
+        self, _name: str, quiet_for: timedelta | None, waited: timedelta, starts: bool
+    ) -> None:
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[],
+            source="project_secret_api_key",
+            wait_for_session_end=True,
+        )
+        now = request.created_at + waited
+        last_activity = {} if quiet_for is None else {"s1": now - quiet_for}
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.fetch_session_last_activity",
+            return_value=last_activity,
+        ):
+            start_waiting_requests(now=now)
+
+        request.refresh_from_db()
+        self.assertEqual(request.started_at is not None, starts)
+        self.assertEqual([o["session_id"] for o in request.start_outcomes], ["s1"] if starts else [])
