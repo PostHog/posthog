@@ -165,6 +165,23 @@ class SlackAppModelOverride(BaseModel):
     reasoning_effort: str | None = None
 
 
+class SlackAppModelRouterInput(BaseModel):
+    """Single-argument input for the model-router activity.
+
+    ``model_override`` is what the author asked for in the mention. The activity returns
+    it unchanged whenever the router does not run, so the workflow can always use its result.
+    """
+
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+    user_id: int
+    event_text: str
+    thread_ts: str | None = None
+    repository: str | None = None
+    model_override: SlackAppModelOverride | None = None
+
+
 class SlackAppProjectRouteInput(BaseModel):
     """Single-argument input for the project-route classifier activity.
 

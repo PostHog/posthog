@@ -24,9 +24,12 @@ from products.tasks.backend.logic.services.model_catalogue import (
     offered_model_choices,
     runtime_adapter_for,
 )
+from products.tasks.backend.model_catalog import CAPABILITY_LADDER_BY_RUNTIME_ADAPTER, CapabilityNotch
 
 __all__ = [
+    "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
     "COST_BASELINE_MODEL",
+    "CapabilityNotch",
     "REASONING_EFFORT_DISPLAY_NAMES",
     "RUNTIME_ADAPTER_DISPLAY_NAMES",
     "TASK_RUN_GATEWAY_PRODUCT",

@@ -33,6 +33,7 @@ from posthog.temporal.ai.slack_app.activities import (
     process_slack_app_fork_thread_activity,
     request_untagged_followup_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
+    route_slack_app_model_activity,
     run_posthog_slack_inbox_onboarding_activity,
 )
 from posthog.temporal.ai.slack_app.types import (
@@ -47,6 +48,7 @@ from posthog.temporal.ai.slack_app.types import (
     SlackAppMessageReactionInput,
     SlackAppModelOverride,
     SlackAppModelOverrideInput,
+    SlackAppModelRouterInput,
     SlackAppProjectRoute,
     SlackAppProjectRouteInput,
     SlackRepoSelectionOutcome,
@@ -63,6 +65,7 @@ SLACK_APP_ACTIVITIES = [
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
     classify_slack_app_project_route_activity,
+    route_slack_app_model_activity,
     enforce_posthog_code_billing_quota_activity,
     post_posthog_code_no_repos_activity,
     post_posthog_code_repo_picker_activity,
@@ -95,6 +98,7 @@ __all__ = [
     "SlackAppMentionWorkflowInputs",
     "SlackAppModelOverride",
     "SlackAppModelOverrideInput",
+    "SlackAppModelRouterInput",
     "SlackAppProjectRoute",
     "SlackAppProjectRouteInput",
     "SlackRepoSelectionOutcome",
@@ -121,5 +125,6 @@ __all__ = [
     "post_posthog_code_repo_picker_activity",
     "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
+    "route_slack_app_model_activity",
     "run_posthog_slack_inbox_onboarding_activity",
 ]

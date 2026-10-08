@@ -33,7 +33,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -70,8 +70,10 @@ from products.slack_app.backend.services.slack_app_home_stats import (
 )
 from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
+    resolve_auto_model_choice,
     resolve_channel_welcome_mode,
     resolve_untagged_followup_mode,
+    set_auto_model_choice,
     set_channel_welcome_mode,
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
@@ -100,6 +102,7 @@ ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
+ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -126,6 +129,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
+        ACTION_SET_AUTO_MODEL_CHOICE,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -438,6 +442,7 @@ def render_home_view(
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
+    auto_model_choice: bool | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
 ) -> dict:
@@ -475,6 +480,9 @@ def render_home_view(
     blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(run_defaults))
     blocks.extend(_personal_section_blocks(run_defaults))
+    # `None` means the `slack-app-model-router` flag is off for this viewer.
+    if auto_model_choice is not None:
+        blocks.extend(_auto_model_choice_blocks(auto_model_choice))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own.
@@ -898,6 +906,33 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
         _subsection_label("Your default"),
         {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
         {"type": "actions", "elements": actions},
+    ]
+
+
+AUTO_MODEL_CHOICE_VALUE = "on"
+
+
+def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
+    """One checkbox that lets PostHog pick the model for each new task. Off by default."""
+    option = {
+        "text": {"type": "mrkdwn", "text": "*Use auto model choice*"},
+        "description": {
+            "type": "mrkdwn",
+            "text": "PostHog picks the model and reasoning effort for each new task you start. "
+            "A model you name in your message still wins, and follow-ups keep the model of their task.",
+        },
+        "value": AUTO_MODEL_CHOICE_VALUE,
+    }
+    checkbox: dict[str, Any] = {
+        "type": "checkboxes",
+        "action_id": ACTION_SET_AUTO_MODEL_CHOICE,
+        "options": [option],
+    }
+    if enabled:
+        checkbox["initial_options"] = [option]
+    return [
+        _subsection_label("Auto model choice"),
+        {"type": "actions", "elements": [checkbox]},
     ]
 
 
@@ -1656,6 +1691,19 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_AUTO_MODEL_CHOICE:
+        # A stale view must not turn the router on for someone the flag no longer covers.
+        if _auto_model_choice_offered(integration, slack_user_id):
+            enabled = any(
+                option.get("value") == AUTO_MODEL_CHOICE_VALUE for option in action.get("selected_options") or []
+            )
+            set_auto_model_choice(integration.integration_id, slack_user_id, enabled)
+            capture_slack_event(
+                integration, "slack app auto model choice toggled", slack_user_id=slack_user_id, enabled=enabled
+            )
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
         slack = SlackIntegration(integration)
         if not _is_admin(slack, integration, slack_user_id):
@@ -2035,7 +2083,7 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode:
+    if not row.untagged_followup_mode and not row.auto_model_choice:
         row.delete()
         return
     row.default_integration = None
@@ -2097,6 +2145,11 @@ def _build_home_view(
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
+        auto_model_choice=(
+            resolve_auto_model_choice(integration.integration_id, slack_user_id)
+            if _auto_model_choice_offered(integration, slack_user_id)
+            else None
+        ),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2342,6 +2395,17 @@ def _resolve_run_defaults_state(
         source=resolved.source,
         settings_url=settings_url,
     )
+
+
+def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
+    """Whether the `slack-app-model-router` flag is on for the PostHog user behind this Slack user.
+
+    Keyed on that person, the same identity the router checks when a task starts.
+    """
+    home_user = _resolve_home_user(integration, slack_user_id)
+    if home_user is None:
+        return False
+    return is_slack_app_model_router_enabled(integration, distinct_id=home_user.distinct_id)
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
