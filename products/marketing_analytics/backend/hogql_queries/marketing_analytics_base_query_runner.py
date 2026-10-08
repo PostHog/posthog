@@ -296,7 +296,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # never refresh. Bypass access control for these background writers exactly as the warmer does
         # (the materialization INSERT is printed userless either way); user-facing reads keep self.user and
         # the access-controlled path.
-        bypass_access_control = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
+        bypass_access_control = self._bypass_warehouse_access_control or is_background_warming_request(
+            BACKGROUND_WARMING_TRIGGERS
+        )
         # Pass the runner's timings so create_for's internal spans (data_warehouse_tables,
         # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
         # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
@@ -309,6 +311,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             build_postgres_foreign_keys=False,
             bypass_warehouse_access_control=bypass_access_control,
         )
+
+    def bypass_warehouse_access_control(self) -> None:
+        super().bypass_warehouse_access_control()
+        # The cached database and context may already be built; the next access rebuilds them.
+        self.__dict__.pop("_shared_hogql_database", None)
+        self.__dict__.pop("_shared_hogql_context", None)
 
     @cached_property
     def _shared_hogql_context(self) -> HogQLContext:
