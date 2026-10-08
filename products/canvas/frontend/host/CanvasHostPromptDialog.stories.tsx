@@ -39,6 +39,7 @@ export const StartTask: Story = {
                     verb: 'tasks.create_and_run',
                     summary: 'Start a cloud task in this space.',
                     destructive: false,
+                    starts_cloud_run: true,
                     usage: '',
                 },
                 payload: {

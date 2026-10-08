@@ -1756,6 +1756,8 @@ export interface CanvasActionDefinitionApi {
     summary: string
     /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
     destructive: boolean
+    /** True when the verb starts an agent run that spends paid compute; the host confirms with the viewer first. */
+    starts_cloud_run: boolean
     /** Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants. */
     usage: string
 }

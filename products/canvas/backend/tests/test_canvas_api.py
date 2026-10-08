@@ -27,14 +27,21 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
+from products.approvals.backend.exceptions import PolicyConflict
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
+from products.cohorts.backend.models.cohort import Cohort
+from products.error_tracking.backend.facade.api import get_issue
+from products.error_tracking.backend.facade.testing import create_issue
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
@@ -2343,6 +2350,10 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("cloud_canvas_scope_only", "tasks.create_and_run", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_canvas_scope_only", "workflows.pause", ["canvas:write"], status.HTTP_403_FORBIDDEN),
             ("workflow_scope_held", "workflows.pause", ["canvas:write", "hog_flow:write"], status.HTTP_200_OK),
+            ("flag_canvas_scope_only", "feature_flags.enable", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("cohort_canvas_scope_only", "cohorts.add_persons", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("issue_canvas_scope_only", "error_tracking.assign", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("survey_canvas_scope_only", "surveys.launch", ["canvas:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_scoped_keys_need_the_verbs_target_scope(self, _name, verb, scopes, expected_status):
@@ -2650,6 +2661,173 @@ class TestCanvasActions(CanvasAPIBaseTest):
         # An omitted date_marker must resolve to a timestamp; a null marker
         # would leave the annotation off every chart and out of AI context.
         assert annotation.date_marker is not None
+
+    def test_feature_flag_verbs_flip_active_and_respect_edit_access(self):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.enable", "feature_flags.disable"))
+        flag = FeatureFlag.objects.create(team=self.team, key="beta-checkout", active=False, created_by=self.user)
+
+        enabled = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "beta-checkout"})
+        assert enabled.status_code == status.HTTP_200_OK, enabled.json()
+        assert enabled.json()["result"] == {"flag_id": flag.id, "flag_key": "beta-checkout", "active": True}
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, True)
+
+        disabled = self._invoke(canvas_id, "feature_flags.disable", {"flag_key": "beta-checkout"})
+        assert disabled.status_code == status.HTTP_200_OK, disabled.json()
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, False)
+
+        missing = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "no-such-flag"})
+        assert missing.status_code == status.HTTP_404_NOT_FOUND, missing.json()
+
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.test", None)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="feature_flag",
+            resource_id=str(flag.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=viewer),
+            access_level="viewer",
+        )
+        cache.clear()
+        self.client.force_login(viewer)
+
+        refused = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "beta-checkout"})
+        assert refused.status_code == status.HTTP_403_FORBIDDEN, refused.json()
+        flag.refresh_from_db()
+        self.assertEqual(flag.active, False)
+
+    def test_cohorts_add_persons_adds_to_a_static_cohort_only(self):
+        canvas_id = self._actions_canvas(verbs=("cohorts.add_persons",))
+        static = Cohort.objects.create(team=self.team, name="Beta testers", is_static=True, created_by=self.user)
+        dynamic = Cohort.objects.create(team=self.team, name="Active users", created_by=self.user)
+        person = create_person(team=self.team, distinct_ids=["person-1"], properties={})
+
+        response = self._invoke(
+            canvas_id, "cohorts.add_persons", {"cohort_id": static.id, "person_ids": [str(person.uuid)]}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["result"] == {"cohort_id": static.id, "added": 1}
+        static.refresh_from_db()
+        assert static.count == 1
+
+        refused = self._invoke(
+            canvas_id, "cohorts.add_persons", {"cohort_id": dynamic.id, "person_ids": [str(person.uuid)]}
+        )
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
+
+        unknown_person = self._invoke(
+            canvas_id, "cohorts.add_persons", {"cohort_id": static.id, "person_ids": [str(uuid4())]}
+        )
+        assert unknown_person.status_code == status.HTTP_400_BAD_REQUEST, unknown_person.json()
+
+        other_team = self.organization.teams.create(name="other")
+        foreign = Cohort.objects.create(team=other_team, name="Elsewhere", is_static=True)
+        missing = self._invoke(
+            canvas_id, "cohorts.add_persons", {"cohort_id": foreign.id, "person_ids": [str(person.uuid)]}
+        )
+        assert missing.status_code == status.HTTP_404_NOT_FOUND, missing.json()
+
+    def test_cohorts_add_persons_needs_edit_access_to_the_cohort(self):
+        canvas_id = self._actions_canvas(verbs=("cohorts.add_persons",))
+        cohort = Cohort.objects.create(team=self.team, name="Beta testers", is_static=True, created_by=self.user)
+        person = create_person(team=self.team, distinct_ids=["person-1"], properties={})
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.test", None)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(cohort.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=viewer),
+            access_level="viewer",
+        )
+        cache.clear()
+        self.client.force_login(viewer)
+
+        refused = self._invoke(
+            canvas_id, "cohorts.add_persons", {"cohort_id": cohort.id, "person_ids": [str(person.uuid)]}
+        )
+
+        assert refused.status_code == status.HTTP_403_FORBIDDEN, refused.json()
+        assert refused.json()["detail"] == f"You cannot edit cohort {cohort.id}."
+        cohort.refresh_from_db()
+        assert cohort.count in (None, 0)
+
+    def test_feature_flag_policy_conflict_is_a_bad_request(self):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.enable",))
+        FeatureFlag.objects.create(team=self.team, key="beta-checkout", active=False, created_by=self.user)
+        conflict = PolicyConflict(
+            conflicting_policies=[{"id": "policy-a"}, {"id": "policy-b"}],
+            message="This change matches more than one approval policy.",
+            guidance="Make one change at a time.",
+        )
+
+        with patch("products.feature_flags.backend.facade.api.set_flag_active", side_effect=conflict):
+            response = self._invoke(canvas_id, "feature_flags.enable", {"flag_key": "beta-checkout"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "detail": "This change matches more than one approval policy.",
+            "code": "policy_conflict",
+            "conflicting_policies": [{"id": "policy-a"}, {"id": "policy-b"}],
+            "guidance": "Make one change at a time.",
+        }
+
+    def test_error_tracking_assign_sets_and_clears_the_assignee(self):
+        canvas_id = self._actions_canvas(verbs=("error_tracking.assign",))
+        issue_id = create_issue(team_id=self.team.id, name="TypeError in checkout")
+
+        assigned = self._invoke(
+            canvas_id,
+            "error_tracking.assign",
+            {"issue_id": str(issue_id), "assignee": {"type": "user", "id": self.user.id}},
+        )
+        assert assigned.status_code == status.HTTP_200_OK, assigned.json()
+        assert assigned.json()["result"] == {"issue_id": str(issue_id), "changed": True}
+        assignee = get_issue(issue_id, self.team.id).assignee
+        assert assignee is not None and (assignee.type, assignee.id) == ("user", self.user.id)
+
+        cleared = self._invoke(canvas_id, "error_tracking.assign", {"issue_id": str(issue_id), "assignee": None})
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert get_issue(issue_id, self.team.id).assignee is None
+
+        missing = self._invoke(
+            canvas_id,
+            "error_tracking.assign",
+            {"issue_id": str(uuid4()), "assignee": {"type": "user", "id": self.user.id}},
+        )
+        assert missing.status_code == status.HTTP_404_NOT_FOUND, missing.json()
+
+    def test_survey_verbs_launch_and_stop_as_the_viewer(self):
+        canvas_id = self._actions_canvas(verbs=("surveys.launch", "surveys.stop"))
+        survey = Survey.objects.create(team=self.team, name="Checkout feedback", type="popover", created_by=self.user)
+        archived = Survey.objects.create(
+            team=self.team, name="Old", type="popover", created_by=self.user, archived=True
+        )
+
+        launched = self._invoke(canvas_id, "surveys.launch", {"survey_id": str(survey.id)})
+        assert launched.status_code == status.HTTP_200_OK, launched.json()
+        survey.refresh_from_db()
+        assert survey.start_date is not None
+        assert launched.json()["result"]["survey_id"] == str(survey.id)
+        assert launched.json()["result"]["start_date"] is not None
+        assert ActivityLog.objects.filter(scope="Survey", activity="launched", item_id=str(survey.id)).exists()
+
+        stopped = self._invoke(canvas_id, "surveys.stop", {"survey_id": str(survey.id)})
+        assert stopped.status_code == status.HTTP_200_OK, stopped.json()
+        survey.refresh_from_db()
+        assert survey.end_date is not None
+
+        refused = self._invoke(canvas_id, "surveys.launch", {"survey_id": str(archived.id)})
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
+        archived.refresh_from_db()
+        assert archived.start_date is None
 
     def test_undeclared_and_unknown_verbs_are_refused(self):
         canvas_id = self._actions_canvas(verbs=("tasks.create",))
