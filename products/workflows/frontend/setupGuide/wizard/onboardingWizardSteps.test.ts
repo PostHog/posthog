@@ -1,4 +1,4 @@
-import { MESSAGING_WIZARD_STEPS, firstOpenStepIndex, requiredConnections } from './onboardingWizardSteps'
+import { MESSAGING_WIZARD_STEPS, firstOpenStepIndex, requiredConnections, wizardSteps } from './onboardingWizardSteps'
 
 describe('onboardingWizardSteps', () => {
     test.each<[string, (string | undefined)[], string[]]>([
@@ -18,5 +18,23 @@ describe('onboardingWizardSteps', () => {
         ['everything done lands on the last step', { channel: true, domain: true, 'opt-outs': true, journey: true }, 3],
     ])('%s', (_, done, expected) => {
         expect(firstOpenStepIndex(MESSAGING_WIZARD_STEPS, done)).toBe(expected)
+    })
+
+    test.each<[string, 'messaging' | 'automation', boolean, string[]]>([
+        [
+            'messaging asks about push before the journey',
+            'messaging',
+            true,
+            ['channel', 'domain', 'opt-outs', 'push', 'journey'],
+        ],
+        [
+            'messaging without push keeps the email steps',
+            'messaging',
+            false,
+            ['channel', 'domain', 'opt-outs', 'journey'],
+        ],
+        ['automation never asks about push', 'automation', true, ['template', 'connect', 'create']],
+    ])('%s', (_, path, pushEnabled, expected) => {
+        expect(wizardSteps(path, pushEnabled)).toEqual(expected)
     })
 })

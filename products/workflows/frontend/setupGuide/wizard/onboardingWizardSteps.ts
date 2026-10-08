@@ -8,7 +8,11 @@ import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 // pinned: URL values and analytics property values for the wizard events - renaming breaks links and dashboards
 export const MESSAGING_WIZARD_STEPS = ['channel', 'domain', 'opt-outs', 'journey'] as const
 export const AUTOMATION_WIZARD_STEPS = ['template', 'connect', 'create'] as const
-export type WizardStepKey = (typeof MESSAGING_WIZARD_STEPS)[number] | (typeof AUTOMATION_WIZARD_STEPS)[number]
+export const PUSH_WIZARD_STEP = 'push' as const
+export type WizardStepKey =
+    | (typeof MESSAGING_WIZARD_STEPS)[number]
+    | (typeof AUTOMATION_WIZARD_STEPS)[number]
+    | typeof PUSH_WIZARD_STEP
 
 // pinned: URL path and search params of the wizard - renaming breaks the Slack sign-in return link
 export const ONBOARDING_WIZARD_TAB = 'onboarding'
@@ -23,6 +27,16 @@ export function onboardingWizardUrl(
 export const WIZARD_STEPS: Record<WorkflowsOnboardingPath, readonly WizardStepKey[]> = {
     messaging: MESSAGING_WIZARD_STEPS,
     automation: AUTOMATION_WIZARD_STEPS,
+}
+
+/** The steps of one path. Messaging asks about push before the first journey when the project can send push. */
+export function wizardSteps(path: WorkflowsOnboardingPath, pushEnabled: boolean): readonly WizardStepKey[] {
+    const steps = WIZARD_STEPS[path]
+    if (path !== 'messaging' || !pushEnabled) {
+        return steps
+    }
+    const journeyIndex = steps.indexOf('journey')
+    return [...steps.slice(0, journeyIndex), PUSH_WIZARD_STEP, ...steps.slice(journeyIndex)]
 }
 
 export interface WizardStepCopy {
@@ -52,6 +66,13 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
         title: 'Let people choose what they get',
         description:
             'Opt-out categories let people unsubscribe from one kind of message, such as product updates, and keep the rest. Every email has an unsubscribe link either way.',
+        optional: true,
+    },
+    push: {
+        label: 'Push',
+        title: 'Send push notifications too?',
+        description:
+            'Reach people on their phones as well as in their inbox. You can also set this up later in Messaging.',
         optional: true,
     },
     journey: {

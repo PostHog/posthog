@@ -11,6 +11,7 @@ import { WizardChannelStep } from './WizardChannelStep'
 import { WizardConnectStep } from './WizardConnectStep'
 import { WizardCreateStep } from './WizardCreateStep'
 import { WizardDomainStep } from './WizardDomainStep'
+import { WizardPushStep } from './WizardPushStep'
 import { WizardTemplateStep } from './WizardTemplateStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
@@ -57,6 +58,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                 {currentStep === 'channel' && <WizardChannelStep />}
                 {currentStep === 'domain' && <WizardDomainStep />}
                 {currentStep === 'opt-outs' && <OptOutCategories />}
+                {currentStep === 'push' && <WizardPushStep />}
                 {(currentStep === 'journey' || currentStep === 'template') && <WizardTemplateStep />}
                 {currentStep === 'connect' && <WizardConnectStep />}
                 {currentStep === 'create' && <WizardCreateStep />}
