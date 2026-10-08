@@ -13,6 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import Papa from 'papaparse'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -447,6 +448,8 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     try {
                         const blob = await api.messaging.exportOptOutsCsv(props.category?.key)
                         downloadFile(new File([blob], `opt-outs-${props.category?.key ?? 'all-marketing'}.csv`))
+                        // pinned: analytics event name
+                        posthog.capture('messaging opt-outs exported')
                     } catch {
                         lemonToast.error('Failed to export opt-outs')
                     }
@@ -523,6 +526,8 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     }
 
                     if (result.opted_out > 0) {
+                        // pinned: analytics event name
+                        posthog.capture('messaging opt-outs imported', { count: result.opted_out })
                         lemonToast.success(`Added ${result.opted_out.toLocaleString()} opt-outs`)
                         actions.loadOptOutPersons()
                     } else {

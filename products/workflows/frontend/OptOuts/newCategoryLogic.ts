@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -142,10 +143,14 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
                     // Update existing category
                     await messagingCategoriesPartialUpdate(teamId, props.category.id, formValues)
                     lemonToast.success('Category updated successfully')
+                    // pinned: analytics event name
+                    posthog.capture('messaging topic updated')
                 } else {
                     // Create new category
                     await messagingCategoriesCreate(teamId, formValues)
                     lemonToast.success('Category created successfully')
+                    // pinned: analytics event name
+                    posthog.capture('messaging topic created')
                 }
                 // Reload categories in the parent logic
                 optOutCategoriesLogic.actions.loadCategories()
