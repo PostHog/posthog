@@ -105,6 +105,7 @@ from products.engineering_analytics.backend.facade.temporal import (
 )
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
+    create_error_tracking_issue_change_dispatch_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
@@ -963,6 +964,7 @@ schedules = [
     create_business_knowledge_learning_coordinator_schedule,
     create_business_knowledge_refresh_coordinator_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
+    create_error_tracking_issue_change_dispatch_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
