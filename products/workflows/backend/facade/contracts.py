@@ -374,6 +374,22 @@ class WorkflowDraftChanged(Exception):
     """The staged draft changed since the caller confirmed the overwrite."""
 
 
+class WorkflowStale(Exception):
+    """The workflow was written elsewhere after the caller loaded the version it edits."""
+
+
+class WorkflowHasNoDraft(Exception):
+    """Publish found no staged draft."""
+
+
+@frozen
+class WorkflowWriteResult:
+    previous: Mapping[str, object]
+    current: Mapping[str, object]
+    routed_to_draft: bool = False
+    schedules_paused: int = 0
+
+
 @frozen
 class ProposalChanges:
     """What approving a suggestion would stage. `conflicts` names the steps or fields someone else
