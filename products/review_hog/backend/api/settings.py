@@ -57,8 +57,16 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     )
     review_authored_prs = serializers.BooleanField(
         required=False,
-        help_text="Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. "
-        "Off by default. Flash reviews post findings without resolving comments.",
+        help_text="Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true "
+        "sets default_review_mode to 'flash', and writing false sets it to 'follow'.",
+    )
+    default_review_mode = serializers.ChoiceField(
+        required=False,
+        choices=ReviewUserSettings.DefaultReviewMode.choices,
+        help_text="Automatic reviews of this user's own pull requests in every repository added to PostHog Review: "
+        "'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' "
+        "reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving "
+        "comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.",
     )
     flash_reasoning_effort = serializers.ChoiceField(
         required=False,
@@ -95,12 +103,26 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
             "resolve_comments",
             "celebrate_clean_reviews",
             "review_authored_prs",
+            "default_review_mode",
             "flash_reasoning_effort",
             "urgency_threshold",
             "can_trigger_reviews",
             "show_internal_features",
             "stamphog_connected",
         ]
+
+    def update(self, instance: ReviewUserSettings, validated_data: dict) -> ReviewUserSettings:
+        # Keep the deprecated switch and the mode in sync, so the old settings UI and a rollback to
+        # code that still reads the switch both see the user's current choice.
+        if "default_review_mode" in validated_data:
+            validated_data["review_authored_prs"] = (
+                validated_data["default_review_mode"] == ReviewUserSettings.DefaultReviewMode.FLASH
+            )
+        elif "review_authored_prs" in validated_data:
+            validated_data["default_review_mode"] = ReviewUserSettings.default_mode_for_authored_prs(
+                validated_data["review_authored_prs"]
+            )
+        return super().update(instance, validated_data)
 
     @extend_schema_field(serializers.BooleanField())
     def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:

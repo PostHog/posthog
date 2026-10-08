@@ -35,6 +35,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "resolve_comments": True,
             "celebrate_clean_reviews": True,
             "review_authored_prs": False,
+            "default_review_mode": "follow",
             "flash_reasoning_effort": "medium",
             "urgency_threshold": "consider",
             "can_trigger_reviews": True,
@@ -66,6 +67,8 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert row.stamphog_review_inbox_prs is True
         assert row.resolve_comments is False
         assert row.review_authored_prs is True
+        # The automatic trigger reads the mode, so the deprecated switch must move it.
+        assert row.default_review_mode == "flash"
         assert row.flash_reasoning_effort == "xhigh"
         assert row.celebrate_clean_reviews is False
         assert row.review_labeled_prs is True  # untouched field keeps its default
@@ -75,7 +78,13 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert disabled.status_code == 200
         disabled_row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert disabled_row.review_authored_prs is False
+        assert disabled_row.default_review_mode == "follow"
         assert disabled_row.flash_reasoning_effort == "xhigh"
+
+        by_mode = self.client.patch(self.url, {"default_review_mode": "flash"}, format="json")
+
+        assert by_mode.status_code == 200
+        assert by_mode.json()["review_authored_prs"] is True
 
     @parameterized.expand(
         [
