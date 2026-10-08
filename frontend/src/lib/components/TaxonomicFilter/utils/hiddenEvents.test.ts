@@ -1,5 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
+    eventsWithMoveNotice,
     hiddenEventMatchingSearch,
     hiddenEventNames,
     withHiddenEventsExcluded,
@@ -24,6 +25,15 @@ describe('events hidden from query builders', () => {
         ['the picker opts out', FlagEvaluationsModeEnumApi.Number1, true],
     ])('hides nothing when %s', (_label, mode, includeHiddenEvents) => {
         expect(hiddenEventNames(mode, includeHiddenEvents)).toEqual([])
+    })
+
+    it.each([
+        ['mode 0 with the notices on', FlagEvaluationsModeEnumApi.Number0, true, ['$feature_flag_called']],
+        ['no mode with the notices on', undefined, true, ['$feature_flag_called']],
+        ['mode 0 with the notices off', FlagEvaluationsModeEnumApi.Number0, false, []],
+        ['mode 1 with the notices on', FlagEvaluationsModeEnumApi.Number1, true, []],
+    ])('warns about moving events on %s', (_label, mode, moveNoticesEnabled, expected) => {
+        expect(eventsWithMoveNotice(mode, moveNoticesEnabled)).toEqual(expected)
     })
 
     describe('withHiddenEventsExcluded', () => {
