@@ -151,11 +151,10 @@ from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, las
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
-    get_app_org_rate_limiter,
     get_materialized_endpoints_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
@@ -330,6 +329,9 @@ class QueryRun:
 
     cache_key: str
     query_identity: QueryIdentity
+    # The query as the runner received it, serialized as the cache key serializes it (defaults
+    # and None dropped, tags removed), so the events can be queried by what was asked.
+    query: dict[str, Any]
     query_id: Optional[str]
     execution_mode: ExecutionMode
     query_type: str
@@ -343,7 +345,7 @@ class QueryRun:
     def elapsed_ms(self) -> float:
         return round((perf_counter() - self.start_time) * 1000, 2)
 
-    def event_properties(self) -> dict[str, Any]:
+    def event_properties(self, modifiers: HogQLQueryModifiers) -> dict[str, Any]:
         return {
             "query_hash": self.query_identity.query_hash,
             "runtime_hash": self.query_identity.runtime_hash,
@@ -356,6 +358,11 @@ class QueryRun:
             "query_type": self.query_type,
             "cache_key": self.cache_key,
             "request_trigger": self.trigger,
+            "query": self.query,
+            # The modifiers in effect for the run, set keys only, the same dict the ClickHouse log
+            # comment carries. Passed in rather than stored, because the fresh path adds the user's
+            # modifiers after the cache key, and the event has to say what the run actually used.
+            "modifiers": {k: v for k, v in modifiers.model_dump(mode="json").items() if v is not None},
         }
 
 
@@ -2294,15 +2301,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(
-                    get_app_org_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
-                        limit=get_org_app_concurrency_limit(self.team.organization_id),
-                    )
-                )
+                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
                 limiter_stack.enter_context(
                     get_app_dashboard_queries_rate_limiter().run(
                         org_id=self.team.organization_id,
@@ -2411,6 +2410,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_run = QueryRun(
                 cache_key=cache_key,
                 query_identity=self._query_identity,
+                query=self._query_for_events,
                 query_id=self.query_id,
                 execution_mode=execution_mode,
                 query_type=query_type,
@@ -2660,7 +2660,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
-            **query_run.event_properties(),
+            **query_run.event_properties(self.modifiers),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
             "response_time_ms": query_run.elapsed_ms(),
@@ -2693,7 +2693,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             stats = phase.stats
             refused = getattr(error, "served_from_query_failure_cache", False)
             query_failed_props = {
-                **query_run.event_properties(),
+                **query_run.event_properties(self.modifiers),
                 "calculation_trigger": query_run.trigger,
                 "failed_in": phase.name,
                 "outcome": "refused" if refused else "failed",
@@ -2912,7 +2912,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self._serve_query_scan(response, query_run.user)
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
-                **query_run.event_properties(),
+                **query_run.event_properties(self.modifiers),
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
@@ -3189,6 +3189,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Taken from what the key hashes, before the fresh path adds user modifiers, so a hit and a
         # fresh run agree, and the payload is built once per run.
         self._query_identity = self._query_identity_for(payload, variant)
+        self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"
 
     def get_cache_key_variant(self) -> str:

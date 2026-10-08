@@ -210,6 +210,7 @@ from posthog.schema_enums import (
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
+    MissingDates as MissingDates,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
     MultiQuestionFormFieldType as MultiQuestionFormFieldType,
@@ -219,6 +220,8 @@ from posthog.schema_enums import (
     NodeKind as NodeKind,
     OpenAIAdsDefaultSources as OpenAIAdsDefaultSources,
     Operator as Operator,
+    Operator1 as Operator1,
+    Operator2 as Operator2,
     OrderBy as OrderBy,
     OrderDirection as OrderDirection,
     OrderDirection1 as OrderDirection1,
@@ -943,6 +946,15 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class BIConditionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filters: list[str]
+    groups: list[BIConditionGroup]
+    operator: Operator1
 
 
 class BIDataSource(BaseModel):
@@ -5012,6 +5024,18 @@ class BIFilter(BaseModel):
     values: list[str] | None = None
 
 
+class BIResultFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: bool | None = None
+    id: str
+    measureIndex: conint(ge=0)
+    operator: Operator2
+    value: str
+    valueTo: str | None = None
+
+
 class BISort(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5027,6 +5051,10 @@ class BITableCalculation(BaseModel):
     computeUsing: str | None = Field(
         default=None,
         description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    requireFullWindow: bool | None = Field(
+        default=None,
+        description=("Require a complete window of non-null values before displaying a moving average."),
     )
     type: BITableCalculationType
     window: conint(ge=1) | None = Field(
@@ -11120,6 +11148,13 @@ class BIConfig(BaseModel):
     dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
+    missingDates: MissingDates | None = Field(
+        default=None,
+        description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
+    )
+    resultFilterGroup: BIConditionGroup | None = None
+    resultFilters: list[BIResultFilter] | None = None
+    rowFilterGroup: BIConditionGroup | None = None
     rows: list[BIField]
     sort: BISort | None = Field(
         default=None,
@@ -16554,7 +16589,8 @@ class ChartSettings(BaseModel):
         default=None,
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
-            " type: right for pie, top for the rest."
+            " type: right for pie and donut, bottom for proportion bar, top for the"
+            " rest."
         ),
     )
     metric: MetricChartSettings | None = None
@@ -34451,6 +34487,7 @@ class VisualizationArtifactContent(BaseModel):
     )
 
 
+BIConditionGroup.model_rebuild()
 ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()

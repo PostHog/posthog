@@ -6,12 +6,14 @@ adobe_analytics/adobe_analytics.py::_report_batches
 adobe_commerce/adobe_commerce.py::get_rows
 adyen/adyen.py::_iter_cursor_pages
 adyen/adyen.py::_iter_fanout_pages
+adyen/adyen.py::_iter_offset_pages
 adyen/adyen.py::_iter_page_number_pages
 adyen/adyen.py::_iter_report_batches
 airbrake/airbrake.py::_notices_rows
 airbrake/airbrake.py::_project_fan_out_rows
 airbrake/airbrake.py::_projects_rows
 amplitude/amplitude.py::_get_events_rows
+anthropic/anthropic.py::_iter_analytics_windows
 anvil/anvil.py::_get_parent_paged_rows
 apollo/apollo.py::get_rows
 app_store_connect/app_store_connect.py::_get_analytics_report
@@ -86,6 +88,7 @@ clari/clari.py::get_audit_events
 clickhouse_cloud/clickhouse_cloud.py::_iter_usage_cost_rows
 clickup/clickup.py::_time_entries_rows
 clip/clip.py::clip_source.items
+close/search.py::iter_search_rows
 codecov/codecov.py::_get_fan_out_rows
 codecov/codecov.py::_get_top_level_rows
 cody/cody.py::_get_windowed_rows
@@ -94,6 +97,8 @@ coingecko/coingecko.py::_chart_pages
 coinmarketcap/coinmarketcap.py::get_batch_rows
 coinmarketcap/coinmarketcap.py::get_snapshot_rows
 commercetools/commercetools.py::get_rows
+common/rest_source/rest_client.py::RESTClient.paginate
+common/sql/keyset.py::iter_keyset_pages
 concord/concord.py::_iter_agreement_fanout
 concord/concord.py::_iter_events_windows
 concord/concord.py::_iter_offset
@@ -191,6 +196,7 @@ grafana/grafana.py::_get_annotation_rows
 grafana/grafana.py::_get_fan_out_rows
 grafana/grafana.py::_get_paged_rows
 gridly/gridly.py::_iter_records
+gusto/gusto.py::_paginate
 gusto/gusto.py::get_rows
 harvey/harvey.py::_get_audit_log_rows
 harvey/harvey.py::_get_history_rows
@@ -207,6 +213,8 @@ honeybadger/honeybadger.py::_get_project_rows
 honeycomb/honeycomb.py::_iter_board_views
 honeycomb/honeycomb.py::_iter_fan_out
 hubspot/hubspot.py::get_rows
+hubspot/hubspot.py::get_rows_via_search
+hubspot/hubspot.py::get_rows_via_search._process_results
 hyperspell/hyperspell.py::_get_list_rows
 hyperspell/hyperspell.py::get_rows
 impact/impact.py::_get_rows_fanout
@@ -226,6 +234,7 @@ instana/instana.py::_get_metric_rows
 instana/instana.py::_get_offset_rows
 instana/instana.py::_get_paged_rows
 intercom/intercom.py::_company_segments_generator
+intercom/intercom.py::_conversation_parts_generator
 jamf_pro/jamf_pro.py::get_rows
 jellyfish/jellyfish.py::_get_fan_out_rows
 jellyfish/jellyfish.py::_get_month_windowed_rows
@@ -260,6 +269,7 @@ mention/mention.py::_alert_rows
 mention/mention.py::_alert_tag_rows
 mention/mention.py::_mention_rows
 meta_ads/meta_ads.py::_iter_simple_pagination
+meta_ads/meta_ads.py::_iter_time_range_pagination
 metaplane/metaplane.py::_get_evaluation_rows
 meteostat/meteostat.py::_get_rows
 mistral_ai/mistral_ai.py::get_rows
@@ -276,7 +286,6 @@ new_relic/new_relic.py::_get_event_rows
 new_york_times/new_york_times.py::_get_article_search_rows
 notion/notion.py::_page_fan_out
 notion/notion.py::_search_stream
-notion/notion.py::_users_stream
 npm_registry/npm_registry.py::_iter_downloads
 npm_registry/npm_registry.py::get_rows
 nuget/nuget.py::_get_catalog_event_rows
@@ -306,6 +315,7 @@ pinterest_ads/pinterest_ads.py::_iter_fanned_out_analytics
 plaid/plaid.py::get_rows
 platform_sh/platform_sh.py::get_rows
 polar/polar.py::get_rows
+postgres/postgres.py::postgres_source.get_rows.offset_chunking
 power_bi_admin/power_bi_admin.py::_activity_event_pages
 power_bi_admin/power_bi_admin.py::_odata_pages
 printify/printify.py::_iter_endpoint_pages
@@ -355,6 +365,7 @@ sourcegraph/sourcegraph.py::get_rows
 spacelift/spacelift.py::_get_rows
 split_io/split_io.py::_paginate_resource
 splunk_observability_cloud/splunk_observability_cloud.py::_get_detector_event_rows
+splunk_observability_cloud/splunk_observability_cloud.py::_paginate
 squadcast/squadcast.py::_iter_cursor_pages
 squadcast/squadcast.py::_iter_incident_export_windows
 squadcast/squadcast.py::_iter_offset_pages
@@ -406,6 +417,7 @@ wordpress/wordpress.py::get_rows
 writesonic/writesonic.py::_iter_config
 writesonic/writesonic.py::_iter_daily
 youtube_analytics/youtube_analytics.py::get_rows
+zendesk_sunshine/zendesk_sunshine.py::_object_records_incremental
 zenduty/zenduty.py::_paginate_fan_out
 zenduty/zenduty.py::_paginate_top_level
 zep/zep.py::_fan_out_message_rows

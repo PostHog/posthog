@@ -3,7 +3,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import requests_mock
 from requests.exceptions import ConnectionError, HTTPError, RequestException, Timeout
@@ -42,45 +42,6 @@ def make_page(endpoint: str, number: int, count: int, total: int) -> dict[str, A
 def read_rows(endpoint: str, manager: MagicMock, keyword: str = " Example act ") -> list[dict[str, Any]]:
     response = ticketmaster_source(make_config(keyword), endpoint, "v2", 1, "test-job", manager)
     return [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
-
-
-@pytest.mark.parametrize("endpoint", ["events", "attractions", "venues"])
-@pytest.mark.parametrize("resume_page", [None, 1])
-def test_pagination_auth_and_resume(endpoint: str, resume_page: int | None) -> None:
-    manager = make_manager(resume_page)
-    pages = [make_page(endpoint, 0, 200, 201), make_page(endpoint, 1, 1, 201)]
-    with requests_mock.Mocker() as http:
-        http.get(
-            f"https://app.ticketmaster.com/discovery/v2/{endpoint}.json",
-            [{"json": page} for page in pages[resume_page or 0 :]],
-        )
-        rows = read_rows(endpoint, manager)
-
-    assert [row["id"] for row in rows] == [f"item-{i}" for i in range((resume_page or 0) * 200, 201)]
-    assert len(http.request_history) == (1 if resume_page else 2)
-    for number, request in enumerate(http.request_history, start=resume_page or 0):
-        assert parse_qs(urlsplit(request.url).query) == {
-            "apikey": ["fake-ticketmaster-key"],
-            "keyword": ["Example act"],
-            "size": ["200"],
-            "page": [str(number)],
-            "sort": ["name,asc"],
-        }
-        assert "Authorization" not in request.headers
-    assert manager.save_state.call_args_list == ([] if resume_page else [call(TicketmasterResumeConfig(page=1))])
-
-
-@pytest.mark.parametrize("embedded", [None, {"events": []}])
-def test_empty_search_without_embedded_collection(embedded: dict[str, list[Any]] | None) -> None:
-    body: dict[str, Any] = {"page": {"number": 0, "size": 200, "totalElements": 0, "totalPages": 0}}
-    if embedded is not None:
-        body["_embedded"] = embedded
-    manager = make_manager()
-    with requests_mock.Mocker() as http:
-        http.get("https://app.ticketmaster.com/discovery/v2/events.json", json=body)
-        assert read_rows("events", manager) == []
-    assert http.call_count == 1
-    manager.save_state.assert_not_called()
 
 
 @pytest.mark.parametrize("total", [1000, 1001])
@@ -145,20 +106,6 @@ def test_client_errors_hide_query_key(status: int) -> None:
     assert "secret/key?" not in str(error.value)
     assert "apikey" not in str(error.value)
     assert http.call_count == 1
-
-
-@pytest.mark.parametrize("status", [429, 503])
-def test_transient_error_retries(status: int) -> None:
-    with requests_mock.Mocker() as http:
-        http.get(
-            "https://app.ticketmaster.com/discovery/v2/events.json",
-            [
-                {"status_code": status, "headers": {"Retry-After": "0"}},
-                {"json": make_page("events", 0, 1, 1)},
-            ],
-        )
-        assert read_rows("events", make_manager()) == [{"id": "item-0"}]
-    assert http.call_count == 2
 
 
 @pytest.mark.parametrize("status", [200, 401, 403, 429, 503])

@@ -28,9 +28,13 @@ PLAYER_SUMMARIES_BATCH = 100
 _STEAM_ID_RE = re.compile(r"^[0-9]{17}$")
 
 
+def split_steam_ids(raw: str) -> list[str]:
+    return list(dict.fromkeys(part for part in re.split(r"[\s,]+", raw.strip()) if part))
+
+
 def parse_steam_ids(raw: str) -> list[str]:
     """The 64-bit Steam IDs in a comma or whitespace separated list, without duplicates."""
-    steam_ids = list(dict.fromkeys(part for part in re.split(r"[\s,]+", raw.strip()) if part))
+    steam_ids = split_steam_ids(raw)
     invalid = [steam_id for steam_id in steam_ids if not _STEAM_ID_RE.match(steam_id)]
     if invalid:
         raise ValueError(f"Not a 17-digit Steam ID: {', '.join(invalid)}")

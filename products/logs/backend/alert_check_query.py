@@ -23,7 +23,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -387,6 +387,7 @@ class BatchedAlertCheckQuery:
         date_to: dt.datetime,
         projection_eligible: bool | None = None,
         max_execution_time: int | None = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> None:
         if not alerts:
             raise ValueError("BatchedAlertCheckQuery requires at least one alert")
@@ -396,6 +397,7 @@ class BatchedAlertCheckQuery:
         self.alerts = list(alerts)
         self.date_from = date_from
         self.date_to = date_to
+        self._ch_user = ch_user
         # A caller that runs several of these inside one deadline needs each query to end before
         # the deadline does. Throw rather than break: a partial count could resolve an alert that
         # is actually breaching, and the caller already handles a failed cohort.
@@ -570,6 +572,7 @@ class BatchedAlertCheckQuery:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
+            ch_user=self._ch_user,
             settings=self._settings,
             limit_context=LimitContext.QUERY,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
@@ -592,7 +595,7 @@ class BatchedAlertCheckQuery:
 CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
 
 
-def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
+def fetch_live_logs_checkpoint(team: Team, *, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dt.datetime | None:
     tag_queries(
         product=Product.LOGS,
         feature=Feature.ALERTING,
@@ -604,6 +607,7 @@ def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
         query=LIVE_LOGS_CHECKPOINT_QUERY,
         team=team,
         workload=Workload.LOGS,
+        ch_user=ch_user,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
     )
     if not response.results or response.results[0][0] is None:

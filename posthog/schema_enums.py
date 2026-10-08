@@ -531,7 +531,6 @@ class AssistantTool(StrEnum):
     MARKETING_AUDIT_UTM = "marketing_audit_utm"
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
-    SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
@@ -631,6 +630,16 @@ class BIAggregation(StrEnum):
     CUSTOM = "custom"
 
 
+class Operator1(StrEnum):
+    AND_ = "AND"
+    OR_ = "OR"
+
+
+class MissingDates(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+
+
 class BIDateBucket(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -661,6 +670,18 @@ class BIQueryLimit(float, Enum):
     NUMBER_1000 = 1000
     NUMBER_10000 = 10000
     NUMBER_50000 = 50000
+
+
+class Operator2(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    BETWEEN = "between"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
 
 
 class BISortDirection(StrEnum):
@@ -755,6 +776,7 @@ class ChartDisplayType(StrEnum):
     METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"

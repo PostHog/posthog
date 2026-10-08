@@ -47,7 +47,6 @@ from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
-from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.api.push_subscriptions import push_subscriptions
@@ -304,7 +303,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py

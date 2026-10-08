@@ -53,6 +53,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/const
 import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentFeatureFlagInputApi,
+    ExperimentToSavedMetricApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import {
@@ -1017,10 +1018,11 @@ export function getDisplayOrderedIndices(
     return ordered
 }
 
-export type ExperimentSavedMetric = {
-    id: number
-    experiment: number
-    saved_metric: number
+/**
+ * A shared metric's link to an experiment, as the experiment API returns it. The generated type leaves
+ * `query` and `metadata` untyped, so this narrows them to the shapes the experiment scene reads and edits.
+ */
+export type ExperimentSavedMetric = Omit<ExperimentToSavedMetricApi, 'metadata' | 'query' | 'effective_query'> & {
     metadata: {
         type: 'primary' | 'secondary'
         breakdowns?: Breakdown[]
@@ -1028,47 +1030,32 @@ export type ExperimentSavedMetric = {
         breakdownAttributionValue?: number
         breakdown_limit?: number
     }
-    created_at: string
     query: ExperimentMetric
-    name: string
+    // Optional because a new frontend can briefly receive a response from an API server that predates the field.
+    effective_query?: ExperimentMetric | null
 }
 
 /**
- * The effective definition of a shared metric on one experiment: the saved query with the link overrides
- * applied. The backend calculates and fingerprints the same definition with `resolve_saved_metric_definition`
- * in products/experiments/backend/metric_resolution.py, so a change here must change it there too,
- * or the results the page queries and the stored results describe different metrics.
+ * The backend applies the link overrides to the saved query and serves the result as `effective_query`.
+ * A legacy shared metric takes no overrides and has no effective query, so its saved query applies as is.
+ * A link that carries no query gets an empty metric. Results map to metrics by position, and the callers
+ * read fields of every metric, so the link must keep its position.
  */
-export function resolveSharedMetric({
+export const sharedMetricEffectiveQuery = ({
     query,
-    metadata,
-}: Pick<ExperimentSavedMetric, 'query' | 'metadata'>): ExperimentMetric {
-    const breakdowns = metadata?.breakdowns || []
-    const hasBreakdowns = breakdowns.length > 0
-    return {
-        ...query,
-        ...(hasBreakdowns &&
-            query?.metric_type === ExperimentMetricType.FUNNEL &&
-            metadata?.breakdownAttributionType != null && {
-                breakdownAttributionType: metadata.breakdownAttributionType,
-                breakdownAttributionValue: metadata.breakdownAttributionValue ?? undefined,
-            }),
-        breakdownFilter: {
-            ...query?.breakdownFilter,
-            breakdowns,
-            ...(hasBreakdowns && metadata?.breakdown_limit != null && { breakdown_limit: metadata.breakdown_limit }),
-        },
-    } as ExperimentMetric
-}
+    effective_query,
+}: Pick<ExperimentSavedMetric, 'query' | 'effective_query'>): ExperimentMetric =>
+    effective_query ?? query ?? ({} as ExperimentMetric)
 
 export const sharedMetricsToExperimentMetrics = (
     sharedMetrics: ExperimentSavedMetric[] | undefined,
     type: 'primary' | 'secondary'
-): ExperimentMetric[] => (sharedMetrics || []).filter(({ metadata }) => metadata.type === type).map(resolveSharedMetric)
+): ExperimentMetric[] =>
+    (sharedMetrics || []).filter(({ metadata }) => metadata.type === type).map(sharedMetricEffectiveQuery)
 
 function enrichSharedMetric(sharedMetric: ExperimentSavedMetric): ExperimentMetric {
     return {
-        ...resolveSharedMetric(sharedMetric),
+        ...sharedMetricEffectiveQuery(sharedMetric),
         name: sharedMetric.name,
         sharedMetricId: sharedMetric.saved_metric,
         isSharedMetric: true,

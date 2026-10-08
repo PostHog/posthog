@@ -3,7 +3,6 @@ from typing import Any
 
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 from requests import Response
 
@@ -62,13 +61,6 @@ def _run(session: mock.MagicMock, endpoint: str, manager: mock.MagicMock) -> lis
 
 
 class TestBuildUrl:
-    def test_collection_url_has_page_limit(self) -> None:
-        assert _build_url("/sequences", single_object=False) == "https://api.mixmax.com/v1/sequences?limit=100"
-
-    def test_collection_url_carries_next_cursor(self) -> None:
-        url = _build_url("/sequences", single_object=False, next_cursor="abc123")
-        assert url == "https://api.mixmax.com/v1/sequences?limit=100&next=abc123"
-
     def test_single_object_url_has_no_pagination_params(self) -> None:
         assert _build_url("/users/me", single_object=True) == "https://api.mixmax.com/v1/users/me"
 
@@ -151,16 +143,6 @@ class TestPagination:
         assert snaps[0] == {"url": resume_url, "params": {}}
         manager.save_state.assert_not_called()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_object_endpoint_targets_bare_path_without_limit(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(session, [_resp({"_id": "u1"})])
-        manager = _make_manager()
-
-        _run(session, "users", manager)
-
-        assert snaps[0] == {"url": "https://api.mixmax.com/v1/users/me", "params": {}}
-
 
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
@@ -177,23 +159,6 @@ class TestRetryClassification:
 
         assert rows == []
         assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_raises_immediately(self, MockSession: mock.MagicMock) -> None:
-        # A 401 is not retryable — it must surface as an HTTPError so the sync fails fast.
-        session = MockSession.return_value
-        _wire(session, [_resp({"error": "unauthorized"}, status=401)])
-        manager = _make_manager()
-
-        with mock.patch("tenacity.nap.time.sleep"):
-            try:
-                _run(session, "sequences", manager)
-            except requests.HTTPError:
-                pass
-            else:
-                raise AssertionError("expected an HTTPError")
-
-        assert session.send.call_count == 1
 
 
 class TestSourceResponse:

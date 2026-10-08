@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.steam.sett
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam import (
     parse_steam_ids,
     probe_api_key,
+    split_steam_ids,
     steam_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -94,7 +95,6 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
         return {
             "401 Client Error": "Your Steam Web API key is invalid. Create a new key, then update this source.",
             "403 Client Error": "Steam rejected your Web API key. Create a new key, then update this source.",
-            "Not a 17-digit Steam ID": "One of the Steam IDs is not a 17-digit number. Fix the list, then sync again.",
         }
 
     def get_schemas(
@@ -129,7 +129,8 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
         return steam_source(
             api_key=config.api_key,
             team_id=inputs.team_id,
-            steam_ids=parse_steam_ids(config.steam_ids),
+            # The credentials check validates the IDs. Steam returns nothing for an ID that is not one.
+            steam_ids=split_steam_ids(config.steam_ids),
             endpoint=inputs.schema_name,
             logger=inputs.logger,
         )

@@ -1839,6 +1839,7 @@ export const ChartDisplayTypeApi = {
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsDonut: 'ActionsDonut',
+    ActionsProportionBar: 'ActionsProportionBar',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -8214,7 +8215,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
@@ -8366,6 +8367,50 @@ export const BIQueryLimitApi = {
     Number50000: 50000,
 } as const
 
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
+} as const
+
+export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
+
+export const Operator1Api = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export interface BIConditionGroupApi {
+    filters: string[]
+    groups: BIConditionGroupApi[]
+    operator: Operator1Api
+}
+
+export type Operator2Api = (typeof Operator2Api)[keyof typeof Operator2Api]
+
+export const Operator2Api = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    GreaterThanOrEqual: 'greater_than_or_equal',
+    LessThanOrEqual: 'less_than_or_equal',
+    Between: 'between',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface BIResultFilterApi {
+    enabled?: boolean | null
+    id: string
+    /** @minimum 0 */
+    measureIndex: number
+    operator: Operator2Api
+    value: string
+    valueTo?: string | null
+}
+
 export type BISortDirectionApi = (typeof BISortDirectionApi)[keyof typeof BISortDirectionApi]
 
 export const BISortDirectionApi = {
@@ -8419,6 +8464,8 @@ export const BITableCalculationTypeApi = {
 export interface BITableCalculationApi {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
     type: BITableCalculationTypeApi
     /** Number of points, including the current point, in a trailing moving average. */
     window?: number | null
@@ -8443,6 +8490,11 @@ export interface BIConfigApi {
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
+    resultFilterGroup?: BIConditionGroupApi | null
+    resultFilters?: BIResultFilterApi[] | null
+    rowFilterGroup?: BIConditionGroupApi | null
     rows: BIFieldApi[]
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISortApi | null
@@ -9345,6 +9397,10 @@ export type InsightsListParams = {
      */
     date_to?: string
     /**
+     * Exclude Business intelligence worksheets from the insight list.
+     */
+    exclude_bi?: boolean
+    /**
      * Include this parameter (any value) to restrict results to insights marked as favorited.
      */
     favorited?: boolean
@@ -9354,7 +9410,7 @@ export type InsightsListParams = {
      */
     include_dashboards?: boolean
     /**
-     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.
      */
     insight?: InsightsListInsight
     /**
@@ -9373,6 +9429,10 @@ export type InsightsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.
+     */
+    order?: string
     /**
      *
      * Whether to refresh the retrieved insights, how aggressively, and if sync or async:
@@ -9414,6 +9474,7 @@ export const InsightsListFormat = {
 export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof InsightsListInsight]
 
 export const InsightsListInsight = {
+    Bi: 'BI',
     Funnels: 'FUNNELS',
     Journeys: 'JOURNEYS',
     Json: 'JSON',

@@ -5111,7 +5111,6 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -6144,6 +6143,29 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BIConditionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "filters": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "groups": {
+                    "items": {
+                        "$ref": "#/definitions/BIConditionGroup"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "enum": ["AND", "OR"],
+                    "type": "string"
+                }
+            },
+            "required": ["operator", "filters", "groups"],
+            "type": "object"
+        },
         "BIConfig": {
             "additionalProperties": false,
             "properties": {
@@ -6181,6 +6203,23 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
+                },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
+                "resultFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
+                },
+                "resultFilters": {
+                    "items": {
+                        "$ref": "#/definitions/BIResultFilter"
+                    },
+                    "type": "array"
+                },
+                "rowFilterGroup": {
+                    "$ref": "#/definitions/BIConditionGroup"
                 },
                 "rows": {
                     "items": {
@@ -6319,6 +6358,42 @@
             "enum": [100, 1000, 10000, 50000],
             "type": "number"
         },
+        "BIResultFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                },
+                "operator": {
+                    "enum": [
+                        "equals",
+                        "not_equals",
+                        "greater_than",
+                        "less_than",
+                        "greater_than_or_equal",
+                        "less_than_or_equal",
+                        "between",
+                        "is_set",
+                        "is_not_set"
+                    ],
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "valueTo": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "measureIndex", "operator", "value"],
+            "type": "object"
+        },
         "BISort": {
             "additionalProperties": false,
             "properties": {
@@ -6342,6 +6417,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
@@ -17535,6 +17614,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17569,7 +17649,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },

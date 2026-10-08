@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     KestraSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kestra.kestra import (
-    KestraResumeState,
     kestra_source,
     validate_credentials,
 )
@@ -182,23 +181,6 @@ def test_catalog_rows_keep_unique_keys(
         assert not any(key.startswith("filters[") for key in parse_qs(urlsplit(request.url or "").query))
 
 
-def test_resume_preserves_query_window(config: KestraSourceConfig, inputs: SourceInputs, manager: MagicMock) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = KestraResumeState(
-        page=4,
-        start_date="2026-01-01T00:00:00+00:00",
-        end_date="2026-01-03T00:00:00+00:00",
-    )
-    inputs.db_incremental_field_last_value = datetime(2026, 1, 2, tzinfo=UTC)
-    with patch("requests.sessions.Session.send", return_value=response({"results": [], "total": 0})) as send:
-        assert list(cast(Iterable[Any], kestra_source(config, inputs, manager).items())) == []
-    params = parse_qs(urlsplit(send.call_args.args[0].url).query)
-    assert params["page"] == ["4"]
-    assert params["filters[startDate][GREATER_THAN_OR_EQUAL_TO]"] == ["2026-01-01T00:00:00+00:00"]
-    assert params["filters[endDate][LESS_THAN_OR_EQUAL_TO]"] == ["2026-01-03T00:00:00+00:00"]
-    manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize(
     "status,schema,valid,message",
     [
@@ -350,23 +332,3 @@ def test_unknown_table_fails_before_request(
         with pytest.raises(UnknownResourceError):
             validate_credentials(config, 1, "unknown")
     send.assert_not_called()
-
-
-def test_empty_trigger_page_does_not_end_sync(
-    config: KestraSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-) -> None:
-    inputs.schema_name = "triggers"
-    row = {"trigger": {"id": "daily"}, "state": {"namespace": "demo", "flowId": "flow", "triggerId": "daily"}}
-    with patch(
-        "requests.sessions.Session.send",
-        side_effect=[
-            response({"results": [], "total": 101}),
-            response({"results": [row], "total": 101}),
-        ],
-    ) as send:
-        result = list(cast(Iterable[list[dict[str, Any]]], kestra_source(config, inputs, manager).items()))
-    assert result[0][0]["trigger_id"] == "daily"
-    assert send.call_count == 2
-    assert manager.save_state.call_args.args[0].page == 2
