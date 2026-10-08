@@ -69,6 +69,7 @@ export function QuestionCheckFields(): JSX.Element {
                         mode="multiple"
                         options={availableColumns.map((name) => ({ key: name, label: name }))}
                         placeholder="Select fields"
+                        data-attr="data-quality-question-columns"
                     />
                 </LemonField>
             )}

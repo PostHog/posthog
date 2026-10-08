@@ -65,6 +65,9 @@ export const Column: Story = {
 
 export const SelectedRowFields: Story = {
     ...Column,
+    // Row mode replaces the column field on a later render, so the snapshot has to wait for the
+    // replacement. Both the field and its selected values arrive in the same commit.
+    parameters: { testOptions: { waitForSelector: '[data-attr="data-quality-question-columns"]' } },
     play: async (context) => {
         await Column.play?.(context)
         dataQualityCheckEditorLogic({ surface: 'subject' }).actions.setCheckFormValues({
