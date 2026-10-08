@@ -189,7 +189,7 @@ export function CohortCriteriaRowBuilder({
                             type="warning"
                             action={
                                 announcementUrl
-                                    ? { children: 'Read the announcement', to: announcementUrl, targetBlank: true }
+                                    ? { children: 'Learn more', to: announcementUrl, targetBlank: true }
                                     : undefined
                             }
                         >

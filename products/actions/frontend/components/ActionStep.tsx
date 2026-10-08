@@ -128,7 +128,7 @@ export function ActionStep({
                                     action={
                                         announcementUrl
                                             ? {
-                                                  children: 'Read the announcement',
+                                                  children: 'Learn more',
                                                   to: announcementUrl,
                                                   targetBlank: true,
                                               }

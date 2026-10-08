@@ -46,6 +46,7 @@ describe('events hidden from query builders', () => {
         ['no link yet', { url: null }, null],
         ['no payload', undefined, null],
         ['text that is not a URL', { url: 'soon' }, null],
+        ['an http link', { url: 'http://posthog.com/changelog/flag-calls' }, null],
         ['a javascript link', { url: 'javascript:alert(1)' }, null],
     ])('links the announcement for %s', (_label, payload, expected) => {
         expect(moveAnnouncementUrl(payload)).toEqual(expected)
