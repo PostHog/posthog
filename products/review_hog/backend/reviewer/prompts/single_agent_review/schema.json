@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "SingleAgentFinding": {
+      "description": "One finding of the single-agent Flash review, in the shape the reviewer writes it.",
+      "properties": {
+        "title": {
+          "description": "At most 80 characters, imperative, without a [P#] tag.",
+          "title": "Title",
+          "type": "string"
+        },
+        "priority": {
+          "description": "P0: drop everything to fix, blocks release or major usage. P1: urgent, fix in the next cycle. P2: normal, fix eventually. P3: low, nice to have.",
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "title": "Priority",
+          "type": "string"
+        },
+        "file": {
+          "description": "File path relative to the repository root.",
+          "title": "File",
+          "type": "string"
+        },
+        "line_start": {
+          "description": "First line of the finding in the file at the PR's head commit.",
+          "title": "Line Start",
+          "type": "integer"
+        },
+        "line_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Last line of the finding at the head commit. Null for a single line.",
+          "title": "Line End"
+        },
+        "body": {
+          "description": "One paragraph of about 300-400 characters: the trigger (the input, state, or environment the problem needs), the consequence, and the anchor (the function, call site, or invariant involved). End with at most one short clause on the fix direction.",
+          "title": "Body",
+          "type": "string"
+        },
+        "suggestion_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only when the fix is a small replacement you are certain of: the exact new code for line_start to line_end, with the original indentation. Null otherwise.",
+          "title": "Suggestion Code"
+        }
+      },
+      "required": [
+        "title",
+        "priority",
+        "file",
+        "line_start",
+        "body"
+      ],
+      "title": "SingleAgentFinding",
+      "type": "object"
+    }
+  },
+  "description": "The single-agent Flash review's whole answer for one PR.",
+  "properties": {
+    "findings": {
+      "description": "Every qualifying finding. Empty when nothing qualifies.",
+      "items": {
+        "$ref": "#/$defs/SingleAgentFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "overall_correctness": {
+      "anyOf": [
+        {
+          "enum": [
+            "patch is correct",
+            "patch is incorrect"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Whether the patch is free of bugs and other blocking issues.",
+      "title": "Overall Correctness"
+    },
+    "overall_explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "One to three sentences that justify overall_correctness.",
+      "title": "Overall Explanation"
+    }
+  },
+  "required": [
+    "findings"
+  ],
+  "title": "SingleAgentReview",
+  "type": "object"
+}

@@ -4746,12 +4746,12 @@ Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 
 - [x] `sales_order_rows` — line items behind sales_orders — required for any revenue-by-product or product-mix analysis (high)
 - [x] `purchase_order_rows` — line items behind purchase_orders, with quantities and purchase prices (high)
-- [ ] `bom_rows` — bill-of-materials linking products/variants to the materials they consume (high)
+- [x] `bom_rows` — bill-of-materials linking products/variants to the materials they consume (high)
 - [x] `manufacturing_order_recipe_rows` — actual ingredient consumption per manufacturing order — yield and material-variance analysis (high)
 - [x] `manufacturing_order_productions` — completed production output per manufacturing order; manufacturing_orders alone only carries planned state (high)
-- [ ] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
-- [ ] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
-- [ ] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
+- [x] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
+- [x] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
+- [x] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
 - [ ] `price_list_rows` — priced items per price list; price_lists alone is only the header (medium)
 - [ ] `stocktake_rows` — counted vs expected quantity per stocktake line — the actual shrinkage numbers (medium)
 - [ ] `bin_locations and bin_inventory` — bin-level stock lookup and on-hand quantities below the location grain we already sync (medium)
@@ -4847,12 +4847,12 @@ Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/mai
 - [x] `/control-planes/{id}/core-entities/services` — lookup resolving the service_id on api_requests to a named gateway service (high)
 - [x] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
 - [x] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
-- [ ] `/api-products (API Products v2)` — lookup for the api_product / api_product_version dimensions filterable on api_requests (high)
+- [x] `/api-products (API Products v2)` — lookup for the api_product / api_product_version dimensions filterable on api_requests (high)
 - [ ] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
 - [ ] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
-- [ ] `/control-planes/{id}/core-entities/consumer_groups and /consumer_groups/{id}/consumers` — consumer-group membership junction for segmenting request volume by tier (medium)
-- [ ] `/realms/{realmId}/consumers (Konnect Consumers v1)` — identity-realm consumer registry backing the consumer dimension (medium)
-- [ ] `/catalog-services and /scorecards (Service Catalog v1)` — service inventory plus scorecard scores, the headline governance metric (medium)
+- [x] `/control-planes/{id}/core-entities/consumer_groups and /consumer_groups/{id}/consumers` — consumer-group membership junction for segmenting request volume by tier (medium)
+- [x] `/realms/{realmId}/consumers (Konnect Consumers v1)` — identity-realm consumer registry backing the consumer dimension (medium)
+- [x] `/catalog-services and /scorecards (Service Catalog v1)` — service inventory plus scorecard scores, the headline governance metric (medium)
 - [ ] `/control-planes/{id}/core-entities/upstreams and /targets` — upstream/target topology behind each service for latency attribution (low)
 - [ ] `/openmeter/meters and /openmeter/subscriptions (Metering & Billing v3)` — metered usage and subscription state for cost-per-request analysis (low)
 
@@ -4864,10 +4864,10 @@ Today (16): `activities`, `app_events`, `apps`, `deployment_events`, `deployment
 
 Diffed against: <https://raw.githubusercontent.com/koyeb/koyeb-api-client-go/main/api/v1/koyeb/api/openapi.yaml>
 
-- [ ] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high)
-- [ ] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high)
-- [ ] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high)
-- [ ] `/v1/usages` — org-level usage rollup; PostHog syncs only usages/details, so totals must be re-derived (medium)
+- [x] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high). Added as `catalog_instances`.
+- [x] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high). Added as `catalog_regions`.
+- [x] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high). Added as `projects`.
+- ~~`/v1/usages`~~ — not table material: the reply is one nested object per period that sums `duration_seconds` by app, service, region and instance type. `usage_details` already holds those per-run durations, so the rollup is a `GROUP BY` over it.
 - [ ] `/v1/volume_events` — volume lifecycle history, the only event stream missing while app/service/deployment/instance events are synced (medium)
 - [ ] `/v1/regional_deployment_events` — per-region deployment transition history to explain rollout failures (medium)
 - [ ] `/v1/catalog/datacenters` — lookup mapping datacenter ids on regional deployments to physical locations (medium)
@@ -4905,10 +4905,10 @@ Today (6): `brands`, `conversations`, `customers`, `tags`, `teams`, `users`
 Diffed against: <https://developer.kustomer.com/sitemap.xml>
 
 - [ ] `GET /v1/messages (getmessages)` — the message body of every conversation; conversations without messages cannot answer response-content questions (high)
-- [ ] `GET /v1/customers/{id}/events (getallcustomerevents) and GET /v1/conversations/{id}/events (getconversationevents)` — state-transition history for the conversations and customers already synced (high)
-- [ ] `GET /v1/satisfaction and satisfaction responses (getsatisfaction, getsatisfactionresponse)` — CSAT is the headline support metric and is entirely absent (high)
-- [ ] `GET /v1/companies (getcompanies)` — lookup resolving the company a customer belongs to for account-level support reporting (high)
-- [ ] `GET /v1/substatuses (getsubstatuses)` — lookup resolving the sub-status id carried on every conversation row (high)
+- [ ] `GET /v1/customers/{id}/events (getallcustomerevents) and GET /v1/conversations/{id}/events (getconversationevents)` — state-transition history for the conversations and customers already synced (high). Not added: `getallcustomerevents` is deprecated and returns 404, and `getconversationevents` is per conversation with no updated-since filter on the parent list, so every full-refresh sync would make one or more requests per conversation against the org's shared rate limit.
+- [x] `GET /v1/satisfaction and satisfaction responses (getsatisfaction, getsatisfactionresponse)` — CSAT is the headline support metric and is entirely absent (high). Added as `satisfaction_forms` (`GET /v1/satisfaction` lists survey forms, not responses). `getsatisfactionresponse` skipped: it reads one response by id and there is no list endpoint.
+- [x] `GET /v1/companies (getcompanies)` — lookup resolving the company a customer belongs to for account-level support reporting (high) → `companies`
+- [x] `GET /v1/substatuses (getsubstatuses)` — lookup resolving the sub-status id carried on every conversation row (high) → `sub_statuses` (the real path is `GET /v1/sub-statuses?resource=conversation`)
 - [ ] `GET /v1/queues (getqueues) and queue metrics (queuemetrics)` — lookup for routing queues plus the queue-depth metric behind SLA reporting (medium)
 - [ ] `GET /v1/notes (getnotesfororg)` — internal agent notes attached to conversations and customers (medium)
 - [ ] `GET /v1/work-items (getworkitems) and work sessions (getworksessions)` — agent handling time and routing assignment history (medium)
@@ -4921,14 +4921,14 @@ Note: Kustomer's ReadMe-hosted reference blocks machine-readable spec fetches (s
 
 ## Lacework — gaps
 
-Today (10): `agent_info`, `alerts`, `audit_logs`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_machines`, `vulnerabilities_containers`, `vulnerabilities_hosts`
+Today (17): `agent_info`, `alerts`, `audit_logs`, `cloud_accounts`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_containers`, `entities_images`, `entities_machines`, `inventory_aws`, `inventory_azure`, `inventory_gcp`, `policies`, `vulnerabilities_containers`, `vulnerabilities_hosts`
 
 Diffed against: <https://api.lacework.net/api/v2/docs/lacework-api-v2.0.yaml>
 
-- [ ] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
-- [ ] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
-- [ ] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
-- [ ] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
+- [x] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
+- [x] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
+- [x] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
+- [x] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
 - [ ] `POST /api/v2/CloudActivities/search` — cloud control-plane activity trail, the main behavioral dataset alongside alerts (medium)
 - [ ] `POST /api/v2/Entities/Packages/search` — installed package inventory that vulnerability findings reference (medium)
 - [ ] `POST /api/v2/Activities/UserLogins/search` — login activity for identity-risk analysis (medium)
@@ -4989,10 +4989,10 @@ Today (6): `annotation_queues`, `datasets`, `examples`, `feedback`, `projects`, 
 
 Diffed against: <https://api.smith.langchain.com/openapi.json>
 
-- [ ] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high)
-- [ ] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high)
-- [ ] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high)
-- [ ] `GET /v2/datasets/{dataset_id}/experiment-runs` — experiment results per dataset, the core evaluation output (high)
+- [x] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high) — synced as `threads`; the query already returns each thread's stats, so the per-thread stats call is not used
+- [x] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high) — synced as `workspaces`; `/tenants` returns the same list and can create a personal workspace when called, so it is not used
+- [x] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high) — synced as `annotation_queue_runs`
+- ~~`GET /v2/datasets/{dataset_id}/experiment-runs`~~ — not a separate table: it is a POST that needs the experiment ids up front and returns each dataset example with its experiment runs nested inside. Experiments are tracing projects, so their runs already land in `runs` (with `session_id` and `reference_example_id`) and their examples in `examples`; this endpoint only joins the two (high)
 - [ ] `GET /api/v1/model-price-map` — lookup mapping model names on runs to token prices, so run cost can be recomputed (medium)
 - [ ] `GET /api/v1/datasets/{dataset_id}/versions and /splits` — dataset version history and split assignment, needed to compare experiments fairly (medium)
 - [ ] `GET /api/v1/orgs/current/members and /api/v1/workspaces/current/members` — membership tables resolving the user ids that appear on feedback and annotations (medium)
@@ -6971,6 +6971,15 @@ Diffed against: <https://developer.productboard.com/reference/listentityfieldval
 
 Note: The source uses the v2 API where companies/features/components/objectives etc. are all entity types on GET /v2/entities, so those 14 tables come from one endpoint. The uncovered surface is the field-value, configuration and relationship sub-resources, which is where most of the analytical detail lives.
 
+## Profound — gaps
+
+Today (10): `Assets`, `Categories`, `CitationCategories`, `CitationTags`, `Citations`, `Domains`, `Models`, `Personas`, `Regions`, `Visibility`
+
+Diffed against: <https://docs.tryprofound.com/rest-api/changelog>
+
+- [x] `/v1/org/categories/{category_id}/citation-categories` — lookup for the `citation_category` filter values per category, built-in and custom (low)
+- [x] `/v1/org/categories/{category_id}/citation-tags` — lookup for the custom `citation_tag` filter values per category (low)
+
 ## PulumiCloud — gaps
 
 Today (5): `audit_logs`, `deployments`, `resources`, `stack_updates`, `stacks`
@@ -7470,6 +7479,7 @@ Diffed against: <https://developer.safetyculture.com/reference/thepubservice_fee
 - [ ] `feed/investigations (plus investigation fields and relationships)` — incident investigation records linked to the issues and actions we sync (medium)
 - [ ] `feed/assets_maintenance, feed/maintenance_plans, feed/maintenance_programs` — maintenance schedule and status for the assets we already sync (medium)
 - [ ] `feed/contractor_companies and feed/contractor_company_user_memberships` — contractor org lookup plus its membership join (medium)
+- [x] `POST /structures/v1/structures/search` — organization hierarchy nodes (sites and groups) with their custom field values, from the Structures API (medium)
 
 Note: SafetyCulture's warehouse-oriented surface is the /feed/\* family, and roughly 30 feed endpoints exist; the connector covers 10 of them (actions, assets, groups, inspection_items, inspections, issues, schedules, sites, templates, users) and none of the assignee, membership, or timeline joins. Also uncovered: feed/schedule_assignees, feed/action_fields, feed/document_types, feed/user_documents, feed/credentials, feed/credential_types, and the separate training-analytics service (lesson attempts, course statistics, survey answers). Static endpoint catalog, no dynamic discovery. feed/template_permissions was excluded as access-control plumbing.
 
@@ -7715,8 +7725,11 @@ Diffed against: <https://docs.goshippo.com/spec/shippoapi/public-api.yaml>
 - [ ] `GET /tracks/{Carrier}/{TrackingNumber}` — Delivery status and tracking-event history for the transactions already synced — turns labels into a delivery-performance fact table (medium)
 - [ ] `GET /parcel-templates and GET /user-parcel-templates` — Lookup resolving the parcel template tokens referenced by parcels and shipments (low)
 - [ ] `GET /shippo-accounts` — Platform sub-account lookup; needed to attribute shipments when operating Shippo on behalf of multiple merchants (low)
+- [ ] `GET /v2/reporting/runs` — Reporting API run history (added Sep 2026); returns job metadata for the most recent runs only, not report rows, so it was skipped (low)
 
 Note: Coverage is proportionate for the core objects: 9 of roughly 15 listable collections are synced, including all the transactional ones (transactions, shipments, orders, refunds, parcels, addresses, customs). Batches are only retrievable by ID (no list endpoint), so they are not syncable as a table. The rates sub-resource is the one materially valuable analytical gap.
+
+Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the account created (`report_type`, `interval`, `status`, `result.row_count`), not the invoices, charges or refunds the report contains. The list has no pagination or date filter and returns at most the 500 most recent runs, so a table of it cannot hold full history. It also omits the download URL. The report data itself needs a different design: create a run (`POST /v2/reporting/runs`), poll it, then download the CSV or Parquet file. That is a write on the customer's account, and each interval can span 92 days at most.
 
 ## ShipStation — gaps
 
@@ -7815,11 +7828,14 @@ Note: Coverage is solid for the images and videos verticals (categories, collect
 
 ## SigmaComputing — gaps
 
-Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+Today (13): `Connections`, `DataModels`, `Members`, `ReportElements`, `ReportPages`, `ReportQueries`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
 
 Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
 
 - [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
+- [x] `report elements (GET /v2/reports/{reportId}/elements)` — per-report charts, tables, and controls, fanned out from reports like the workbook elements table, added here
+- [x] `report pages (GET /v2/reports/{reportId}/pages)` — per-report page list, fanned out from reports, added here
+- [x] `report queries (GET /v2/reports/{reportId}/queries)` — SQL behind each report element for query auditing, fanned out from reports, added here
 
 ## SigNoz — gaps
 
@@ -8573,6 +8589,7 @@ Diffed against: <https://docs.tavus.io/openapi.yaml>
 - [ ] `GET /v2/voices` — Lookup table resolving the voice ID configured on PALs and videos (medium)
 - [ ] `GET /v2/lipsync` — Lipsync generation jobs with status and duration, a sibling of the synced videos table (low)
 - [ ] `GET /v2/replacements` — Replacement (background swap) jobs with status (low)
+- [x] `GET /v2/memory-stores` — Memory stores, one per PAL and participant tag, showing which participants each PAL keeps memory for (medium)
 
 Note: Important: the current spec no longer contains /v2/personas or /v2/replicas - they have been superseded by /v2/pals and /v2/faces. Two of PostHog's four synced tables therefore target endpoints absent from today's API reference and should be re-verified against a live account. Static 4-endpoint config in sources/tavus/settings.py, no dynamic discovery; the spec exposes 20 GET list endpoints.
 
@@ -9067,6 +9084,7 @@ Diffed against: <https://docs.twelvelabs.io/openapi.json>
 - [ ] `embed tasks (GET /embed/tasks and /embed-v2/tasks)` — embedding job history, parallel to the indexing tasks already synced (medium)
 - [ ] `entity-collections and their entities (GET /entity-collections, /entity-collections/{id}/entities)` — lookup tables that resolve entity ids appearing on assets (medium)
 - [ ] `asset entities (GET /assets/{asset_id}/entities)` — asset-to-entity mapping for face/object analytics (medium)
+- [x] `asset transcriptions (GET /assets/{asset_id}/transcription)` — per-asset speech transcription with status and timestamped sentences and speaker turns (medium)
 - [ ] `knowledge-stores, item-collections, items (GET /knowledge-stores, .../item-collections, .../items)` — the retrieval corpus objects; items resolve ids used by search (medium)
 - [ ] `connection imports (GET /connections/{connection_id}/imports)` — per-import job records for bulk ingestion runs (low)
 
@@ -9269,7 +9287,7 @@ Note: Spec is Vantage's own OpenAPI at api.vantage.sh/v2/swagger.json (v2.0.0); 
 
 ## Vapi — gaps
 
-Today (9): `assistants`, `calls`, `campaigns`, `chats`, `files`, `phone_numbers`, `sessions`, `squads`, `tools`
+Today (10): `assistants`, `calls`, `campaigns`, `chats`, `files`, `phone_numbers`, `sessions`, `simulation_runs`, `squads`, `tools`
 
 Diffed against: <https://api.vapi.ai/api-json>
 
@@ -9279,6 +9297,7 @@ Diffed against: <https://api.vapi.ai/api-json>
 - [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium)
 - [ ] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
 - [ ] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
+- [x] `GET /eval/simulation/run` — simulation run results for assistants and squads, with pass/fail item counts (medium)
 
 Note: Full OpenAPI fetched live from api.vapi.ai/api-json. Note /reporting/insight is a saved-query definition (its data only comes back via POST /reporting/insight/{id}/run), and /provider/{provider}/{resourceName} is a passthrough to Twilio/Vonage account resources — both excluded as plumbing. /v2/campaign is a newer version of the /campaign the source already uses, not a distinct resource.
 
