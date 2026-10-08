@@ -5472,9 +5472,9 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                 "y := 1 as x between 1 and 2",
                 "for (y := 1 as x [1]; a; b) {}",
                 # A comparison is the exception: it binds to the bare alias
-                # (ColumnExprAliasCompare), so the value consumes the whole
-                # comparison and the statement promotes to a VariableAssignment
-                # instead of re-rooting.
+                # (the optional `AS` on `ColumnExprPrecedence3`), so the value consumes
+                # the whole comparison and the statement promotes to a
+                # VariableAssignment instead of re-rooting.
                 "y := 1 as x not in (1,2)",
                 # Guards: promotion to VariableAssignment and statement-splitting
                 # recovery are unaffected.
@@ -7920,6 +7920,20 @@ def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
                 "1 as x > 0 as y",
                 "x as a > 1 ? a : 0",
                 "if(JSONExtractFloat(properties, 'rate') as rate > 0, rate, 1.0)",
+                # A second, looser operator after the alias comparison must fold
+                # onto the comparison, not into its right operand: the alias rides
+                # on `ColumnExprPrecedence3`, so it binds exactly like `a > b …`.
+                "1 as x > 0 > 2",
+                "1 as x > 0 = 2",
+                "1 as x > 0 is null",
+                "1 as x > 0 ?? 2",
+                "1 as x > 0 between 1 and 2",
+                "1 as x > 0 is distinct from 3",
+                "1 as x > 0 + 1",
+                "1 as x in (1, 2) is null",
+                "'a' as x like 'a%' is null",
+                # An alias over a comparison still takes the whole comparison.
+                "a > b as x > 0",
             ):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
