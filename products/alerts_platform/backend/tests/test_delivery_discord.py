@@ -37,16 +37,31 @@ class TestDiscordMessage(SimpleTestCase):
             "flags": 4,
         }
 
-    def test_a_long_error_keeps_the_message_inside_what_discord_accepts(self) -> None:
+    @parameterized.expand(
+        [
+            ("long_error", (), None),
+            (
+                "long_error_context_and_data_link",
+                ("Services: " + "api," * 400,) * 3,
+                MessageLink(label="View logs", url="https://app.example.com/logs?" + "q" * 3000),
+            ),
+        ]
+    )
+    def test_a_long_message_stays_inside_what_discord_accepts(
+        self, _name: str, context: tuple[str, ...], data_link: MessageLink | None
+    ) -> None:
         message = alert_message(
             headline="API errors could not be checked",
             details=(MessageDetail(label="Error", value="x" * 5000), MessageDetail(label="Failed checks", value="3")),
+            context=context,
+            data_link=data_link,
         )
 
         content = content_for(message)
 
         assert len(content) <= MAX_CONTENT_CHARS
-        assert content.endswith(f"**Failed checks:** 3\n\n[View alert](<{ALERT_URL}>)")
+        assert "**Failed checks:** 3" in content
+        assert content.endswith(f"[View alert](<{ALERT_URL}>)")
 
 
 class TestDiscordTransport(SimpleTestCase):

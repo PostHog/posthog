@@ -50,7 +50,7 @@ def _clip(text: str, budget: int) -> str:
 
 
 def card_for(message: AlertMessage) -> dict[str, Any]:
-    headline = escape_markdown(f"{message.symbol} {message.headline}")
+    headline = escape_markdown(message.title)
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": headline, "weight": "Bolder", "wrap": True}]
     context = escape_markdown(" | ".join(message.context))
     if message.details:
@@ -68,9 +68,7 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
         )
     if context:
         body.append({"type": "TextBlock", "text": context, "isSubtle": True, "size": "Small", "wrap": True})
-    actions = [{"type": "Action.OpenUrl", "title": "View alert", "url": message.alert_url}]
-    if message.data_link is not None:
-        actions.insert(0, {"type": "Action.OpenUrl", "title": message.data_link.label, "url": message.data_link.url})
+    actions = [{"type": "Action.OpenUrl", "title": link.label, "url": link.url} for link in message.links]
     return {
         "type": "message",
         "attachments": [

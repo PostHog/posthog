@@ -17,6 +17,11 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 
+
+def _described_by(describer: Any) -> Any:
+    return patch.dict(describers._describers, {SourceKind.LOGS: describer})
+
+
 LOGS_DESCRIPTION = SourceDescription(
     details=(MessageDetail(label="Threshold breached", value="300 logs in 5m (threshold: above 100)"),),
     context=("Services: checkout",),
@@ -133,7 +138,7 @@ class TestAlertMessage:
         assert (message.headline, message.symbol, message.incident_action) == (expected, symbol, action)
 
     def test_a_source_words_a_breach_in_its_own_vocabulary(self) -> None:
-        with patch.dict(describers._describers, {SourceKind.LOGS: lambda **_: LOGS_DESCRIPTION}):
+        with _described_by(lambda **_: LOGS_DESCRIPTION):
             message = _build(_announcement(), _transition(AlertEventKind.FIRING))
 
         assert (message.details, message.context, message.data_link) == (
@@ -143,7 +148,7 @@ class TestAlertMessage:
         )
 
     def test_a_failed_check_keeps_the_platform_failure_details_under_a_source_description(self) -> None:
-        with patch.dict(describers._describers, {SourceKind.LOGS: lambda **_: LOGS_DESCRIPTION}):
+        with _described_by(lambda **_: LOGS_DESCRIPTION):
             message = _build(
                 _announcement(consecutive_failures=3),
                 _transition(AlertEventKind.ERRORED, value=None, error_message="Query is too expensive"),
@@ -152,11 +157,20 @@ class TestAlertMessage:
         assert message.details[0] == MessageDetail(label="Error", value="Query is too expensive")
         assert message.data_link == LOGS_DESCRIPTION.data_link
 
+    def test_a_source_link_too_long_for_slack_is_left_out(self) -> None:
+        long_link = MessageLink(label="View logs", url="https://app.example.com/logs?" + "q" * 3000)
+        description = SourceDescription(context=("Services: checkout",), data_link=long_link)
+
+        with _described_by(lambda **_: description):
+            message = _build(_announcement(), _transition(AlertEventKind.FIRING))
+
+        assert (message.context, message.data_link) == (("Services: checkout",), None)
+
     def test_a_describer_that_raises_still_delivers_the_platform_wording(self) -> None:
         def broken(**_: Any) -> SourceDescription:
             raise KeyError("serviceNames")
 
-        with patch.dict(describers._describers, {SourceKind.LOGS: broken}):
+        with _described_by(broken):
             message = _build(_announcement(), _transition(AlertEventKind.FIRING))
 
         assert MessageDetail(label="Threshold", value="above 100") in message.details

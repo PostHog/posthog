@@ -627,7 +627,11 @@ class SourceDescription:
 
 
 class SourceDescriber(Protocol):
-    """How a source describes its transitions. A source registers one for native delivery."""
+    """How a source describes its transitions. A source registers one for native delivery.
+
+    It runs once per destination on the send path, inside a delivery that a held thread or a
+    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
 

@@ -9,7 +9,6 @@ A provider turns this into its own body shape.
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
-from posthog.slack.channels import clip_text
 from posthog.utils import absolute_uri, pluralize
 
 from products.alerts_platform.backend.delivery.describers import describe
@@ -37,9 +36,6 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.ERRORED: "🟡",
     AlertEventKind.BROKEN: "⚠️",
 }
-
-# A source's context lines name things a user chose, such as services, so their length is unbounded.
-MAX_CONTEXT_LINE_CHARS: Final = 300
 
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
@@ -75,6 +71,17 @@ class AlertMessage:
     data_link: MessageLink | None = None
     incident_action: IncidentAction | None = None
 
+    @property
+    def title(self) -> str:
+        """The headline with its state symbol, for a provider a person reads."""
+        return f"{self.symbol} {self.headline}"
+
+    @property
+    def links(self) -> tuple[MessageLink, ...]:
+        """The source's data first, because that is where a responder starts."""
+        view_alert = MessageLink(label="View alert", url=self.alert_url)
+        return (self.data_link, view_alert) if self.data_link is not None else (view_alert,)
+
 
 def alert_url(project_id: int, configuration_id: str) -> str:
     # pinned: the platform alert page route in products/alerts_platform/manifest.tsx.
@@ -94,7 +101,7 @@ def _threshold(condition: dict[str, Any]) -> str | None:
     return f"{operator} {count}"
 
 
-def _breach_details(transition: AnnouncedTransition) -> list[MessageDetail]:
+def _breach_details(transition: AnnouncedTransition) -> tuple[MessageDetail, ...]:
     details: list[MessageDetail] = []
     if transition.value is not None:
         details.append(MessageDetail(label="Value", value=_number(transition.value)))
@@ -104,16 +111,16 @@ def _breach_details(transition: AnnouncedTransition) -> list[MessageDetail]:
     window_minutes = transition.condition.get("window_minutes")
     if window_minutes:
         details.append(MessageDetail(label="Window", value=pluralize(window_minutes, "minute")))
-    return details
+    return tuple(details)
 
 
-def _failure_details(transition: AnnouncedTransition, consecutive_failures: int) -> list[MessageDetail]:
+def _failure_details(transition: AnnouncedTransition, consecutive_failures: int) -> tuple[MessageDetail, ...]:
     details: list[MessageDetail] = []
     if transition.error_message:
         details.append(MessageDetail(label="Error", value=transition.error_message))
     if consecutive_failures:
         details.append(MessageDetail(label="Failed checks", value=str(consecutive_failures)))
-    return details
+    return tuple(details)
 
 
 def build_message(
@@ -143,11 +150,9 @@ def build_message(
     description = describe(announcement.source, project_id=project_id, transition=transition)
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
     if transition.kind in failure_kinds:
-        details = tuple(_failure_details(transition, announcement.consecutive_failures))
-    elif description is not None and description.details:
-        details = description.details
+        details = _failure_details(transition, announcement.consecutive_failures)
     else:
-        details = tuple(_breach_details(transition))
+        details = description.details or _breach_details(transition)
     return AlertMessage(
         headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
@@ -157,7 +162,7 @@ def build_message(
         source=announcement.source,
         alert_url=alert_url(project_id, announcement.configuration_id),
         transition=transition,
-        context=tuple(clip_text(line, MAX_CONTEXT_LINE_CHARS) for line in description.context) if description else (),
-        data_link=description.data_link if description else None,
+        context=description.context,
+        data_link=description.data_link,
         incident_action=incident_action,
     )

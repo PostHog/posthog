@@ -19,6 +19,10 @@ PROVIDER: Final = "discord"
 
 MAX_CONTENT_CHARS: Final = 2000
 
+# The footer is taken off the top of the budget, so it is bounded to leave the details most of it.
+MAX_FOOTER_CONTEXT_CHARS: Final = 300
+MAX_FOOTER_LINK_URL_CHARS: Final = 500
+
 # Stops a URL in a query error from unfurling into a preview of a page the alert never chose.
 SUPPRESS_EMBEDS: Final = 1 << 2
 
@@ -37,18 +41,22 @@ def content_for(message: AlertMessage) -> str:
 
 
 def _footer(message: AlertMessage) -> str:
-    links = [f"[View alert](<{message.alert_url}>)"]
-    if message.data_link is not None:
-        links.insert(0, f"[{escape_markdown(message.data_link.label)}](<{message.data_link.url}>)")
+    # The alert link is always short. A data link long enough to crowd out the details is left out.
+    links = [
+        f"[{escape_markdown(link.label)}](<{link.url}>)"
+        for link in message.links
+        if len(link.url) <= MAX_FOOTER_LINK_URL_CHARS
+    ]
     footer = "\n\n"
     if message.context:
         # `-# ` is Discord's small print. Context names things a user chose, so it is escaped.
-        footer += f"-# {escape_markdown(' | '.join(message.context))}\n"
+        context = clip_text(" | ".join(message.context), MAX_FOOTER_CONTEXT_CHARS)
+        footer += f"-# {escape_markdown(context)}\n"
     return footer + " · ".join(links)
 
 
 def _body(message: AlertMessage, limit: int) -> str:
-    headline = f"**{message.symbol} {escape_markdown(message.headline)}**"
+    headline = f"**{escape_markdown(message.title)}**"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
     if not lines:
         return headline
