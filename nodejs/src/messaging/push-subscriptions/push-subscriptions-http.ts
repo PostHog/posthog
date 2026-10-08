@@ -67,14 +67,18 @@ export function createPushSubscriptionsHandler(
             query = new URLSearchParams()
         }
 
-        if (isRegionBlocked(req)) {
-            // Rejected before the body is read, so nothing from a blocked region is stored or billed.
+        const regionBlocked = isRegionBlocked(req)
+        if (regionBlocked) {
             rejectionCounter.inc({
                 code: 'region_blocked',
                 method: req.method === 'POST' || req.method === 'DELETE' ? req.method : 'other',
             })
-            res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }).end(REGION_BLOCKED_MESSAGE)
-            return
+            // A logout still removes the device, as it does in Django, so a person's pushes stop reaching
+            // a device that left. Anything else is rejected before the body is read.
+            if (req.method !== 'DELETE') {
+                res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }).end(REGION_BLOCKED_MESSAGE)
+                return
+            }
         }
 
         applyCors(req, res)
@@ -148,6 +152,10 @@ export function createPushSubscriptionsHandler(
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
 
+        if (regionBlocked) {
+            res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' }).end(REGION_BLOCKED_MESSAGE)
+            return
+        }
         res.writeHead(result.status, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result.body))
     }

@@ -76,9 +76,13 @@ describe('push subscriptions http', () => {
         expect(seen[0].mirrored).toEqual(mirrored)
     })
 
-    it.each(['POST', 'DELETE', 'OPTIONS'])(
-        'answers %s from a blocked region with 403 and never reaches the service',
-        async (method) => {
+    it.each([
+        ['POST', false],
+        ['OPTIONS', false],
+        ['DELETE', true],
+    ])(
+        'answers %s from a blocked region with 403, and reaches the service only to unregister: %s',
+        async (method, reaches) => {
             regionBlocked = true
 
             const response = await internalFetch(`${base}/api/push_subscriptions/`, {
@@ -89,7 +93,7 @@ describe('push subscriptions http', () => {
 
             expect(response.status).toEqual(403)
             expect(await response.text()).toContain('not available in your region')
-            expect(seen).toEqual([])
+            expect(seen.map((request) => request.method)).toEqual(reaches ? [method] : [])
         }
     )
 
