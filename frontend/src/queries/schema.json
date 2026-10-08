@@ -25305,6 +25305,24 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "ExperimentApiBreakdownFilter": {
+            "additionalProperties": false,
+            "description": "Slim breakdown config for experiment API payloads. Only the fields the experiment query runner reads; the full BreakdownFilter's other knobs (breakdown, breakdown_type, attribution, …) are ignored for experiment metrics, so exposing them would only invite no-op input.",
+            "properties": {
+                "breakdown_limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of breakdown values to compute results for."
+                },
+                "breakdowns": {
+                    "description": "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics).",
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentApiEventSource": {
             "additionalProperties": false,
             "description": "Slim event/action source for experiment API payloads.",
@@ -25403,6 +25421,18 @@
             "additionalProperties": false,
             "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "description": "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                },
+                "breakdownAttributionValue": {
+                    "$ref": "#/definitions/integer",
+                    "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                },
+                "breakdownFilter": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownFilter",
+                    "description": "Break the metric results down by up to 3 event or person properties."
+                },
                 "completion_event": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For retention metrics: completion event."

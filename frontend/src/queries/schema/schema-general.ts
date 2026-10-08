@@ -5770,6 +5770,19 @@ export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSour
     kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
 }
 
+/** Slim breakdown config for experiment API payloads. Only the fields the
+ *  experiment query runner reads; the full BreakdownFilter's other knobs
+ *  (breakdown, breakdown_type, attribution, …) are ignored for experiment
+ *  metrics, so exposing them would only invite no-op input. */
+export interface ExperimentApiBreakdownFilter {
+    /** Properties to break the metric results down by, at most 3. Each entry needs 'property'
+     *  (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not
+     *  supported for experiment metrics). */
+    breakdowns?: Breakdown[]
+    /** Maximum number of breakdown values to compute results for. */
+    breakdown_limit?: integer
+}
+
 /** Experiment metric for API create/update. All metric-type-specific
  *  fields are optional; discriminated by metric_type at runtime. */
 export interface ExperimentApiMetric {
@@ -5832,6 +5845,13 @@ export interface ExperimentApiMetric {
     retention_window_end?: integer
     retention_window_unit?: FunnelConversionWindowTimeUnit
     start_handling?: 'first_seen' | 'last_seen'
+    /** Break the metric results down by up to 3 event or person properties. */
+    breakdownFilter?: ExperimentApiBreakdownFilter
+    /** For funnel metrics with breakdowns: which step the breakdown value is read from
+     *  ('first_touch', 'last_touch', 'all_events' or 'step'). */
+    breakdownAttributionType?: BreakdownAttributionType
+    /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: integer
 }
 
 export interface ExperimentParameters {

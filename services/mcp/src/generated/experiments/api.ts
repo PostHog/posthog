@@ -4603,6 +4603,70 @@ export const ExperimentsCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        histogram_bin_count: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        normalize_url: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional(),
+                                                        property: zod.union([zod.string(), zod.number()]),
+                                                        type: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'person',
+                                                                    'event',
+                                                                    'event_metadata',
+                                                                    'element',
+                                                                    'group',
+                                                                    'session',
+                                                                    'hogql',
+                                                                    'cohort',
+                                                                    'revenue_analytics',
+                                                                    'data_warehouse',
+                                                                    'data_warehouse_person_property',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Break the metric results down by up to 3 event or person properties.'),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -5645,6 +5709,70 @@ export const ExperimentsCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        histogram_bin_count: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        normalize_url: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional(),
+                                                        property: zod.union([zod.string(), zod.number()]),
+                                                        type: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'person',
+                                                                    'event',
+                                                                    'event_metadata',
+                                                                    'element',
+                                                                    'group',
+                                                                    'session',
+                                                                    'hogql',
+                                                                    'cohort',
+                                                                    'revenue_analytics',
+                                                                    'data_warehouse',
+                                                                    'data_warehouse_person_property',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Break the metric results down by up to 3 event or person properties.'),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -10576,6 +10704,70 @@ export const ExperimentsPartialUpdateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        histogram_bin_count: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        normalize_url: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional(),
+                                                        property: zod.union([zod.string(), zod.number()]),
+                                                        type: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'person',
+                                                                    'event',
+                                                                    'event_metadata',
+                                                                    'element',
+                                                                    'group',
+                                                                    'session',
+                                                                    'hogql',
+                                                                    'cohort',
+                                                                    'revenue_analytics',
+                                                                    'data_warehouse',
+                                                                    'data_warehouse_person_property',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Break the metric results down by up to 3 event or person properties.'),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -11618,6 +11810,70 @@ export const ExperimentsPartialUpdateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        histogram_bin_count: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        normalize_url: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional(),
+                                                        property: zod.union([zod.string(), zod.number()]),
+                                                        type: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'person',
+                                                                    'event',
+                                                                    'event_metadata',
+                                                                    'element',
+                                                                    'group',
+                                                                    'session',
+                                                                    'hogql',
+                                                                    'cohort',
+                                                                    'revenue_analytics',
+                                                                    'data_warehouse',
+                                                                    'data_warehouse_person_property',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Break the metric results down by up to 3 event or person properties.'),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -16528,6 +16784,70 @@ export const ExperimentsDuplicateCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        histogram_bin_count: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        normalize_url: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional(),
+                                                        property: zod.union([zod.string(), zod.number()]),
+                                                        type: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'person',
+                                                                    'event',
+                                                                    'event_metadata',
+                                                                    'element',
+                                                                    'group',
+                                                                    'session',
+                                                                    'hogql',
+                                                                    'cohort',
+                                                                    'revenue_analytics',
+                                                                    'data_warehouse',
+                                                                    'data_warehouse_person_property',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Break the metric results down by up to 3 event or person properties.'),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -17570,6 +17890,70 @@ export const ExperimentsDuplicateCreateBody = () => zod
                 zod
                     .array(
                         zod.object({
+                            breakdownAttributionType: zod
+                                .union([zod.enum(['first_touch', 'last_touch', 'all_events', 'step']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step')."
+                                ),
+                            breakdownAttributionValue: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                                ),
+                            breakdownFilter: zod
+                                .union([
+                                    zod.object({
+                                        breakdown_limit: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe('Maximum number of breakdown values to compute results for.'),
+                                        breakdowns: zod
+                                            .union([
+                                                zod.array(
+                                                    zod.object({
+                                                        group_type_index: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        histogram_bin_count: zod
+                                                            .union([zod.number(), zod.null()])
+                                                            .optional(),
+                                                        normalize_url: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional(),
+                                                        property: zod.union([zod.string(), zod.number()]),
+                                                        type: zod
+                                                            .union([
+                                                                zod.enum([
+                                                                    'person',
+                                                                    'event',
+                                                                    'event_metadata',
+                                                                    'element',
+                                                                    'group',
+                                                                    'session',
+                                                                    'hogql',
+                                                                    'cohort',
+                                                                    'revenue_analytics',
+                                                                    'data_warehouse',
+                                                                    'data_warehouse_person_property',
+                                                                ]),
+                                                                zod.null(),
+                                                            ])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                "Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics)."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe('Break the metric results down by up to 3 event or person properties.'),
                             completion_event: zod
                                 .union([
                                     zod.object({

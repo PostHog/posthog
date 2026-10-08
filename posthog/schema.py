@@ -5527,6 +5527,24 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
+class ExperimentApiBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: int | None = Field(
+        default=None,
+        description="Maximum number of breakdown values to compute results for.",
+    )
+    breakdowns: list[Breakdown] | None = Field(
+        default=None,
+        description=(
+            "Properties to break the metric results down by, at most 3. Each entry"
+            " needs 'property' (property name) and 'type' ('event', 'person', 'session'"
+            " or 'group'; 'element' is not supported for experiment metrics)."
+        ),
+    )
+
+
 class ExperimentApiEventSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18304,6 +18322,21 @@ class EventsQueryResponse(BaseModel):
 class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: BreakdownAttributionType | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics with breakdowns: which step the breakdown value is read"
+            " from ('first_touch', 'last_touch', 'all_events' or 'step')."
+        ),
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is 'step', the 0-indexed step to attribute from."),
+    )
+    breakdownFilter: ExperimentApiBreakdownFilter | None = Field(
+        default=None,
+        description=("Break the metric results down by up to 3 event or person properties."),
     )
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."

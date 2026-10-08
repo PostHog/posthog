@@ -2094,6 +2094,13 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
+export interface ExperimentApiBreakdownFilterApi {
+    /** Maximum number of breakdown values to compute results for. */
+    breakdown_limit?: number | null
+    /** Properties to break the metric results down by, at most 3. Each entry needs 'property' (property name) and 'type' ('event', 'person', 'session' or 'group'; 'element' is not supported for experiment metrics). */
+    breakdowns?: BreakdownApi[] | null
+}
+
 export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
 export const Kind1Api = {
@@ -2156,6 +2163,12 @@ export interface ExperimentApiRetentionStartApi {
 }
 
 export interface ExperimentApiMetricApi {
+    /** For funnel metrics with breakdowns: which step the breakdown value is read from ('first_touch', 'last_touch', 'all_events' or 'step'). */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
+    /** Break the metric results down by up to 3 event or person properties. */
+    breakdownFilter?: ExperimentApiBreakdownFilterApi | null
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
     /** Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends. */
