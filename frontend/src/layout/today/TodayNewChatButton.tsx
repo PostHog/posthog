@@ -20,10 +20,10 @@ export function TodayNewChatButton(): JSX.Element {
                 delay={0}
                 render={
                     <Button
-                        size={phoneLayout ? 'icon-lg' : 'icon-sm'}
+                        size={phoneLayout ? 'icon-lg' : 'icon'}
                         render={<LinkPrimitive to={urls.taskNewSession()} />}
                         aria-current={starting ? 'page' : undefined}
-                        className={cn('text-muted-foreground', starting && 'bg-fill-selected text-foreground')}
+                        className={cn('-me-2 text-muted-foreground', starting && 'bg-fill-selected text-foreground')}
                         aria-label="New chat"
                         data-attr="today-new-chat-header"
                     />

@@ -155,7 +155,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentState === 'loading' ? (
             loadingRows('Loading recent')
         ) : recentState === 'error' ? (
-            loadError('Your chats didn’t load.', loadRecentTasks, 'today-recent-retry')
+            loadError('Recent chats didn’t load.', loadRecentTasks, 'today-recent-retry')
         ) : recentState === 'empty' ? (
             <Text size="xs" variant="muted" className="px-2 py-1">
                 Chats you start show up here. Start one with New chat.
@@ -256,7 +256,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                             </TodayPaneSection>
                         )}
                         <TodayPaneSection
-                            label="Your chats"
+                            label="Recent"
                             {...sectionLayout('recent')}
                             count={recentItems.length}
                             onToggle={() => toggleSection('recent')}
