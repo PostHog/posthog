@@ -81,17 +81,16 @@ class VisionAlertCheckWorkflow(PostHogWorkflow):
                     output.alerts_resolved += result.alerts_resolved
                     output.alerts_errored += result.alerts_errored
 
-        # Patched: added after the workflow first shipped; pre-patch histories skip it.
-        if workflow.patched("vision-alert-match-drain-2026-08"):
-            try:
-                await workflow.execute_activity(
-                    drain_vision_alert_matches_activity,
-                    DrainMatchesInput(),
-                    start_to_close_timeout=ACTIVITY_TIMEOUT,
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-            except ActivityError:
-                workflow.logger.warning("Match drain failed; alert cycle continues")
+        workflow.deprecate_patch("vision-alert-match-drain-2026-08")
+        try:
+            await workflow.execute_activity(
+                drain_vision_alert_matches_activity,
+                DrainMatchesInput(),
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Match drain failed; alert cycle continues")
 
         # Best-effort retention sweep; never fails the alert cycle.
         try:

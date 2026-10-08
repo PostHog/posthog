@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-07 10:06:24 UTC
+// Generated at: 2026-10-08 08:12:13 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -52,7 +52,6 @@ export type CanonicalProvider =
     | 'coreweave-nvfp4'
     | 'crusoe-bf16'
     | 'crusoe-fp4'
-    | 'crusoe-fp8'
     | 'darkbloom'
     | 'darkbloom-fp4'
     | 'darkbloom-fp8'
@@ -154,6 +153,7 @@ export type CanonicalProvider =
     | 'openai-flex'
     | 'openai-ultrafast'
     | 'parasail-bf16'
+    | 'parasail-fast'
     | 'parasail-fp16'
     | 'parasail-fp4'
     | 'parasail-fp8'
