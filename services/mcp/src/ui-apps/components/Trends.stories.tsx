@@ -95,3 +95,20 @@ export const BarValueManyBreakdowns: Story = {
         ]),
     name: 'Bar value — many breakdowns',
 }
+
+const BROWSER_TOTALS: TrendsResult = [
+    { label: 'Chrome', aggregated_value: 8421 },
+    { label: 'Firefox', aggregated_value: 3204 },
+    { label: 'Safari', aggregated_value: 2817 },
+    { label: 'Edge', aggregated_value: 1236 },
+]
+
+export const Pie: Story = {
+    render: () => renderTrends(trendsQuery('ActionsPie'), BROWSER_TOTALS),
+    name: 'Pie',
+}
+
+export const Donut: Story = {
+    render: () => renderTrends(trendsQuery('ActionsDonut'), BROWSER_TOTALS),
+    name: 'Donut',
+}

@@ -6,6 +6,8 @@ import {
     BarChart as BarValueChart,
     ciRanges,
     DefaultTooltip,
+    PieChart,
+    type PieChartConfig,
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
@@ -51,6 +53,10 @@ const CHART_TYPE_OPTIONS = [
 const SLOPE_TYPE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
+
+const PIE_CONFIG: PieChartConfig = { legend: { show: true, position: 'bottom' } }
+// Matches DONUT_INNER_RADIUS_RATIO in TrendsPieChart.tsx so the MCP donut looks like the insight donut.
+const DONUT_CONFIG: PieChartConfig = { ...PIE_CONFIG, innerRadiusRatio: 0.6 }
 
 // DefaultTooltip shows the raw x label; format it like the axis.
 const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
@@ -120,6 +126,27 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                         labels={items.map((item) => item.label)}
                         theme={theme}
                         config={barConfig}
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    if (displayType === 'ActionsPie' || displayType === 'ActionsDonut') {
+        const slices = results.map((item, i) => ({
+            key: String(i),
+            label: getSeriesLabel(item, i),
+            data: [item.aggregated_value ?? 0],
+            color: colorAt(i),
+        }))
+        return (
+            <div>
+                <ChartHeader title={TITLE} />
+                <div className="flex flex-col w-full h-[400px]">
+                    <PieChart
+                        series={slices}
+                        theme={theme}
+                        config={displayType === 'ActionsDonut' ? DONUT_CONFIG : PIE_CONFIG}
                     />
                 </div>
             </div>
