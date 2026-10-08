@@ -4,7 +4,12 @@ import {
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
 } from './generated/api.schemas'
-import { PlatformAlertConfigurationStatus, configurationStatus, describeSchedule } from './platformAlertFormat'
+import {
+    PlatformAlertConfigurationStatus,
+    configurationStatus,
+    describeCondition,
+    describeSchedule,
+} from './platformAlertFormat'
 
 function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {}): PlatformAlertConfigurationApi {
     return {
@@ -13,9 +18,6 @@ function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {
         enabled: true,
         source_kind: 'logs',
         source_config: {},
-        threshold_count: 100,
-        threshold_operator: 'above',
-        window_minutes: 5,
         check_interval_minutes: 1,
         recurrence_unit: null,
         anchor_time: null,
@@ -86,5 +88,21 @@ describe('platformAlertFormat', () => {
         ],
     ])('describeSchedule: %s', (_, overrides, expected) => {
         expect(describeSchedule(makeConfiguration(overrides))).toEqual(expected)
+    })
+
+    test.each<[string, Record<string, unknown>, string]>([
+        [
+            'logs bound',
+            { condition: { threshold_count: 100, threshold_operator: 'below', window_minutes: 5 } },
+            'Below 100 in 5 min',
+        ],
+        [
+            'insight bound has no one-line form',
+            { condition: { threshold: { bounds: { lower: 10 } }, comparison: { type: 'absolute_value' } } },
+            'See source settings',
+        ],
+        ['no condition', {}, 'See source settings'],
+    ])('describeCondition: %s', (_, source_config, expected) => {
+        expect(describeCondition(makeConfiguration({ source_config }))).toEqual(expected)
     })
 })

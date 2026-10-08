@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -99,6 +99,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'product analytics',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'exact',
         currency: 'USD',
         clicks: 840,
@@ -112,6 +114,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'website analytics',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'phrase',
         currency: 'USD',
         clicks: 520,
@@ -125,6 +129,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'product analytics',
         platform: 'BingAds',
+        topImpressionRate: 0.64,
+        absoluteTopImpressionRate: 0.28,
         matchType: 'exact',
         currency: 'USD',
         clicks: 240,
@@ -138,6 +144,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'conversion tracking',
         platform: 'BingAds',
+        topImpressionRate: 0.64,
+        absoluteTopImpressionRate: 0.28,
         matchType: 'broad',
         currency: 'EUR',
         clicks: 80,
@@ -151,6 +159,8 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     {
         keyword: 'analytics dashboard',
         platform: 'GoogleAds',
+        topImpressionRate: 0.72,
+        absoluteTopImpressionRate: 0.38,
         matchType: 'exact',
         currency: 'USD',
         clicks: 0,
@@ -211,6 +221,12 @@ const MOCKS: Mocks = {
                             previous: query.compareFilter?.compare
                                 ? {
                                       clicks: row.clicks * 0.8,
+                                      topImpressionRate:
+                                          row.topImpressionRate == null ? null : row.topImpressionRate - 0.08,
+                                      absoluteTopImpressionRate:
+                                          row.absoluteTopImpressionRate == null
+                                              ? null
+                                              : row.absoluteTopImpressionRate - 0.05,
                                       position: row.position == null ? null : row.position + 1.5,
                                       impressions: row.impressions * 0.9,
                                       cost: row.cost == null ? null : row.cost * 1.1,
@@ -265,13 +281,76 @@ type Story = StoryObj<typeof meta>
 export const Connected: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
 }
+export const Pagination: Story = {
+    parameters: {
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        const { query } = (await request.json()) as { query: MarketingAnalyticsSearchQuery }
+                        return [
+                            200,
+                            {
+                                results: Array.from({ length: 23 }, (_, index) => ({
+                                    ...ROWS[index % ROWS.length],
+                                    previous: {
+                                        clicks: 50,
+                                        impressions: 1000,
+                                        ctr: 0.05,
+                                        cost: 100,
+                                        conversions: 2,
+                                        cpc: 2,
+                                        cpa: 50,
+                                        position: 5,
+                                    },
+                                    keyword: `Example keyword ${index + 1}`,
+                                    page: query.breakdown === 'page' ? `https://example.com/page-${index + 1}` : null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        const nextButton = canvas.getByRole('button', { name: 'Next page' })
+        const arrowTop = nextButton.getBoundingClientRect().top
+        await userEvent.click(canvas.getByRole('button', { name: 'Go to page' }))
+        await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
+        await canvas.findByText('21-23 of 23 entries')
+        await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
+        await userEvent.click(canvas.getByRole('button', { name: 'Landing pages' }))
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await expect(await canvas.findByText('1-10 of 23 entries')).toBeVisible()
+    },
+}
 export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Google Search Console')
+        const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
+        await expect(table.getBoundingClientRect().height).toBeLessThan(600)
+    },
 }
 export const MixedWithPosition: Story = {
     ...Comparison,
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByRole('checkbox', { name: 'Show position' }))
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
+        await expect(canvas.queryByRole('checkbox', { name: 'Show position' })).not.toBeInTheDocument()
     },
 }
 export const OrganicTraffic: Story = {
@@ -555,4 +634,62 @@ export const NewDashboardFlagOff: Story = {
         ...LegacyScene.parameters,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
     },
+}
+
+export const PositionMetrics: Story = {
+    ...Comparison,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByRole('columnheader', { name: /position|pos\./i })).toBeVisible()
+        await expect(await canvas.findAllByText('72.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('38.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('64.0%')).not.toHaveLength(0)
+        await expect(await canvas.findAllByText('28.0%')).not.toHaveLength(0)
+        await expect(canvas.queryByRole('button', { name: 'Visibility' })).not.toBeInTheDocument()
+        const topLabel = (await canvas.findAllByText('Top'))[0]
+        topLabel.focus()
+        await userEvent.tab({ shift: true })
+        await userEvent.tab()
+        await expect(topLabel).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.tab()
+        await expect((await canvas.findAllByText('72.0%'))[0].parentElement).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.tab()
+        const firstLabel = (await canvas.findAllByText('First'))[0]
+        await expect(firstLabel).toHaveFocus()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown as the first ad. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+        await userEvent.keyboard('{Escape}')
+        firstLabel.blur()
+        await userEvent.hover(topLabel)
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
+    },
+}
+export const NarrowPositionMetrics: Story = {
+    ...Narrow,
+    play: PositionMetrics.play,
 }

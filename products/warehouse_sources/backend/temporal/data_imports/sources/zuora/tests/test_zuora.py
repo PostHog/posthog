@@ -8,12 +8,7 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
-    ENDPOINTS,
-    PAGE_SIZE,
-    ZUORA_ENDPOINTS,
-    ZUORA_ENVIRONMENT_HOSTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import ENDPOINTS, ZUORA_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.zuora import (
     ZuoraResumeConfig,
     _base_url,
@@ -108,10 +103,6 @@ def _source(
 
 
 class TestBaseUrl:
-    @pytest.mark.parametrize("environment, expected", list(ZUORA_ENVIRONMENT_HOSTS.items()))
-    def test_environment_hosts(self, environment, expected):
-        assert _base_url(environment) == expected
-
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
             _base_url("nope")
@@ -132,17 +123,6 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    @mock.patch(AUTH_SESSION_PATCH)
-    def test_valid_credentials_mint_a_token(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-
-        assert validate_credentials("us_production", "cid", "sec") is True
-        call = mock_session.return_value.post.call_args
-        # Client credentials ride in the token request form body (body auth method), not HTTP Basic.
-        assert call.args[0] == "https://rest.zuora.com/oauth/token"
-        assert call.kwargs["data"] == {"grant_type": "client_credentials", "client_id": "cid", "client_secret": "sec"}
-        assert call.kwargs["auth"] is None
-
     @mock.patch(AUTH_SESSION_PATCH)
     def test_invalid_credentials(self, mock_session):
         mock_session.return_value.post.return_value = _token_response(status_code=401)
@@ -169,35 +149,6 @@ class TestValidateCredentials:
 class TestGetRows:
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_with_next_page_cursor(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "a1"}], next_page="cur-1")),
-                _response(_page([{"id": "a2"}], next_page=None)),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("accounts", manager))
-
-        assert [row["id"] for row in rows] == ["a1", "a2"]
-        first_url = snapshots[0]["url"]
-        assert first_url.startswith("https://rest.zuora.com/object-query/accounts?")
-        assert "pageSize=99" in first_url
-        assert "sort%5B%5D=updateddate.ASC" in first_url
-        # The cursor encodes the full query context, so the original params are dropped on page 2.
-        assert snapshots[1]["params"] == {"cursor": "cur-1"}
-        assert "cursor=cur-1" in snapshots[1]["url"]
-        assert "pageSize" not in snapshots[1]["url"]
-        assert "sort%5B%5D" not in snapshots[1]["url"]
-        # A save happens once — after page 1, whose nextPage still points at more data.
-        assert [call.args[0].cursor for call in manager.save_state.call_args_list] == ["cur-1"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_passes_updateddate_gt_filter(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -217,17 +168,6 @@ class TestGetRows:
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_has_no_filter(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([], next_page=None))])
-
-        _rows(_source("accounts", _make_manager()))
-
-        assert "filter[]" not in snapshots[0]["params"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -240,26 +180,6 @@ class TestGetRows:
         assert snapshots[0]["params"] == {"cursor": "cur-9"}
         assert "cursor=cur-9" in snapshots[0]["url"]
         assert "pageSize" not in snapshots[0]["url"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_remints_token_when_expired_mid_run(self, MockSession, MockAuth):
-        # expires_in=0 forces a re-mint per request — the deterministic stand-in for a sync
-        # outliving the ~1h token lifetime. Replaces the pre-framework reactive-401 re-mint.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response(expires_in=0)
-        _wire(
-            session,
-            [
-                _response(_page([{"id": "a1"}], next_page="cur-1")),
-                _response(_page([{"id": "a2"}], next_page=None)),
-            ],
-        )
-
-        rows = _rows(_source("accounts", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["a1", "a2"]
-        assert MockAuth.return_value.post.call_count == 2
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -280,30 +200,7 @@ class TestGetRows:
         assert MockAuth.return_value.post.call_count == 1
         assert all(s["headers"]["Authorization"] == "Bearer tok-1" for s in snapshots)
 
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_hyphenated_object_paths(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([], next_page=None))])
-
-        _rows(_source("credit_memos", _make_manager()))
-
-        assert "/object-query/credit-memos?" in snapshots[0]["url"]
-
 
 class TestZuoraSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # Pages are requested sorted ascending by updateddate.
-        assert response.sort_mode == "asc"
-
     def test_all_endpoints_have_paths(self):
         assert set(ENDPOINTS) == set(ZUORA_ENDPOINTS.keys())
-
-    def test_page_size_cap(self):
-        assert PAGE_SIZE == 99

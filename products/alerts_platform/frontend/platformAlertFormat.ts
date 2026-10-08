@@ -20,6 +20,10 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         label: 'Logs',
         alertUrl: (legacyConfigurationId) => urls.logsAlertDetail(legacyConfigurationId),
     },
+    [PlatformAlertConfigurationSourceKindEnumApi.Insight]: {
+        label: 'Insight',
+        alertUrl: (legacyConfigurationId) => urls.alert(legacyConfigurationId),
+    },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {
@@ -50,9 +54,19 @@ export function configurationStatus(configuration: PlatformAlertConfigurationApi
     return STATE_PRIORITY.find((state) => states.has(state)) ?? 'not_checked'
 }
 
+// Each source keeps its bound under `source_config.condition` in its own shape. Only the logs shape
+// reads as one line, so other sources fall back to the raw settings on the detail page.
 export function describeCondition(configuration: PlatformAlertConfigurationApi): string {
-    const operator = configuration.threshold_operator === 'below' ? 'Below' : 'Above'
-    return `${operator} ${configuration.threshold_count} in ${configuration.window_minutes} min`
+    const condition = configuration.source_config.condition
+    if (typeof condition !== 'object' || condition === null) {
+        return 'See source settings'
+    }
+    const { threshold_operator, threshold_count, window_minutes } = condition as Record<string, unknown>
+    if (typeof threshold_count !== 'number' || typeof window_minutes !== 'number') {
+        return 'See source settings'
+    }
+    const operator = threshold_operator === 'below' ? 'Below' : 'Above'
+    return `${operator} ${threshold_count} in ${window_minutes} min`
 }
 
 export function describeSchedule(configuration: PlatformAlertConfigurationApi): string {

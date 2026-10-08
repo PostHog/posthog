@@ -34,7 +34,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -706,9 +706,16 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "where_for_start": key_predicate,
                 "trace_filter": trace_filter,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
+                # The day bound on time_bucket adds no rows, but it lets the primary key prune parts.
+                # With only the timestamp bounds, ClickHouse checks every part the team has.
                 "filters": ast.Constant(value=True)
                 if self._unbounded_trace_lookup
-                else ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                else ast.And(
+                    exprs=[
+                        ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                        parse_expr(TIME_BUCKET_DATE_RANGE_WHERE, placeholders=self.query_date_range.to_placeholders()),
+                    ]
+                ),
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
@@ -720,9 +727,6 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             },
         )
         assert isinstance(query, ast.SelectQuery)
-
-        if recent_traces:
-            query.settings = HogQLQuerySettings(query_plan_max_limit_for_top_k_optimization=self._recent_spans_limit)
 
         # Root rows drive the displayed list order. Time sorts order them by timestamp; duration sorts
         # by the per-trace duration window (constant within a trace, so spans of a trace stay grouped).

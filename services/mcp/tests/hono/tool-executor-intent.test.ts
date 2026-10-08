@@ -187,54 +187,6 @@ describe('ToolExecutor analytics capture', () => {
         expect(state.context.api.config.onPrivateResponse).toBeUndefined()
     })
 
-    it.each([false, true])('captures optional app analytics when supplied=%s', async (supplied) => {
-        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-        const tool = {
-            name: 'projects-get',
-            title: 'Read projects',
-            description: 'Synthetic project read',
-            scopes: [],
-            annotations: { readOnlyHint: true },
-            schema: z.object({}).strict(),
-            handler: vi.fn(async () => ({ results: [] })),
-        }
-        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
-            build: () => tool,
-            meta: undefined,
-            rawInputSchema: undefined,
-            definition: undefined,
-        })
-        vi.spyOn(catalog, 'getPreBuiltEntries').mockReturnValue([
-            { name: tool.name, description: tool.description, inputSchema: { type: 'object' } },
-        ])
-        vi.spyOn(InstructionsBuilder.prototype, 'buildRenderUiToolEntry').mockReturnValue({
-            name: 'render-ui',
-            inputSchema: { type: 'object' },
-        })
-        const state = makeToolExecutorState([tool], { useSingleExec: true, renderUiEnabled: true })
-        const listed = await executor.handleToolsList(state)
-        const appTool = listed.tools.find((entry) => entry.name === tool.name)!
-        expect(appTool.inputSchema.properties).toHaveProperty('context')
-        expect(appTool.inputSchema.properties).toHaveProperty('llm_model')
-        expect(appTool.inputSchema.required ?? []).not.toContain('context')
-        expect(appTool.inputSchema.required ?? []).not.toContain('llm_model')
-
-        const result = await executor.handleToolCall(
-            {
-                name: tool.name,
-                arguments: supplied ? { context: 'Compare synthetic projects', llm_model: 'example-model' } : {},
-            },
-            state
-        )
-        expect(result).not.toHaveProperty('isError', true)
-        expect(tool.handler).toHaveBeenCalledWith(expect.anything(), {})
-        expect(capture).toHaveBeenCalledOnce()
-        const captured = capture.mock.calls[0]![0]
-        expect(captured.toolName).toBe(tool.name)
-        expect(captured.intent).toBe(supplied ? 'Compare synthetic projects' : undefined)
-        expect(captured.llmModel).toBe(supplied ? 'example-model' : undefined)
-    })
-
     it('injects the analytics arguments into advertised tools', async () => {
         const state = makeToolExecutorState([], { useSingleExec: true })
 

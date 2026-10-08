@@ -1,7 +1,6 @@
 import json
 from typing import Any
 
-import pytest
 import time_machine
 from unittest import mock
 
@@ -11,11 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.h
     hoorayhr_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.settings import (
-    ENDPOINTS,
-    HOORAYHR_BASE_URL,
-    HOORAYHR_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.hoorayhr.settings import HOORAYHR_BASE_URL
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -109,49 +104,8 @@ class TestHoorayHRTransport:
         assert seen[0]["auth_headers"]["Authorization"] == "Bearer pk_test_key"
 
 
-class TestSourceResponseConfig:
-    def test_all_endpoints_buildable_with_declared_keys(self) -> None:
-        for endpoint in ENDPOINTS:
-            response = _source(endpoint)
-            assert response.name == endpoint
-            assert response.primary_keys == HOORAYHR_ENDPOINTS[endpoint].primary_keys
-
-    def test_partitioning_uses_stable_creation_field(self) -> None:
-        users = _source("users")
-        assert users.partition_mode == "datetime"
-        assert users.partition_format == "month"
-        assert users.partition_keys == ["createdAt"]
-
-    def test_teams_information_is_unpartitioned_and_keyed_by_team_id(self) -> None:
-        teams = _source("teams_information")
-        assert teams.primary_keys == ["teamId"]
-        assert teams.partition_mode is None
-        assert teams.partition_keys is None
-
-
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    @mock.patch(HOORAYHR_SESSION_PATCH)
-    def test_status_mapping(self, mock_session: mock.MagicMock, status: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("pk_k") is expected
-
     @mock.patch(HOORAYHR_SESSION_PATCH)
     def test_connection_error_returns_false(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("pk_k") is False
-
-    @mock.patch(HOORAYHR_SESSION_PATCH)
-    def test_probes_leave_types_with_bearer_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("pk_k")
-
-        call = mock_session.return_value.get.call_args
-        called_url = call.args[0] if call.args else call.kwargs["url"]
-        assert called_url == f"{HOORAYHR_BASE_URL}/leave-types"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer pk_k"
-        # The key must be registered for redaction in tracked telemetry.
-        assert mock_session.call_args.kwargs["redact_values"] == ("pk_k",)

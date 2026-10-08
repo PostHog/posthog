@@ -15,6 +15,15 @@ These counts guide connection suggestions; they do not change report attribution
 
 Spend and conversions require a synced ad platform source in the current search filters.
 Google Search Console reports organic traffic metrics only.
+The Traffic view always includes the Position column when Google Search Console, Google Ads, or Bing Ads is ready.
+The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads or Bing Ads.
+Hover over each label or value, or focus it with the keyboard, for its definition.
+Google Ads percentages use Google Search impressions with placement data, weighted by impressions; Search partners are excluded.
+Bing Ads percentages use Microsoft Advertising report values, weighted by impressions.
+They do not identify second or third position, or the search results page.
+Existing Google Ads connections need to sync `keyword_stats` or `landing_page_stats` to import the new fields.
+Bing Ads connections need to sync `keyword_performance_report` or `destination_url_performance_report`.
+Older rows without placement data show no value.
 When no paid source is ready, the disabled control directs users to check their source settings or filters.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 
@@ -37,6 +46,16 @@ The current import provides spend, clicks, and impressions; platform-reported co
 PostHog conversion goals still work through campaign attribution.
 Ad-level reporting is unavailable because the connector does not import promoted-post statistics.
 
+## Search performance
+
+Keywords and queries includes paid keywords from ad platforms and organic queries from Google Search Console.
+Search Console requires a synced `search_analytics_by_query` or `search_analytics_by_query_page` table; the integration and paid/organic filters determine which sources appear.
+Each search table has a reload control and query duration.
+Pagination stays within the table without scrolling the scene, and changing between keywords and landing pages starts on page 1.
+Tables with more than ten results reserve consistent space for values and comparisons and keep room for ten rows on shorter pages.
+Tables with ten results or fewer keep their compact layout without reserved space.
+Use the page selector to jump directly to a page, or the arrows to move one page at a time.
+
 ## Bing Ads landing pages
 
 Search performance includes Bing Ads in the Landing pages view.
@@ -44,3 +63,15 @@ Enable `destination_url_performance_report` in the Bing Ads source settings and 
 The view groups search distribution metrics by destination URL and currency, with clicks, impressions, spend, and platform-attributed conversions.
 The connector uses `ConversionsQualified` because Microsoft deprecated `Conversions` for this report.
 Keyword reporting continues to use `keyword_performance_report`.
+
+## Google Ads campaign trends
+
+Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
+The current schema takes precedence when both are available.
+Table resolution uses schema metadata when available and otherwise recognizes source and custom table-name prefixes.
+
+## Source scan caching and readiness
+
+The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
+Source health polling refreshes metadata without forcing every dashboard query.
+Campaign reporting waits for all required schemas to complete their first sync.

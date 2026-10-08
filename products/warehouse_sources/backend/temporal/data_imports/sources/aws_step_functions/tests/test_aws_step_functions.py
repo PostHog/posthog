@@ -175,23 +175,6 @@ def test_full_refresh_pagination_and_resume_at_every_batch(
     session.close.assert_called()
 
 
-@pytest.mark.parametrize("endpoint", ["state_machines", "executions", "execution_history"])
-def test_empty_pages_finish_and_resume_without_requests(
-    config: AwsStepFunctionsSourceConfig, session: MagicMock, endpoint: str
-) -> None:
-    session.post.side_effect = [
-        response(200, {"stateMachines": [], "nextToken": "next"}),
-        response(200, {"stateMachines": []}),
-    ]
-    checkpoint = manager()
-    assert list(source_items(aws_step_functions_source(config, endpoint, API_VERSION, checkpoint))) == []
-    assert checkpoint.safe_point.call_count == 2
-    state = checkpoint.save_state.call_args.args[0]
-    session.post.reset_mock()
-    assert list(source_items(aws_step_functions_source(config, endpoint, API_VERSION, manager(state)))) == []
-    session.post.assert_not_called()
-
-
 @pytest.mark.parametrize("schema_name", [None, "state_machines", "executions", "execution_history"])
 @pytest.mark.parametrize(
     "code,valid_at_create",

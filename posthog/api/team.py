@@ -41,6 +41,7 @@ from posthog.schema import (
     SourceMap,
 )
 
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
@@ -129,7 +130,7 @@ from products.customer_analytics.backend.facade.account_property_pins import (
     validate_pinned_account_properties,
 )
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
-from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -1059,7 +1060,7 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
 class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        choices=AccountPropertyPinKind.choices,
         help_text="Definition type for this default pinned account property.",
     )
     id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
@@ -3381,6 +3382,20 @@ def validate_team_attrs(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
                 )
+
+    # A new team has no warehouse tables yet, so only an update can reach a denied one.
+    if "test_account_filters" in attrs and instance is not None:
+        team = instance if isinstance(instance, Team) else instance.passthrough_team
+        denied_table = table_blocking_property_filters(
+            cast(User, view.request.user), team, attrs["test_account_filters"]
+        )
+        if denied_table:
+            raise exceptions.ValidationError(
+                {
+                    "test_account_filters": f"This filter uses the table '{denied_table}', which you don't have access to."
+                },
+                code="permission_denied",
+            )
 
     if "primary_dashboard" in attrs:
         if not instance:

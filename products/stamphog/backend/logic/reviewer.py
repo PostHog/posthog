@@ -55,7 +55,7 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py).
+# Mirrors the engine's FACTS_SCHEMA cap (products/stamphog/packages/pr-approval-agent/verdict_rule.py).
 # The columns that hold this text are TextField, so the schema is the only width it must respect.
 CHANGE_SUMMARY_MAX_CHARS = 600
 
