@@ -20,6 +20,7 @@ DEFAULT_CODEX_AGENT_MODEL = "gpt-5.5"
 AGENT_RUNTIMES = ("claude", "codex")
 DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAULT_CODEX_AGENT_MODEL}
 SkillDelivery = Literal["bundled", "exec"]
+McpMode = Literal["cli", "code"]
 DEFAULT_SKILL_DELIVERY: SkillDelivery = "bundled"
 DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
@@ -46,6 +47,8 @@ class HarnessOptions:
     agent_runtime: str
     skill_delivery: SkillDelivery
     reasoning_effort: str | None
+    mcp_mode: McpMode | None
+    """MCP tool mode the sandbox agent connects with; ``None`` keeps the server's default."""
     max_sandboxes: int
     team_setup_concurrency: int
     """Concurrent team-cloning and case-seeding phases for this run."""
@@ -131,6 +134,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Agent reasoning effort (e.g. 'low'…'xhigh'); valid values depend on runtime+model.",
     )
     parser.add_argument(
+        "--mcp-mode",
+        choices=get_args(McpMode),
+        default=None,
+        help=(
+            "MCP tool mode the agent connects with. 'cli' is the single exec tool; 'code' runs agent-written "
+            "JavaScript that calls tools. Omit to keep the MCP server's default."
+        ),
+    )
+    parser.add_argument(
         "--max-sandboxes",
         type=int,
         default=None,
@@ -190,6 +202,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--agent-runtime", args.agent_runtime is not None),
             ("--skill-delivery", args.skill_delivery is not None),
             ("--reasoning-effort", args.reasoning_effort is not None),
+            ("--mcp-mode", args.mcp_mode is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
             ("--rebuild-sandbox-image", args.rebuild_sandbox_image),
@@ -236,6 +249,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         agent_runtime=agent_runtime,
         skill_delivery=skill_delivery,
         reasoning_effort=args.reasoning_effort,
+        mcp_mode=args.mcp_mode,
         max_sandboxes=max_sandboxes,
         team_setup_concurrency=_default_team_setup_concurrency(),
         keep_sandbox_containers=args.keep_sandbox_containers,

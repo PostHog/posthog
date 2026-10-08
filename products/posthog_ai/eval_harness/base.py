@@ -601,6 +601,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
             "reasoning_effort": self.ctx.reasoning_effort,
+            "mcp_mode": self.ctx.mcp_mode,
         }
 
 

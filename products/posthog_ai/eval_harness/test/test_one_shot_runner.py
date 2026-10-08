@@ -78,6 +78,7 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         agent_runtime="claude",
         skill_delivery="bundled",
         reasoning_effort=None,
+        mcp_mode=None,
         case_filter=case_filter,
         demo_data=None,
         posthog_client=None,

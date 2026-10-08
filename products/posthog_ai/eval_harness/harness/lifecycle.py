@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
 from dataclasses import replace
 from functools import partial
+from typing import Any
 
 from unittest.mock import patch
 
@@ -35,6 +36,7 @@ from .cli import (
     DEFAULT_SKILL_DELIVERY,
     MULTI_TURN_CASE_TIMEOUT_MULTIPLIER,
     HarnessOptions,
+    McpMode,
     SkillDelivery,
 )
 from .context import EvalContext
@@ -100,6 +102,13 @@ def _git(*args: str) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip()
+
+
+def _with_mcp_mode(overrides: dict[str, Any], mcp_mode: McpMode | None) -> dict[str, Any]:
+    """Pin the MCP server's tool mode for sandbox agents through the URL the server already reads it from."""
+    if mcp_mode is None:
+        return overrides
+    return {**overrides, "SANDBOX_MCP_URL": f"{overrides['SANDBOX_MCP_URL']}?mode={mcp_mode}"}
 
 
 def _worktree_dirty() -> bool | None:
@@ -354,7 +363,7 @@ class SandboxedEvalHarness:
                     # the same per-process queue lets the single eval worker serve both, and keeps
                     # those workflows off a dev worker the same way.
                     GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
-                    **self.provider.settings_overrides(),
+                    **_with_mcp_mode(self.provider.settings_overrides(), self.options.mcp_mode),
                 )
 
             if overrides:
@@ -416,6 +425,7 @@ class SandboxedEvalHarness:
             agent_runtime=self.options.agent_runtime,
             skill_delivery=self.options.skill_delivery,
             reasoning_effort=self.options.reasoning_effort,
+            mcp_mode=self.options.mcp_mode,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,
             posthog_client=self._posthog_client,

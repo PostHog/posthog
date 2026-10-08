@@ -45,6 +45,9 @@ class EvalContext:
     reasoning_effort: str | None
     """Agent reasoning effort override; ``None`` keeps the agent server's default."""
 
+    mcp_mode: str | None
+    """MCP tool mode the sandbox agent connects with; ``None`` keeps the server's default."""
+
     case_filter: str | None
     """Substring filter on case names, from ``--eval``."""
 
