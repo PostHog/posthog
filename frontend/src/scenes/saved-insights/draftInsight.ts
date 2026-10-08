@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import { Node } from '~/queries/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
 import { AccessControlLevel, InsightShortId, UserBasicType, UserType } from '~/types'
 
 import type { SavedInsightListItem } from './savedInsightsLogic'
@@ -14,7 +15,16 @@ export interface DraftInsightQuery {
 /** Sentinel id for the local draft row in the saved insights table. Real insight ids are positive. */
 export const DRAFT_INSIGHT_ROW_ID = -1
 
-/** Storage can hold anything — a non-numeric timestamp would throw in draftInsightListItem and crash the list. */
+/** A wrapper node carries the query that runs in `source`, so without it the draft cannot be restored or rendered. */
+function isWrapperNodeMissingSource(query: Node<Record<string, any>>): boolean {
+    const isWrapperKind = isDataTableNode(query) || isDataVisualizationNode(query) || isInsightVizNode(query)
+    return isWrapperKind && !isNodeWithSource(query)
+}
+
+/**
+ * Storage can hold anything. A non-numeric timestamp would throw in draftInsightListItem, and a
+ * wrapper node without a source throws where the row reads `query.source.kind` to pick its icon.
+ */
 export function isValidDraftInsightQuery(value: unknown): value is DraftInsightQuery {
     const draft = value as DraftInsightQuery | null
     return (
@@ -23,6 +33,7 @@ export function isValidDraftInsightQuery(value: unknown): value is DraftInsightQ
         !!draft.query &&
         typeof draft.query === 'object' &&
         typeof draft.query.kind === 'string' &&
+        !isWrapperNodeMissingSource(draft.query) &&
         typeof draft.timestamp === 'number' &&
         Number.isFinite(draft.timestamp)
     )

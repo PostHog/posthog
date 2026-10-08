@@ -468,6 +468,13 @@ describe('savedInsightsLogic', () => {
             ['unparseable JSON', 'not json'],
             ['a non-numeric timestamp', JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 'yesterday' })],
             ['a query without a kind', JSON.stringify({ query: {}, timestamp: 1721000000000 })],
+            [
+                'a wrapper query without a source',
+                JSON.stringify({
+                    query: { kind: 'DataVisualizationNode', chartSettings: {} },
+                    timestamp: 1721000000000,
+                }),
+            ],
         ])('drops a malformed draft (%s) instead of surfacing it', async (_label, storedValue) => {
             localStorage.setItem(draftKey, storedValue)
             logic.actions.loadDraftQuery()

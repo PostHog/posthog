@@ -2,6 +2,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/T
 import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { isNonEmptyObject } from 'lib/utils/guards'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
@@ -94,10 +95,11 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
     )
 }
 
+/** Callers read `node.source` right after this guard, so a wrapper that lost its source must not pass. */
 export function isNodeWithSource(
     node?: Record<string, any> | null
 ): node is DataTableNode | VisualizationNode | InsightVizNode {
-    if (!node) {
+    if (!node || !isNonEmptyObject(node.source)) {
         return false
     }
 
