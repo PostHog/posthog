@@ -957,6 +957,8 @@ const AssistantFunnelsQuery = z.object({
         .describe('Events or actions to include. Prioritize the more popular and fresh events and actions.'),
 })
 
+const AssistantRetentionDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar'])
+
 const RetentionPeriod = z.enum(['Hour', 'Day', 'Week', 'Month'])
 
 const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 'retention_first_ever_occurrence'])
@@ -1017,6 +1019,7 @@ const AssistantRetentionFilter = z.object({
             'Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.'
         )
         .optional(),
+    display: AssistantRetentionDisplayType.optional(),
     meanRetentionCalculation: z
         .enum(['simple', 'weighted', 'none'])
         .describe(

@@ -2513,6 +2513,15 @@
                     "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
                     "description": "Settings for the left Y axis."
                 },
+                "legendPosition": {
+                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
+                "pie": {
+                    "$ref": "#/definitions/PieChartSettings",
+                    "description": "Settings for `ActionsPie` and `ActionsDonut`."
+                },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
@@ -4603,6 +4612,11 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "AssistantRetentionDisplayType": {
+            "description": "Retention display types:\n- `ActionsLineGraph` - line chart (default)\n- `ActionsBar` - bar chart",
+            "enum": ["ActionsLineGraph", "ActionsBar"],
+            "type": "string"
+        },
         "AssistantRetentionEntity": {
             "anyOf": [
                 {
@@ -4665,6 +4679,9 @@
                 "cumulative": {
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/AssistantRetentionDisplayType"
                 },
                 "meanRetentionCalculation": {
                     "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",

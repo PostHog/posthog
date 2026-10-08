@@ -49,6 +49,7 @@ from posthog.schema_enums import (
     AssistantMessageType as AssistantMessageType,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantRetentionDisplayType as AssistantRetentionDisplayType,
     AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
@@ -3800,6 +3801,11 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -10532,6 +10538,7 @@ class AssistantRetentionFilter(BaseModel):
             " towards all the previous periods."
         ),
     )
+    display: AssistantRetentionDisplayType | None = None
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,
         description=(

@@ -180,6 +180,31 @@
                                     },
                                     "type": "object"
                                 },
+                                "legendPosition": {
+                                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
+                                    "enum": ["top", "bottom", "left", "right"],
+                                    "type": "string"
+                                },
+                                "pie": {
+                                    "description": "Settings for `ActionsPie` and `ActionsDonut`.",
+                                    "properties": {
+                                        "showTotal": {
+                                            "description": "Whether to show the aggregation total below the chart. Defaults to on.",
+                                            "type": "boolean"
+                                        },
+                                        "sliceContent": {
+                                            "description": "What to render on each slice. Defaults to labels.",
+                                            "enum": ["labels", "values", "none"],
+                                            "type": "string"
+                                        },
+                                        "valueDisplay": {
+                                            "description": "Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`.",
+                                            "enum": ["absolute", "percentage"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                },
                                 "rightYAxisSettings": {
                                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`.",
                                     "properties": {

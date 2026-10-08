@@ -26,6 +26,7 @@ import {
     MultipleBreakdownType,
     Node,
     NodeKind,
+    PieChartSettings,
     type RecordingOrder,
     type RecordingOrderDirection,
     RetentionFilterLegacy,
@@ -985,7 +986,15 @@ export interface AssistantRetentionFilter {
      * @default event
      */
     aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+    display?: AssistantRetentionDisplayType
 }
+
+/**
+ * Retention display types:
+ * - `ActionsLineGraph` - line chart (default)
+ * - `ActionsBar` - bar chart
+ */
+export type AssistantRetentionDisplayType = ChartDisplayType.ActionsLineGraph | ChartDisplayType.ActionsBar
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
@@ -1969,6 +1978,10 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Settings for `ActionsPie` and `ActionsDonut`. */
+    pie?: PieChartSettings
     /** Render each data point's value as a label directly on the series. */
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
