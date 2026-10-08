@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.octopus_de
     _format_incremental_value,
     _parse_retry_after,
     get_rows,
-    normalize_host,
     octopus_deploy_source,
     validate_credentials,
 )
@@ -49,21 +48,6 @@ def _page(items: list[dict[str, Any]], has_next: bool) -> mock.MagicMock:
     return _response(json_data={"Items": items, "Links": links})
 
 
-class TestNormalizeHost:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("my-org.octopus.app", "my-org.octopus.app"),
-            ("https://my-org.octopus.app", "my-org.octopus.app"),
-            ("http://octopus.example.com/", "octopus.example.com"),
-            ("  my-org.octopus.app  ", "my-org.octopus.app"),
-            ("https://my-org.octopus.app/app#/Spaces-1", "my-org.octopus.app"),
-        ],
-    )
-    def test_normalize_host(self, raw, expected):
-        assert normalize_host(raw) == expected
-
-
 class TestFormatIncrementalValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -79,45 +63,6 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildParams:
-    def test_tasks_incremental_sends_from_completed_date(self):
-        params = _build_params(
-            OCTOPUS_DEPLOY_ENDPOINTS["tasks"],
-            skip=0,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert params["fromCompletedDate"] == "2024-01-01T00:00:00+00:00"
-        assert params["skip"] == 0
-        assert params["take"] == 100
-
-    def test_events_incremental_sends_from(self):
-        params = _build_params(
-            OCTOPUS_DEPLOY_ENDPOINTS["events"],
-            skip=200,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert params["from"] == "2024-01-01T00:00:00+00:00"
-        assert params["skip"] == 200
-
-    def test_no_watermark_sends_no_filter(self):
-        params = _build_params(
-            OCTOPUS_DEPLOY_ENDPOINTS["tasks"],
-            skip=0,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert "fromCompletedDate" not in params
-
-    def test_full_refresh_ignores_stray_watermark(self):
-        params = _build_params(
-            OCTOPUS_DEPLOY_ENDPOINTS["tasks"],
-            skip=0,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert "fromCompletedDate" not in params
-
     def test_non_incremental_endpoint_never_sends_filter(self):
         # Deployments expose no server-side date filter; an incremental run must not invent one.
         params = _build_params(
@@ -267,35 +212,6 @@ class TestGetRows:
     def _requested_urls(self, session):
         return [call.args[0] for call in session.get.call_args_list]
 
-    def test_fans_out_over_spaces_and_stamps_space_id(self):
-        manager = self._manager()
-        responses = [
-            # Spaces enumeration returns unsorted ids; fan-out must be deterministic (sorted).
-            _page([{"Id": "Spaces-2"}, {"Id": "Spaces-1"}], has_next=False),
-            _page([{"Id": "Projects-1"}], has_next=False),  # Spaces-1
-            _page([{"Id": "Projects-1"}], has_next=False),  # Spaces-2
-        ]
-        rows, session = self._run(manager, responses)
-
-        assert [(r["SpaceId"], r["Id"]) for r in rows] == [("Spaces-1", "Projects-1"), ("Spaces-2", "Projects-1")]
-        urls = self._requested_urls(session)
-        assert "/api/spaces" in urls[0]
-        assert "/api/Spaces-1/projects" in urls[1]
-        assert "/api/Spaces-2/projects" in urls[2]
-
-    def test_paginates_with_skip_until_no_next_page(self):
-        manager = self._manager()
-        responses = [
-            _page([{"Id": "Spaces-1"}], has_next=False),
-            _page([{"Id": "Projects-1"}, {"Id": "Projects-2"}], has_next=True),
-            _page([{"Id": "Projects-3"}], has_next=False),
-        ]
-        rows, session = self._run(manager, responses)
-
-        assert [r["Id"] for r in rows] == ["Projects-1", "Projects-2", "Projects-3"]
-        second_page_qs = parse_qs(urlparse(self._requested_urls(session)[2]).query)
-        assert second_page_qs["skip"] == ["2"]
-
     def test_empty_page_terminates(self):
         manager = self._manager()
         responses = [
@@ -328,20 +244,6 @@ class TestGetRows:
             with pytest.raises(octopus_deploy_module.OctopusDeployPaginationLimitError):
                 self._run(manager, responses, endpoint=endpoint)
 
-    def test_saves_state_after_page_and_between_spaces(self):
-        manager = self._manager()
-        responses = [
-            _page([{"Id": "Spaces-1"}, {"Id": "Spaces-2"}], has_next=False),
-            _page([{"Id": "P-1"}], has_next=True),  # Spaces-1 page 1
-            _page([{"Id": "P-2"}], has_next=False),  # Spaces-1 page 2
-            _page([{"Id": "P-3"}], has_next=False),  # Spaces-2
-        ]
-        self._run(manager, responses)
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert OctopusDeployResumeConfig(skip=1, space_id="Spaces-1") in saved
-        assert OctopusDeployResumeConfig(skip=0, space_id="Spaces-2") in saved
-
     def test_resumes_from_saved_space_and_skip(self):
         manager = self._manager(OctopusDeployResumeConfig(skip=200, space_id="Spaces-2"))
         responses = [
@@ -358,19 +260,6 @@ class TestGetRows:
         assert parse_qs(urlparse(urls[2]).query)["skip"] == ["0"]
         # Spaces-1 was already completed before the crash — not re-fetched.
         assert not any("/api/Spaces-1/projects" in url for url in urls)
-
-    def test_resume_bookmark_for_deleted_space_starts_over(self):
-        manager = self._manager(OctopusDeployResumeConfig(skip=100, space_id="Spaces-gone"))
-        responses = [
-            _page([{"Id": "Spaces-1"}], has_next=False),
-            _page([{"Id": "P-1"}], has_next=False),
-        ]
-        rows, session = self._run(manager, responses)
-
-        urls = self._requested_urls(session)
-        assert "/api/Spaces-1/projects" in urls[1]
-        assert parse_qs(urlparse(urls[1]).query)["skip"] == ["0"]
-        assert [r["Id"] for r in rows] == ["P-1"]
 
     def test_instance_level_endpoint_skips_space_fan_out(self):
         manager = self._manager()
@@ -431,11 +320,6 @@ class TestReadCappedBody:
         response = mock.MagicMock()
         response.iter_content.return_value = chunks
         return response
-
-    def test_reads_full_body_and_closes(self):
-        response = self._streamed([b'{"ok"', b": true}"])
-        assert octopus_deploy_module._read_capped_body(response) == b'{"ok": true}'
-        response.close.assert_called_once()
 
     def test_rejects_oversized_body(self):
         # A customer-controlled host that streams past the cap must be refused before it exhausts

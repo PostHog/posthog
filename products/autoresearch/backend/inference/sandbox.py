@@ -40,8 +40,10 @@ import io
 import json
 import math
 import base64
+import hashlib
 import binascii
 from dataclasses import field
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -72,9 +74,17 @@ from products.autoresearch.backend.dataset.labeling import (
     build_inference_features_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
+    rolling_selection,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
-from products.autoresearch.backend.query import INTERACTIVE_QUERY, QueryContext, run_hogql
+from products.autoresearch.backend.query import (
+    BATCH_QUERY,
+    INTERACTIVE_QUERY,
+    QueryContext,
+    QueryCost,
+    measure_queries,
+    run_hogql,
+)
 from products.autoresearch.backend.training.artifacts import (
     MAX_ARTIFACT_BYTES,
     ArtifactBundle,
@@ -148,6 +158,10 @@ class SandboxInferenceError(Exception):
     """Raised when materialization or the sandbox run fails. The caller fails the run."""
 
 
+class ModelLoadError(SandboxInferenceError):
+    """Raised when a scoring run cannot load the champion's persisted model. A retry fails the same way."""
+
+
 @frozen
 class MaterializedData:
     """Labeled training matrix for a train run: train + holdout folds. Predict runs return a plain row list."""
@@ -160,11 +174,34 @@ class MaterializedData:
 
 
 @frozen
+class InferenceRows:
+    """The feature rows one scoring run materialized, and how many persons were eligible for it."""
+
+    rows: list[dict[str, Any]]
+    # Above len(rows) when the population reached the cap and the run scores a rolling subset.
+    eligible: int
+
+
+@frozen
+class MaterializedFeatures:
+    """The inference rows of one ``features.sql`` at one cutoff, so a second model with the same SQL reuses them."""
+
+    sql_digest: str
+    data: InferenceRows
+
+
+@frozen
 class SandboxScoreResult:
     scored_rows: list[dict[str, Any]]  # score rows with an added "p_y"
     holdout_auc: float | None
     n_train: int
     n_features: int
+    rows_eligible: int
+    features: MaterializedFeatures | None = None
+
+
+def features_sql_digest(feature_sql: str) -> str:
+    return hashlib.sha256(feature_sql.encode("utf-8")).hexdigest()
 
 
 # ── Public entry point ─────────────────────────────────────────────────────────
@@ -237,14 +274,19 @@ def score_via_sandbox(
     cutoff_ts: int | None = None,
     user: User | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
+    bundle: ArtifactBundle | None = None,
+    score_data: InferenceRows | None = None,
 ) -> SandboxScoreResult:
     """
-    Predict run: score the inference population with the champion's persisted model.
+    Predict run: score the inference population with the model's persisted ``model.pkl``.
 
     Pure inference: it loads ``model.pkl`` and runs only ``predict.py`` against the
     inference population (cutoff now(), no labels, no holdout). A missing model fails
     the run: fitting stays at training completion, so a cadence never becomes a
     five-minute fit that races other cadences for the same pickle.
+
+    Shadow scoring passes the ``bundle`` it already read, and the ``score_data`` another
+    model materialized from the same ``features.sql``, so that query runs once per cadence.
 
     Raises SandboxInferenceError on any failure (missing bundle or model, no data,
     sandbox or script error). Never falls back to stub scoring.
@@ -253,32 +295,41 @@ def score_via_sandbox(
         raise SandboxInferenceError(f"Model {model.pk} has no artifact_prefix")
     prefix = model.artifact_prefix
 
-    try:
-        bundle = read_bundle(prefix)
-    except Exception as exc:
-        raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
+    if bundle is None:
+        try:
+            bundle = read_bundle(prefix)
+        except Exception as exc:
+            raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
     acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
     _validate_bundle_feature_sql(bundle)
 
     model_bytes = read_model(prefix)
     if not model_bytes:
-        raise SandboxInferenceError(
-            f"Champion model.pkl is missing at {prefix}; the completion-time fit has not produced it"
-        )
+        raise ModelLoadError(f"Champion model.pkl is missing at {prefix}; the completion-time fit has not produced it")
 
-    score_rows = _materialize_score_data(
-        team=team,
-        pipeline=pipeline,
-        feature_sql=bundle.features_sql,
-        cutoff_ts=cutoff_ts,
-        user=acting_user,
-        query_context=query_context,
-    )
+    if score_data is None:
+        score_data = _materialize_score_data(
+            team=team,
+            pipeline=pipeline,
+            feature_sql=bundle.features_sql,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=query_context,
+        )
+    features = MaterializedFeatures(sql_digest=features_sql_digest(bundle.features_sql), data=score_data)
+    score_rows = score_data.rows
     n_train = int((model.metrics or {}).get("n_train") or 0)
     # A population that matches nobody today is a real zero, not a failure: retrying cannot
     # change it, and the recipe path completes the same cadence with no rows.
     if not score_rows:
-        return SandboxScoreResult(scored_rows=[], holdout_auc=model.holdout_score, n_train=n_train, n_features=0)
+        return SandboxScoreResult(
+            scored_rows=[],
+            holdout_auc=model.holdout_score,
+            n_train=n_train,
+            n_features=0,
+            rows_eligible=score_data.eligible,
+            features=features,
+        )
     feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
     # Cheap guard before paying for a sandbox.
     if not feature_cols:
@@ -292,7 +343,36 @@ def score_via_sandbox(
         holdout_auc=model.holdout_score,
         n_train=n_train,
         n_features=len(feature_cols),
+        rows_eligible=score_data.eligible,
+        features=features,
     )
+
+
+def check_scorability(
+    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User | None = None
+) -> QueryCost:
+    """
+    Run ``feature_sql`` against today's inference anchors under the limits a scoring run has,
+    and return what the queries cost. It runs the anchor count and the feature query the
+    scoring cadence runs, but no sandbox, so a champion whose SQL cannot score is found right
+    after its fit and not on every cadence after it.
+
+    Raises SandboxInferenceError when either query fails or the rows do not key the anchors.
+    """
+    acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
+    today = django_timezone.now().date()
+    cutoff_ts = int(datetime(today.year, today.month, today.day, tzinfo=UTC).timestamp())
+    _, cost = measure_queries(
+        lambda: _materialize_score_data(
+            team=team,
+            pipeline=pipeline,
+            feature_sql=feature_sql,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=BATCH_QUERY,
+        )
+    )
+    return cost
 
 
 # ── Guards on the bundle and the acting user ──────────────────────────────────────
@@ -440,13 +520,20 @@ def _materialize_score_data(
     cutoff_ts: int | None = None,
     user: User | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
-) -> list[dict[str, Any]]:
+) -> InferenceRows:
     """
     Predict run materialization: the bundle's feature SQL against the inference anchors
     (cutoff_ts = now() per user, or a backdated instant when ``cutoff_ts`` is given for a
     historical backfill). One row per eligible scoring user with the agent's feature
     columns, with no labels and no fold. Touches only the inference population.
+
+    A population at or above the cap scores a rolling subset: the ``ROLLING_SCORE_LIMIT``
+    persons whose last score by this pipeline is oldest.
     """
+    eligible = count_inference_anchors(
+        team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+    )
+    rolling = rolling_selection(eligible=eligible, pipeline_id=str(pipeline.pk), cadence_days=pipeline.cadence_days)
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     score_sql, score_values = build_inference_features_sql(
         feature_sql=feature_sql_resolved,
@@ -456,18 +543,24 @@ def _materialize_score_data(
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
+        rolling=rolling,
     )
     score_rows = _materialize_rows(
         team=team, sql=score_sql, values=score_values, user=user, query_context=query_context
     )
-    expected = count_inference_anchors(
-        team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+    _validate_rows_key_one_person(
+        score_rows,
+        source="inference feature_sql",
+        expected_count=eligible if rolling is None else rolling.limit,
     )
-    _validate_rows_key_one_person(score_rows, source="inference feature_sql", expected_count=expected)
     logger.info(
-        "autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows), cutoff_ts=cutoff_ts
+        "autoresearch_score_materialized",
+        pipeline_id=str(pipeline.pk),
+        n_score=len(score_rows),
+        n_eligible=eligible,
+        cutoff_ts=cutoff_ts,
     )
-    return score_rows
+    return InferenceRows(rows=score_rows, eligible=eligible)
 
 
 def measure_training_sample(
@@ -543,6 +636,8 @@ def count_inference_anchors(
     How many people the inference anchors hold, so a feature query that drops some of them
     fails: an inner join or a WHERE on the joined table loses anchors without any row looking
     wrong, and a lost person is never scored again once the cadence advances past them.
+
+    This is the whole population. A rolling run scores ``rolling_selection().limit`` of them.
     """
     anchors_sql, values = build_inference_anchors_sql(
         lookback_days=_feature_lookback_days(pipeline),
@@ -644,8 +739,8 @@ def _materialize_rows(
         raise SandboxInferenceError(f"Feature SQL returned duplicate output columns: {', '.join(duplicates)}")
     rows = result.as_dicts()
     # A result that fills the bound is almost certainly truncated, and completing anyway
-    # would advance last_scored_at while skipping the users past the cap. Pagination is
-    # follow-up work; until then, fail loudly.
+    # would advance last_scored_at while skipping the users past the cap. A scoring population
+    # that large takes a rolling subset below the bound, so reaching it here is a failure.
     if result.has_more or len(rows) >= _MATERIALIZE_ROW_LIMIT:
         raise SandboxInferenceError(
             f"Materialization hit the {_MATERIALIZE_ROW_LIMIT}-row limit; "
@@ -788,12 +883,16 @@ def _run_predict_in_sandbox(
         _write_file(sandbox, f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
         _write_file(sandbox, f"{_WORKDIR}/data/score_features.parquet", features_parquet(score_rows, feature_cols))
 
-        _run_script(
-            sandbox,
-            script="predict.py",
-            args=f"data/score_features.parquet {_MODEL_PKL} {_SCORES_PARQUET}",
-            timeout_seconds=_PREDICT_TIMEOUT_S,
-        )
+        try:
+            _run_script(
+                sandbox,
+                script="predict.py",
+                args=f"data/score_features.parquet {_MODEL_PKL} {_SCORES_PARQUET}",
+                timeout_seconds=_PREDICT_TIMEOUT_S,
+            )
+        except SandboxInferenceError as exc:
+            # predict.py loads model.pkl first, and the fit already ran it once against the same files.
+            raise ModelLoadError(str(exc)) from exc
         scores = _read_scores(sandbox, expected_rows=len(score_rows))
 
     return _join_scores(score_rows=score_rows, scores=scores)

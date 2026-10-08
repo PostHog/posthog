@@ -22,10 +22,15 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
 import jwt
+import posthoganalytics
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import APIException
+from rest_framework.response import Response
 from rest_framework.test import APIClient
+from rest_framework.views import APIView
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
@@ -33,12 +38,14 @@ from posthog.models.scoping import team_scope
 from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, POSTHOG_AI_APP_CLIENT_ID_DEV
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
 from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
@@ -90,6 +97,7 @@ from products.tasks.backend.models import (
     TaskClientProvenance,
     TaskPin,
     TaskRun,
+    TaskSearchDocument,
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
@@ -311,6 +319,7 @@ class BaseTaskAPITest(TestCase):
         client_id: str = ARRAY_APP_CLIENT_ID_DEV,
         bound: bool = True,
         internal_scope: bool = False,
+        scopes: str | None = None,
     ) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Task artifact uploader",
@@ -327,7 +336,9 @@ class BaseTaskAPITest(TestCase):
             application=application,
             token=f"pha_task_agent_{uuid.uuid4().hex}",
             expires=django_timezone.now() + timedelta(hours=1),
-            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
+            scope=scopes
+            if scopes is not None
+            else f"task:read task:write{' internal_run:read' if internal_scope else ''}",
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id if bound else None,
         )
@@ -378,7 +389,582 @@ class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
         assert Task.objects.filter(title="Child task").exists()
 
 
+class TestScoutTrialTaskVisibility(BaseTaskAPITest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.ordinary_task = self.create_task()
+        self.trial_tasks = [
+            Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Saved scout result",
+                description="Inspect recent activity",
+                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                origin_key=f"scout-trial:{uuid.uuid4()}",
+                repository=f"example/scout-{index}",
+            )
+            for index in range(2)
+        ]
+        self.trial_runs = [
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                state={"scout_trial": {"id": "private"}, "scout_trial_private": {"reports": []}},
+            )
+            for task in self.trial_tasks
+        ]
+        for task in self.trial_tasks:
+            TaskPin.objects.create(user=self.user, task=task)
+            TaskSearchDocument.objects.for_team(self.team.id).create(
+                team=self.team,
+                task=task,
+                kind=TaskSearchDocument.Kind.TASK,
+                source_key=str(task.id),
+                title=task.title,
+                search_text="saved scout result",
+            )
+
+    @parameterized.expand(
+        [("run", "cloud"), ("warm", "cloud"), ("runs", "local"), ("runs", "cloud"), ("resume_in_cloud", "cloud")]
+    )
+    def test_operator_cannot_start_ordinary_runs_for_a_trial_task(self, action: str, environment: str) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        payload = {"resume_from_run_id": str(run.id)} if action == "warm" else {"environment": environment}
+        path = f"runs/{run.id}/resume_in_cloud" if action == "resume_in_cloud" else action
+        with (
+            patch.object(tasks_facade, "run_task") as start,
+            patch.object(tasks_facade, "warm_task_resume_sandbox") as warm,
+            patch.object(tasks_facade, "bootstrap_task_run") as bootstrap,
+            patch.object(tasks_facade, "resume_task_run_in_cloud") as resume,
+        ):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{path}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == (
+            "Scout comparison tasks cannot start another run. Start a new comparison instead."
+        )
+        start.assert_not_called()
+        warm.assert_not_called()
+        bootstrap.assert_not_called()
+        resume.assert_not_called()
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.COMPLETED
+        assert list(task.runs.values_list("id", flat=True)) == [run.id]
+
+    def _trial_log_client(
+        self,
+        *,
+        bound: bool = True,
+        client_id: str = ARRAY_APP_CLIENT_ID_DEV,
+        scopes: str = "task:read internal_run:read scout_experiment_internal:read",
+    ) -> APIClient:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        assert task.origin_key is not None
+        marker = {"version": 1, "launch_id": task.origin_key.removeprefix("scout-trial:")}
+        run.state = {"scout_trial": marker, "scout_trial_private": {"reports": []}}
+        run.save(update_fields=["state"])
+        config = SignalScoutConfig.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-synthetic-log"
+        )
+        SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            task_run=run,
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            metadata={"scout_trial": marker},
+        )
+        return self._sandbox_oauth_client(
+            task.id,
+            bound=bound,
+            client_id=client_id,
+            scopes=scopes,
+        )
+
+    def test_judge_token_can_only_read_inputs_and_record_its_own_run(self) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        marker = {
+            "version": 1,
+            "user_id": self.user.id,
+            **{
+                key: str(uuid.uuid4())
+                for key in (
+                    "evaluation_id",
+                    "launch_id",
+                    "context_id",
+                    "source_task_id",
+                    "source_task_run_id",
+                    "source_scout_run_id",
+                )
+            },
+        }
+        task.origin_key = f"scout-trial-judge:{marker['evaluation_id']}:{marker['launch_id']}"
+        task.save(update_fields=["origin_key"])
+        run.state = {
+            "scout_trial_judge": marker,
+            "pending_user_message": "Use the attached synthetic run log",
+            "pending_user_artifact_ids": [],
+            "pending_user_message_id": str(uuid.uuid4()),
+            "pending_user_message_ts": "123456789.000000",
+        }
+        storage_path = f"tasks/{task.id}/runs/{run.id}/artifacts/run-log.jsonl"
+        run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id=str(uuid.uuid4()),
+                name="run-log.jsonl",
+                storage_path=storage_path,
+                artifact_type="file",
+                source="internal",
+                size=21,
+                content_type="application/x-ndjson",
+            )
+        ]
+        run.save(update_fields=["state", "artifacts"])
+        client = self._sandbox_oauth_client(task.id, scopes="scout_experiment_internal:read")
+        base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+
+        assert client.get(f"/api/projects/@current/tasks/{task.id}/").status_code == status.HTTP_200_OK
+        assert client.get(base).status_code == status.HTTP_200_OK
+        with patch.object(object_storage, "read_bytes", return_value=b'{"tool":"synthetic"}\n'):
+            response = client.post(f"{base}artifacts/download/", {"storage_path": storage_path}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert (
+                client.post(
+                    f"{base}artifacts/download/", {"storage_path": "other-run/private-log.jsonl"}, format="json"
+                ).status_code
+                == status.HTTP_404_NOT_FOUND
+            )
+        with patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"):
+            response = client.patch(
+                base, {"status": "in_progress", "state": {"agent_version": "test-judge"}}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        pending_keys = [
+            "pending_user_message",
+            "pending_user_artifact_ids",
+            "pending_user_message_id",
+            "pending_user_message_ts",
+        ]
+        assert client.patch(base, {"state_remove_keys": pending_keys}, format="json").status_code == status.HTTP_200_OK
+        assert (
+            client.patch(base, {"state_remove_keys": [*pending_keys, "scout_trial_judge"]}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.patch(
+                base, {"state": {"pending_user_message": "Replace the trusted prompt"}}, format="json"
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.patch(f"{base}set_summary/", {"summary": "Saved a rubric assessment"}, format="json").status_code
+            == status.HTTP_200_OK
+        )
+        response = client.patch(
+            f"{base}set_output/",
+            {"output": {"summary": "Synthetic rubric assessment", "criteria": []}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        for path in (
+            "/api/projects/@current/tasks/",
+            f"/api/projects/@current/tasks/{self.ordinary_task.id}/",
+            f"/api/projects/@current/tasks/{self.trial_tasks[1].id}/runs/{self.trial_runs[1].id}/",
+            "/api/projects/@current/insights/",
+        ):
+            assert client.get(path).status_code == status.HTTP_403_FORBIDDEN, path
+        assert (
+            client.patch(base, {"state": {"scout_trial_judge": {}}}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert client.post(f"{base}cancel/", {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            client.patch(
+                f"/api/projects/@current/tasks/{self.trial_tasks[1].id}/runs/{self.trial_runs[1].id}/set_output/",
+                {"output": {"summary": "Cannot change another run"}},
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        with patch.object(tasks_facade, "resume_task_run_in_cloud") as resume:
+            assert (
+                self.client.post(f"{base}resume_in_cloud/", {}, format="json").status_code
+                == status.HTTP_400_BAD_REQUEST
+            )
+        resume.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["scout_trial_judge"] == marker
+        assert all(key not in run.state for key in pending_keys)
+        assert not SignalScoutRun.objects.for_team(self.team.id).filter(task_run=run).exists()
+
+    def test_trial_can_append_own_log_without_general_task_write_access(self) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        client = self._trial_log_client()
+        base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        entry = {"type": "info", "message": "Synthetic scout inspected recent activity"}
+        log_objects: dict[str, str] = {}
+
+        with (
+            patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"),
+            patch.object(object_storage, "read", side_effect=lambda key, **_kwargs: log_objects.get(key)),
+            patch.object(object_storage, "write", side_effect=log_objects.__setitem__),
+            patch.object(object_storage, "tag"),
+        ):
+            response = client.post(f"{base}append_log/", {"entries": [entry]}, format="json")
+            logs = client.get(f"{base}session_logs/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "scout_trial_private" not in response.json()["state"]
+        assert logs.status_code == status.HTTP_200_OK
+        assert logs.json()[0]["message"] == entry["message"]
+        usage = {"input_tokens": 12, "output_tokens": 4}
+        response = client.patch(
+            base,
+            {
+                "status": "in_progress",
+                "state": {
+                    "token_usage": usage,
+                    "budget_guard": {},
+                    "benjamin_version": "test",
+                    "agent_version": "test-agent",
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.state is not None
+        assert run.state["token_usage"] == usage
+        assert run.state["agent_version"] == "test-agent"
+        marker = run.state["scout_trial"]
+        assert run.state["scout_trial_private"] == {"reports": []}
+        response = client.patch(
+            f"{base}set_summary/",
+            {"summary": "Reviewed recent exports", "tags": ["synthetic-trial-tag"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["task_summary"] == "Reviewed recent exports"
+        assert "scout_trial" not in response.json()["state"]
+        assert "scout_trial_private" not in response.json()["state"]
+        run.refresh_from_db()
+        assert run.state is not None and run.state["task_summary"] == "Reviewed recent exports"
+        assert run.state["task_tags"] == ["synthetic-trial-tag"]
+        assert not Tag.objects.filter(team=self.team, name="synthetic-trial-tag").exists()
+        assert client.post(f"{base}cancel/", {}, format="json").status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            client.post("/api/projects/@current/tasks/", {"title": "Child task"}, format="json").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
+            response = client.patch(
+                base,
+                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure")
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.FAILED
+        assert run.error_message == "Synthetic failure"
+        assert run.completed_at is not None
+        assert run.state is not None
+        assert run.state["agent_version"] == "test-agent"
+        assert run.state["token_usage"] == usage
+        assert run.state["scout_trial"] == marker
+        assert run.state["scout_trial_private"] == {"reports": []}
+
+    @parameterized.expand(
+        [
+            ("model", {"state": {"model": "other"}}),
+            ("effort", {"state": {"reasoning_effort": "low"}}),
+            ("marker", {"state": {"scout_trial": {}}}),
+            ("private", {"state": {"scout_trial_private": {}}}),
+            ("other_state", {"state": {"custom_key": "value"}}),
+            ("mixed_state", {"status": "failed", "state": {"agent_version": "test-agent", "model": "other"}}),
+            ("state_type", {"status": "failed", "state": ["agent_version"]}),
+            ("state_null", {"status": "failed", "state": None}),
+            ("remove", {"state_remove_keys": ["scout_trial"]}),
+            ("branch", {"branch": "other"}),
+            ("output", {"output": {"url": "https://example.com"}}),
+            ("status_type", {"status": {"value": "failed"}}),
+        ]
+    )
+    def test_trial_cannot_patch_non_lifecycle_fields(self, _name: str, payload: dict[str, object]) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        client = self._trial_log_client()
+        run.refresh_from_db()
+        original_state = run.state
+        original_status = run.status
+        response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
+
+    @parameterized.expand(
+        [
+            ("unbound",),
+            ("sibling_task",),
+            ("other_run",),
+            ("missing_bridge",),
+            ("wrong_origin",),
+            ("wrong_marker",),
+            ("foreign_client",),
+            ("gateway_only",),
+        ]
+    )
+    def test_trial_log_append_requires_exact_trusted_run(self, case: str) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        client = self._trial_log_client(
+            bound=case != "unbound",
+            client_id="synthetic-foreign-client" if case == "foreign_client" else ARRAY_APP_CLIENT_ID_DEV,
+            scopes=(
+                "llm_gateway:read internal_run:read scout_experiment_internal:read"
+                if case == "gateway_only"
+                else "task:read internal_run:read scout_experiment_internal:read"
+            ),
+        )
+        if case == "sibling_task":
+            task, run = self.trial_tasks[1], self.trial_runs[1]
+        elif case == "other_run":
+            run = TaskRun.objects.create(task=task, team=self.team)
+        elif case == "missing_bridge":
+            SignalScoutRun.objects.for_team(self.team.id).filter(task_run=run).delete()
+        elif case == "wrong_origin":
+            task.origin_key = f"scout-trial:{uuid.uuid4()}"
+            task.save(update_fields=["origin_key"])
+        elif case == "wrong_marker":
+            run.state = {"scout_trial": {"version": 1, "launch_id": str(uuid.uuid4())}}
+            run.save(update_fields=["state"])
+
+        run.refresh_from_db()
+        original_state = run.state
+        original_status = run.status
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "info", "message": "Synthetic log entry"}]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        response = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
+        response = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Synthetic summary"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("ordinary", False, True), ("trial", True, True), ("legacy", False, False)])
+    def test_sandbox_discovery_and_direct_access_exclude_other_trials(
+        self, _name: str, is_trial: bool, bound: bool
+    ) -> None:
+        own_task = self.trial_tasks[0] if is_trial else self.ordinary_task
+        client = self._sandbox_oauth_client(own_task.id, bound=bound, internal_scope=True)
+        visible_trial_ids = {str(own_task.id)} if is_trial else set()
+        all_trial_ids = {str(task.id) for task in self.trial_tasks}
+        base = "/api/projects/@current/tasks/"
+
+        response = client.get(base)
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} & all_trial_ids == visible_trial_ids
+        response = client.get(f"{base}search/?q=saved")
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["task_id"] for row in response.json()} == visible_trial_ids
+        response = client.post(f"{base}summaries/", {"ids": list(all_trial_ids)}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == visible_trial_ids
+        response = client.get(f"{base}pinned/")
+        assert response.status_code == status.HTTP_200_OK
+        assert set(response.json()["task_ids"]) == visible_trial_ids
+        response = client.get(f"{base}repositories/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["repositories"] == ([own_task.repository] if is_trial else [])
+
+        sibling, sibling_run = self.trial_tasks[1], self.trial_runs[1]
+        for path in (
+            f"{base}{sibling.id}/",
+            f"{base}{sibling.id}/runs/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/logs/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/session_logs/",
+            f"{base}{sibling.id}/runs/{sibling_run.id}/living_artifacts/",
+        ):
+            with self.subTest(path=path):
+                assert client.get(path).status_code == status.HTTP_404_NOT_FOUND
+
+        own_response = client.get(f"{base}{own_task.id}/")
+        assert own_response.status_code == status.HTTP_200_OK
+        assert own_response.json()["origin_key"] is None
+
+    @parameterized.expand([("session", False), ("api_key", False), ("shared_channel", True)])
+    def test_other_member_cannot_discover_read_or_control_trials(self, auth: str, shared_channel: bool) -> None:
+        member = self.create_organization_user("trial-reader")
+        client = APIClient()
+        if auth == "api_key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Trial reader", user=member, secure_value=hash_key_value(key), scopes=["task:read", "task:write"]
+            )
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+        else:
+            client.force_login(member)
+        if shared_channel:
+            channel = Channel.objects.for_team(self.team.id).create(
+                team=self.team, name="Trial review", created_by=self.user, channel_type=Channel.ChannelType.PUBLIC
+            )
+            Task.objects.filter(id__in=[task.id for task in self.trial_tasks]).update(channel=channel)
+        for task in self.trial_tasks:
+            TaskPin.objects.create(user=member, task=task)
+
+        base = f"/api/projects/{self.team.id}/tasks/"
+        trial_ids = {str(task.id) for task in self.trial_tasks}
+        for path in (base, f"{base}?all_team_tasks=true&ph_debug=true"):
+            response = client.get(path)
+            assert response.status_code == status.HTTP_200_OK
+            assert not trial_ids.intersection(row["id"] for row in response.json()["results"])
+        response = client.get(f"{base}search/?q=saved")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+        response = client.post(f"{base}summaries/", {"ids": list(trial_ids)}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+        assert client.get(f"{base}pinned/").json()["task_ids"] == []
+        assert client.get(f"{base}repositories/").json()["repositories"] == []
+
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        detail = f"{base}{task.id}/"
+        run_detail = f"{detail}runs/{run.id}/"
+        with patch.object(object_storage, "read") as read, patch.object(object_storage, "get_presigned_url") as presign:
+            for path in (
+                detail,
+                f"{detail}?ph_debug=true",
+                f"{detail}runs/",
+                f"{detail}artifacts/",
+                run_detail,
+                f"{run_detail}logs/",
+                f"{run_detail}session_logs/",
+                f"{run_detail}artifacts/presign/",
+                f"{run_detail}artifacts/synthetic-artifact/download/",
+                f"{run_detail}living_artifacts/",
+                f"{run_detail}stream_token/",
+                f"{run_detail}connection_token/",
+            ):
+                with self.subTest(path=path):
+                    assert client.get(path).status_code == status.HTTP_404_NOT_FOUND
+            response = client.post(
+                f"{run_detail}artifacts/download/", {"storage_path": "synthetic-artifact.txt"}, format="json"
+            )
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+            read.assert_not_called()
+            presign.assert_not_called()
+        assert client.patch(detail, {"title": "Changed"}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert client.patch(run_detail, {"status": "failed"}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert client.post(f"{detail}run/", {}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        assert client.post(f"{run_detail}cancel/", {}, format="json").status_code == status.HTTP_404_NOT_FOUND
+        task.refresh_from_db()
+        assert task.title == "Saved scout result"
+
+    def test_own_sandbox_and_operator_can_read_trial_without_exposing_private_state(self) -> None:
+        task, run = self.trial_tasks[0], self.trial_runs[0]
+        agent = self._sandbox_oauth_client(task.id, internal_scope=True)
+        base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+        for client in (agent, self.client):
+            response = client.get(base)
+            assert response.status_code == status.HTTP_200_OK
+            assert response["X-PostHog-Suppress-Analytics"] == "true"
+            assert "scout_trial" not in response.json()["state"]
+            assert "scout_trial_private" not in response.json()["state"]
+            with patch.object(tasks_facade, "read_task_run_logs", return_value=""):
+                assert client.get(f"{base}logs/").status_code == status.HTTP_200_OK
+                assert client.get(f"{base}session_logs/").status_code == status.HTTP_200_OK
+
+    def test_list_capture_policy_only_marks_pages_containing_trial_tasks(self) -> None:
+        base = "/api/projects/@current/tasks/"
+        mixed = self.client.get(base)
+        assert mixed.status_code == status.HTTP_200_OK
+        assert any(row["id"] == str(self.trial_tasks[0].id) for row in mixed.json()["results"])
+        assert mixed["X-PostHog-Suppress-Analytics"] == "true"
+
+        ordinary = self.client.get(base, {"origin_product": Task.OriginProduct.USER_CREATED})
+        assert ordinary.status_code == status.HTTP_200_OK
+        assert ordinary.json()["results"]
+        assert "X-PostHog-Suppress-Analytics" not in ordinary
+
+    @parameterized.expand([("ordinary", False, False), ("private", True, False), ("sibling", True, True)])
+    def test_log_read_exception_capture_uses_verified_task(self, _name: str, is_trial: bool, sandbox: bool) -> None:
+        task = self.trial_tasks[0] if is_trial else self.ordinary_task
+        run = self.trial_runs[0] if is_trial else TaskRun.objects.create(team=self.team, task=task)
+        reader = self._sandbox_oauth_client(self.ordinary_task.id, internal_scope=True) if sandbox else self.client
+        captures: list[str | None] = []
+        exception_handler = APIView().get_exception_handler()
+
+        def capture_error(error: Exception, context: dict[str, Any]) -> Response | None:
+            captures.append(posthoganalytics.capture_exception(error, distinct_id="synthetic"))
+            return exception_handler(error, context)
+
+        with patch.multiple(
+            posthoganalytics,
+            default_client=None,
+            disabled=False,
+            send=False,
+            enable_local_evaluation=False,
+            enable_exception_autocapture=False,
+            log_captured_exceptions=False,
+            before_send=filter_scout_experiment_capture,
+        ):
+            sdk = posthoganalytics.setup()
+            try:
+                with (
+                    patch.object(
+                        tasks_facade, "read_task_run_logs", side_effect=APIException("Synthetic read failure")
+                    ) as read,
+                    patch(
+                        "products.tasks.backend.presentation.views.api.TaskRunViewSet.get_exception_handler",
+                        return_value=capture_error,
+                    ),
+                ):
+                    response = reader.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/session_logs/")
+                assert response.status_code == (
+                    status.HTTP_404_NOT_FOUND if sandbox else status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                assert read.call_count == (0 if sandbox else 1)
+                assert (response.get("X-PostHog-Suppress-Analytics") == "true") == is_trial
+                assert len(captures) == 1
+                assert (captures[0] is None) == is_trial
+                assert get_query_tags().is_scout_experiment is not True
+            finally:
+                sdk.shutdown()
+
+
 class TestTaskCreatorScoping(BaseTaskAPITest):
+    @parameterized.expand([("runs",), ("living_artifacts",)])
+    def test_readable_task_run_metadata_does_not_require_control(self, endpoint: str) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.create_organization_user("experiment-owner"),
+            title="Experiment follow-up",
+            description="Review experiment results",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        path = f"/api/projects/@current/tasks/{task.id}/runs/"
+        if endpoint == "living_artifacts":
+            path += f"{run.id}/living_artifacts/"
+
+        response = self.client.options(path)
+
+        assert response.status_code == status.HTTP_200_OK
+
     def _create_legacy_task(self, title: str = "Legacy") -> Task:
         return Task.objects.create(
             team=self.team,
@@ -4131,22 +4717,38 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(get_cached_github_user_token(str(task_run.id)), "ghu_test_token")
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("user_created_requests_user", Task.OriginProduct.USER_CREATED, {"pr_authorship_mode": "user"}, None),
+            ("posthog_ai_requests_user", Task.OriginProduct.POSTHOG_AI, {"pr_authorship_mode": "user"}, "bot"),
+            ("posthog_ai_requests_nothing", Task.OriginProduct.POSTHOG_AI, {}, "bot"),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
+    def test_create_run_endpoint_user_authorship_without_github_identity_when_no_repo(
+        self, _name, origin_product, authorship_request, expected_mode, mock_workflow
+    ):
         task = self.create_task()
+        task.origin_product = origin_product
+        task.save(update_fields=["origin_product"])
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/",
             {
                 "environment": "cloud",
-                "pr_authorship_mode": "user",
                 "run_source": "manual",
+                **authorship_request,
             },
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "github_authorization_required")
+        if expected_mode is None:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "github_authorization_required")
+        else:
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            task_run = TaskRun.objects.get(id=response.json()["id"])
+            self.assertEqual(task_run.state["pr_authorship_mode"], expected_mode)
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -6877,6 +7479,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        trial_context = {"version": 1, "launch_id": "synthetic-launch"}
+        trial_private = {"reports": {"synthetic-report": {"title": "Saved finding"}}}
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
         system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
@@ -6897,6 +7501,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             state={
+                "scout_trial": trial_context,
+                "scout_trial_private": trial_private,
                 "github_credential_source": "caller_token",
                 "analytics_query_context": [],
                 "sandbox_oauth_token_ids": ["server-token-id"],
@@ -6975,6 +7581,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state": {
+                    "scout_trial": {"version": 2},
+                    "scout_trial_private": {"reports": {}},
                     "github_credential_source": "server_integration",
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
@@ -7124,6 +7732,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scout_trial"] == trial_context
+        assert run.state["scout_trial_private"] == trial_private
         assert run.state["analytics_query_context"] == []
         assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
@@ -7134,6 +7744,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "scout_trial",
+                    "scout_trial_private",
                     "analytics_query_context",
                     "sandbox_oauth_token_ids",
                     "resume_from_run_id",
@@ -7242,6 +7854,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["run_source"] == "manual"
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scout_trial"] == trial_context
+        assert run.state["scout_trial_private"] == trial_private
         assert run.state["analytics_query_context"] == []
         assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
@@ -7253,6 +7867,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
                     "systemPrompt": "Caller-controlled instructions",
+                    "scout_trial": {"version": 2},
+                    "scout_trial_private": {"reports": {}},
                     "task_management_ci_idle_skips": 0,
                     "task_management_ci_wait_checks": 0,
                     "pending_external_followups_checkpoint": {"generation": 99},
@@ -7264,6 +7880,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scout_trial"] == trial_context
+        assert run.state["scout_trial_private"] == trial_private
         assert run.state["analytics_query_context"] == []
         assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
@@ -9547,8 +10165,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @parameterized.expand(
+        [
+            ("session", None, status.HTTP_200_OK),
+            ("read_scope", "task:read", status.HTTP_200_OK),
+            ("unrelated_scope", "query:read", status.HTTP_403_FORBIDDEN),
+            ("judge_scope", "scout_experiment_internal:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
     @patch("posthog.storage.object_storage.read_bytes")
-    def test_download_artifact_content(self, mock_read_bytes):
+    def test_download_artifact_content(
+        self, _name: str, scopes: str | None, expected_status: int, mock_read_bytes: MagicMock
+    ) -> None:
         mock_read_bytes.return_value = b"artifact bytes"
         task = self.create_task()
         storage_path = "tasks/artifacts/team_1/task_2/run_3/plan.md"
@@ -9567,13 +10195,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ],
         )
 
-        response = self.client.post(
+        client = self._sandbox_oauth_client(task.id, scopes=scopes) if scopes is not None else self.client
+        response = client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/download/",
             {"storage_path": storage_path},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            mock_read_bytes.assert_not_called()
+            return
         self.assertEqual(response.content, b"artifact bytes")
         self.assertEqual(response["Content-Type"], "text/markdown")
         self.assertIn('attachment; filename="plan.md"', response["Content-Disposition"])
@@ -12103,10 +12735,22 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
-    def test_handoff_rejects_nonterminal_runs(self):
+    @parameterized.expand(
+        [
+            ("active_run", False, "Finish or cancel active runs before handing off this task."),
+            ("scout_trial", True, "Scout comparison tasks stay with the operator who launched them."),
+        ]
+    )
+    def test_handoff_rejects_restricted_tasks(self, _name: str, is_trial: bool, message: str) -> None:
         recipient = self.create_organization_user("recipient")
         task = self.create_task(created_by=self.user)
-        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        if is_trial:
+            task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            task.origin_key = f"scout-trial:{uuid.uuid4()}"
+            task.save(update_fields=["origin_product", "origin_key"])
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED if is_trial else TaskRun.Status.QUEUED
+        )
 
         response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
 
@@ -12116,7 +12760,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Finish or cancel active runs before handing off this task.",
+                "detail": message,
                 "attr": "user",
             },
         )

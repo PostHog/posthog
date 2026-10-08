@@ -127,6 +127,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
+from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
@@ -155,12 +156,6 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
-
-
-async def cleanup_replay_vision_media_backfill_schedule(client: Client):
-    """Retired: delete the Replay Vision poster backfill schedule, whose workflow no worker registers anymore."""
-    if await a_schedule_exists(client, "replay-vision-media-backfill-schedule"):
-        await a_delete_schedule(client, "replay-vision-media-backfill-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -927,7 +922,6 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 schedules = [
     cleanup_sync_vectors_schedule,
-    cleanup_replay_vision_media_backfill_schedule,
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
@@ -986,6 +980,7 @@ schedules = [
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_replay_vision_search_suggestions_schedule,
+    create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_replay_vision_jev_watch_rank_schedule,

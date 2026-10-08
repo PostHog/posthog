@@ -2309,6 +2309,15 @@ class TestPrinter(BaseTest):
         )
         self._assert_query_error("select 1 from other", "Unknown table `other`.")
 
+    @parameterized.expand(
+        [
+            ("SELECT * FROM numbers(10)",),
+            ("SELECT * FROM numbers(2, 5) AS n",),
+        ]
+    )
+    def test_unresolved_hogql_keeps_table_function_arguments(self, query: str) -> None:
+        assert parse_select(query).to_hogql() == query
+
     def test_select_from_placeholder(self):
         self.assertEqual(
             self._select(
@@ -2837,6 +2846,11 @@ class TestPrinter(BaseTest):
                 "grouping_sets",
                 "select event, distinct_id, count() as c from events group by grouping sets ((event), (distinct_id), ())",
                 "GROUP BY GROUPING SETS ((events.event), (events.distinct_id), ())",
+            ),
+            (
+                "grouping_mask",
+                "select grouping(event, distinct_id) as mask, count() as c from events group by grouping sets ((event), (distinct_id), ())",
+                "grouping(events.event, events.distinct_id) AS mask",
             ),
             (
                 "cube",

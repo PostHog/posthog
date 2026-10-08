@@ -29,6 +29,7 @@ import {
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -232,6 +233,44 @@ const LIBRARY = [
     { id: 'fs-3', path: 'Unfiled/Feature flags/one-page-checkout', type: 'feature_flag', ref: '7' },
 ]
 
+const RECENTLY_VIEWED = [
+    {
+        id: 'fs-recent-1',
+        path: 'Unfiled/Insights/Checkout funnel',
+        type: 'insight',
+        ref: 'abc123',
+        href: '/insights/abc123',
+        last_viewed_at: '2026-09-28T16:20:00Z',
+        created_at: '2026-08-12T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-2',
+        path: 'Unfiled/Dashboards/Growth overview',
+        type: 'dashboard',
+        ref: '12',
+        href: '/dashboard/12',
+        last_viewed_at: '2026-09-28T11:05:00Z',
+        created_at: '2026-07-02T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-3',
+        path: 'Unfiled/Feature flags/one-page-checkout',
+        type: 'feature_flag',
+        ref: '7',
+        href: '/feature_flags/7',
+        last_viewed_at: '2026-09-27T15:40:00Z',
+        created_at: '2026-09-01T10:00:00Z',
+    },
+    {
+        id: 'fs-recent-4',
+        path: 'Unfiled/Cohorts/Power users',
+        type: 'cohort',
+        ref: '3',
+        href: '/cohorts/3',
+        last_viewed_at: '2026-09-26T09:10:00Z',
+        created_at: '2026-06-20T10:00:00Z',
+    },
+]
 const USER = { id: 1, uuid: 'user-1', first_name: 'Ada', email: 'ada@example.com' }
 
 const VIEW_CANVASES = [
@@ -537,6 +576,60 @@ function clearTodayStorage(
     return <Story />
 }
 
+function mockReportPage(reportId: string): ReportPageApi {
+    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
+            recording: null,
+            link: null,
+            preview: {
+                hint: 'Show the description',
+                code: [],
+                block: [],
+                text: signal.content,
+                facts: [],
+                link: null,
+                link_label: null,
+            },
+        }
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: report.suggested_prompts?.[0] ?? '',
+        impact_sentence: '',
+        named_pull_request: null,
+        solution_names_pull_request: false,
+        evidence: signals.slice(0, 3),
+        source_count: signals.length,
+        impact_numbers:
+            report.id === 'report-1'
+                ? [
+                      {
+                          key: 'tickets',
+                          value: '4',
+                          sentence: 'support tickets over 3 days.',
+                          signal: signals[0],
+                          values: [],
+                          working: null,
+                      },
+                  ]
+                : [],
+        last_seen: null,
+    }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -553,15 +646,11 @@ const meta: Meta = {
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
-                    200,
-                    // Error tracking signals fetch their issue, which these stories do not mock.
-                    {
-                        signals: mockSignals(String(req.params.id), 6).filter(
-                            (signal) => signal.source_product !== 'error_tracking'
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
@@ -614,7 +703,11 @@ const meta: Meta = {
                 },
                 '/api/environments/:team_id/conversations/': { results: CONVERSATIONS, next: null },
                 '/api/environments/:team_id/file_system/': ({ request }) => {
-                    const type = new URL(request.url).searchParams.get('type')
+                    const params = new URL(request.url).searchParams
+                    if (params.get('order_by') === '-last_viewed_at') {
+                        return [200, { results: RECENTLY_VIEWED, count: RECENTLY_VIEWED.length }]
+                    }
+                    const type = params.get('type')
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
@@ -745,13 +838,25 @@ export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
 }
 
-export const ReportWithSuggestedPrompts: Story = {
+export const ReportProposingItsFirstPrompt: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
-// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
-export const ReportWithCharts: Story = {
+export const ReportWithAnImpactMetric: Story = {
     parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
+export const ReportWithTicketsAndEvidenceDetail: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportThatFailsToLoad: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
+}
+
+export const ReportInANarrowWindow: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const SpacesPane: Story = {
@@ -901,7 +1006,7 @@ export const LibraryAllObjects: Story = {
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: urls.library('feature_flag') },
+    parameters: { pageUrl: urls.featureFlags() },
 }
 
 export const ToolsPane: Story = {
@@ -932,13 +1037,18 @@ export const PhoneWidthMorePane: Story = {
     },
 }
 
+// A root page: the phone header shows the title and a sidebar button, and the scene title row keeps only its actions.
+export const PhoneWidthListScene: Story = {
+    parameters: { pageUrl: urls.featureFlags(), testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
-            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]">
                 {children}
             </Card>
         </div>

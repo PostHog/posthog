@@ -610,13 +610,13 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -995,13 +995,13 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1284,13 +1284,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                     ),
                 max: zod
                     .number()
                     .nullish()
                     .describe(
-                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                     ),
                 step: zod
                     .number()
@@ -1521,13 +1521,13 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.'
                 ),
             max: zod
                 .number()
                 .nullish()
                 .describe(
-                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.'
                 ),
             step: zod
                 .number()
@@ -2617,6 +2617,7 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
  */
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
+export const llmAnalyticsSummarizationCreateBodyCompactContextDefault = false
 
 export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     summarize_type: zod
@@ -2643,6 +2644,12 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
+    compact_context: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyCompactContextDefault)
+        .describe(
+            'Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.'
+        ),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
     trace_id: zod
         .string()

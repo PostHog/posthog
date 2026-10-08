@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -24,6 +25,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RecalculationRateLimited,
     build_timeseries_cold_start_payload,
     get_active_recalculation,
     get_latest_recalculation,
@@ -101,6 +103,70 @@ class TestRecalculationService(BaseTest):
         row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
         assert row.total_metrics == 3
         assert set(row.metric_uuids) == {"p1", "s1", "shared1"}
+
+    @parameterized.expand(
+        [
+            # (name, trigger, latest_status, latest_trigger, minutes_since_completed, expects_new_run)
+            ("manual_inside_window_is_rate_limited", "manual", "completed", "manual", 2, False),
+            ("agent_mcp_inside_window_is_rate_limited", "agent_mcp", "completed", "manual", 2, False),
+            ("manual_outside_window_starts_new", "manual", "completed", "manual", 6, True),
+            ("manual_after_failed_run_starts_new", "manual", "failed", "manual", 2, True),
+            ("manual_after_timeseries_sync_starts_new", "manual", "completed", "timeseries_sync", 2, True),
+            ("heal_inside_window_starts_new", "heal_latest_run", "completed", "manual", 2, True),
+            ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
+        ]
+    )
+    def test_request_recalculation_user_refresh_window(
+        self,
+        name: str,
+        trigger: str,
+        latest_status: str,
+        latest_trigger: str,
+        minutes_since_completed: int,
+        expects_new_run: bool,
+    ):
+        exp = self._launched_experiment(flag_key=f"window-{name}")
+        now = timezone.now()
+        # query_to sits a day back, as on a stopped experiment, so the window can only come from completed_at.
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=latest_status,
+            trigger=latest_trigger,
+            query_to=now - timedelta(days=1),
+            completed_at=now - timedelta(minutes=minutes_since_completed),
+        )
+
+        if expects_new_run:
+            result = request_recalculation(exp, self.user, trigger)
+            assert result["is_existing"] is False
+            assert result["id"] != str(latest.id)
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+            return
+
+        with pytest.raises(RecalculationRateLimited) as exc_info:
+            request_recalculation(exp, self.user, trigger)
+        # Three minutes of the window remain; the wait tells the caller when to try again.
+        assert exc_info.value.wait is not None
+        assert 170 <= exc_info.value.wait <= 180
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @override_settings(DEBUG=True, TEST=False)
+    def test_request_recalculation_skips_the_refresh_window_in_local_development(self):
+        exp = self._launched_experiment(flag_key="window-debug")
+        ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        assert result["is_existing"] is False
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
 
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()

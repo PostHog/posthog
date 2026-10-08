@@ -1,12 +1,13 @@
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsHistogramQuery
+from posthog.schema import DashboardFilter, MetricsHistogramQuery, MetricsQueryFilter
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -55,6 +56,17 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             **overrides,
         )
         return MetricsHistogramQueryRunner(query=query, team=self.team).calculate()
+
+    def test_dashboard_metric_filters_add_to_the_query_filters(self):
+        own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
+        dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
+        runner = MetricsHistogramQueryRunner(
+            query=MetricsHistogramQuery(metricName="latency", filters=[own_filter]), team=self.team
+        )
+
+        runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
+
+        self.assertEqual(runner.query.filters, [own_filter, dashboard_filter])
 
     def test_returns_a_time_by_bound_grid(self):
         self._seed_histogram(
@@ -121,7 +133,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.times), 3)
 
     def test_weekly_buckets_keep_their_counts(self):
-        monday = dt.datetime(2026, 9, 7, 0, 0, 0, tzinfo=dt.UTC)
+        monday = dt.datetime(2026, 9, 14, 0, 0, 0, tzinfo=dt.UTC)
         self._seed_histogram([(monday + dt.timedelta(hours=3), [4, 4, 4, 0])])
 
         response = self._run(
@@ -139,16 +151,25 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([response.counts[b][0] for b in range(len(self.BOUNDS))], [4, 4, 4])
 
     def test_rejects_a_cell_count_above_the_budget(self):
-        with self.assertRaises(Exception) as ctx:
-            self._run(
-                dateRange={
-                    "date_from": (self.anchor - dt.timedelta(days=30)).isoformat(),
-                    "date_to": self.anchor.isoformat(),
-                    "explicitDate": True,
-                },
-                interval="minute",
-            )
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])])
+        with patch("products.metrics.backend.hogql_queries.metrics_histogram_query_runner.MAX_GRID_CELLS", 1):
+            with self.assertRaises(Exception) as ctx:
+                self._run(interval="minute")
         self.assertIn("interval", str(ctx.exception).lower())
+
+    def test_grid_follows_a_coarsened_interval(self):
+        self._seed_histogram([(self.anchor - dt.timedelta(minutes=10), [10, 10, 10, 0])])
+        response = self._run(
+            dateRange={
+                "date_from": (self.anchor - dt.timedelta(days=30)).isoformat(),
+                "date_to": self.anchor.isoformat(),
+                "explicitDate": True,
+            },
+            interval="minute",
+        )
+        # One-minute buckets over 30 days exceed the bucket limit, so the runner uses five-minute buckets.
+        first, second = (dt.datetime.fromisoformat(t) for t in response.times[:2])
+        self.assertEqual(second - first, dt.timedelta(minutes=5))
 
     def test_invalid_range_surfaces_as_client_error_not_500(self):
         with self.assertRaises(ExposedHogQLError):

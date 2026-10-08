@@ -1,12 +1,13 @@
 import clsx from 'clsx'
 
-import { TimeSeriesComboChart } from '@posthog/quill-charts'
+import { TimeSeriesComboChart, type PointClickData } from '@posthog/quill-charts'
 
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartTooltip } from './SqlChartTooltip'
 import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -36,6 +37,24 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
                     theme={model.theme}
                     config={model.config}
                     onError={handleChartError}
+                    tooltip={
+                        props.onPointClick
+                            ? (context) => (
+                                  <SqlChartTooltip
+                                      context={context}
+                                      config={model.config.tooltip}
+                                      onPointClick={props.onPointClick!}
+                                      hint={props.pointClickHint}
+                                  />
+                              )
+                            : undefined
+                    }
+                    onPointClick={
+                        props.onPointClick
+                            ? (data: PointClickData<SqlLineSeriesMeta>) =>
+                                  props.onPointClick?.(data.series.key, data.dataIndex, data.label)
+                            : undefined
+                    }
                 >
                     {props.showAnnotations && props.insightNumericId && (
                         <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />

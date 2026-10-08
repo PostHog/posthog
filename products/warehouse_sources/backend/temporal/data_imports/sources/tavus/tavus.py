@@ -122,6 +122,7 @@ def tavus_source(
                     # The list envelope always carries `data`; a 200 missing it means the response
                     # shape changed — fail loud instead of silently advancing past lost rows.
                     "data_selector_required": True,
+                    **({} if config.paginated else {"paginator": "single_page"}),
                 },
             }
         ],

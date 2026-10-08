@@ -3,17 +3,18 @@ from __future__ import annotations
 import re
 import json
 import math
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, cast
+from http import HTTPStatus
+from typing import BinaryIO, Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 import structlog
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
@@ -70,6 +71,9 @@ BUDGET_STEER_MODES = frozenset({"publish", "wrap_up"})
 ASGIMessage = dict[str, object]
 ASGIReceive = Callable[[], Awaitable[ASGIMessage]]
 ASGISend = Callable[[ASGIMessage], Awaitable[None]]
+WSGIStartResponse = Callable[[str, list[tuple[str, str]]], object]
+
+WSGI_READ_CHUNK_BYTES = 64 * 1024
 
 
 class ClientDisconnected(Exception):
@@ -190,6 +194,50 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         },
     )
     return True
+
+
+def handle_task_run_event_ingest_wsgi(
+    environ: dict[str, object], start_response: WSGIStartResponse
+) -> Iterable[bytes] | None:
+    path = environ.get("PATH_INFO")
+    if not isinstance(path, str) or _match_event_ingest_route(path) is None:
+        return None
+
+    body_stream = cast(BinaryIO, environ["wsgi.input"])
+    sent: list[ASGIMessage] = []
+
+    async def receive() -> ASGIMessage:
+        chunk = body_stream.read(WSGI_READ_CHUNK_BYTES)
+        return {"type": "http.request", "body": chunk, "more_body": bool(chunk)}
+
+    async def send(message: ASGIMessage) -> None:
+        sent.append(message)
+
+    scope: ASGIMessage = {
+        "type": "http",
+        "method": environ.get("REQUEST_METHOD"),
+        "path": path,
+        "headers": [
+            (_wsgi_header_name(key).encode("latin-1"), value.encode("latin-1"))
+            for key, value in environ.items()
+            if isinstance(value, str) and (key.startswith("HTTP_") or key in ("CONTENT_TYPE", "CONTENT_LENGTH"))
+        ],
+    }
+    async_to_sync(handle_task_run_event_ingest)(scope, receive, send)
+    if not sent:
+        return []
+
+    status = cast(int, sent[0]["status"])
+    headers = [
+        (name.decode("latin-1"), value.decode("latin-1"))
+        for name, value in cast(list[tuple[bytes, bytes]], sent[0].get("headers", []))
+    ]
+    start_response(f"{status} {HTTPStatus(status).phrase}", headers)
+    return [cast(bytes, message.get("body", b"")) for message in sent[1:]]
+
+
+def _wsgi_header_name(environ_key: str) -> str:
+    return environ_key.removeprefix("HTTP_").replace("_", "-").lower()
 
 
 async def _ingest_event_lines(

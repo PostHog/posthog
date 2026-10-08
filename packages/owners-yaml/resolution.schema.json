@@ -38,6 +38,10 @@
                     "additions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
                 },
                 "description": "When the resolver reads a tree that does not hold the path: the part of the path nearest the root that the tree lacks, and the owners of additions at that part. Null when the tree holds the path or the resolver reads no tree. A consumer treats a missing member as null."
+            },
+            "sensitive": {
+                "type": "boolean",
+                "description": "Whether the path is sensitive (SPEC section 3.7). A resolver that predates the member leaves it out, and a consumer treats that as false."
             }
         }
     }

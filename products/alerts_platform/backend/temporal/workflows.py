@@ -16,11 +16,11 @@ from temporalio.exceptions import (
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import NonReportableApplicationError, unwrap_temporal_cause
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.alerts_platform.backend.temporal.metrics import increment_deliveries_previewed, safe_record
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
-from products.alerts_platform.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -33,6 +33,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async_pool
 
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+    from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.facade.contracts import (
         AlertDeliveryRequest,
         AlertDemand,
@@ -46,9 +47,12 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
+    from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
 
 POSTGRES_PROBE_FAILURE = "AlertsPlatformPostgresProbeFailure"
+POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT = dt.timedelta(seconds=10)
+POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(seconds=30)
 
 # A tick stops starting pages once this much of its minute is spent. The schedule's 50-second
 # execution timeout is the backstop, and it spans continued runs.
@@ -62,12 +66,21 @@ TICK_HARD_STOP_MARGIN = dt.timedelta(seconds=5)
 SOURCE_DISPATCH_TIMEOUT = dt.timedelta(seconds=30)
 # Time kept between a dispatcher's timeout and the hard stop, so the child closes first.
 SOURCE_DISPATCH_HEADROOM = dt.timedelta(seconds=1)
-# What an evaluation gets end to end: its reads, its write, and the delivery children it starts.
-# It has to hold every attempt a source's activities allow, because an attempt cut off here is a
-# batch that decided something and recorded nothing. Evaluations are abandoned rather than
-# awaited, so this does not have to fit inside the tick. It does hold the key for its duration,
-# which is what blocks a slow evaluation's own re-dispatch.
-SOURCE_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
+# The noop evaluation's ceiling. A source with an adapter takes its own from its binding.
+NOOP_EVALUATION_TIMEOUT = dt.timedelta(seconds=75)
+
+THREAD_BUSY = "AlertsPlatformThreadBusy"
+DELIVERY_START_TO_CLOSE = dt.timedelta(seconds=10)
+DELIVERY_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=30)
+# The workflow waits out a held thread because the activity's retries end inside
+# DELIVERY_SCHEDULE_TO_CLOSE, which is shorter than PENDING_CLAIM_TTL. A claim that a dead
+# attempt left looks fresh to every one of those retries.
+BUSY_RETRY_DELAY = dt.timedelta(seconds=20)
+# From the first busy result to the start of a later attempt. An attempt that starts this late
+# finds every claim the first one saw already stale, so a thread still held is a newer send's.
+BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
+# The last attempt can start one attempt and one delay past the limit.
+DELIVERY_EXECUTION_TIMEOUT = 3 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
 
 
 @frozen
@@ -77,7 +90,7 @@ class AlertsPlatformInputs:
 
 @activity.defn
 async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff)
+    return await database_sync_to_async_pool(discover_demand)(inputs.cutoff, limits_by_source=discovery_limits())
 
 
 @activity.defn
@@ -104,7 +117,18 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
     the ORM and posts over a blocking client. Django refuses an ORM call from a thread with a
     running event loop, so the whole call crosses on the pool rather than one part of it.
     """
-    outcome = await database_sync_to_async_pool(deliver_evaluation)(request)
+    try:
+        outcome = await database_sync_to_async_pool(deliver_evaluation)(request)
+    except ThreadBusy as error:
+        await LOGGER.ainfo(
+            "alerts_platform_delivery_thread_busy",
+            source=request.source.value,
+            configuration_id=request.configuration_id,
+            evaluation_key=request.evaluation_key,
+        )
+        # Non-retryable so that the wait does not use the retries a provider failure needs, and
+        # non-reportable because a held thread is expected contention. The workflow waits it out.
+        raise NonReportableApplicationError(str(error), type=THREAD_BUSY, non_retryable=True) from error
     if not outcome.live:
         await LOGGER.ainfo(
             "alerts_platform_delivery_preview",
@@ -131,13 +155,27 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: AlertDeliveryRequest) -> None:
-        await workflow.execute_activity(
-            alerts_platform_deliver_preview_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(seconds=10),
-            schedule_to_close_timeout=dt.timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        busy_deadline: dt.datetime | None = None
+        while True:
+            started_at = workflow.now()
+            try:
+                await workflow.execute_activity(
+                    alerts_platform_deliver_preview_activity,
+                    inputs,
+                    start_to_close_timeout=DELIVERY_START_TO_CLOSE,
+                    schedule_to_close_timeout=DELIVERY_SCHEDULE_TO_CLOSE,
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+            except ActivityError as error:
+                cause = unwrap_temporal_cause(error)
+                if cause is None or cause.type != THREAD_BUSY:
+                    raise
+                if busy_deadline is None:
+                    busy_deadline = workflow.now() + BUSY_WAIT_LIMIT
+                elif started_at >= busy_deadline:
+                    raise
+            await workflow.sleep(BUSY_RETRY_DELAY)
 
 
 @workflow.defn(name="alerts-platform-deliver")
@@ -164,8 +202,8 @@ class AlertsPlatformEvaluateWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 alerts_platform_probe_postgres_activity,
                 task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-                start_to_close_timeout=dt.timedelta(seconds=10),
-                schedule_to_close_timeout=dt.timedelta(seconds=30),
+                start_to_close_timeout=POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError as error:
@@ -205,14 +243,14 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
         taken = inputs.batch_keys[:MAX_EVALUATIONS_PER_DISPATCH]
         remaining = inputs.batch_keys[MAX_EVALUATIONS_PER_DISPATCH:]
-        source_workflow = SOURCE_EVALUATION_WORKFLOWS.get(inputs.source)
+        binding = SOURCE_BINDINGS.get(inputs.source)
 
         started_ids: list[str] = []
         already_running = 0
         for key in taken:
             evaluation_workflow_id = f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}"
             try:
-                if source_workflow is None:
+                if binding is None:
                     # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
                     await workflow.start_child_workflow(
                         AlertsPlatformEvaluateWorkflow.run,
@@ -220,17 +258,17 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
                         id=evaluation_workflow_id,
                         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=SOURCE_EVALUATION_TIMEOUT,
+                        execution_timeout=NOOP_EVALUATION_TIMEOUT,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
                 else:
                     await workflow.start_child_workflow(
-                        source_workflow,
+                        binding.workflow,
                         SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
                         id=evaluation_workflow_id,
-                        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+                        task_queue=binding.task_queue,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                        execution_timeout=SOURCE_EVALUATION_TIMEOUT,
+                        execution_timeout=binding.evaluation_timeout,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
             except WorkflowAlreadyStartedError:
