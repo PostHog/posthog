@@ -1,44 +1,21 @@
 import { useValues } from 'kea'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { WorkflowProposalApi } from '../../generated/api.schemas'
 import { workflowLogic } from '../workflowLogic'
 import { SuggestedFieldChange, describeSuggestedChanges } from './suggestionChanges'
+import { WorkflowSuggestionFieldDiff } from './WorkflowSuggestionFieldDiff'
 
-function ChangedValue({ value }: { value: unknown }): JSX.Element {
-    if (value === undefined) {
-        return <span className="text-secondary italic">Not set</span>
-    }
-    if (value === null) {
-        return <span className="text-secondary italic">Removed</span>
-    }
-    if (typeof value === 'string') {
-        return <span className="whitespace-pre-wrap break-words line-clamp-4">{value}</span>
-    }
+function FieldDiffs({ fields }: { fields: SuggestedFieldChange[] }): JSX.Element {
     return (
-        <pre className="text-xs bg-surface-secondary rounded p-2 overflow-x-auto mb-0 max-h-40">
-            {JSON.stringify(value, null, 2)}
-        </pre>
+        <div className="flex flex-col gap-3 pl-2 border-l">
+            {fields.map((change) => (
+                <WorkflowSuggestionFieldDiff key={change.path} change={change} />
+            ))}
+        </div>
     )
 }
-
-const COLUMNS: LemonTableColumns<SuggestedFieldChange> = [
-    {
-        title: 'Field',
-        key: 'field',
-        width: '20%',
-        render: (_, change) => (
-            <Tooltip title={change.path}>
-                <span className="font-medium">{change.label}</span>
-            </Tooltip>
-        ),
-    },
-    { title: 'Now', key: 'before', width: '40%', render: (_, change) => <ChangedValue value={change.before} /> },
-    { title: 'Suggested', key: 'after', width: '40%', render: (_, change) => <ChangedValue value={change.after} /> },
-]
 
 export function WorkflowSuggestionDetails({
     id,
@@ -59,13 +36,13 @@ export function WorkflowSuggestionDetails({
                     <span className="font-semibold">
                         {step.stepName ? `Step: ${step.stepName}` : `New step: ${step.stepId}`}
                     </span>
-                    <LemonTable size="small" columns={COLUMNS} dataSource={step.fields} rowKey="path" />
+                    <FieldDiffs fields={step.fields} />
                 </div>
             ))}
             {changes.workflow.length > 0 && (
                 <div className="flex flex-col gap-1">
                     <span className="font-semibold">Workflow</span>
-                    <LemonTable size="small" columns={COLUMNS} dataSource={changes.workflow} rowKey="path" />
+                    <FieldDiffs fields={changes.workflow} />
                 </div>
             )}
             <LemonCollapse
