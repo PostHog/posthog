@@ -7828,11 +7828,14 @@ Note: Coverage is solid for the images and videos verticals (categories, collect
 
 ## SigmaComputing — gaps
 
-Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+Today (13): `Connections`, `DataModels`, `Members`, `ReportElements`, `ReportPages`, `ReportQueries`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
 
 Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
 
 - [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
+- [x] `report elements (GET /v2/reports/{reportId}/elements)` — per-report charts, tables, and controls, fanned out from reports like the workbook elements table, added here
+- [x] `report pages (GET /v2/reports/{reportId}/pages)` — per-report page list, fanned out from reports, added here
+- [x] `report queries (GET /v2/reports/{reportId}/queries)` — SQL behind each report element for query auditing, fanned out from reports, added here
 
 ## SigNoz — gaps
 
