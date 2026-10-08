@@ -7,7 +7,10 @@ import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { actionFlagCalledReferences } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import {
+    actionFlagCalledReferences,
+    actionOnlyReadsFlagCalls,
+} from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
 import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -315,9 +318,9 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                         artifactType="action"
                         references={actionFlagCalledReferences(loadedAction)}
                     >
-                        This action has a step on Feature flag called, which won't match new flag calls once your
-                        organization's flag calls move out of the events table. Remove the step, and chart flag calls in
-                        insights with Feature flag called instead.
+                        {actionOnlyReadsFlagCalls(loadedAction)
+                            ? "Every step in this action is on Feature flag called, so it won't match new flag calls once your organization's flag calls move out of the events table. Rebuild everything listed under Used in analytics with Feature flag called, then delete this action."
+                            : "This action has a step on Feature flag called, which won't match new flag calls once your organization's flag calls move out of the events table. Remove the step, and chart flag calls in insights with Feature flag called instead."}
                     </FlagCalledRebuildBanner>
                 )}
 

@@ -103,6 +103,11 @@ export function actionReadsFlagCalls(action: Pick<FlagCalledAction, 'steps'>): b
     return !!action.steps?.some((step) => step.event === FEATURE_FLAG_CALLED_EVENT)
 }
 
+/** An action keeps at least one step, so the user can't remove the flag-call steps from this one. */
+export function actionOnlyReadsFlagCalls(action: Pick<FlagCalledAction, 'steps'>): boolean {
+    return actionReadsFlagCalls(action) && !!action.steps?.every((step) => step.event === FEATURE_FLAG_CALLED_EVENT)
+}
+
 export function actionFlagCalledReferences(action: Pick<FlagCalledAction, 'steps'>): FlagCalledReferences {
     return { readsEvent: actionReadsFlagCalls(action), actionIds: [] }
 }

@@ -1,4 +1,5 @@
 import {
+    actionOnlyReadsFlagCalls,
     actionReadsFlagCalls,
     cohortFlagCalledReferences,
     dependsOnFlagCalls,
@@ -363,15 +364,26 @@ describe('flag called dependencies', () => {
     })
 
     describe('actions', () => {
-        it.each<[string, boolean, ActionType]>([
+        it.each<[string, boolean, boolean, ActionType]>([
             [
                 'a $feature_flag_called step after another step',
                 true,
+                false,
                 { id: ACTION_ID, steps: [{ event: '$pageview' }, { event: FLAG_CALLED }] } as ActionType,
             ],
-            ['steps on other events only', false, PAGEVIEW_ACTION],
-        ])('an action with %s reads flag calls: %s', (_label, expected, actionWithSteps) => {
-            expect(actionReadsFlagCalls(actionWithSteps)).toBe(expected)
-        })
+            [
+                'only $feature_flag_called steps',
+                true,
+                true,
+                { id: ACTION_ID, steps: [{ event: FLAG_CALLED }, { event: FLAG_CALLED }] } as ActionType,
+            ],
+            ['steps on other events only', false, false, PAGEVIEW_ACTION],
+        ])(
+            'an action with %s reads flag calls: %s, only flag calls: %s',
+            (_label, readsFlagCalls, onlyFlagCalls, actionWithSteps) => {
+                expect(actionReadsFlagCalls(actionWithSteps)).toBe(readsFlagCalls)
+                expect(actionOnlyReadsFlagCalls(actionWithSteps)).toBe(onlyFlagCalls)
+            }
+        )
     })
 })
