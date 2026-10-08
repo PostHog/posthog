@@ -1,4 +1,5 @@
 import { render } from "ink";
+import { startAnalytics, stopAnalytics, track } from "./analytics";
 import { TuiAuth } from "./auth";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Root } from "./components/Root";
@@ -25,6 +26,9 @@ const root = (Component: typeof Root) => (
 );
 // cli.mjs loads the app again after an edit that left nothing on screen.
 const mounted = globalThis as { __posthogTuiMounted?: boolean };
+startAnalytics();
+// A hot reload runs this module again; only the first run is the user opening the app.
+if (!mounted.__posthogTuiMounted) track("opened");
 const instance = render(root(Root), {
   stdin: mouse.stdin,
   alternateScreen: true,
@@ -57,6 +61,6 @@ if (import.meta.hot) {
 void instance.waitUntilExit().then(async () => {
   if (reloading) return;
   mouse.dispose();
-  await stopLocals();
+  await Promise.all([stopLocals(), stopAnalytics()]);
   process.exit(0);
 });

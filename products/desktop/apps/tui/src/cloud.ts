@@ -28,6 +28,7 @@ import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mc
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { PosthogPluginService } from "@posthog/workspace-server/services/posthog-plugin/posthog-plugin";
 import { ProcessTrackingService } from "@posthog/workspace-server/services/process-tracking/process-tracking";
+import { identify } from "./analytics";
 import type { TuiAuth } from "./auth";
 import { type LocalStart, localStartFor } from "./billing";
 import { chatgptAccount } from "./chatgpt";
@@ -191,7 +192,10 @@ export function createCloud(
   let teamId: Promise<number> | null = null;
   const context = async () => {
     teamId ??= api.getCurrentUser().then(
-      (user) => user.team.id,
+      (user) => {
+        identify((user as { distinct_id?: string }).distinct_id ?? user.uuid);
+        return user.team.id;
+      },
       (error: unknown) => {
         teamId = null;
         throw error;

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { track } from "../analytics";
 import { messageOf } from "../errors";
 import { applyPickerKey, openPicker, type Picker, pickerKey } from "../picker";
 import { loadPrefs, savePrefs } from "../prefs";
@@ -128,6 +129,7 @@ export function useRepoPicker({
         const saved = { ...repos, [paneId]: chosen };
         setRepos(saved);
         savePrefs({ paneRepositories: saved });
+        track("repositories picked", { count: chosen.length, pane_id: paneId });
         flashNotice(
           chosen.length > 0
             ? `New cloud chats here clone ${chosen.join(", ")}`

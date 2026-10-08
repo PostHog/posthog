@@ -26,6 +26,7 @@
     "@posthog/ui": "workspace:*",
     "@posthog/workspace-server": "workspace:*",
     "ink": "^7.1.1",
+    "posthog-node": "^5.55.0",
     "react": "catalog:",
     "vite": "^7.0.0",
     "zod": "^4.1.12"

@@ -1,5 +1,6 @@
 import type { Task } from "@posthog/shared";
 import { useRef, useState } from "react";
+import { track } from "../analytics";
 import type { StartPick } from "../chats";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
@@ -152,6 +153,11 @@ export function useModels({
               const model = available[index];
               live.setModel(model).then(
                 () => {
+                  track("chat setting changed", {
+                    setting: "model",
+                    to: model.id,
+                    task_id: target.taskId,
+                  });
                   setTaskModels((models) =>
                     new Map(models).set(target.taskId, model),
                   );
@@ -213,10 +219,16 @@ export function useModels({
             (index) => {
               const effort = available[index];
               live.setEffort(effort).then(
-                () =>
+                () => {
+                  track("chat setting changed", {
+                    setting: "effort",
+                    to: effort,
+                    task_id: target.taskId,
+                  });
                   setTaskEfforts((efforts) =>
                     new Map(efforts).set(target.taskId, effort),
-                  ),
+                  );
+                },
                 (error: unknown) =>
                   flashNotice(`Couldn't switch effort: ${messageOf(error)}`, {
                     paneId,
@@ -274,6 +286,7 @@ export function useModels({
           const mode = available[index];
           setMode(mode.id).then(
             () => {
+              track("chat setting changed", { setting: "mode", to: mode.id });
               savePrefs({ claudeMode: mode.id });
               flashNotice(`${mode.name} on`, { paneId });
             },
@@ -375,6 +388,10 @@ export function useModels({
     }
     // The chat's events show the compaction, its wait and what it freed. pi's request gives up after 30
     // seconds while a long compaction carries on, so only another error is a failure.
+    track("context compacted", {
+      task_id: target.taskId,
+      with_focus: instructions.length > 0,
+    });
     target.control
       .compact(instructions || undefined)
       .catch((error: unknown) => {

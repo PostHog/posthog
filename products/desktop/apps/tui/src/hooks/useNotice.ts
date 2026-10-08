@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { track } from "../analytics";
 
 const NOTICE_MS = 8_000;
 
@@ -24,6 +25,15 @@ export interface Notice {
 
 export type FlashNotice = Notice["flashNotice"];
 
+// Notices are where the TUI tells the user something went wrong, so each one is an event with its text.
+const noticeShown = (text: string, place: NoticePlace): void =>
+  track("notice shown", {
+    text: text.slice(0, 200),
+    failure: /^couldn't|failed|cannot|sign in/i.test(text),
+    pane_id: place.paneId ?? null,
+    task_id: place.taskId ?? null,
+  });
+
 export function useNotice(): Notice {
   const [shown, setShown] = useState<ShownNotice | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,6 +51,7 @@ export function useNotice(): Notice {
     shown,
     flashNotice: (text, { ms = NOTICE_MS, ...place } = {}) => {
       cancel();
+      noticeShown(text, place);
       setShown({ text, ...place });
       timer.current = setTimeout(() => {
         timer.current = null;
@@ -49,6 +60,7 @@ export function useNotice(): Notice {
     },
     showNotice: (text, place = {}) => {
       cancel();
+      noticeShown(text, place);
       setShown({ text, ...place });
     },
     clearNotice: () => {

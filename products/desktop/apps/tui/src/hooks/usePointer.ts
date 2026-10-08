@@ -5,6 +5,7 @@ import {
   type SetStateAction,
   useRef,
 } from "react";
+import { track } from "../analytics";
 import type { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
 import { HEADER_GAP } from "../components/Sidebar";
@@ -147,9 +148,16 @@ export function usePointer({
       }
       const link = chat.linkAt(click.row - box.top, click.column - box.left);
       const image = chat.imageAt(click.row - box.top);
-      if (link) openUrl(link);
-      else if (image) openImage(image);
-      else if (chat.toggleAt(click.row - box.top)) repaint();
+      if (link) {
+        track("link opened", { pane_id: paneId });
+        openUrl(link);
+      } else if (image) {
+        track("image opened", { pane_id: paneId });
+        openImage(image);
+      } else if (chat.toggleAt(click.row - box.top)) {
+        track("tool group toggled", { pane_id: paneId });
+        repaint();
+      }
     }
   };
 
@@ -209,6 +217,12 @@ export function usePointer({
       }
       const text = current.target.selectedText();
       if (!text.trim()) return;
+      track("text copied", {
+        via: end.kind === "word" ? "double click" : "drag",
+        from: current.target === chatIn(current.paneId) ? "chat" : "composer",
+        chars: text.length,
+        pane_id: current.paneId,
+      });
       copyToClipboard(text);
       flashNotice("Copied to clipboard", { paneId: current.paneId });
     },

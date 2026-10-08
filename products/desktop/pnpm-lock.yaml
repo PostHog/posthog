@@ -834,6 +834,9 @@ importers:
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.2.17)(react-devtools-core@6.1.5)(react@19.2.6)
+      posthog-node:
+        specifier: ^5.55.0
+        version: 5.55.0(rxjs@7.8.2)
       react:
         specifier: 19.2.6
         version: 19.2.6

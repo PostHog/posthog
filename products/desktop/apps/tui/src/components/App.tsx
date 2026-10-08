@@ -3,6 +3,7 @@ import type { CloudRegion, Task } from "@posthog/shared";
 import { Box, type DOMElement, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionsLine } from "../actions";
+import { track } from "../analytics";
 import { bannerLines } from "../banner";
 import type { StartPick } from "../chats";
 import { currentRepository, type PiChats } from "../chats";
@@ -100,6 +101,9 @@ export function App({
     return loadLayout(layoutFile);
   });
   const layoutFrom = useRef(layoutFile);
+  useEffect(() => {
+    if (session?.account) track("signed in");
+  }, [session?.account]);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
   const [narrowSidebar, setNarrowSidebar] = useState(
@@ -390,6 +394,7 @@ export function App({
     control,
     paneAtDrop,
     toggleSidebar: () => {
+      track("sidebar narrowed", { narrow: !narrowSidebar });
       setNarrowSidebar(!narrowSidebar);
       savePrefs({ narrowSidebar: !narrowSidebar });
     },

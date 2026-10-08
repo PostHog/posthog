@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { track } from "../analytics";
 import { type ChatPlace, loadPrefs, savePrefs } from "../prefs";
 
 export interface ChatPlaces {
@@ -16,6 +17,7 @@ export function useChatPlace(): ChatPlaces {
   return {
     placeFor: (paneId) => places.get(paneId) ?? defaultPlace,
     setPlace: (paneId, place) => {
+      track("chat place set", { place, pane_id: paneId });
       setPlaces((current) => new Map(current).set(paneId, place));
       setDefaultPlace(place);
       savePrefs({ newChatPlace: place });

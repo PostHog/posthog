@@ -1,6 +1,7 @@
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { CloudRegion, Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
+import { track } from "../analytics";
 import { REGIONS } from "../auth";
 import {
   BILLINGS,
@@ -159,6 +160,7 @@ export function useSend({
 
   // A session's workspaces stay in its account's layout file, so signing out only resets what the screen holds.
   const signOut = (): void => {
+    track("signed out");
     logout();
     resetWork();
     setFresh(new Map());
@@ -181,6 +183,13 @@ export function useSend({
     const slash = parseSlash(text);
     // Notices about this chat show above its composer.
     const here = { paneId, taskId: pane?.taskId ?? null };
+    if (slash)
+      track("slash command used", {
+        command: slash.command,
+        with_args: slash.args.length > 0,
+        pane_id: paneId,
+        task_id: pane?.taskId ?? null,
+      });
     if (slash?.command === "model") {
       openModelSheet(paneId, current);
       return;
@@ -356,6 +365,13 @@ export function useSend({
       return;
     }
     let pendingKey = pane?.taskId ?? paneId;
+    const sent = {
+      pane_id: paneId,
+      chars: text.length,
+      images: images.length,
+      shell: text.startsWith("!"),
+      billing: loadPrefs().billing,
+    };
     setPending((messages) => new Map(messages).set(pendingKey, text));
     const clearPending = (): void =>
       setPending((messages) => {
@@ -370,6 +386,12 @@ export function useSend({
       setPending((messages) => new Map(messages).set(taskId, text));
     };
     const promptLocal = (taskId: string): Promise<void> => {
+      track("message sent", {
+        ...sent,
+        task_id: taskId,
+        place: "local",
+        new_chat: taskId !== pane?.taskId,
+      });
       markActive(taskId);
       return localFor(taskId, pickFor(paneId)).then((session) =>
         session.prompt(text, images),
@@ -428,8 +450,16 @@ export function useSend({
       }
     }
     if (current) sentAt.current.set(current.id, Date.now());
+    track("message sent", {
+      ...sent,
+      task_id: current?.id ?? null,
+      place: "cloud",
+      new_chat: !current,
+      runtime: current?.runtime ?? null,
+    });
     (current
       ? chats.reply(current, text, images, (resumed) => {
+          track("run reopened", { task_id: current.id, resumed: !!resumed });
           reopened(current.id, true);
           // The run is queued again, so its status shows before the work list refreshes.
           if (resumed)
@@ -471,6 +501,7 @@ export function useSend({
     if (text === undefined || sent === undefined || at < sent - CLOCK_SKEW_MS)
       return;
     sentAt.current.delete(taskId);
+    track("message undelivered", { pane_id: paneId, task_id: taskId });
     setPending((messages) => {
       const next = new Map(messages);
       next.delete(taskId);
