@@ -70,6 +70,15 @@ export function agentUp(view: RunView): boolean {
   return view.windowStart > 0 || view.entries.some(runStarted);
 }
 
+// A streamed entry can arrive without a timestamp, which the transcript would read as "now" on every redraw, so a finished
+// turn's "Worked for" would keep counting. The arrival time is stamped once instead.
+function stamped(entries: StoredLogEntry[]): StoredLogEntry[] {
+  const now = new Date(Date.now()).toISOString();
+  return entries.map((entry) =>
+    entry.timestamp ? entry : { ...entry, timestamp: now },
+  );
+}
+
 export function applyUpdate(
   view: RunView,
   update: CloudTaskUpdatePayload,
@@ -79,7 +88,7 @@ export function applyUpdate(
       return {
         ...view,
         loaded: true,
-        entries: update.newEntries,
+        entries: stamped(update.newEntries),
         windowStart: update.windowStart ?? 0,
         status: update.status ?? view.status,
         sandboxAlive: update.sandboxAlive ?? view.sandboxAlive,
@@ -87,7 +96,10 @@ export function applyUpdate(
         error: null,
       };
     case "logs":
-      return { ...view, entries: [...view.entries, ...update.newEntries] };
+      return {
+        ...view,
+        entries: [...view.entries, ...stamped(update.newEntries)],
+      };
     case "status":
       return {
         ...view,
