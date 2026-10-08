@@ -62,6 +62,9 @@ jobs:
         if: github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'trunk-merge/')
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 7
+        defaults:
+            run:
+                working-directory: .github/benchmarks/stagehand
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -75,9 +78,9 @@ jobs:
                   node-version-file: .nvmrc
             - run: |
                   corepack enable
-                  corepack pnpm --dir .github/benchmarks/stagehand --ignore-workspace install --frozen-lockfile
-            - run: corepack pnpm --dir .github/benchmarks/stagehand exec playwright install chromium --with-deps --no-shell
-            - run: corepack pnpm --dir .github/benchmarks/stagehand exec playwright test --config smoke.config.ts
+                  corepack pnpm --ignore-workspace install --frozen-lockfile
+            - run: corepack pnpm exec playwright install chromium --with-deps --no-shell
+            - run: corepack pnpm exec playwright test --config smoke.config.ts
     benchmark:
         needs: [startup]
         if: github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'trunk-merge/')
