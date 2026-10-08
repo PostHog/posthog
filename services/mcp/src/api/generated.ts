@@ -82551,7 +82551,7 @@ export namespace Schemas {
       celebrate_clean_reviews?: boolean;
       /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'. */
       review_authored_prs?: boolean;
-      /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments.
+      /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.
        *
        * * `follow` - Follow repositories
        * * `flash` - Flash
@@ -95048,7 +95048,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       full_name: string;
-      /** Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people, the default). A person's own choice always wins.
+      /** Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people, the default) or 'listed' (only the listed people). A person's own choice always wins.
        *
        * * `everyone` - Everyone
        * * `listed` - Only listed people */
@@ -95185,7 +95185,7 @@ export namespace Schemas {
       celebrate_clean_reviews?: boolean;
       /** Deprecated: use default_review_mode. True when default_review_mode is 'flash'. Writing true sets default_review_mode to 'flash', and writing false sets it to 'follow'. */
       review_authored_prs?: boolean;
-      /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments.
+      /** Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.
        *
        * * `follow` - Follow repositories
        * * `flash` - Flash

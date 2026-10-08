@@ -51,7 +51,7 @@ export const ReviewHogRepositoriesCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `everyone` - Everyone\n\* `listed` - Only listed people')
         .optional()
         .describe(
-            "Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people) or 'listed' (only the listed people, the default). A person's own choice always wins.\n\n\* `everyone` - Everyone\n\* `listed` - Only listed people"
+            "Who gets automatic Flash reviews when they follow the repository rules: 'everyone' (except the excepted people, the default) or 'listed' (only the listed people). A person's own choice always wins.\n\n\* `everyone` - Everyone\n\* `listed` - Only listed people"
         ),
     exclude_bots: zod
         .boolean()
@@ -182,7 +182,7 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `follow` - Follow repositories\n\* `flash` - Flash\n\* `full` - Full\n\* `off` - Off')
         .optional()
         .describe(
-            "Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments.\n\n\* `follow` - Follow repositories\n\* `flash` - Flash\n\* `full` - Full\n\* `off` - Off"
+            "Automatic reviews of this user's own pull requests in every repository added to PostHog Review: 'follow' (default) uses each repository's rule, 'flash' and 'full' review every pull request, 'off' reviews none. A per-repository choice overrides it. Flash reviews post findings without resolving comments. Automatic Full reviews do not run yet, so 'full' gets no automatic review for now.\n\n\* `follow` - Follow repositories\n\* `flash` - Flash\n\* `full` - Full\n\* `off` - Off"
         ),
     flash_reasoning_effort: zod
         .enum(['medium', 'xhigh'])

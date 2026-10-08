@@ -62,7 +62,9 @@ class TestResolveActingUser(BaseTest):
         self, _name: str, opted_in: bool, active: bool, member: bool, repository_added: bool
     ) -> None:
         if repository_added:
-            ReviewRepository.objects.for_team(self.team.id).create(team=self.team, full_name="PostHog/posthog")
+            ReviewRepository.objects.for_team(self.team.id).create(
+                team=self.team, full_name="PostHog/posthog", flash_for=ReviewRepository.FlashFor.LISTED
+            )
         report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="PostHog/posthog",
