@@ -1011,8 +1011,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/replicate/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reply_io/reply_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/reply_io/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/resend/resend.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/resend/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/retently/retently.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/retently/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/revenuecat/revenuecat.py
