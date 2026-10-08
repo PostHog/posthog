@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from products.review_hog.backend.reviewer.constants import FLASH_DEDUP_MODEL, FLASH_LENSES, SINGLE_AGENT_SOURCE
+from products.review_hog.backend.reviewer.constants import FLASH_LENSES, SINGLE_AGENT_SOURCE
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -132,7 +132,7 @@ class TestDedupeFlashFindings:
         mock_llm = AsyncMock(
             return_value=IssueDeduplication(duplicates=[DuplicateIssue(id=issue_id) for issue_id in llm_duplicates])
         )
-        with patch(f"{_DEDUP_MODULE}.run_oneshot_review", mock_llm):
+        with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
             kept = await dedupe_flash_findings(
                 team_id=1,
                 user_id=1,
@@ -146,4 +146,3 @@ class TestDedupeFlashFindings:
 
         assert [issue.id for issue in kept] == expected_ids
         assert mock_llm.call_count == 1
-        assert mock_llm.call_args.kwargs["model"] == FLASH_DEDUP_MODEL

@@ -10,7 +10,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
     FLASH_DEDUP_MODEL,
-    ONESHOT_MODEL,
+    FLASH_DEDUP_REASONING_EFFORT,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
@@ -277,27 +277,27 @@ async def test_deduplicate_prior_turn_finding_makes_issue_a_candidate(pr_metadat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "issue_count,expects_oneshot,model,expected_model",
+    "issue_count,for_flash,expected_route",
     [
-        (DEDUP_ONESHOT_MAX_FINDINGS, True, None, ONESHOT_MODEL),
-        (DEDUP_ONESHOT_MAX_FINDINGS + 1, False, None, DEDUP_MODEL),
-        (DEDUP_ONESHOT_MAX_FINDINGS, True, FLASH_DEDUP_MODEL, FLASH_DEDUP_MODEL),
-        (DEDUP_ONESHOT_MAX_FINDINGS + 1, False, FLASH_DEDUP_MODEL, FLASH_DEDUP_MODEL),
+        (DEDUP_ONESHOT_MAX_FINDINGS, False, "oneshot"),
+        (DEDUP_ONESHOT_MAX_FINDINGS + 1, False, "sandbox"),
+        (DEDUP_ONESHOT_MAX_FINDINGS + 1, True, "openai"),
     ],
 )
 async def test_dedup_llm_call_routes_by_oneshot_gate(
-    pr_metadata: PRMetadata, issue_count: int, expects_oneshot: bool, model: str | None, expected_model: str
+    pr_metadata: PRMetadata, issue_count: int, for_flash: bool, expected_route: str
 ) -> None:
     # The gate counts issues entering dedup and is inclusive: within it the dedupe is a direct
     # one-shot gateway call; above it the previous sandbox path is kept. Every issue shares the same
     # file+lines so the positional pre-filter always produces candidates and the LLM call fires.
-    # A model override must reach whichever path runs, or a Flash dedup silently runs the pipeline's.
+    # A Flash dedup skips the gate: it always runs on its own OpenAI pins, never on Anthropic ones.
     issues = [_issue(f"1-{i}", "src/auth.py", 45, 50) for i in range(issue_count)]
     keep_all = IssueDeduplication(duplicates=[])
 
     with (
         patch(f"{_MODULE}.run_oneshot_review", new=AsyncMock(return_value=keep_all)) as mock_oneshot,
         patch(f"{_MODULE}.run_sandbox_review", new=AsyncMock(return_value=keep_all)) as mock_sandbox,
+        patch(f"{_MODULE}.run_oneshot_openai_review", new=AsyncMock(return_value=keep_all)) as mock_openai,
     ):
         result = await deduplicate_issues(
             team_id=1,
@@ -308,22 +308,24 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
             prior_findings=[],
             branch="test-branch",
             repository="test/repo",
-            model=model,
+            for_flash=for_flash,
         )
 
     assert len(result) == issue_count
-    assert mock_oneshot.called is expects_oneshot
-    assert mock_sandbox.called is not expects_oneshot
-    called = mock_oneshot if expects_oneshot else mock_sandbox
-    assert called.call_args.kwargs["model"] == expected_model
-    if not expects_oneshot:
+    routes = {"oneshot": mock_oneshot, "sandbox": mock_sandbox, "openai": mock_openai}
+    assert [name for name, mock in routes.items() if mock.called] == [expected_route]
+    if expected_route == "sandbox":
         # The pin kwargs default to None, so dropping them at this call site would silently fall
         # back to the sandbox default model — same contract as the chunking and review pin tests.
         kwargs = mock_sandbox.call_args.kwargs
-        assert (kwargs["runtime_adapter"], kwargs["reasoning_effort"]) == (
+        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == (
             DEDUP_RUNTIME_ADAPTER,
+            DEDUP_MODEL,
             DEDUP_REASONING_EFFORT,
         )
+    if expected_route == "openai":
+        kwargs = mock_openai.call_args.kwargs
+        assert (kwargs["model"], kwargs["reasoning_effort"]) == (FLASH_DEDUP_MODEL, FLASH_DEDUP_REASONING_EFFORT)
 
 
 @pytest.mark.asyncio

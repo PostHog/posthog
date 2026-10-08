@@ -9,7 +9,7 @@ from temporalio.exceptions import ApplicationError
 
 from products.review_hog.backend.reviewer.constants import ONESHOT_MODEL, ONESHOT_REASONING_EFFORT
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
-from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
+from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_openai_review, run_oneshot_review
 
 _MODULE = "products.review_hog.backend.reviewer.sandbox.direct_llm"
 
@@ -164,3 +164,58 @@ async def test_stage_labels_both_gateway_dialects() -> None:
 
     assert mock_get.call_args.kwargs["ai_stage"] == "dedup"
     assert client.messages.stream.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
+
+
+def _openai_client(content: str, finish_reason: str) -> MagicMock:
+    choice = MagicMock(finish_reason=finish_reason)
+    choice.message.content = content
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.chat.completions.create = AsyncMock(return_value=MagicMock(choices=[choice]))
+    return client
+
+
+async def _openai_call() -> IssueDeduplication:
+    return await run_oneshot_openai_review(
+        team_id=1,
+        user_id=2,
+        prompt="the prompt",
+        system_prompt="the system prompt",
+        model_to_validate=IssueDeduplication,
+        step_name="dedup",
+        model="gpt-6-luna",
+        reasoning_effort="medium",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content,finish_reason,non_retryable",
+    [
+        ('{"duplicates": [{"id": "1-1-1"}]}', "stop", None),
+        ('{"duplicates": [', "stop", False),
+        ('{"duplicates": [', "length", True),
+    ],
+    ids=["valid", "invalid_json_retries", "truncated_fails_fast"],
+)
+async def test_openai_oneshot_validates_its_reply_like_the_anthropic_path(
+    content: str, finish_reason: str, non_retryable: bool | None
+) -> None:
+    # An unvalidated reply would reach dedup as a dict, and a raw ValidationError is too large for
+    # Temporal's failure serialization. The call must also keep its stage label and strict schema.
+    client = _openai_client(content, finish_reason)
+
+    with patch(f"{_MODULE}.build_async_openai_client", return_value=client) as mock_get:
+        if non_retryable is None:
+            assert await _openai_call() == IssueDeduplication.model_validate_json(content)
+        else:
+            with pytest.raises(ApplicationError) as exc_info:
+                await _openai_call()
+            assert exc_info.value.non_retryable is non_retryable
+            assert "dedup" in str(exc_info.value)
+
+    assert mock_get.call_args.kwargs["properties"]["ai_stage"] == "dedup"
+    request = client.chat.completions.create.call_args.kwargs
+    assert (request["model"], request["reasoning_effort"]) == ("gpt-6-luna", "medium")
+    assert request["response_format"]["json_schema"]["strict"] is True

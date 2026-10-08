@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import Final
 
 from posthog.dataclasses import frozen
 
@@ -394,9 +395,10 @@ CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
 DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
 DEDUP_MODEL = "claude-sonnet-5"
 DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
-# Both dedup calls of a single-agent Flash turn run on this model instead of the one-shot and sandbox
-# dedup models, with the same adapter and effort.
-FLASH_DEDUP_MODEL = "claude-sonnet-5-5"
+# Both dedup calls of a single-agent Flash turn run as one-shot OpenAI calls on these pins, whatever
+# the candidate count, instead of the pipeline's one-shot and sandbox dedup pins.
+FLASH_DEDUP_MODEL = "gpt-6-luna"
+FLASH_DEDUP_REASONING_EFFORT: Final = "medium"
 
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent

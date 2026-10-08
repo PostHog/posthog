@@ -8,12 +8,13 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_ONESHOT_MAX_FINDINGS,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
-    ONESHOT_MODEL,
+    FLASH_DEDUP_MODEL,
+    FLASH_DEDUP_REASONING_EFFORT,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
-from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
+from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_openai_review, run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 
@@ -123,7 +124,7 @@ async def deduplicate_issues(
     repository: str,
     workflow_id_prefix: str | None = None,
     anchors: Sequence[Issue] = (),
-    model: str | None = None,
+    for_flash: bool = False,
 ) -> list[Issue]:
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
@@ -137,8 +138,8 @@ async def deduplicate_issues(
     gateway call; only an over-limit finding set falls back to the sandbox.
 
     `anchors` are findings this turn keeps whatever the LLM answers. They count as prior coverage, so
-    an issue that restates one is dropped, and they are never dropped or returned themselves. `model`
-    pins both the one-shot and the sandbox call; None keeps the pipeline's dedup models.
+    an issue that restates one is dropped, and they are never dropped or returned themselves.
+    `for_flash` runs the LLM call on the Flash dedup pins instead of the pipeline's.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
@@ -174,9 +175,20 @@ async def deduplicate_issues(
         DEDUPLICATION_SCHEMA=schema.strip(),
     )
 
+    if for_flash:
+        deduplication_result = await run_oneshot_openai_review(
+            team_id=team_id,
+            user_id=user_id,
+            prompt=prompt,
+            system_prompt=DEDUP_SYSTEM_PROMPT,
+            model_to_validate=IssueDeduplication,
+            step_name="dedup",
+            model=FLASH_DEDUP_MODEL,
+            reasoning_effort=FLASH_DEDUP_REASONING_EFFORT,
+        )
     # Gate on the candidates actually sent to the LLM — `unique` issues are already excluded from
     # the payload, so sizing by the pre-filter total would spin up a sandbox for a tiny dedup.
-    if DEDUP_ONESHOT_MAX_FINDINGS and len(candidates) <= DEDUP_ONESHOT_MAX_FINDINGS:
+    elif DEDUP_ONESHOT_MAX_FINDINGS and len(candidates) <= DEDUP_ONESHOT_MAX_FINDINGS:
         deduplication_result = await run_oneshot_review(
             team_id=team_id,
             user_id=user_id,
@@ -184,7 +196,6 @@ async def deduplicate_issues(
             system_prompt=DEDUP_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
-            model=model or ONESHOT_MODEL,
         )
     else:
         deduplication_result = await run_sandbox_review(
@@ -198,7 +209,7 @@ async def deduplicate_issues(
             step_name="dedup",
             workflow_id_prefix=workflow_id_prefix,
             runtime_adapter=DEDUP_RUNTIME_ADAPTER,
-            model=model or DEDUP_MODEL,
+            model=DEDUP_MODEL,
             reasoning_effort=DEDUP_REASONING_EFFORT,
         )
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.

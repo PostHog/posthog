@@ -16,7 +16,6 @@ from pathlib import Path
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
-    FLASH_DEDUP_MODEL,
     FLASH_MAX_FINDINGS,
     FLASH_POSTED_PRIORITIES,
     FLASH_PROMPT_DIFF_MAX_CHARS,
@@ -34,8 +33,9 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_r
 logger = logging.getLogger(__name__)
 
 SINGLE_AGENT_PROMPT_DIR = "single_agent_review"
-SINGLE_AGENT_CORE_FILE = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / "core.md"
-LENS_PRIORITY_FILE = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / "lens_priority.md"
+SINGLE_AGENT_PROMPT_PATH = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR
+SINGLE_AGENT_CORE_FILE = SINGLE_AGENT_PROMPT_PATH / "core.md"
+LENS_PRIORITY_FILE = SINGLE_AGENT_PROMPT_PATH / "lens_priority.md"
 
 # The leading HTML comment of a prompt file holds attribution for maintainers, not instructions.
 _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
@@ -54,7 +54,7 @@ def load_prompt_file(path: Path) -> str:
 
 
 def lens_prompt_path(prompt_file: str) -> Path:
-    return PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / prompt_file
+    return SINGLE_AGENT_PROMPT_PATH / prompt_file
 
 
 def load_core_prompt() -> str:
@@ -243,7 +243,7 @@ async def dedupe_flash_findings(
             branch=branch,
             repository=repository,
             workflow_id_prefix=workflow_id_prefix,
-            model=FLASH_DEDUP_MODEL,
+            for_flash=True,
         ),
         deduplicate_issues(
             team_id=team_id,
@@ -256,7 +256,7 @@ async def dedupe_flash_findings(
             repository=repository,
             workflow_id_prefix=workflow_id_prefix,
             anchors=main,
-            model=FLASH_DEDUP_MODEL,
+            for_flash=True,
         ),
     )
     kept = compose_flash_findings(main_kept, lens_kept)
