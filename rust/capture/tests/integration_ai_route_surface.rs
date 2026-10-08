@@ -20,7 +20,7 @@ mod integration_utils;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::config::CaptureMode;
-use integration_utils::{build_router_for_mode, build_router_for_mode_with_v1};
+use integration_utils::build_router_for_mode;
 use rstest::rstest;
 use serde_json::json;
 
@@ -152,8 +152,8 @@ async fn import_mode_registers_only_the_analytics_paths(
 // v1 endpoints
 // ---------------------------------------------------------------------------
 
-/// Post a real v1 batch to `path` on a router built for `mode` with v1
-/// enabled, and pin what comes back.
+/// Post a real v1 batch to `path` on a router built for `mode`, and pin what
+/// comes back.
 ///
 /// Unlike the v0 cases above, the payload is one the endpoint fully accepts, so
 /// [`Answer::Served`] is the 200 a completed publish returns rather than a status
@@ -165,7 +165,7 @@ async fn assert_v1_answer(mode: CaptureMode, path: &str, expected: Answer) {
     event.event = "$ai_generation".to_string();
     let payload = capture::v1::test_utils::batch_payload(&[event]);
 
-    let status = TestClient::new(build_router_for_mode_with_v1(mode))
+    let status = TestClient::new(build_router_for_mode(mode))
         .post(path)
         .body(payload)
         .header("Authorization", "Bearer phc_route_surface_token")
@@ -226,15 +226,4 @@ async fn non_ai_modes_never_serve_the_v1_ai_endpoint(
     #[case] expected: Answer,
 ) {
     assert_v1_answer(mode, path, expected).await;
-}
-
-/// With v1 off the paths stay unregistered on every mode, which is what makes
-/// the v1-enabled assertions above say something about the mode gating rather
-/// than about the switch.
-#[rstest]
-#[case::ai(CaptureMode::Ai, "/i/v1/ai/events")]
-#[case::events(CaptureMode::Events, "/i/v1/analytics/events")]
-#[tokio::test]
-async fn v1_paths_stay_unregistered_while_v1_is_off(#[case] mode: CaptureMode, #[case] path: &str) {
-    assert_answer(mode, path, Answer::Absent).await;
 }

@@ -59,8 +59,6 @@ case "$RS_SVC" in
     export LOG_LEVEL=debug
     export DEBUG=1
     export CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC=${CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC:-ingestion-errortracking-main}
-    # v1 endpoints publish through the same outputs as v0
-    export CAPTURE_V1_ENABLED=${CAPTURE_V1_ENABLED:-true}
     ;;
 
   capture-replay)
@@ -93,8 +91,6 @@ case "$RS_SVC" in
     export LOG_LEVEL=debug
     export DEBUG=1
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
-    # `/i/v1/ai/events` (Django's capture_ai_internal)
-    export CAPTURE_V1_ENABLED=${CAPTURE_V1_ENABLED:-true}
     ;;
 
   capture-logs)

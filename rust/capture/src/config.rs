@@ -394,11 +394,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 
-    /// Serves the v1 endpoints this capture mode owns. They publish through
-    /// the same outputs as v0.
-    #[envconfig(default = "false")]
-    pub capture_v1_enabled: bool,
-
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
     #[envconfig(default = "10485760")]
     pub capture_v1_max_compressed_body_bytes: usize,
