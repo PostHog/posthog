@@ -7524,6 +7524,7 @@ export type HogFunctionConfigurationContextId =
     | 'billing-alerts'
     | 'replay-vision-alerts'
     | 'data-warehouse-alerts'
+    | 'replay-vision-requests'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7549,6 +7550,7 @@ export type HogFunctionSubTemplateIdType =
     | 'data-warehouse-sync-recovered'
     | 'data-warehouse-sync-completed'
     | 'data-warehouse-billing-limit-reached'
+    | 'replay-vision-request-completed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

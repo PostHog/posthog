@@ -296,6 +296,13 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         },
         flag: FEATURE_FLAGS.DWH_SYNC_ALERTS,
     },
+    'replay-vision-request-completed': {
+        sub_template_id: 'replay-vision-request-completed',
+        type: 'internal_destination',
+        context_id: 'replay-vision-requests',
+        filters: { source: 'internal-events', events: [{ id: '$replay_vision_request_completed', type: 'events' }] },
+        flag: FEATURE_FLAGS.REPLAY_VISION_OBSERVATION_REQUESTS,
+    },
 }
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
@@ -1834,6 +1841,40 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'replay-vision-request-completed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook when a Replay vision request completes',
+            description: 'Send a webhook when every session in a scan request has finished',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['replay-vision-request-completed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack when a Replay vision request completes',
+            description: 'Post to a Slack channel when every session in a scan request has finished',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: 'Replay vision request {event.properties.label_mrkdwn} finished: *{event.properties.succeeded_count}* of {event.properties.session_count} sessions succeeded.',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Replay vision request {event.properties.request_id} finished: {event.properties.succeeded_count} of {event.properties.session_count} sessions succeeded',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1889,6 +1930,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$replay_vision_alert_auto_disabled':
         case '$replay_vision_alert_match':
             return 'replay-vision-alerts'
+        case '$replay_vision_request_completed':
+            return 'replay-vision-requests'
         default:
             return 'standard'
     }

@@ -8,15 +8,21 @@ Nothing here checks consent or access; the caller does, as with `scanning`.
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from django.db import IntegrityError, models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+import structlog
+
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.slack.formatting import escape_slack_mrkdwn
 
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
@@ -25,6 +31,16 @@ from products.replay_vision.backend.models.replay_observation_request import (
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
+
+logger = structlog.get_logger(__name__)
+
+COMPLETED_EVENT = "$replay_vision_request_completed"
+
+# Bounds one reconciler tick. Requests settle within the workflow timeout, so the oldest ones never block
+# the queue for longer than that.
+MAX_REQUESTS_PER_TICK = 1000
+
+_DELIVERY_TIMEOUT_SECONDS = 10
 
 # Start outcomes that put a workflow behind the session, so an observation row is expected for it.
 _OBSERVED_OUTCOMES = frozenset({"started", "already_running", "already_scanned"})
@@ -141,9 +157,7 @@ def create_observation_request(
 
     request.scanner = scanner
     request.start_outcomes = results
-    if not any(r["scan_outcome"] in _OBSERVED_OUTCOMES for r in results):
-        request.completed_at = timezone.now()
-    request.save(update_fields=["scanner", "start_outcomes", "completed_at"])
+    request.save(update_fields=["scanner", "start_outcomes"])
     return request, True
 
 
@@ -217,4 +231,69 @@ def _session(outcome: dict[str, str], observation: ReplayObservation | None, exp
         state = RequestSessionState.RUNNING
     return RequestSession(
         session_id=outcome["session_id"], scan_outcome=scan_outcome, state=state, observation=observation
+    )
+
+
+def complete_settled_requests(*, now: datetime | None = None) -> int:
+    """Mark every open request whose sessions have all settled as completed, announcing each one first.
+
+    The event goes out before the row is stamped, so a crash between the two sends it again on the next tick
+    rather than never; its uuid is derived from the request, so ingestion drops the repeat.
+    """
+    now = now or timezone.now()
+    open_requests = (
+        ReplayObservationRequest.objects.unscoped()
+        .filter(completed_at__isnull=True)
+        .order_by("created_at")[:MAX_REQUESTS_PER_TICK]
+    )
+    completed = 0
+    for request in open_requests:
+        progress = request_progress(request, now=now)
+        if not progress.settled:
+            continue
+        try:
+            produce_internal_event(team_id=request.team_id, event=_completed_event(request, progress, now)).get(
+                timeout=_DELIVERY_TIMEOUT_SECONDS
+            )
+        except Exception:
+            logger.exception("replay_vision.observation_request.completion_event_failed", request_id=str(request.id))
+            continue
+        completed += (
+            ReplayObservationRequest.objects.unscoped()
+            .filter(id=request.id, completed_at__isnull=True)
+            .update(completed_at=now)
+        )
+    return completed
+
+
+def _completed_event(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> InternalEventEvent:
+    # Ids and states only: a destination forwards this off-platform, and the answers stay behind the
+    # session recording access that `GET /vision/requests/{id}/` enforces.
+    states = [s.state for s in progress.sessions]
+    return InternalEventEvent(
+        event=COMPLETED_EVENT,
+        distinct_id=replay_vision_distinct_id(request.team_id),
+        uuid=str(uuid5(NAMESPACE_URL, f"vision-request-completed:{request.id}")),
+        timestamp=now.isoformat(),
+        properties={
+            "request_id": str(request.id),
+            "reference": request.reference,
+            # The caller writes `reference`, so Slack gets it escaped and can't be made to ping a channel.
+            "label_mrkdwn": escape_slack_mrkdwn(request.reference or str(request.id)),
+            "scanner_id": str(request.scanner_id) if request.scanner_id else None,
+            "session_count": len(progress.sessions),
+            **{
+                f"{state.value}_count": states.count(state)
+                for state in RequestSessionState
+                if state not in _UNSETTLED_STATES
+            },
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "state": s.state.value,
+                    "observation_id": str(s.observation.id) if s.observation is not None else None,
+                }
+                for s in progress.sessions
+            ],
+        },
     )

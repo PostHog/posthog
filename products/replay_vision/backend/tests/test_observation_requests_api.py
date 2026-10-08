@@ -20,7 +20,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.observation_requests import request_progress
+from products.replay_vision.backend.observation_requests import complete_settled_requests, request_progress
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 
@@ -282,3 +282,62 @@ class TestRequestProgress(APIBaseTest):
 
         self.assertEqual([s.state for s in progress.sessions], [state])
         self.assertEqual(progress.settled, settled)
+
+
+class TestCompleteSettledRequests(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="checkout",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+
+    def _request(self, outcomes: dict[str, str]) -> ReplayObservationRequest:
+        return ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=list(outcomes),
+            start_outcomes=[{"session_id": sid, "scan_outcome": outcome} for sid, outcome in outcomes.items()],
+            reference="job-7",
+            source="project_secret_api_key",
+        )
+
+    @parameterized.expand(
+        [
+            ("settled_and_delivered", "skipped_quota", None, True),
+            ("still_in_flight", "started", None, False),
+            ("delivery_failed", "skipped_quota", RuntimeError("kafka down"), False),
+        ]
+    )
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_completes_only_settled_requests_whose_event_was_delivered(
+        self, _name: str, outcome: str, delivery_error: Exception | None, completes: bool, produce: MagicMock
+    ) -> None:
+        produce.return_value.get.side_effect = delivery_error
+        request = self._request({"s1": outcome})
+
+        complete_settled_requests()
+
+        request.refresh_from_db()
+        self.assertEqual(request.completed_at is not None, completes)
+        if outcome == "started":
+            produce.assert_not_called()
+            return
+        event = produce.call_args.kwargs["event"]
+        self.assertEqual(event.event, "$replay_vision_request_completed")
+        self.assertEqual(event.properties["reference"], "job-7")
+        self.assertEqual(
+            event.properties["sessions"], [{"session_id": "s1", "state": "skipped", "observation_id": None}]
+        )
+
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_announces_a_request_once(self, produce: MagicMock) -> None:
+        self._request({"s1": "skipped_limit"})
+
+        complete_settled_requests()
+        complete_settled_requests()
+
+        self.assertEqual(produce.call_count, 1)
