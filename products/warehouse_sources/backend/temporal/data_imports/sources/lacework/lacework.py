@@ -272,7 +272,35 @@ def _first_page_request(
     body: dict[str, Any] = {"timeFilter": {"startTime": start, "endTime": end}}
     if config.dataset:
         body["dataset"] = config.dataset
+    if config.csp:
+        body["csp"] = config.csp
     return "POST", f"{api_base_url}{config.path}", body
+
+
+def _redact_row(config: LaceworkEndpointConfig, row: dict[str, Any]) -> dict[str, Any]:
+    nested = row.get("data")
+    if not config.redacted_data_keys or not isinstance(nested, dict):
+        return row
+    return {**row, "data": {k: v for k, v in nested.items() if k not in config.redacted_data_keys}}
+
+
+def _get_unwindowed_rows(
+    client: LaceworkClient,
+    config: LaceworkEndpointConfig,
+    api_base_url: str,
+    account_name: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    url: str | None = f"{api_base_url}{config.path}"
+    while url is not None:
+        data = client.fetch(config.method, url)
+        rows = data.get("data") or []
+        url = ((data.get("paging") or {}).get("urls") or {}).get("nextPage")
+        if url is not None and not _is_same_host(url, account_name):
+            logger.warning("Lacework: stopping pagination, next URL host does not match the configured account")
+            url = None
+        if rows:
+            yield [_redact_row(config, row) for row in rows]
 
 
 def get_rows(
@@ -290,6 +318,10 @@ def get_rows(
     session = make_tracked_session()
     client = LaceworkClient(session, account_name, key_id, secret_key, logger)
     api_base_url = base_url(account_name)
+
+    if not config.windowed:
+        yield from _get_unwindowed_rows(client, config, api_base_url, account_name, logger)
+        return
 
     now = datetime.now(UTC)
 

@@ -39,6 +39,12 @@ class LaceworkEndpointConfig:
     default_lookback_days: int = 90
     # Required `dataset` body param for /Configs/ComplianceEvaluations/search.
     dataset: Optional[str] = None
+    # Required `csp` body param for /Inventory/search.
+    csp: Optional[str] = None
+    # False for plain list endpoints that take no time range and return the whole collection.
+    windowed: bool = True
+    # Keys removed from each row's nested `data` object before it is yielded.
+    redacted_data_keys: tuple[str, ...] = ()
     description: Optional[str] = None
 
 
@@ -55,6 +61,26 @@ def _compliance_endpoint(name: str, dataset: str, provider: str) -> LaceworkEndp
         partition_key="reportTime",
         default_lookback_days=90,
         description=f"{provider} compliance evaluations. Syncs the last 90 days on first sync or full refresh",
+    )
+
+
+def _inventory_endpoint(name: str, csp: str, provider: str) -> LaceworkEndpointConfig:
+    # One row per resource per daily collection run, with no unique id, so inventory syncs
+    # append-only on the collection's startTime.
+    return LaceworkEndpointConfig(
+        name=name,
+        path="/Inventory/search",
+        csp=csp,
+        time_filter_field="startTime",
+        incremental_fields=[_datetime_incremental_field("startTime")],
+        supports_append=True,
+        partition_key="startTime",
+        window_days=1,
+        default_lookback_days=7,
+        description=(
+            f"{provider} cloud resource inventory, one row per resource per collection run. "
+            "Syncs the last 7 days on first sync or full refresh"
+        ),
     )
 
 
@@ -143,6 +169,56 @@ LACEWORK_ENDPOINTS: dict[str, LaceworkEndpointConfig] = {
             "Machines observed online, one row per machine per activity segment. "
             "Syncs the last 30 days on first sync or full refresh"
         ),
+    ),
+    "entities_containers": LaceworkEndpointConfig(
+        name="entities_containers",
+        path="/Entities/Containers/search",
+        time_filter_field="startTime",
+        incremental_fields=[_datetime_incremental_field("startTime")],
+        supports_append=True,
+        partition_key="startTime",
+        # Rows are hourly aggregates per container, so volume grows fast: 1-day windows keep
+        # each request under the 500k-row cap.
+        window_days=1,
+        default_lookback_days=7,
+        description=(
+            "Active containers, one row per container per hourly aggregation window. "
+            "Syncs the last 7 days on first sync or full refresh"
+        ),
+    ),
+    "entities_images": LaceworkEndpointConfig(
+        name="entities_images",
+        path="/Entities/Images/search",
+        time_filter_field="createdTime",
+        incremental_fields=[_datetime_incremental_field("createdTime")],
+        supports_append=True,
+        partition_key="createdTime",
+        window_days=1,
+        default_lookback_days=30,
+        description=(
+            "Container images, one row per image per machine. Syncs the last 30 days on first sync or full refresh"
+        ),
+    ),
+    "inventory_aws": _inventory_endpoint("inventory_aws", "AWS", "AWS"),
+    "inventory_azure": _inventory_endpoint("inventory_azure", "Azure", "Azure"),
+    "inventory_gcp": _inventory_endpoint("inventory_gcp", "GCP", "GCP"),
+    "cloud_accounts": LaceworkEndpointConfig(
+        name="cloud_accounts",
+        path="/CloudAccounts",
+        method="GET",
+        windowed=False,
+        primary_keys=["intgGuid"],
+        # The integration config can carry the cloud credentials Lacework was given.
+        redacted_data_keys=("credentials", "accessKeyCredentials", "crossAccountCredentials"),
+        description="Cloud account integrations (AWS, Azure, GCP, OCI). Full refresh only",
+    ),
+    "policies": LaceworkEndpointConfig(
+        name="policies",
+        path="/Policies",
+        method="GET",
+        windowed=False,
+        primary_keys=["policyId"],
+        description="Lacework policies, keyed by the policyId that alerts reference. Full refresh only",
     ),
 }
 
