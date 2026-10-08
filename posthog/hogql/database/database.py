@@ -1182,6 +1182,8 @@ class Database(BaseModel):
             if occupant is None or occupant.table is None:
                 continue
             shadowed_by = self._table_slot_origins.get(path, "posthog_table")
+            if shadowed_by == "view":
+                continue
             shadowed[shadowed_by] = shadowed.get(shadowed_by, 0) + 1
 
         client = posthoganalytics.default_client

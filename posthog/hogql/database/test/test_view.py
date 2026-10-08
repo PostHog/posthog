@@ -122,6 +122,26 @@ class TestView(BaseTest):
         assert isinstance(database.get_table("schema.stock"), SavedQuery)
         client.metrics.count.assert_not_called()
 
+    def test_a_view_shadowed_by_another_view_is_not_counted(self):
+        database = Database.create_for(team=self.team)
+        database._add_views(
+            TableNode(
+                children={"aapl_stock_view": TableNode(name="aapl_stock_view", table=create_aapl_stock_table_view())}
+            )
+        )
+
+        client = MagicMock()
+        with patch("posthoganalytics.default_client", client):
+            database._add_views(
+                TableNode(
+                    children={
+                        "aapl_stock_view": TableNode(name="aapl_stock_view", table=create_nested_aapl_stock_view())
+                    }
+                )
+            )
+
+        client.metrics.count.assert_not_called()
+
     def _select(self, query: str, dialect: Literal["clickhouse", "hogql"] = "clickhouse") -> str:
         return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
