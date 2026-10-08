@@ -433,6 +433,14 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
         assert entry["window_id"] == "w1"
         assert entry["options"]["cookieless_mode"] is True
 
+    @parameterized.expand(
+        [("trailing_newline", "phc_abc\n"), ("inner_space", "phc_a bc"), ("control_char", "phc_\x00abc")]
+    )
+    def test_malformed_token_raises_capture_internal_error(self, _name, token) -> None:
+        with self.assertRaises(CaptureInternalError) as ctx:
+            prepare_capture_internal_batch([_make_event()], token=token, event_source="src")
+        assert "whitespace or control characters" in str(ctx.exception)
+
 
 class TestCaptureBatchInternal(SimpleTestCase):
     @patch("posthog.api.capture.internal_requests_session")
