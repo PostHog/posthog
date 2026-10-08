@@ -11,7 +11,8 @@ import { broadcastAudienceListLogic } from './broadcastAudienceListLogic'
 export function BroadcastAudienceListModal(): JSX.Element {
     const { props } = useMountedLogic(broadcastWizardLogic)
     const logic = broadcastAudienceListLogic(props)
-    const { isListModalOpen, file, cohortName, creating, createError, submitDisabledReason } = useValues(logic)
+    const { isListModalOpen, file, cohortName, creating, createError, submitDisabledReason, importsPeople } =
+        useValues(logic)
     const { audienceProperties } = useValues(broadcastWizardLogic)
     const { closeListModal, setFile, setCohortName, createListCohort } = useActions(logic)
 
@@ -44,7 +45,16 @@ export function BroadcastAudienceListModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-4" data-attr="broadcast-audience-list-modal">
-                <span className="text-sm text-secondary">{COHORT_CSV_HELP}</span>
+                {importsPeople ? (
+                    <span className="text-sm text-secondary">
+                        Each row creates or updates a person. The file needs an <code>email</code> column. Every other
+                        column is saved on the person, so you can use it in the email, for example{' '}
+                        <code>{'{{ person.properties.plan }}'}</code>. Add a <code>distinct_id</code> column to update
+                        people by their ID in your app.
+                    </span>
+                ) : (
+                    <span className="text-sm text-secondary">{COHORT_CSV_HELP}</span>
+                )}
                 <CohortCsvDropzone value={file} onChange={setFile} />
                 <LemonInput
                     value={cohortName}
@@ -55,8 +65,9 @@ export function BroadcastAudienceListModal(): JSX.Element {
                     prefix={<span className="text-secondary">Cohort name</span>}
                 />
                 <div className="text-xs text-secondary">
-                    Only people who are already in PostHog are included. Anyone else on the list won't receive the
-                    email.
+                    {importsPeople
+                        ? "People who aren't in PostHog yet are created. A column with the same name as an existing property replaces its value."
+                        : "Only people who are already in PostHog are included. Anyone else on the list won't receive the email."}
                     {audienceProperties.length > 0
                         ? ' People must be on every list and match your other conditions to get the email.'
                         : null}

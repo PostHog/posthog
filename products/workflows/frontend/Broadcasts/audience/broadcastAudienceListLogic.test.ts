@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -44,7 +47,7 @@ describe('broadcastAudienceListLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.createListCohort()
         })
-            .toDispatchActions(['createListCohortFinished', 'closeListModal'])
+            .toDispatchActions(['closeListModal', 'createListCohortFinished'])
             .toMatchValues({ isListModalOpen: false, createError: null })
 
         expect(createdCohorts).toEqual(1)
@@ -90,4 +93,76 @@ describe('broadcastAudienceListLogic', () => {
         expect(createdCohorts).toEqual(0)
         expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual([])
     })
+
+    const SPRING_SALE_COHORT = {
+        type: PropertyFilterType.Cohort,
+        key: 'id',
+        value: 42,
+        operator: PropertyOperator.In,
+        cohort_name: 'Spring sale recipients',
+    }
+
+    it.each([
+        {
+            outcome: 'imports the people and adds their cohort to the audience',
+            csv: 'email,plan\nada@example.com,Pro\n',
+            response: [201, { cohort_id: 42, row_count: 1, new_people: 1, columns: ['email', 'plan'] }],
+            expected: { isListModalOpen: false, createError: null },
+            audience: [SPRING_SALE_COHORT],
+            importedRows: [{ email: 'ada@example.com', plan: 'Pro' }],
+        },
+        {
+            outcome: 'shows why the API rejected the file and keeps the audience',
+            csv: 'name\nAda\n',
+            response: [400, { detail: 'Add a column named "email" with each person\'s address.' }],
+            expected: {
+                isListModalOpen: true,
+                createError: 'Couldn\'t import the people: Add a column named "email" with each person\'s address.',
+            },
+            audience: [],
+            importedRows: [{ name: 'Ada' }],
+        },
+        {
+            // Papa would rename the second column, so the API could not see the repeat.
+            outcome: 'rejects two email columns before sending anything',
+            csv: 'email,email\nada@example.com,grace@example.com\n',
+            response: [500, {}],
+            expected: {
+                isListModalOpen: true,
+                createError: 'Two columns are both named "email". Rename one and try again.',
+            },
+            audience: [],
+            importedRows: undefined,
+        },
+    ])(
+        'with the people import flag on, an upload $outcome',
+        async ({ csv, response, expected, audience, importedRows }) => {
+            let sentRows: unknown
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/workflow_people_imports/': async ({ request }) => {
+                        sentRows = ((await request.json()) as { rows: unknown }).rows
+                        return response as [number, object]
+                    },
+                },
+            })
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_BROADCAST_RECIPIENT_LISTS], {
+                [FEATURE_FLAGS.WORKFLOWS_BROADCAST_RECIPIENT_LISTS]: true,
+            })
+            const logic = broadcastAudienceListLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.openListModal()
+            logic.actions.setFile(new File([csv], 'people.csv', { type: 'text/csv' }))
+
+            await expectLogic(logic, () => {
+                logic.actions.createListCohort()
+            })
+                .toDispatchActions(['createListCohortFinished'])
+                .toMatchValues(expected)
+
+            expect(sentRows).toEqual(importedRows)
+            expect(createdCohorts).toEqual(0)
+            expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual(audience)
+        }
+    )
 })
