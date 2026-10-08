@@ -5,7 +5,11 @@ import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@p
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
-import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
+import {
+    getExportDisabledReason,
+    getExportPendingLabel,
+    getExportWarning,
+} from 'lib/components/ExportButton/exportStatus'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
@@ -72,6 +76,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
     const stillCalculating = !asset.has_content && !asset.exception
     const disabledReason = getExportDisabledReason(asset)
     const pendingLabel = getExportPendingLabel(asset)
+    const warning = getExportWarning(asset)
 
     return (
         <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
@@ -98,6 +103,12 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                     {stillCalculating && pendingLabel && (
                         <span className="text-xs text-secondary mt-1 block" data-attr="export-pending-label">
                             {pendingLabel}
+                        </span>
+                    )}
+                    {warning && (
+                        <span className="text-xs text-warning mt-1 flex items-start gap-1" data-attr="export-warning">
+                            <IconWarning className="shrink-0 mt-0.5" />
+                            {warning}
                         </span>
                     )}
                 </div>

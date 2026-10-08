@@ -91,6 +91,11 @@ export class RasterizationMetrics {
         ageBuckets: AGE_BUCKETS,
     })
 
+    private static readonly rendersWithFailedStylesheetsTotal = new Counter({
+        name: 'recording_rasterizer_renders_with_failed_stylesheets_total',
+        help: 'Successful renders where at least one sub-frame stylesheet could not be fetched',
+    })
+
     // --- Errors ---
 
     private static readonly errorsTotal = new Counter({
@@ -166,6 +171,10 @@ export class RasterizationMetrics {
         this.videoDuration.observe(durationS)
         this.videoFileSize.observe(fileSizeBytes)
         this.videoFramesTotal.inc(frameCount)
+    }
+
+    public static renderWithFailedStylesheets(): void {
+        this.rendersWithFailedStylesheetsTotal.inc()
     }
 
     public static observeRecordingDuration(seconds: number): void {

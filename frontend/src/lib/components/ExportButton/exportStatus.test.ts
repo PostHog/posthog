@@ -2,9 +2,11 @@ import { ExportedAssetType, ExporterFormat } from '~/types'
 
 import {
     MAX_EXPORTABLE_RECORDING_SECONDS,
+    MISSING_STYLES_WARNING,
     getExportDisabledReason,
     getExportPendingLabel,
     getExportPendingStatus,
+    getExportWarning,
     getVideoExportDisabledReason,
     isLongRunningExportFormat,
 } from './exportStatus'
@@ -122,6 +124,36 @@ describe('exportStatus', () => {
             expect(getExportDisabledReason(baseAsset({ export_format: ExporterFormat.PDF }))).toBe(
                 'Export not ready yet'
             )
+        })
+    })
+
+    describe('getExportWarning', () => {
+        it.each([
+            ['most stylesheets failed', true, 4, 3, MISSING_STYLES_WARNING],
+            ['half of the stylesheets failed', true, 2, 1, MISSING_STYLES_WARNING],
+            ['a few stylesheets failed', true, 10, 2, null],
+            ['no stylesheet failed', true, 3, 0, null],
+            ['the video is not ready', false, 4, 3, null],
+        ])('when %s', (_label, hasContent, requested, failed, expected) => {
+            const asset = baseAsset({
+                export_format: ExporterFormat.MP4,
+                has_content: hasContent,
+                export_context: {
+                    session_recording_id: 's1',
+                    stylesheets_requested: requested,
+                    stylesheets_failed: failed,
+                },
+            })
+            expect(getExportWarning(asset)).toBe(expected)
+        })
+
+        it('returns null for a video rendered before the counts were reported', () => {
+            const asset = baseAsset({
+                export_format: ExporterFormat.MP4,
+                has_content: true,
+                export_context: { session_recording_id: 's1' },
+            })
+            expect(getExportWarning(asset)).toBeNull()
         })
     })
 })

@@ -4,6 +4,7 @@ import { Frame, HTTPRequest } from 'puppeteer'
 import { fetch } from '~/common/utils/request'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
+import type { StylesheetStats } from '~/session-replay/recording-rasterizer/types'
 
 import { BLOCK_REQUEST_PREFIX, BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
@@ -26,6 +27,7 @@ export class RequestInterceptor {
     private tracked = new Set<HTTPRequest>()
     private onSettled: (() => void) | null = null
     private mainFrame: Frame
+    private stylesheets: StylesheetStats = { requested: 0, failed: 0 }
 
     constructor(
         private capturePage: CapturePage,
@@ -52,6 +54,10 @@ export class RequestInterceptor {
         return new Promise<void>((resolve) => {
             this.onSettled = resolve
         })
+    }
+
+    getStylesheetStats(): StylesheetStats {
+        return { ...this.stylesheets }
     }
 
     private handleRequest(request: HTTPRequest): void {
@@ -151,8 +157,16 @@ export class RequestInterceptor {
         }
     }
 
+    private recordStylesheetResult(failed: boolean): void {
+        this.stylesheets.requested++
+        if (failed) {
+            this.stylesheets.failed++
+        }
+    }
+
     private async proxyStylesheet(request: HTTPRequest): Promise<void> {
         const url = request.url()
+        let recorded = false
         try {
             // Forward an allowlist rather than the browser's full header set: the URL is
             // attacker-controlled (a <link href> in a recorded sub-frame), and the browser's
@@ -166,6 +180,9 @@ export class RequestInterceptor {
             }
             const resp = await fetch(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
             const body = await resp.text()
+            // The browser renders an error response as no styles at all, same as a failed fetch.
+            this.recordStylesheetResult(resp.status >= 400)
+            recorded = true
             await request.respond({
                 status: resp.status,
                 contentType: resp.headers['content-type'] || 'text/css',
@@ -175,6 +192,9 @@ export class RequestInterceptor {
                 body,
             })
         } catch (err) {
+            if (!recorded) {
+                this.recordStylesheetResult(true)
+            }
             this.log.warn({ url, err: (err as Error)?.message }, 'stylesheet proxy failed, responding empty')
             try {
                 await request.respond({ status: 200, contentType: 'text/css', body: '' })

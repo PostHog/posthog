@@ -158,6 +158,9 @@ async function rasterizeRecordingActivity(
         timings.total_s = elapsed(activityStart)
         RasterizationMetrics.observeActivity('success', timings.total_s)
         RasterizationMetrics.observeVideo(result.capture_duration_s, stat.size, result.frame_count)
+        if (result.stylesheets.failed > 0) {
+            RasterizationMetrics.renderWithFailedStylesheets()
+        }
 
         // Total recording duration = active playback time + skipped inactivity. The output video is
         // real-time (the setpts filter undoes the capture speed-up), so capture_duration_s already
@@ -181,6 +184,8 @@ async function rasterizeRecordingActivity(
                 video_duration_s: output.video_duration_s,
                 playback_speed: output.playback_speed,
                 file_size_bytes: output.file_size_bytes,
+                stylesheets_requested: output.stylesheets_requested,
+                stylesheets_failed: output.stylesheets_failed,
                 timings: output.timings,
             },
             'activity complete'

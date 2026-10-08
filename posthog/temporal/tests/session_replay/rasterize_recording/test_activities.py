@@ -587,7 +587,7 @@ class TestFinalizeRasterization:
 
     def test_happy_path(self):
         asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
-        result = self._make_result(file_size_bytes=12345, truncated=True)
+        result = self._make_result(file_size_bytes=12345, truncated=True, stylesheets_requested=4, stylesheets_failed=3)
 
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
@@ -600,6 +600,8 @@ class TestFinalizeRasterization:
         assert asset.export_context["playback_speed"] == 4.0
         assert asset.export_context["truncated"] is True
         assert asset.export_context["file_size_bytes"] == 12345
+        assert asset.export_context["stylesheets_requested"] == 4
+        assert asset.export_context["stylesheets_failed"] == 3
         assert asset.export_context["session_recording_id"] == "s1"
         assert asset.export_context["render_fingerprint"] == "abc1234567890def"
         asset.save.assert_called_once_with(
@@ -612,7 +614,7 @@ class TestFinalizeRasterization:
 
     def test_reports_success(self, reported_events):
         asset = _make_asset(pk=42, export_context={"session_recording_id": "s1"})
-        result = self._make_result(file_size_bytes=12345)
+        result = self._make_result(file_size_bytes=12345, stylesheets_requested=4, stylesheets_failed=3)
 
         patches, _ = _patches(asset)
         with patches[0], patches[1], patches[2], patches[3], patches[4]:
@@ -623,6 +625,8 @@ class TestFinalizeRasterization:
         assert [(call.args[1], call.kwargs.get("cached")) for call in reported_events.call_args_list] == [
             ("export succeeded", False)
         ]
+        assert reported_events.call_args.kwargs["stylesheets_requested"] == 4
+        assert reported_events.call_args.kwargs["stylesheets_failed"] == 3
 
     def test_wrong_s3_prefix_raises(self):
         asset = _make_asset(pk=42)

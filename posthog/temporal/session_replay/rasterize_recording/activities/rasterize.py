@@ -220,6 +220,8 @@ def _try_synthesize_cached_output(
         truncated=bool(ctx["truncated"]),
         inactivity_periods=inactivity_periods,
         file_size_bytes=int(ctx["file_size_bytes"]),
+        stylesheets_requested=int(ctx.get("stylesheets_requested") or 0),
+        stylesheets_failed=int(ctx.get("stylesheets_failed") or 0),
     )
 
 
@@ -248,6 +250,8 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                     "truncated",
                     "file_size_bytes",
                     "inactivity_periods",
+                    "stylesheets_requested",
+                    "stylesheets_failed",
                 }
             )
         )
@@ -265,6 +269,8 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
         content_location=asset.content_location,
         video_duration_s=result.video_duration_s,
         file_size_bytes=result.file_size_bytes,
+        stylesheets_requested=result.stylesheets_requested,
+        stylesheets_failed=result.stylesheets_failed,
         render_fingerprint=inputs.render_fingerprint,
     )
 
@@ -276,4 +282,6 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
         video_duration_s=result.video_duration_s,
         file_size_bytes=result.file_size_bytes,
         truncated=result.truncated,
+        stylesheets_requested=result.stylesheets_requested,
+        stylesheets_failed=result.stylesheets_failed,
     )

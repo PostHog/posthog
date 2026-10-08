@@ -127,5 +127,7 @@ export function renderOutputFields(
             result.output_fps,
             result.pre_roll_frames
         ),
+        stylesheets_requested: result.stylesheets.requested,
+        stylesheets_failed: result.stylesheets.failed,
     }
 }
