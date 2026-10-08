@@ -4,6 +4,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { experimentLogic, previousRefreshAnalytics } from 'scenes/experiments/experimentLogic'
@@ -18,6 +19,7 @@ interface RefreshButtonProps {
     lastRefresh: string | null
     progress?: { completed: number; total: number }
     queuedHint?: string
+    blockedReason?: string
     onRefresh: () => void
 }
 
@@ -26,6 +28,7 @@ function RefreshButton({
     lastRefresh,
     progress,
     queuedHint,
+    blockedReason,
     onRefresh,
 }: RefreshButtonProps): JSX.Element {
     const loadingText =
@@ -37,7 +40,7 @@ function RefreshButton({
             size="xsmall"
             icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
             onClick={onRefresh}
-            disabledReason={isRefreshing ? (queuedHint ?? loadingText) : undefined}
+            disabledReason={isRefreshing ? (queuedHint ?? loadingText) : blockedReason}
             aria-label={isRefreshing ? undefined : 'Refresh results'}
             data-attr="refresh-experiment"
         >
@@ -55,7 +58,14 @@ function RefreshButton({
 
 function RecalculationRefreshButton({ experiment }: { experiment: Experiment }): JSX.Element {
     const metricsLogic = experimentMetricsLogic({ experiment })
-    const { isRecalculating, recalculationProgress, lastRefresh, queuedRerun } = useValues(metricsLogic)
+    const {
+        isRecalculating,
+        recalculationProgress,
+        lastRefresh,
+        queuedRerun,
+        isManualRefreshBlocked,
+        nextAllowedManualRefresh,
+    } = useValues(metricsLogic)
     const { triggerRecalculation } = useActions(metricsLogic)
     const { currentRefresh } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -67,6 +77,11 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
             lastRefresh={lastRefresh}
             progress={recalculationProgress}
             queuedHint={queuedRerun ? 'Changes apply after the current recalculation finishes' : undefined}
+            blockedReason={
+                isManualRefreshBlocked && nextAllowedManualRefresh
+                    ? `Next refresh possible ${dayjs(nextAllowedManualRefresh).fromNow()}`
+                    : undefined
+            }
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {
                     triggered_by: 'manual',

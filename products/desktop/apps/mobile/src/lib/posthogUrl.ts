@@ -125,6 +125,10 @@ function labelForProjectView(
       return refId ? labelWithId("Replay", refId) : "Replay";
     case "error_tracking":
       return refId ? labelWithId("Error", refId) : "Error tracking";
+    case "sql":
+      return parsed.searchParams.get("open_query")?.trim()
+        ? "SQL query"
+        : "SQL editor";
     default:
       return null;
   }

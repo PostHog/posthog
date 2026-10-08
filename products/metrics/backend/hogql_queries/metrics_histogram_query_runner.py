@@ -160,7 +160,8 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         # The runner floors date_from onto the bucket grid in the team timezone and returns
         # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.
         grid_start = runner.date_from
-        step = _interval_step(interval)
+        # The runner may coarsen the interval to stay within its bucket limit, so read its step.
+        step = _interval_step(runner.interval)
 
         # Rows: (time, bounds, bounds_variants, counts). Bounds variants must agree (same rule
         # as the quantile runner) or the grid has no stable y axis.
@@ -219,3 +220,5 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricFilters:
+            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]

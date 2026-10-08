@@ -1,20 +1,27 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates.fixtures import template_pagerduty
 
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationAction,
-    AlertDestinationData,
-    DestinationType,
-    EventKindSpec,
-)
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
     build_alert_destination_config,
+    destination_handles_event_kind,
     slack_blocks,
     teams_text,
+    validate_destination_data,
+)
+from products.alerts.backend.logic.destinations import stored_inputs
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationAction,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    EventKindSpec,
+    IncidentAction,
 )
 
 DEFAULT_SPEC = EventKindSpec(
@@ -25,6 +32,19 @@ DEFAULT_SPEC = EventKindSpec(
     primary_action_url="https://example.com/insight",
     primary_action_label="View insight",
     webhook_body={},
+)
+
+TRIGGER_SPEC = replace(DEFAULT_SPEC, event_id="$insight_alert_incident_opened", incident_action=IncidentAction.TRIGGER)
+
+RESOLVED_SPEC = EventKindSpec(
+    event_id="$insight_alert_resolved",
+    display_kind="resolved",
+    header="Insight alert resolved",
+    details=(("Current value", "12"),),
+    primary_action_url="https://example.com/insight",
+    primary_action_label="View insight",
+    webhook_body={},
+    incident_action=IncidentAction.RESOLVE,
 )
 
 MULTI_DETAIL_SPEC = EventKindSpec(
@@ -100,23 +120,38 @@ class TestSpecVocabularyRendering:
         )
 
 
-_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+_PYTHON_TEMPLATE_IDS = {template.id for template in HOG_FUNCTION_TEMPLATES}
 
-_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook"}
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-slack", "template-webhook", "template-pagerduty"}
+
+# The PagerDuty template lives in nodejs; its fixture stand-in tracks the nodejs inputs schema.
+_TEMPLATES_BY_ID = {template.id: template for template in (*HOG_FUNCTION_TEMPLATES, template_pagerduty)}
+
+PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
 _DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
     DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
     DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+    DestinationType.PAGERDUTY: {
+        "type": DestinationType.PAGERDUTY,
+        "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY,
+        "pagerduty_severity": "error",
+        "pagerduty_region": "eu",
+    },
 }
 
 
-def _inputs_a_hog_function_would_keep(template: Any, inputs: dict[str, Any]) -> dict[str, Any]:
-    return {entry["key"]: inputs.get(entry["key"]) for entry in template.inputs_schema or [] if not entry.get("secret")}
+def _inputs_the_read_path_sees(template: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    # A saved HogFunction splits its inputs by the template schema: plain ones stay in
+    # `inputs`, secret ones move to `encrypted_inputs`. The read path merges them back.
+    plain = {entry["key"]: inputs.get(entry["key"]) for entry in template.inputs_schema if not entry.get("secret")}
+    secret = {entry["key"]: inputs.get(entry["key"]) for entry in template.inputs_schema if entry.get("secret")}
+    return stored_inputs(plain, secret)
 
 
 class TestDestinationTemplateContract:
     def test_the_templates_defined_outside_python_are_the_ones_we_expect(self) -> None:
-        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - set(_TEMPLATES_BY_ID)
+        unreachable = {spec.template_id for spec in DESTINATION_SPECS.values()} - _PYTHON_TEMPLATE_IDS
 
         assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
 
@@ -127,16 +162,17 @@ class TestDestinationTemplateContract:
         template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
         data = _DESTINATION_DATA[destination_type]
         config = build_alert_destination_config(
-            spec=DEFAULT_SPEC,
+            spec=TRIGGER_SPEC if destination_type == DestinationType.PAGERDUTY else DEFAULT_SPEC,
             alert_id="alert-1",
             alert_name="Signups",
             data=data,
             slack_context_elements=(),
         )
 
-        stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
-
-        assert DESTINATION_SPECS[destination_type].read(stored_inputs) == data
+        assert (
+            DESTINATION_SPECS[destination_type].read(_inputs_the_read_path_sees(template, config.payload["inputs"]))
+            == data
+        )
 
     @pytest.mark.parametrize(
         "webhook_url",
@@ -179,3 +215,125 @@ class TestDestinationTemplateContract:
             "slack_workspace_id": 42,
             "slack_channel_id": "C123",
         }
+
+
+def _pagerduty_config(spec: EventKindSpec, data: AlertDestinationData | None = None) -> dict[str, Any]:
+    config = build_alert_destination_config(
+        spec=spec,
+        alert_id="alert-1",
+        alert_name="Signups",
+        data=data or _DESTINATION_DATA[DestinationType.PAGERDUTY],
+        slack_context_elements=(),
+    )
+    return config.payload
+
+
+class TestPagerDutyDestination:
+    def test_firing_and_resolved_address_the_same_incident(self) -> None:
+        firing = _pagerduty_config(TRIGGER_SPEC)["inputs"]
+        resolved = _pagerduty_config(RESOLVED_SPEC)["inputs"]
+
+        assert firing["event_action"]["value"] == "trigger"
+        assert resolved["event_action"]["value"] == "resolve"
+        assert (
+            firing["dedup_key"]["value"]
+            == resolved["dedup_key"]["value"]
+            == "posthog-alert-{event.properties.alert_id}"
+        )
+        assert firing["routing_key"]["value"] == PAGERDUTY_ROUTING_KEY
+        assert firing["region"]["value"] == "eu"
+        assert firing["severity"]["value"] == "error"
+        assert firing["summary"]["value"] == "Insight alert firing: 30"
+        assert firing["custom_details"]["value"] == {"Threshold": "30"}
+        assert firing["links"]["value"] == [{"href": "https://example.com/insight", "text": "View insight"}]
+
+    def test_severity_and_region_default_when_a_caller_leaves_them_out(self) -> None:
+        inputs = _pagerduty_config(
+            TRIGGER_SPEC, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY}
+        )["inputs"]
+
+        assert inputs["severity"]["value"] == "critical"
+        assert inputs["region"]["value"] == "us"
+
+    def test_the_name_and_the_read_response_keep_only_the_tail_of_the_key(self) -> None:
+        payload = _pagerduty_config(TRIGGER_SPEC)
+
+        assert payload["name"].endswith("→ PagerDuty ••••cdef")
+        redacted = DESTINATION_SPECS[DestinationType.PAGERDUTY].redact(_DESTINATION_DATA[DestinationType.PAGERDUTY])
+        assert redacted["pagerduty_routing_key"] == "••••cdef"
+        assert PAGERDUTY_ROUTING_KEY not in str(redacted)
+
+    @pytest.mark.parametrize(
+        "destination_type,spec,handled",
+        [
+            (DestinationType.PAGERDUTY, TRIGGER_SPEC, True),
+            (DestinationType.PAGERDUTY, RESOLVED_SPEC, True),
+            (DestinationType.PAGERDUTY, DEFAULT_SPEC, False),
+            (DestinationType.PAGERDUTY, MULTI_DETAIL_SPEC, False),
+            (DestinationType.SLACK, DEFAULT_SPEC, True),
+            (DestinationType.SLACK, TRIGGER_SPEC, False),
+            (DestinationType.TEAMS, MULTI_DETAIL_SPEC, True),
+            (DestinationType.WEBHOOK, RESOLVED_SPEC, False),
+        ],
+    )
+    def test_incident_kinds_go_only_to_incident_managers(
+        self, destination_type: DestinationType, spec: EventKindSpec, handled: bool
+    ) -> None:
+        assert destination_handles_event_kind(destination_type, spec) is handled
+        if not handled:
+            with pytest.raises(ValueError, match="nothing to send"):
+                build_alert_destination_config(
+                    spec=spec,
+                    alert_id="alert-1",
+                    alert_name="Signups",
+                    data=_DESTINATION_DATA.get(destination_type)
+                    or {"type": destination_type, "webhook_url": "https://hooks.example.com/hook"},
+                    slack_context_elements=(),
+                )
+
+    def test_a_config_without_the_key_reads_as_unreadable_rather_than_as_a_duplicate(self) -> None:
+        masked = {"routing_key": {"secret": True}, "severity": {"value": "critical"}, "region": {"value": "us"}}
+
+        assert DESTINATION_SPECS[DestinationType.PAGERDUTY].read(masked) == {"type": DestinationType.PAGERDUTY}
+
+    @pytest.mark.parametrize(
+        "data,field,message",
+        [
+            (
+                {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "too-short"},
+                "pagerduty_routing_key",
+                "Enter the 32-character integration key of a PagerDuty Events API v2 integration.",
+            ),
+            (
+                {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": 12345},
+                "pagerduty_routing_key",
+                "Enter the 32-character integration key of a PagerDuty Events API v2 integration.",
+            ),
+            (
+                {
+                    "type": DestinationType.PAGERDUTY,
+                    "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY,
+                    "pagerduty_severity": "urgent",
+                },
+                "pagerduty_severity",
+                "Choose a severity: critical, error, warning, info.",
+            ),
+            (
+                {
+                    "type": DestinationType.PAGERDUTY,
+                    "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY,
+                    "pagerduty_region": "apac",
+                },
+                "pagerduty_region",
+                "Choose a region: us, eu.",
+            ),
+        ],
+    )
+    def test_validation_rejects_a_malformed_pagerduty_payload(
+        self, data: AlertDestinationData, field: str, message: str
+    ) -> None:
+        with pytest.raises(AlertDestinationValidationError) as error:
+            validate_destination_data(data, allowed_destination_types=(DestinationType.PAGERDUTY,))
+
+        assert error.value.field == field
+        assert error.value.message == message

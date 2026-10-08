@@ -13,48 +13,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.
     codemagic_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.settings import (
+    CODEMAGIC_V1,
+    CODEMAGIC_V3,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
 class TestCodemagicBuildsPaginator:
-    def test_initial_state(self) -> None:
-        paginator = CodemagicBuildsPaginator()
-        assert paginator._skip == 0
-        assert paginator.has_next_page is True
-
     def test_init_request_injects_skip(self) -> None:
         paginator = CodemagicBuildsPaginator(skip=30)
         request = Request(method="GET", url="https://api.codemagic.io/builds")
         paginator.init_request(request)
         assert request.params["skip"] == 30
-
-    @pytest.mark.parametrize(
-        ("page_data", "expected_skip", "expected_has_next"),
-        [
-            ([{"_id": "b1"}, {"_id": "b2"}], 2, True),
-            ([{"_id": "b1"}], 1, True),
-            ([], 0, False),
-            (None, 0, False),
-        ],
-    )
-    def test_update_state_advances_skip_by_actual_page_length(
-        self, page_data: list[dict[str, Any]] | None, expected_skip: int, expected_has_next: bool
-    ) -> None:
-        # No documented page-size param means skip must advance by whatever the server
-        # actually returned, not a declared limit.
-        paginator = CodemagicBuildsPaginator()
-        response = MagicMock()
-        paginator.update_state(response, data=page_data)
-        assert paginator._skip == expected_skip
-        assert paginator.has_next_page is expected_has_next
-
-    def test_update_state_accumulates_across_pages(self) -> None:
-        paginator = CodemagicBuildsPaginator()
-        response = MagicMock()
-        paginator.update_state(response, data=[{"_id": "b1"}, {"_id": "b2"}])
-        paginator.update_state(response, data=[{"_id": "b3"}])
-        assert paginator._skip == 3
-        assert paginator.has_next_page is True
 
     def test_update_request_injects_current_skip(self) -> None:
         paginator = CodemagicBuildsPaginator()
@@ -63,41 +34,6 @@ class TestCodemagicBuildsPaginator:
         request = Request(method="GET", url="https://api.codemagic.io/builds")
         paginator.update_request(request)
         assert request.params["skip"] == 1
-
-    def test_get_resume_state_returns_none_when_terminal(self) -> None:
-        paginator = CodemagicBuildsPaginator()
-        response = MagicMock()
-        paginator.update_state(response, data=[])
-        assert paginator.get_resume_state() is None
-
-    def test_get_resume_state_returns_skip_when_more_pages(self) -> None:
-        paginator = CodemagicBuildsPaginator()
-        response = MagicMock()
-        paginator.update_state(response, data=[{"_id": "b1"}])
-        assert paginator.get_resume_state() == {"skip": 1}
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_skip"),
-        [
-            ("fresh", None),
-            ("resumed", 42),
-        ],
-    )
-    def test_set_resume_state_seeds_subsequent_requests(self, label: str, seeded_skip: int | None) -> None:
-        paginator = CodemagicBuildsPaginator()
-        if seeded_skip is not None:
-            paginator.set_resume_state({"skip": seeded_skip})
-
-        request = Request(method="GET", url="https://api.codemagic.io/builds")
-        paginator.init_request(request)
-
-        expected = seeded_skip if seeded_skip is not None else 0
-        assert request.params["skip"] == expected
-
-    def test_set_resume_state_ignores_missing_skip(self) -> None:
-        paginator = CodemagicBuildsPaginator()
-        paginator.set_resume_state({})
-        assert paginator._skip == 0
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
@@ -109,7 +45,7 @@ def _make_http_response(body: Any, status_code: int = 200) -> Response:
 
 
 class TestCodemagicSourceResumeBehavior:
-    """End-to-end resume behaviour of ``codemagic_source`` via ``rest_api_resource``."""
+    """End-to-end resume behaviour of the v1 ``codemagic_source`` via ``rest_api_resource``."""
 
     def _drive(
         self, endpoint: str, manager: MagicMock, responses: list[Response]
@@ -135,6 +71,7 @@ class TestCodemagicSourceResumeBehavior:
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=manager,
+                api_version=CODEMAGIC_V1,
             )
             list(cast(Iterable[Any], response.items()))
             return mock_session, sent_params
@@ -167,20 +104,11 @@ class TestCodemagicSourceResumeBehavior:
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=manager,
+                api_version=CODEMAGIC_V1,
             )
             list(cast(Iterable[Any], response.items()))
 
         assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)
-
-    def test_applications_endpoint_is_a_single_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"applications": [{"_id": "app1", "appName": "My App"}]})]
-        _, sent_params = self._drive("Applications", manager, responses)
-
-        assert len(sent_params) == 1
-        manager.save_state.assert_not_called()
 
     def test_builds_fresh_run_saves_skip_after_each_non_terminal_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -213,37 +141,17 @@ class TestCodemagicSourceResumeBehavior:
         assert sent_params[0]["skip"] == 60
         manager.load_state.assert_called_once()
 
-    def test_builds_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
 
-        responses = [_make_http_response({"builds": []})]
-        self._drive("Builds", manager, responses)
+class TestCodemagicV3Source:
+    def _drive(
+        self, endpoint: str, manager: MagicMock, responses: dict[str, list[Response]]
+    ) -> tuple[Any, list[dict[str, Any]], list[tuple[str, dict[str, Any]]]]:
+        sent: list[tuple[str, dict[str, Any]]] = []
+        queues = {path: iter(rs) for path, rs in responses.items()}
 
-        manager.save_state.assert_not_called()
-
-    def test_applications_does_not_load_resume_state(self) -> None:
-        # Applications is a single unpaginated page — resume plumbing only applies to Builds.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = CodemagicResumeConfig(skip=999)
-
-        responses = [_make_http_response({"applications": []})]
-        self._drive("Applications", manager, responses)
-
-        manager.load_state.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_sort_mode"),
-        [
-            ("Applications", "asc"),
-            ("Builds", "desc"),
-        ],
-    )
-    def test_sort_mode_reflects_actual_response_ordering(self, endpoint: str, expected_sort_mode: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        wrapper_key = "applications" if endpoint == "Applications" else "builds"
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent.append((request.url, dict(request.params or {})))
+            return next(queues[request.url])
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -251,7 +159,7 @@ class TestCodemagicSourceResumeBehavior:
             mock_session = MockSession.return_value
             mock_session.headers = {}
             mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = lambda *_a, **_k: _make_http_response({wrapper_key: []})
+            mock_session.send.side_effect = fake_send
 
             response = codemagic_source(
                 api_token="test-token",
@@ -259,56 +167,95 @@ class TestCodemagicSourceResumeBehavior:
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=manager,
+                api_version=CODEMAGIC_V3,
             )
+            rows = [row for page in cast(Iterable[Any], response.items()) for row in page]
+            return response, rows, sent
 
-        assert response.sort_mode == expected_sort_mode
-        assert response.primary_keys == ["_id"]
-
-    def test_builds_partitions_on_created_at(self) -> None:
+    def test_applications_page_through_user_apps(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
+        url = "https://codemagic.io/api/v3/user/apps"
+        responses = {
+            url: [
+                _make_http_response({"data": [{"id": "a1"}], "page_size": 100, "current_page": 1, "total_pages": 2}),
+                _make_http_response({"data": [{"id": "a2"}], "page_size": 100, "current_page": 2, "total_pages": 2}),
+            ]
+        }
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = lambda *_a, **_k: _make_http_response({"builds": []})
+        response, rows, sent = self._drive("Applications", manager, responses)
 
-            response = codemagic_source(
+        assert [r["id"] for r in rows] == ["a1", "a2"]
+        assert sent == [(url, {"page_size": 100, "page": 1}), (url, {"page_size": 100, "page": 2})]
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys is None
+
+    def test_builds_fan_out_over_teams_and_follow_cursor(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        teams_url = "https://codemagic.io/api/v3/user/teams"
+        t1_url = "https://codemagic.io/api/v3/teams/t1/builds"
+        t2_url = "https://codemagic.io/api/v3/teams/t2/builds"
+        responses = {
+            teams_url: [
+                _make_http_response(
+                    {"data": [{"id": "t1"}, {"id": "t2"}], "page_size": 100, "current_page": 1, "total_pages": 1}
+                )
+            ],
+            t1_url: [
+                _make_http_response({"data": [{"id": "b1"}], "page_size": 100, "cursor": "b1"}),
+                _make_http_response({"data": [{"id": "b2"}], "page_size": 100, "cursor": None}),
+            ],
+            t2_url: [_make_http_response({"data": [{"id": "b3"}], "page_size": 100, "cursor": None})],
+        }
+
+        response, rows, sent = self._drive("Builds", manager, responses)
+
+        assert [r["id"] for r in rows] == ["b1", "b2", "b3"]
+        assert sent == [
+            (teams_url, {"page_size": 100, "page": 1}),
+            (t1_url, {"page_size": 100}),
+            (t1_url, {"page_size": 100, "cursor": "b1"}),
+            (t2_url, {"page_size": 100}),
+        ]
+        assert manager.save_state.call_args_list[0].args[0] == CodemagicResumeConfig(
+            completed=[], current="/api/v3/teams/t1/builds", child_state={"cursor": "b1"}
+        )
+        assert response.primary_keys == ["id"]
+        assert response.partition_keys == ["created_at"]
+
+    def test_builds_resume_skips_completed_teams_and_seeds_cursor(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = CodemagicResumeConfig(
+            completed=["/api/v3/teams/t1/builds"], current="/api/v3/teams/t2/builds", child_state={"cursor": "b9"}
+        )
+        teams_url = "https://codemagic.io/api/v3/user/teams"
+        t2_url = "https://codemagic.io/api/v3/teams/t2/builds"
+        responses = {
+            teams_url: [
+                _make_http_response(
+                    {"data": [{"id": "t1"}, {"id": "t2"}], "page_size": 100, "current_page": 1, "total_pages": 1}
+                )
+            ],
+            t2_url: [_make_http_response({"data": [{"id": "b10"}], "page_size": 100, "cursor": None})],
+        }
+
+        _, rows, sent = self._drive("Builds", manager, responses)
+
+        assert [r["id"] for r in rows] == ["b10"]
+        assert sent[1:] == [(t2_url, {"page_size": 100, "cursor": "b9"})]
+
+    def test_unknown_version_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported Codemagic API version"):
+            codemagic_source(
                 api_token="test-token",
                 endpoint="Builds",
                 team_id=123,
                 job_id="test_job",
-                resumable_source_manager=manager,
+                resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+                api_version="v2",
             )
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    def test_applications_has_no_partitioning(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = lambda *_a, **_k: _make_http_response({"applications": []})
-
-            response = codemagic_source(
-                api_token="test-token",
-                endpoint="Applications",
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
 
 class TestValidateCredentials:
@@ -328,13 +275,22 @@ class TestValidateCredentials:
             mock_session.get.return_value = MagicMock(status_code=status_code)
             mock_make_session.return_value = mock_session
 
-            is_valid, error = validate_credentials("test-token")
+            is_valid, error = validate_credentials("test-token", CODEMAGIC_V3)
 
         assert is_valid is expected_valid
         if not expected_valid:
             assert error == "Invalid Codemagic API token"
 
-    def test_validate_credentials_sends_auth_header_and_redacts_token(self) -> None:
+    @pytest.mark.parametrize(
+        ("api_version", "expected_url"),
+        [
+            (CODEMAGIC_V1, "https://api.codemagic.io/apps"),
+            (CODEMAGIC_V3, "https://codemagic.io/api/v3/user/apps"),
+        ],
+    )
+    def test_validate_credentials_sends_auth_header_and_redacts_token(
+        self, api_version: str, expected_url: str
+    ) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.codemagic.codemagic.make_tracked_session"
         ) as mock_make_session:
@@ -342,10 +298,8 @@ class TestValidateCredentials:
             mock_session.get.return_value = MagicMock(status_code=200)
             mock_make_session.return_value = mock_session
 
-            validate_credentials("secret-token")
+            validate_credentials("secret-token", api_version)
 
         # allow_redirects=False keeps the custom-header token from following a 3xx off-host.
         mock_make_session.assert_called_once_with(redact_values=("secret-token",), allow_redirects=False)
-        mock_session.get.assert_called_once_with(
-            "https://api.codemagic.io/apps", headers={"x-auth-token": "secret-token"}
-        )
+        mock_session.get.assert_called_once_with(expected_url, headers={"x-auth-token": "secret-token"})

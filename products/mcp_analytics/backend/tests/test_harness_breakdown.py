@@ -166,6 +166,16 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ),
             # xAI API surface: no grok UA, buckets via its grok- clientInfo.name.
             ("grok_shell_client_name", {"$mcp_client_name": "grok-shell-posthog"}, "Grok"),
+            ("ua_kimchi", {"$mcp_client_user_agent": "kimchi/1.2.2"}, "Kimchi"),
+            # Kimchi reports pi-mcp's generic clientInfo.name; its UA must beat it.
+            (
+                "kimchi_ua_beats_generic_pi_mcp_name",
+                {"$mcp_client_user_agent": "kimchi/1.2.2", "$mcp_client_name": "pi-mcp-castai"},
+                "Kimchi",
+            ),
+            # Without the kimchi UA, pi-mcp's name alone stays unattributed: it is
+            # not Pi's own `pi-client`, and other pi-based clients share it.
+            ("pi_mcp_name_alone_is_other", {"$mcp_client_name": "pi-mcp-castai"}, "Other"),
             ("client_name_librechat", {"$mcp_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",

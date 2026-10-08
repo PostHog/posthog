@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import type { Intervals } from 'lib/components/IntervalFilter/intervals'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import {
@@ -596,6 +596,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
 
+                // One bar has one total, so a previous period saved with compare on is left out.
+                if (display === ChartDisplayType.ActionsProportionBar) {
+                    indexedResults = indexedResults.filter((r) => r.compare_label !== 'previous')
+                }
+
                 // want the previous bars to show before current bars
                 if (display === ChartDisplayType.ActionsUnstackedBar && indexedResults.some((x) => x.compare)) {
                     indexedResults.sort((a, b) => {
@@ -612,7 +617,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     })
                 } else if (
                     display &&
-                    (display === ChartDisplayType.ActionsBarValue || PIE_DISPLAY_TYPES.includes(display))
+                    (display === ChartDisplayType.ActionsBarValue || PART_OF_WHOLE_DISPLAY_TYPES.includes(display))
                 ) {
                     indexedResults.sort((a, b) => {
                         const aValue =

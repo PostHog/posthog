@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 
 from posthog.hogql.database.models import DatabaseField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
@@ -30,10 +31,13 @@ from posthog.models.event.sql import (
 from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
+    FLAG_EVALUATIONS_MV_SELECT_SQL,
     FLAG_EVALUATIONS_MV_SQL,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
+    KAFKA_FLAG_EVALUATIONS_TABLE,
 )
+from posthog.models.ingestion_warnings.sql_v2 import INGESTION_WARNINGS_V2_DATA_TABLE_SQL
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX
 
@@ -53,6 +57,13 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 
     assert build_query(query) == snapshot
+
+
+def test_ingestion_warnings_v2_keeps_ttl_outside_tests() -> None:
+    with override_settings(TEST=False):
+        query = INGESTION_WARNINGS_V2_DATA_TABLE_SQL()
+
+    assert "\nTTL " in query
 
 
 @pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
@@ -186,6 +197,35 @@ def test_flag_evaluations_mv_projection_matches_column_template():
 
     kafka_meta_columns = _declared_column_names(KAFKA_COLUMNS_WITH_PARTITION)
     assert _mv_projected_names(FLAG_EVALUATIONS_MV_SQL()) == template_columns + kafka_meta_columns
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+def test_flag_evaluations_mv_ignores_producer_inserted_at() -> None:
+    select = FLAG_EVALUATIONS_MV_SELECT_SQL().replace(
+        f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}", "FROM mv_input"
+    )
+    rows = sync_execute(
+        """
+        WITH mv_input AS (
+            SELECT
+                generateUUIDv4() AS uuid,
+                '$feature_flag_called' AS event,
+                '{}' AS properties,
+                toDateTime64('2020-01-01 00:00:00', 6, 'UTC') AS timestamp,
+                1 AS team_id,
+                'user' AS distinct_id,
+                timestamp AS created_at,
+                generateUUIDv4() AS person_id,
+                timestamp AS inserted_at,
+                toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
+                0 AS _offset,
+                0 AS _partition
+        )
+        SELECT inserted_at > timestamp FROM ("""
+        + select
+        + ")"
+    )
+    assert rows == [(1,)]
 
 
 def test_flag_evaluations_read_table_declares_every_stored_column():
