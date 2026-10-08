@@ -179,6 +179,14 @@ DEFAULT_RETRY_ATTEMPTS = 5
 # budget outlasts the window.
 DEFAULT_RETRY_BACKOFF_MAX_SECONDS = 60.0
 
+# The longest one logical request may hold a worker, counting every attempt, every retry wait and
+# every read. A worker that shuts down hands its imports to another worker, and that works only
+# while no single request outlasts this. The attempt cap alone does not bound the time: five
+# attempts that each honor a capped `Retry-After` hold a worker for far longer. A source whose
+# rate-limit window is wider than the budget raises its own through `retry_budget_seconds`, and
+# otherwise the sync gives up and resumes on the next run instead of sleeping out the window.
+DEFAULT_RETRY_BUDGET_SECONDS = 240.0
+
 # Default network ports per scheme, used to compare a request URL's effective port against the
 # base origin's when host-pinning is enabled.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -265,13 +273,18 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     return None
 
 
-def _stop_after_client_attempts(state: RetryCallState) -> bool:
+def _stop_after_attempts_or_budget(state: RetryCallState) -> bool:
     # tenacity passes the wrapped call's positional args; for the bound
     # `_send_request(self, ...)` that's `(client, request, hooks)`, so the
     # attempt cap reads off the instance and the preview can lower it to 1.
     client = state.args[0] if state.args else None
     max_attempts = getattr(client, "_max_retry_attempts", DEFAULT_RETRY_ATTEMPTS)
-    return state.attempt_number >= max_attempts
+    if state.attempt_number >= max_attempts:
+        return True
+    budget = getattr(client, "_retry_budget_seconds", DEFAULT_RETRY_BUDGET_SECONDS)
+    # Stop before a wait the budget cannot pay for. tenacity asks to stop before it asks how long
+    # to wait, so a budget read after the sleep would always overshoot by one wait.
+    return (state.seconds_since_start or 0.0) + _retry_wait_seconds(state) >= budget
 
 
 def _retry_wait_seconds(state: RetryCallState) -> float:
@@ -324,6 +337,7 @@ class RESTClient:
         session: Optional[Session] = None,
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
         retry_backoff_max_seconds: float = DEFAULT_RETRY_BACKOFF_MAX_SECONDS,
+        retry_budget_seconds: float = DEFAULT_RETRY_BUDGET_SECONDS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
         request_timeout: Optional[RequestTimeout] = None,
@@ -335,6 +349,7 @@ class RESTClient:
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
         self._retry_backoff_max = retry_backoff_max_seconds
+        self._retry_budget_seconds = retry_budget_seconds
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
         # the session's own default applies, and after that the tracked adapter's
         # ``default_request_timeout()``. Sources talking to a customer-controlled host should set
@@ -520,7 +535,7 @@ class RESTClient:
 
     @retry(
         retry=retry_if_exception_type(RESTClientRetryableError),
-        stop=_stop_after_client_attempts,
+        stop=_stop_after_attempts_or_budget,
         wait=_retry_wait_seconds,
         before_sleep=_reach_safe_point_before_retry_wait,
         reraise=True,

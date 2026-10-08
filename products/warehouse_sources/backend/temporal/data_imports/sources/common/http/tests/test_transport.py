@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
+    MAX_ADAPTER_RETRY_AFTER_SECONDS,
     BoundedRetry,
 )
 
@@ -25,7 +26,7 @@ class TestBoundedRetry:
     )
     def test_retry_after_is_capped(self, _name: str, header_value: str) -> None:
         retry = BoundedRetry(total=3)
-        assert retry.get_retry_after(_response_with_retry_after(header_value)) == BoundedRetry.DEFAULT_BACKOFF_MAX
+        assert retry.get_retry_after(_response_with_retry_after(header_value)) == MAX_ADAPTER_RETRY_AFTER_SECONDS
 
     def test_retry_after_below_cap_is_untouched(self) -> None:
         retry = BoundedRetry(total=3)

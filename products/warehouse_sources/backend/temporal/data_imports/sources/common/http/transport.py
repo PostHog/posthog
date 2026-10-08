@@ -49,6 +49,13 @@ def resolve_request_timeout(timeout: RequestTimeout | None) -> RequestTimeout:
     return default_request_timeout() if timeout is None else timeout
 
 
+# The longest wait the adapter honors before it hands a retryable response back. The adapter sits
+# below the REST client, so it cannot reach a safe point and cannot see the client's retry budget. A
+# long wait belongs to the layer that can do both, so the adapter holds briefly and lets a
+# persistent 429 surface to the client, which then waits against its budget.
+MAX_ADAPTER_RETRY_AFTER_SECONDS = 10.0
+
+
 class BoundedRetry(Retry):
     """`Retry` that hardens `Retry-After` handling against hostile or sloppy servers.
 
@@ -57,8 +64,8 @@ class BoundedRetry(Retry):
     - A server can send a `Retry-After` far larger than any sane wait — an absurd
       integer or a date decades out. urllib3 passes it straight to `time.sleep`,
       which raises `OverflowError` once it exceeds what a C `PyTime_t` can hold,
-      killing the sync. `get_retry_after` bounds it to the backoff ceiling, keeping
-      a hostile value from overflowing (and from parking a worker for hours).
+      killing the sync. `get_retry_after` bounds it to `MAX_ADAPTER_RETRY_AFTER_SECONDS`,
+      keeping a hostile value from overflowing (and from parking a worker for hours).
     - RFC 9110 requires `Retry-After` to be an integer delay-seconds or an
       HTTP-date, and urllib3's default parsing raises `InvalidHeader` on anything
       else. Some upstream APIs send fractional seconds (e.g. "0.129") instead, which
@@ -85,7 +92,7 @@ class BoundedRetry(Retry):
         retry_after = super().get_retry_after(response)
         if retry_after is None:
             return None
-        return min(retry_after, self.DEFAULT_BACKOFF_MAX)
+        return min(retry_after, MAX_ADAPTER_RETRY_AFTER_SECONDS)
 
 
 # Cloudflare returns the 52x family for a slow or unreachable origin: 520 (Unknown Error), 521 (Web
@@ -98,6 +105,11 @@ CLOUDFLARE_TRANSIENT_STATUSES = (520, 521, 522, 523, 524, 530)
 
 DEFAULT_RETRY = BoundedRetry(
     total=3,
+    # A stalled read is not retried here. The REST client already retries a `ReadTimeout`, and it is
+    # the layer that reaches a safe point between attempts and holds the request's time budget. The
+    # adapter has neither, so retrying a read here only multiplied the read timeout by four and kept
+    # a worker busy for that whole time. Status retries below still apply.
+    read=0,
     backoff_factor=0.5,
     status_forcelist=(429, 500, 502, 503, 504, *CLOUDFLARE_TRANSIENT_STATUSES),
     allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),

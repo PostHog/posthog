@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    DEFAULT_RETRY_BUDGET_SECONDS,
     MAX_RETRY_AFTER_SECONDS,
     RESTClient,
     RESTClientNonRetryableError,
@@ -699,12 +700,68 @@ class TestRESTClient:
         ok = _make_response({"results": [{"id": 1}]})
         mock_session.send.side_effect = [*[rate_limited] * 8, ok]
 
-        client = RESTClient(base_url="https://api.example.com", max_retry_attempts=9, retry_backoff_max_seconds=300.0)
+        client = RESTClient(
+            base_url="https://api.example.com",
+            max_retry_attempts=9,
+            retry_backoff_max_seconds=300.0,
+            # The eight waits below add up to 255s, so the budget has to outlast them for the
+            # ceiling to be what stops the run.
+            retry_budget_seconds=600.0,
+        )
         pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
 
         assert pages == [[{"id": 1}]]
         waits = [call.args[0] for call in mock_sleep.call_args_list]
         assert waits == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]
+
+    @parameterized.expand(
+        [
+            # One wait wider than the whole budget. Sleeping cannot help, so the request gives up
+            # without holding the worker at all.
+            ("wait_wider_than_budget", "300", [], 1),
+            # Waits that each fit. The run stops once the next one would pass the budget, so the
+            # attempt cap is not what ends it.
+            ("waits_fit_until_budget_spent", "100", [100.0, 100.0], 3),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_retry_budget_bounds_the_whole_request(
+        self, _name: str, retry_after: str, expected_waits: list[float], expected_sends: int, MockSession
+    ) -> None:
+        # Without an aggregate budget the attempt cap alone bounds nothing in time: five attempts
+        # that each honor a capped `Retry-After` hold one worker for thousands of seconds, and a
+        # worker that cannot finish cannot hand its imports on.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        rate_limited.headers["Retry-After"] = retry_after
+        mock_session.send.return_value = rate_limited
+
+        waits: list[float] = []
+        clock = {"now": 0.0}
+
+        def _sleep(seconds: float) -> None:
+            waits.append(seconds)
+            clock["now"] += seconds
+
+        # tenacity measures the elapsed time with `time.monotonic`, so the fake sleep has to move
+        # the same clock or the budget never runs down.
+        with (
+            patch("tenacity.nap.time.sleep", side_effect=_sleep),
+            patch("tenacity.time.monotonic", side_effect=lambda: clock["now"]),
+        ):
+            client = RESTClient(base_url="https://api.example.com")
+            with pytest.raises(RESTClientRetryableError):
+                list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert waits == expected_waits
+        assert sum(waits) <= DEFAULT_RETRY_BUDGET_SECONDS
+        assert mock_session.send.call_count == expected_sends
 
     @patch("tenacity.nap.time.sleep")
     @patch(
