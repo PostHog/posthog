@@ -18,6 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.steam import SteamSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.steam.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -84,10 +87,6 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.steam.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
