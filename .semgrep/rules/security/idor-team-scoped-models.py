@@ -5,8 +5,10 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.facade.models import Insight
 from products.actions.backend.models.action import Action
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.user_scene_personalisation import UserScenePersonalisation
+from products.product_tours.backend.models import ProductTour
 
 from ee.models.rbac.role import Role, RoleMembership
 
@@ -822,3 +824,42 @@ def safe_user_team_aget(request, user, team):
     settings_id = request.GET.get("settings_id")
     # ok: idor-lookup-without-user-and-team
     return UserScenePersonalisation.objects.aget(pk=settings_id, user=user, team=team)
+
+
+# ============================================================
+# environment-model-scoped-by-project (ERROR - project filter on an environment-scoped model)
+# ============================================================
+
+
+def env_model_filtered_by_project(team, integration_id, project_ids):
+    # ruleid: environment-model-scoped-by-project
+    integrations = Integration.objects.filter(kind="slack", team__project_id=team.project_id)
+
+    # ruleid: environment-model-scoped-by-project
+    tours = ProductTour.all_objects.filter(team__project_id__in=project_ids)
+
+    # ruleid: environment-model-scoped-by-project
+    integration = get_object_or_404(Integration, id=integration_id, team__project_id=team.project_id)
+
+    return integrations, tours, integration
+
+
+def project_model_filtered_by_project(team, cohort_id, action_id):
+    # ok: environment-model-scoped-by-project
+    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id)
+
+    # ok: environment-model-scoped-by-project
+    action = get_object_or_404(Action, id=action_id, team__project_id=team.project_id)
+
+    return cohort, action
+
+
+def env_model_filtered_by_team(team):
+    # ok: environment-model-scoped-by-project
+    return Integration.objects.filter(kind="slack", team_id=team.id)
+
+
+def env_model_project_wide_on_purpose(team):
+    # ok: environment-model-scoped-by-project
+    # nosemgrep: environment-model-scoped-by-project -- fixture for an intended project-wide read
+    return Integration.objects.filter(kind="slack", team__project_id=team.project_id)

@@ -13,7 +13,9 @@ rules:
       severity: ERROR
       message: |
           IDOR: User input flows to team-scoped model lookup without team filter.
-          Fix: Add team__project_id=team.project_id to the query.
+          Fix: Add team_id=team_id to the query.
+          Use team__project_id=team.project_id only for project-level models (RootTeamMixin,
+          TeamScopedRootMixin, ProductTeamModel), whose rows live on the project's root team.
       pattern-sources:
           - patterns:
                 - pattern-either:
@@ -914,7 +916,9 @@ rules:
           - pattern-not: $M.objects. ... .$METHOD2(id=$X.id, ...)
       message: |
           IDOR risk: Lookup on team-scoped model without team filter.
-          Fix: Add team_id=team_id or team__project_id=team.project_id to the query.
+          Fix: Add team_id=team_id to the query.
+          Use team__project_id=team.project_id only for project-level models (RootTeamMixin,
+          TeamScopedRootMixin, ProductTeamModel), whose rows live on the project's root team.
       languages: [python]
       severity: WARNING
       metadata:
@@ -936,6 +940,268 @@ rules:
               - '**/admin/admins/**'
               - '**/backend/admin.py'
               - '**/backend/admin/**'
+
+    # Environment-scoped models keep one set of rows per environment. A project holds
+    # several environments, so a team__project_id filter on these models also returns
+    # rows of sibling environments.
+    - id: environment-model-scoped-by-project
+      languages: [python]
+      severity: ERROR
+      message: |
+          $M is environment-scoped, so team__project_id also returns rows of sibling environments in the same project.
+          Fix: Filter by team_id (the environment's own id).
+          A route under /api/projects/ is still team-scoped unless it is registered with ["project_id"].
+          If project-wide access is intended, add `# nosemgrep: environment-model-scoped-by-project -- <why>`.
+      patterns:
+          - pattern-either:
+                - pattern: $M.$MGR. ... .$METHOD(..., team__project_id=$P, ...)
+                - pattern: $M.$MGR. ... .$METHOD(..., team__project_id__in=$P, ...)
+                - pattern: get_object_or_404($M, ..., team__project_id=$P, ...)
+                - pattern: get_object_or_404($M, ..., team__project_id__in=$P, ...)
+          # Generated list. Regenerate with:
+          # python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models
+          - metavariable-regex:
+                metavariable: $M
+                regex: |
+                    (?x)^(
+                        AccessControl
+                        |ActivityLog
+                        |AgentArtifact
+                        |AgentMemory
+                        |AITrainingDeletionRequest
+                        |Alert
+                        |AlertConfiguration
+                        |Annotation
+                        |ApprovalPolicy
+                        |AsyncDeletion
+                        |BatchExport
+                        |BatchExportBackfill
+                        |BatchExportFileDownload
+                        |BatchImport
+                        |ButtonTile
+                        |ChangeRequest
+                        |ClusteringConfig
+                        |ClusteringJob
+                        |ColumnConfiguration
+                        |Conversation
+                        |ConversationRestoreToken
+                        |CoreEvent
+                        |CoreMemory
+                        |CustomerJourney
+                        |CustomerProfileConfig
+                        |DAG
+                        |DashboardTile
+                        |DataDeletionRequest
+                        |DataModelingJob
+                        |Dataset
+                        |DatasetItem
+                        |DatasetItemVersion
+                        |DatasetRevision
+                        |DataWarehouseCredential
+                        |DataWarehouseJoin
+                        |DataWarehouseManagedViewSet
+                        |DataWarehouseModelPath
+                        |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryDraft
+                        |DataWarehouseSavedQueryFolder
+                        |DataWarehouseTable
+                        |DataWarehouseViewLink
+                        |Edge
+                        |ElementGroup
+                        |EmailChannel
+                        |EmailMessageMapping
+                        |EmailOutboxMessage
+                        |Endpoint
+                        |EndpointVersion
+                        |ErrorTrackingAssignmentRule
+                        |ErrorTrackingAutoCaptureControls
+                        |ErrorTrackingBypassRule
+                        |ErrorTrackingGroup
+                        |ErrorTrackingGroupingRule
+                        |ErrorTrackingIssue
+                        |ErrorTrackingIssueAssignment
+                        |ErrorTrackingIssueFingerprint
+                        |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingRecommendation
+                        |ErrorTrackingSettings
+                        |ErrorTrackingSpikeDetectionConfig
+                        |ErrorTrackingSpikeEvent
+                        |ErrorTrackingStackFrame
+                        |ErrorTrackingSuppressionRule
+                        |ErrorTrackingSymbolSet
+                        |Evaluation
+                        |EvaluationConfig
+                        |EvaluationContext
+                        |EvaluationReport
+                        |Event
+                        |EventFilterConfig
+                        |ExperimentTimeseriesRecalculation
+                        |ExplicitTeamMembership
+                        |ExportedAsset
+                        |ExportedRecording
+                        |ExternalDataJob
+                        |ExternalDataSchema
+                        |ExternalDataSource
+                        |FeatureFlagHashKeyOverride
+                        |FeatureFlagOverride
+                        |FileSystemShortcut
+                        |FileSystemViewLog
+                        |FlatPersonOverride
+                        |GithubCommentMapping
+                        |GitHubSyncConfig
+                        |GitHubSyncedModel
+                        |GitHubSyncPlan
+                        |Group
+                        |GroupUsageMetric
+                        |HealthIssue
+                        |HogFlow
+                        |HogFlowTemplate
+                        |HogFunction
+                        |Hook
+                        |InsightViewed
+                        |Integration
+                        |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
+                        |KernelRuntime
+                        |KnowledgeChunk
+                        |KnowledgeDocument
+                        |KnowledgeSource
+                        |Link
+                        |LiveDebuggerBreakpoint
+                        |LLMModelConfiguration
+                        |LLMPrompt
+                        |LLMPromptDependency
+                        |LLMPromptLabel
+                        |LLMProviderKey
+                        |LLMSkill
+                        |LLMSkillOwner
+                        |LLMTraceSummary
+                        |LogsAlertConfiguration
+                        |LogsExclusionRule
+                        |LogsRetentionRule
+                        |LogsView
+                        |MarketingAnalyticsGoalMapping
+                        |MaterializedColumnSlot
+                        |MCPAnalyticsSubmission
+                        |MCPMeasuredStats
+                        |MCPOAuthState
+                        |MCPServerInstallation
+                        |MessageCategory
+                        |MessageRecipientPreference
+                        |MessageTemplate
+                        |Node
+                        |NotificationEvent
+                        |ObjectMediaPreview
+                        |OfflineEvaluationResult
+                        |OfflineEvaluationResultPayload
+                        |OfflineExperiment
+                        |OfflineExperimentItem
+                        |OfflineExperimentItemPayload
+                        |OptOutSyncConfig
+                        |PendingPersonOverride
+                        |Person
+                        |PersonalAPIKey
+                        |PersonDistinctId
+                        |PersonOverride
+                        |PersonOverrideMapping
+                        |PluginAttachment
+                        |PluginConfig
+                        |PreaggregationJob
+                        |ProductTour
+                        |ProjectSecretAPIKey
+                        |PropertyAccessControl
+                        |QueryTabState
+                        |QueueJob
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
+                        |QuickFilter
+                        |QuickFilterContext
+                        |RemoteConfig
+                        |ReplayObservation
+                        |ReplayObservationLabel
+                        |ReplayObservationUsage
+                        |ReplayScanner
+                        |RepoRoutingRule
+                        |ResourceTransfer
+                        |ReviewQueue
+                        |ReviewQueueItem
+                        |RevokedTeamSecretToken
+                        |SandboxEnvironment
+                        |SavedHeatmap
+                        |ScoreDefinition
+                        |SessionRecording
+                        |SessionRecordingEvent
+                        |SessionRecordingPlaylist
+                        |SessionRecordingPlaylistViewed
+                        |SessionRecordingViewed
+                        |SharingConfiguration
+                        |SignalEmissionRecord
+                        |SignalReport
+                        |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportSlackThread
+                        |SignalReportTask
+                        |SignalSourceConfig
+                        |SignalTeamConfig
+                        |SigningSecret
+                        |SlackThreadTaskMapping
+                        |SourceBatch
+                        |SourceGroupLease
+                        |Subscription
+                        |SubscriptionDelivery
+                        |SurveyResponseArchive
+                        |TableCertification
+                        |TaggedItem
+                        |Tagger
+                        |Task
+                        |TaskRun
+                        |TeamBusinessKnowledgeConfig
+                        |TeamConversationsSlackConfig
+                        |TeamConversationsTeamsConfig
+                        |TeamCustomerAnalyticsConfig
+                        |TeamDataQualityConfig
+                        |TeamDataWarehouseConfig
+                        |TeamDefaultEvaluationContext
+                        |TeamEventVolume
+                        |TeamExperimentsConfig
+                        |TeamFeatureFlagDefaultsConfig
+                        |TeamFeatureFlagPolicyConfig
+                        |TeamFeatureFlagsConfig
+                        |TeamHeatmapConfig
+                        |TeamHomeTabDashboardConfig
+                        |TeamJsSnippetConfig
+                        |TeamLogsConfig
+                        |TeamMarketingAnalyticsConfig
+                        |TeamProvisioningConfig
+                        |TeamReplayVisionConfig
+                        |TeamRevenueAnalyticsConfig
+                        |TeamTasksConfig
+                        |TeamTracingConfig
+                        |TeamWorkflowsConfig
+                        |Text
+                        |Threshold
+                        |Ticket
+                        |TicketView
+                        |TraceReview
+                        |TraceReviewScore
+                        |TracesRetentionRule
+                        |User
+                        |UserGroup
+                        |UserInterview
+                        |UserInterviewTopic
+                        |UserProductList
+                        |UserRepoPreference
+                        |WebAnalyticsFilterPreset
+                    )$
+      metadata:
+          category: security
+          cwe: 'CWE-639: Authorization Bypass Through User-Controlled Key'
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/migrations/**'
+              - '**/.semgrep/**'
 
     # Organization-scoped model taint rule
     - id: idor-taint-user-input-to-org-model
