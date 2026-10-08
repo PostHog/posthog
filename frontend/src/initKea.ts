@@ -96,6 +96,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'inviteTeamMembers', // The invite modal shows message and name validation under the field, and toasts the rest itself
 ]
 
 /*
