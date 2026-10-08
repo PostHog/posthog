@@ -160,7 +160,9 @@ function selectorVariants(selector) {
 // A Depot CI run has no page on GitHub, so each engine links to its own job page.
 function failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId }) {
     if (engine === 'depot_ci') {
-        return `https://depot.dev/orgs/${DEPOT_ORG}/workflows/${workflowId}?job=${nativeJobId}`
+        return workflowId && nativeJobId
+            ? `https://depot.dev/orgs/${DEPOT_ORG}/workflows/${workflowId}?job=${nativeJobId}`
+            : null
     }
     return `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${runId}${jobId ? `/job/${jobId}` : ''}`
 }
@@ -225,11 +227,12 @@ async function enrich(items, runHogql = hogql) {
         for (const [, engine, runId, jobId, workflowId, nativeJobId] of [...recent].sort((a, b) => b[0] - a[0])) {
             // The two engines number their runs independently, so a bare integer can name one in each.
             const runKey = `${engine}:${runId}`
-            if (seen.has(runKey) || (engine === 'depot_ci' && !(workflowId && nativeJobId))) {
+            const url = failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId })
+            if (seen.has(runKey) || !url) {
                 continue
             }
             seen.add(runKey)
-            evidence.push({ url: failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId }) })
+            evidence.push({ url })
             if (evidence.length === 2) {
                 break
             }
@@ -458,7 +461,7 @@ function tableRows(items, ownerFor, extrasFor, statusFor = quarantineStatusFor) 
         return [
             testCell,
             cell(RUNNER_LABELS[item.runner] || item.runner),
-            cell(owner.replace(/^team-/, '')),
+            cell(teamLabel(owner)),
             item.trunk?.url ? linkedCell([{ url: item.trunk.url, text: status }]) : cell(status),
             cell(countCell(item, item.failed_pr_count)),
             cell(countCell(item, item.failed_run_count)),
@@ -515,38 +518,37 @@ function flakyTable(rows) {
 
 const teamLabel = (owner) => owner.replace(/^team-/, '')
 
-// A slice kept in the digest thread. `note` says why it is not in the team's channel.
-function buildThreadSliceBlocks({ owner, rows }, note) {
-    return [
-        { type: 'section', text: { type: 'mrkdwn', text: `*${teamLabel(owner)}* _(${note})_` } },
-        flakyTable(rows),
-    ]
+function titledTable(title, rows) {
+    return [{ type: 'section', text: { type: 'mrkdwn', text: title } }, flakyTable(rows)]
 }
 
-function reportBlocks(title, rows, footerLinks) {
-    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: title } }, flakyTable(rows)]
-    if (footerLinks.length > 0) {
-        blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: footerLinks.join(' · ') }] })
-    }
-    return blocks
+function reportTitle(now, scope) {
+    return `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(${scope})_`
+}
+
+// A slice kept in the digest thread. `reason` says why it is not in the team's channel.
+function buildThreadSliceBlocks({ owner, channel, rows }, reason) {
+    return titledTable(`*${teamLabel(owner)}* _(${reason} ${channel})_`, rows)
 }
 
 function buildBlocks(now, rows) {
-    const editBlock = editWorkflowBlock()
-    const blocks = reportBlocks(
-        `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner)_`,
-        rows,
-        []
+    const blocks = titledTable(
+        reportTitle(now, `CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner`),
+        rows
     )
+    const editBlock = editWorkflowBlock()
     return editBlock ? [...blocks, editBlock] : blocks
 }
 
 function buildTeamBlocks(now, { owner, rows }, digestUrl) {
-    return reportBlocks(
-        `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(owned by ${teamLabel(owner)}, CI, last ${REPORT_WINDOW_DAYS} days)_`,
-        rows,
-        [...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []), `Wrong owner, wrong numbers, general feedback? Tell ${FEEDBACK_CHANNEL}!`]
-    )
+    const footer = [
+        ...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []),
+        `Wrong owner, wrong numbers, general feedback? Tell ${FEEDBACK_CHANNEL}!`,
+    ]
+    return [
+        ...titledTable(reportTitle(now, `owned by ${teamLabel(owner)}, CI, last ${REPORT_WINDOW_DAYS} days`), rows),
+        { type: 'context', elements: [{ type: 'mrkdwn', text: footer.join(' · ') }] },
+    ]
 }
 
 function buildTeamIndexBlocks(posted) {
@@ -573,6 +575,18 @@ const SLACK = {
     pause: () => new Promise((resolve) => setTimeout(resolve, 1100)),
 }
 
+async function postToTeamChannel(team, { now, digestUrl, slack }) {
+    try {
+        const post = await slack.post(buildTeamBlocks(now, team, digestUrl), 'Weekly flaky test report', {
+            channel: team.channel,
+        })
+        return { ...team, url: await slack.permalink(post).catch(() => null) }
+    } catch (err) {
+        console.warn(`team digest for ${team.owner} failed: ${err.message}`)
+        return null
+    }
+}
+
 // Sends each team its slice, then indexes those posts in the digest thread. A slice that cannot
 // go to its channel stays in the thread, so no team's rows are lost. `withheld` names a reason to
 // keep every slice in the thread.
@@ -583,23 +597,18 @@ async function deliverTeamDigests(teamDigests, { now, digest, withheld = null, s
         if (index > 0) {
             await slack.pause()
         }
-        const fallbackText = `Flaky tests owned by ${team.owner}`
-        let note = withheld && `${withheld} ${team.channel}`
-        if (!withheld) {
-            try {
-                const post = await slack.post(buildTeamBlocks(now, team, digestUrl), 'Weekly flaky test report', {
-                    channel: team.channel,
-                })
-                posted.push({ ...team, url: await slack.permalink(post).catch(() => null) })
-                continue
-            } catch (err) {
-                console.warn(`team digest for ${team.owner} failed: ${err.message}`)
-                note = `not delivered to ${team.channel}`
-            }
+        const sent = withheld ? null : await postToTeamChannel(team, { now, digestUrl, slack })
+        if (sent) {
+            posted.push(sent)
+            continue
         }
         // A failed slice must not sink the slices behind it; the digest itself already landed.
         try {
-            await slack.post(buildThreadSliceBlocks(team, note), fallbackText, { threadTs: digest.ts })
+            await slack.post(
+                buildThreadSliceBlocks(team, withheld || 'not delivered to'),
+                `Flaky tests owned by ${team.owner}`,
+                { threadTs: digest.ts }
+            )
         } catch (err) {
             console.warn(`thread slice for ${team.owner} failed: ${err.message}`)
         }
@@ -656,9 +665,7 @@ async function main() {
         console.info(
             JSON.stringify(
                 teamDigests.map((team) =>
-                    withheld
-                        ? buildThreadSliceBlocks(team, `${withheld} ${team.channel}`)
-                        : buildTeamBlocks(now, team, null)
+                    withheld ? buildThreadSliceBlocks(team, withheld) : buildTeamBlocks(now, team, null)
                 ),
                 null,
                 2

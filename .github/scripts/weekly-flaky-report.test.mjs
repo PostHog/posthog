@@ -617,7 +617,7 @@ describe('weekly flaky report', () => {
                 ['team-replay', '#team-replay', 1],
             ]
         )
-        const [header, table] = buildThreadSliceBlocks(digests[0], 'shadow: would post to #team-devex')
+        const [header, table] = buildThreadSliceBlocks(digests[0], 'shadow: would post to')
         assert.equal(header.text.text, '*devex* _(shadow: would post to #team-devex)_')
         assert.equal(table.rows.length, 3)
     })
