@@ -12,7 +12,6 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
@@ -22,6 +21,7 @@ import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { sourceUsageLogic } from '../logics/sourceUsageLogic'
+import { formatEstimatedCostUsd } from '../sourceUsageCost'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
@@ -143,13 +143,13 @@ export function ManagedSourcesTable(): JSX.Element {
                                   title: 'Estimated cost this period',
                                   key: 'estimated_cost',
                                   tooltip:
-                                      "This source's share of your organization's synced rows bill so far this period, based on its billed rows. Your free allowance and volume pricing apply to the organization total, so removing a source may not reduce the bill by this amount.",
+                                      "This source's share of your organization's synced rows bill so far this period, based on its billed rows. Your free allowance and volume pricing apply to the organization total, so removing a source may not reduce the bill by this amount. Rounded to the nearest dollar.",
                                   render: function RenderEstimatedCost(_: unknown, source: { id: string }) {
                                       const costUsd = sourceUsageById[source.id]?.costUsd
                                       if (costUsd === null || costUsd === undefined) {
                                           return '-'
                                       }
-                                      return costUsd > 0 && costUsd < 0.01 ? '<$0.01' : humanFriendlyCurrency(costUsd)
+                                      return formatEstimatedCostUsd(costUsd)
                                   },
                               },
                           ]

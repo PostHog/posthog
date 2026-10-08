@@ -1,4 +1,4 @@
-import { estimateSourceCostsUsd } from './sourceUsageCost'
+import { estimateSourceCostsUsd, formatEstimatedCostUsd } from './sourceUsageCost'
 
 interface CostCase {
     name: string
@@ -7,7 +7,7 @@ interface CostCase {
     expected: Record<string, number> | null
 }
 
-describe('estimateSourceCostsUsd', () => {
+describe('sourceUsageCost', () => {
     test.each<CostCase>([
         {
             name: 'splits the organization amount by share of organization rows',
@@ -41,5 +41,14 @@ describe('estimateSourceCostsUsd', () => {
         },
     ])('$name', ({ rows, product, expected }) => {
         expect(estimateSourceCostsUsd(rows, product)).toEqual(expected)
+    })
+
+    test.each([
+        { costUsd: 0, expected: '$0' },
+        { costUsd: 0.4, expected: '<$1' },
+        { costUsd: 73.43, expected: '~$73' },
+        { costUsd: 1234.6, expected: '~$1,235' },
+    ])('formats $costUsd as $expected', ({ costUsd, expected }) => {
+        expect(formatEstimatedCostUsd(costUsd)).toEqual(expected)
     })
 })

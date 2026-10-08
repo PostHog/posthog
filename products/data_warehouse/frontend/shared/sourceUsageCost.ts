@@ -1,3 +1,5 @@
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
+
 import type { BillingProductV2Type } from '~/types'
 
 // Tiered pricing and the free allowance apply to the organization total, so this is an average-price estimate.
@@ -18,4 +20,15 @@ export function estimateSourceCostsUsd(
             organizationRows > 0 ? (amountUsd * rows) / organizationRows : 0,
         ])
     )
+}
+
+// Whole dollars with a "~", because cents would suggest more precision than an average-price split has.
+export function formatEstimatedCostUsd(costUsd: number): string {
+    if (costUsd <= 0) {
+        return '$0'
+    }
+    if (costUsd < 1) {
+        return '<$1'
+    }
+    return `~${humanFriendlyCurrency(Math.round(costUsd), 0)}`
 }
