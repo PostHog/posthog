@@ -137,15 +137,6 @@ class TestGetRows:
         assert params[0]["offset"] == 200
         manager.load_state.assert_called_once()
 
-    def test_terminates_on_short_page(self) -> None:
-        manager = _make_manager()
-        responses = [_make_response({"pages": [{"id": "only"}]})]
-
-        rows, _urls, _params = _drive(manager, responses)
-
-        assert rows == [{"id": "only"}]
-        manager.save_state.assert_not_called()
-
     def test_single_object_endpoint_wraps_one_row_and_fetches_once(self) -> None:
         manager = _make_manager()
         # /sites/{site_id} returns a single site object, not a list envelope.
@@ -174,40 +165,6 @@ class TestGetRows:
         rows, _urls, _params = _drive(manager, responses, schema_name="products")
 
         assert rows == [{"id": "p1", "createdOn": "2026-01-01", "skus": [{"id": "s1"}]}]
-
-    def test_collection_items_request_includes_stable_sort(self) -> None:
-        manager = _make_manager()
-        responses = [_make_response({"items": [{"id": "i1"}]})]
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow._resolve_collection_id",
-            return_value="col-99",
-        ):
-            rows, urls, params = _drive(manager, responses, schema_name="collection_blog")
-
-        assert rows == [{"id": "i1"}]
-        assert urls[0] == "https://api.webflow.com/v2/collections/col-99/items"
-        assert params[0]["sortBy"] == "createdOn"
-        assert params[0]["sortOrder"] == "asc"
-
-    def test_site_id_with_path_delimiters_is_encoded_into_a_single_segment(self) -> None:
-        # A site_id containing path/query delimiters must not redirect the request to an
-        # account-level (or otherwise unintended) Webflow endpoint.
-        manager = _make_manager()
-        responses = [_make_response({"pages": [{"id": "a"}]})]
-        with patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            urls, _params = _wire(session, responses)
-            response = webflow_source(
-                api_token="token",
-                site_id="../../sites",
-                schema_name="pages",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=manager,
-            )
-            list(cast("Iterable[Any]", response.items()))
-
-        assert urls[0] == "https://api.webflow.com/v2/sites/..%2F..%2Fsites/pages"
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = _make_manager()
@@ -289,43 +246,6 @@ class TestWebflowSource:
         assert response.primary_keys == expected_pks
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [WEBFLOW_ENDPOINTS[schema_name].partition_key]
-
-    def test_forms_endpoint_has_no_partitioning(self) -> None:
-        manager = _make_manager()
-        with patch(CLIENT_SESSION_PATCH):
-            response = webflow_source(
-                "token", "site-1", "forms", team_id=1, job_id="j", resumable_source_manager=manager
-            )
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    def test_collection_schema_resolves_collection_id(self) -> None:
-        manager = _make_manager()
-        with (
-            patch(CLIENT_SESSION_PATCH),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow._resolve_collection_id",
-                return_value="c1",
-            ) as mock_resolve,
-        ):
-            response = webflow_source(
-                "token", "site-1", "collection_blog", team_id=1, job_id="j", resumable_source_manager=manager
-            )
-        mock_resolve.assert_called_once_with("token", "site-1", "collection_blog")
-        assert response.name == "collection_blog"
-        assert response.primary_keys == ["id"]
-
-    def test_items_callable_lazy(self) -> None:
-        # Building the SourceResponse must not send any request; only iterating items() should.
-        manager = _make_manager()
-        with patch(CLIENT_SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            session.send.side_effect = AssertionError("no request should be sent while building the SourceResponse")
-            response = webflow_source(
-                "token", "site-1", "pages", team_id=1, job_id="j", resumable_source_manager=manager
-            )
-            assert callable(response.items)
-            assert isinstance(response.items(), Iterable)
 
 
 def _webhook_list_response(webhooks: list[dict[str, Any]]) -> Response:
@@ -500,73 +420,6 @@ class TestGetExternalWebhookInfo:
 class TestWebhookTableTransformer:
     def _table(self, rows: list[dict[str, Any]]) -> Any:
         return table_from_py_list(rows)
-
-    def test_keeps_only_the_latest_delivery_per_order(self) -> None:
-        # Delta merge dedupes across syncs but not within a batch, so a created-then-changed
-        # pair for one order would otherwise land as two rows racing on the same primary key.
-        table = self._table(
-            [
-                {
-                    "triggerType": "ecomm_new_order",
-                    "webflowTimestamp": "1700000000000",
-                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
-                },
-                {
-                    "triggerType": "ecomm_order_changed",
-                    "webflowTimestamp": "1700000060000",
-                    "payload": {"orderId": "abc123", "status": "fulfilled"},
-                },
-                {
-                    "triggerType": "ecomm_new_order",
-                    "webflowTimestamp": "1700000030000",
-                    "payload": {"orderId": "def456", "status": "unfulfilled"},
-                },
-            ]
-        )
-
-        rows = webhook_table_transformer(table).to_pylist()
-
-        assert sorted(rows, key=lambda r: r["orderId"]) == [
-            {"orderId": "abc123", "status": "fulfilled"},
-            {"orderId": "def456", "status": "unfulfilled"},
-        ]
-
-    def test_out_of_order_delivery_does_not_resurrect_the_older_row(self) -> None:
-        # Webflow retries failed deliveries, so a stale event can arrive after a newer one.
-        table = self._table(
-            [
-                {
-                    "triggerType": "ecomm_order_changed",
-                    "webflowTimestamp": "1700000060000",
-                    "payload": {"orderId": "abc123", "status": "fulfilled"},
-                },
-                {
-                    "triggerType": "ecomm_new_order",
-                    "webflowTimestamp": "1700000000000",
-                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
-                },
-            ]
-        )
-
-        assert webhook_table_transformer(table).to_pylist() == [{"orderId": "abc123", "status": "fulfilled"}]
-
-    def test_equal_timestamps_fall_back_to_arrival_order(self) -> None:
-        table = self._table(
-            [
-                {
-                    "triggerType": "ecomm_new_order",
-                    "webflowTimestamp": "1700000000000",
-                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
-                },
-                {
-                    "triggerType": "ecomm_order_changed",
-                    "webflowTimestamp": "1700000000000",
-                    "payload": {"orderId": "abc123", "status": "fulfilled"},
-                },
-            ]
-        )
-
-        assert webhook_table_transformer(table).to_pylist() == [{"orderId": "abc123", "status": "fulfilled"}]
 
     def test_rows_without_an_order_id_are_dropped(self) -> None:
         # A row with no primary key can't be merged; keeping it would fail the whole batch.

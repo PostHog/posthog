@@ -10,7 +10,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-TASK_PATH = "products.workflows.backend.presentation.views.hog_flow.reschedule_hog_flow_timing"
+TASK_PATH = "products.workflows.backend.services.hog_flow_writes.reschedule_hog_flow_timing"
 
 
 def _actions(delay_duration: str = "7d", webhook_url: str = "https://example.com") -> list[dict]:

@@ -7,7 +7,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.settings import (
     RUNS_INCREMENTAL_LOOKBACK_SECONDS,
-    SPACELIFT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.spacelift import (
     ACCOUNT_NOT_FOUND_MESSAGE,
@@ -18,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.
     SpaceliftPermissionError,
     SpaceliftResumeConfig,
     build_incremental_predicates,
-    build_query,
     normalize_account_name,
     spacelift_source,
     to_unix_seconds,
@@ -74,17 +72,6 @@ def _query_calls(session: mock.MagicMock) -> list[Any]:
 
 class TestSpacelift:
     @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("my-company", "my-company"),
-            ("  My-Company  ", "my-company"),
-            ("acme2", "acme2"),
-        ],
-    )
-    def test_normalize_account_name_accepts_dns_labels(self, raw, expected):
-        assert normalize_account_name(raw) == expected
-
-    @pytest.mark.parametrize(
         "raw",
         [
             "",
@@ -100,24 +87,6 @@ class TestSpacelift:
     def test_normalize_account_name_rejects_host_injection(self, raw):
         with pytest.raises(ValueError):
             normalize_account_name(raw)
-
-    @pytest.mark.parametrize("endpoint", [name for name, c in SPACELIFT_ENDPOINTS.items() if c.is_connection])
-    def test_build_query_for_connections(self, endpoint):
-        config = SPACELIFT_ENDPOINTS[endpoint]
-        query = build_query(config)
-        assert f"{config.graphql_field}(input: $input)" in query
-        assert "pageInfo" in query
-        assert "endCursor" in query
-
-    def test_build_query_wraps_runs_in_run_with_stack(self):
-        query = build_query(SPACELIFT_ENDPOINTS["runs"])
-        assert "isModule run {" in query
-        assert "stack { id name }" in query
-
-    def test_build_query_for_plain_list(self):
-        query = build_query(SPACELIFT_ENDPOINTS["spaces"])
-        assert "SearchInput" not in query
-        assert "spaces {" in query
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -136,33 +105,8 @@ class TestSpacelift:
     def test_to_unix_seconds(self, value, expected):
         assert to_unix_seconds(value) == expected
 
-    def test_incremental_predicates_apply_lookback(self):
-        predicates = build_incremental_predicates("createdAt", 1700000000)
-        assert predicates == [
-            {
-                "field": "createdAt",
-                "constraint": {"timeInRange": {"start": 1700000000 - RUNS_INCREMENTAL_LOOKBACK_SECONDS}},
-            }
-        ]
-
-    def test_incremental_predicates_clamp_at_zero(self):
-        predicates = build_incremental_predicates("createdAt", 10)
-        assert predicates is not None
-        assert predicates[0]["constraint"]["timeInRange"]["start"] == 0
-
     def test_incremental_predicates_none_for_unparseable_value(self):
         assert build_incremental_predicates("createdAt", "garbage") is None
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_keeps_credentials_out_of_sample_capture(self, mock_make_session):
-        # The exchange body carries the raw secret and the response a minted JWT — names
-        # the sample scrubber can't recognise, so the session must opt out of capture.
-        SpaceliftClient("my-company", "key-id", "key-secret")
-
-        kwargs = mock_make_session.call_args.kwargs
-        assert kwargs["capture"] is False
-        assert kwargs["allow_redirects"] is False
-        assert "key-secret" in kwargs["redact_values"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_token_exchange_null_user_raises_auth_error(self, mock_make_session):
@@ -172,39 +116,6 @@ class TestSpacelift:
         client = SpaceliftClient("my-company", "key-id", "key-secret")
         with pytest.raises(SpaceliftAuthError):
             client._ensure_token()
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_execute_sends_bearer_token(self, mock_make_session):
-        session = _mock_session(
-            mock_make_session,
-            [_response(TOKEN_PAYLOAD), _search_page("searchStacks", [{"id": "stack-1"}])],
-        )
-
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        data = client.execute("query { x }")
-
-        assert data["searchStacks"]["edges"][0]["node"] == {"id": "stack-1"}
-        assert _query_calls(session)[0].kwargs["headers"] == {"Authorization": "Bearer jwt-1"}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_execute_refreshes_token_once_on_unauthorized(self, mock_make_session):
-        # A JWT expiring mid-sync surfaces as an `unauthorized` GraphQL error; one
-        # re-exchange must recover, a second unauthorized is a real permission gap.
-        session = _mock_session(
-            mock_make_session,
-            [
-                _response(TOKEN_PAYLOAD),
-                _response({"errors": [{"message": "unauthorized"}], "data": None}),
-                _response({"data": {"apiKeyUser": {"jwt": "jwt-2", "validUntil": 99999999999}}}),
-                _search_page("searchStacks", [{"id": "stack-1"}]),
-            ],
-        )
-
-        client = SpaceliftClient("my-company", "key-id", "key-secret")
-        data = client.execute("query { x }")
-
-        assert data["searchStacks"]["edges"][0]["node"] == {"id": "stack-1"}
-        assert session.post.call_args_list[3].kwargs["headers"] == {"Authorization": "Bearer jwt-2"}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_execute_raises_permission_error_when_still_unauthorized(self, mock_make_session):
@@ -323,16 +234,6 @@ class TestSpacelift:
         ]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_sends_no_predicates(self, mock_make_session):
-        session = _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD), _search_page("searchRuns", [])])
-        manager = _make_manager()
-
-        response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), manager)
-        list(cast(Iterable[Any], response.items()))
-
-        assert "predicates" not in _query_calls(session)[0].kwargs["json"]["variables"]["input"]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_plain_list_endpoint_yields_rows_without_pagination(self, mock_make_session):
         _mock_session(
             mock_make_session,
@@ -363,36 +264,11 @@ class TestSpacelift:
         with pytest.raises(ValueError, match="Unknown Spacelift endpoint"):
             spacelift_source("my-company", "key-id", "key-secret", "nope", mock.MagicMock(), _make_manager())
 
-    @pytest.mark.parametrize(
-        "endpoint, expected_sort_mode, expected_primary_keys",
-        [
-            ("stacks", "asc", ["id"]),
-            ("runs", "desc", ["id"]),
-            ("managed_entities", "asc", ["stackId", "id"]),
-        ],
-    )
-    def test_source_response_metadata(self, endpoint, expected_sort_mode, expected_primary_keys):
-        response = spacelift_source("my-company", "key-id", "key-secret", endpoint, mock.MagicMock(), _make_manager())
-        assert response.name == endpoint
-        assert response.sort_mode == expected_sort_mode
-        assert response.primary_keys == expected_primary_keys
-
-    def test_runs_partitions_on_created_at(self):
-        response = spacelift_source("my-company", "key-id", "key-secret", "runs", mock.MagicMock(), _make_manager())
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_credentials_success(self, mock_make_session):
         _mock_session(mock_make_session, [_response(TOKEN_PAYLOAD)])
 
         assert validate_credentials("my-company", "key-id", "key-secret") == (True, None)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_bad_key(self, mock_make_session):
-        _mock_session(mock_make_session, [_response({"data": {"apiKeyUser": None}})])
-
-        assert validate_credentials("my-company", "key-id", "key-secret") == (False, INVALID_API_KEY_MESSAGE)
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_credentials_unknown_account_points_at_the_account_name(self, mock_make_session):

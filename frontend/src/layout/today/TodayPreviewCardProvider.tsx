@@ -1,10 +1,11 @@
 import { PreviewCard } from '@base-ui/react/preview-card'
-import { ReactNode, Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Card, Skeleton } from '@posthog/quill'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
+import { cardSideForPointer, trackPointer } from './todayPointer'
 import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardContext'
 import { TodayPreviewPayload } from './todayPreviewCards'
 
@@ -21,12 +22,36 @@ const TodaySpaceHoverCard = lazyWithRetry(() =>
     import('./TodaySpaceHoverCard').then((m) => ({ default: m.TodaySpaceHoverCard }))
 )
 
-/** Beside a row, centered on it, so the path to a tall card is short from any row. Under a link in the
- * briefing text instead, so the card does not cover the line. */
-function placement(payload: TodayPreviewPayload): Pick<PreviewCard.Positioner.Props, 'side' | 'align' | 'sideOffset'> {
+function isInTextLink(payload: TodayPreviewPayload): boolean {
     return payload.kind === 'report' && payload.surface === 'briefing'
-        ? { side: 'bottom', align: 'start', sideOffset: 6 }
+}
+
+/** Beside a row, centered on it, so the path to a tall card is short from any row. On a link in the
+ * home page text, above or below it on the side the pointer came from, so the card does not cover
+ * the next link the pointer moves to. */
+function TodayPreviewPositioner({
+    payload,
+    children,
+}: {
+    payload: TodayPreviewPayload
+    children: ReactNode
+}): JSX.Element {
+    // Fixed per link: the direction at the moment the card moves to this link, not while the pointer rests on it.
+    const textSide = useMemo(() => (isInTextLink(payload) ? cardSideForPointer() : null), [payload])
+    const placement: Pick<PreviewCard.Positioner.Props, 'side' | 'align' | 'sideOffset'> = textSide
+        ? { side: textSide, align: 'start', sideOffset: 6 }
         : { side: 'right', align: 'center', sideOffset: 10 }
+    return (
+        <PreviewCard.Positioner
+            data-quill
+            data-quill-portal="popover"
+            // Quill's portal rule reads this token and wins over a z-index utility class.
+            className="[--quill-z-popover:var(--z-popover-with-chart)]"
+            {...placement}
+        >
+            {children}
+        </PreviewCard.Positioner>
+    )
 }
 
 /**
@@ -59,6 +84,7 @@ export function TodayPreviewCardProvider({
         }),
         [handle]
     )
+    useEffect(trackPointer, [])
     const close = useCallback(() => {
         setSubmenuOpen(false)
         setOpen(false)
@@ -76,13 +102,7 @@ export function TodayPreviewCardProvider({
                 {({ payload }) =>
                     payload ? (
                         <PreviewCard.Portal>
-                            <PreviewCard.Positioner
-                                data-quill
-                                data-quill-portal="popover"
-                                // Quill's portal rule reads this token and wins over a z-index utility class.
-                                className="[--quill-z-popover:var(--z-popover-with-chart)]"
-                                {...placement(payload)}
-                            >
+                            <TodayPreviewPositioner payload={payload}>
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
                                 <PreviewCard.Popup className="outline-none">
                                     <Card
@@ -108,7 +128,7 @@ export function TodayPreviewCardProvider({
                                         </Suspense>
                                     </Card>
                                 </PreviewCard.Popup>
-                            </PreviewCard.Positioner>
+                            </TodayPreviewPositioner>
                         </PreviewCard.Portal>
                     ) : null
                 }

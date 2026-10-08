@@ -6196,7 +6196,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.63.0" },
+    { name = "posthoganalytics", specifier = "==7.64.1" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6211,7 +6211,7 @@ requires-dist = [
     { name = "pynacl", specifier = "==1.5.0" },
     { name = "pyod", specifier = "==2.0.7" },
     { name = "pypdf", specifier = "==6.10.2" },
-    { name = "pyroscope-io", specifier = "~=1.0.3" },
+    { name = "pyroscope-io", specifier = "~=1.2.4" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
     { name = "python-docx", specifier = "==1.2.0" },
     { name = "python-snappy", specifier = "~=0.7.3" },
@@ -6357,7 +6357,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.63.0"
+version = "7.64.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6365,9 +6365,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/41/134a87b827eb89bf037df9bbdaf37534e76ff7c4e96319b86c662e34bec3/posthoganalytics-7.63.0.tar.gz", hash = "sha256:7f734a358c89ef7980cfaa04311c42ff2d2cb7da4d61ecb862ab4f4a61637628", size = 706229, upload-time = "2026-10-05T08:02:39.961Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/01/61a75f1ebbdc128c629ed16923c40542825e132049e0dcb6c36f46a9f8a9/posthoganalytics-7.64.1.tar.gz", hash = "sha256:976e7172a820b1b5bd6044510ce71613601ea6319b23e077276651998a074a76", size = 734804, upload-time = "2026-10-06T15:28:02.744Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/00/20c567feb885c4e538532801b829edbfe4a6fe79817f5674a635142ccf18/posthoganalytics-7.63.0-py3-none-any.whl", hash = "sha256:dda87f0bdff5edbfa9ac566a17af9aeaef7021319375cbfbadaafe8b29ae501a", size = 829107, upload-time = "2026-10-05T08:02:37.915Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/ec/3820322d5f15f06872b24b03f930784411ec82f342d547c53a422f50bbb0/posthoganalytics-7.64.1-py3-none-any.whl", hash = "sha256:bd473ec547d91727df376fd365dac38d6347d54329d0d7ab856ed7d575263bbc", size = 864067, upload-time = "2026-10-06T15:28:00.927Z" },
 ]
 
 [[package]]
@@ -6994,19 +6994,16 @@ wheels = [
 
 [[package]]
 name = "pyroscope-io"
-version = "1.0.12"
+version = "1.2.4"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cffi" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/09/3e/2327b2ad3da54e083dcebe6d9c50650b4b01da3f69fb2a579a8b7ff4899b/pyroscope_io-1.0.12.tar.gz", hash = "sha256:86f379d79303d8564a50d0d8e6751e695522f38a7dd32e9182eacabda0038aeb", size = 48479, upload-time = "2026-06-16T06:30:27.119Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/7f/161c67cf9fd44e578158b38726419fb3ec9891997c36cbd5d5f65d7edfe1/pyroscope_io-1.2.4.tar.gz", hash = "sha256:1f687bb6f845d52499b9802095cdbc478eb7dc339f98fe3aad9b50be32df9d60", size = 75175, upload-time = "2026-09-23T01:37:11.61Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/b6/57352cb92f87e29afedc790f4004f1ad5b335a1750a5174930074b1d1ba4/pyroscope_io-1.0.12-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:335acfe40b367dc90d0b1e9caf4a38aa8efe1ff656ec2dcb9ac41fbff92e8522", size = 2074603, upload-time = "2026-06-16T06:30:17.492Z" },
-    { url = "https://files.pythonhosted.org/packages/86/a5/68d18b2958af8ee29399dd42a963d8d01815f7e94edace79eb3917129fbc/pyroscope_io-1.0.12-cp310-abi3-macosx_11_0_x86_64.whl", hash = "sha256:6197f4cac09ced7acaddbba57afad1e32dd490cdda1922f3ab3dc0255e6cd943", size = 2164153, upload-time = "2026-06-16T06:30:19.17Z" },
-    { url = "https://files.pythonhosted.org/packages/85/6f/ddb3656b38a36fc3555d0bea2407a3841f7cdedae6fb2d748decf10da47e/pyroscope_io-1.0.12-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:a9962bdf9b6b91784433513fb23cd22da26934ef707a9260b997a03f9ac66ba2", size = 5311432, upload-time = "2026-06-16T06:30:20.658Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/d6/de8f817c256406721b774245edccecd33cdf4b59a9ab9f2eaa29bf7f7d3b/pyroscope_io-1.0.12-cp310-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4cdc7cc219733f542f51207cebaa5d7e577b21b5a20f6525ca5c587b60ac6cba", size = 4882800, upload-time = "2026-06-16T06:30:22.328Z" },
-    { url = "https://files.pythonhosted.org/packages/58/7b/2579c11dfa63971006f5658070803023418811b71da45f6bbb215a0267de/pyroscope_io-1.0.12-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:cc7828dc728e291416670d2d2e245939ea0d36bfd99e9bfbc51ae399b4ab6490", size = 5433000, upload-time = "2026-06-16T06:30:23.944Z" },
-    { url = "https://files.pythonhosted.org/packages/c1/34/6a87e7a54834532b1a71ca64e18287ae8ffdba857e8fe844c93fd7ef520b/pyroscope_io-1.0.12-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a26fa5f61408e698db609c65299414def8de7c11fcfd2b863bdacd86c172dd00", size = 5163316, upload-time = "2026-06-16T06:30:25.567Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/5c/5629c0f23419207f46fe5c8d43e9266822070b404c7a4ce48e31692525cf/pyroscope_io-1.2.4-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:3c151d4b7a3553a9366b597e75d5f0c91d1ead106bbeaffad8393993d78d2afc", size = 2070407, upload-time = "2026-09-23T01:37:02.648Z" },
+    { url = "https://files.pythonhosted.org/packages/73/01/c3c984b461316d851a825dd244b72fc664596d567ccecbe43a1430904b74/pyroscope_io-1.2.4-cp314-cp314-macosx_11_0_x86_64.whl", hash = "sha256:3921682a85bf19b416dc22f357190f7e7395d20c22e4f5cf68d4910c78078a41", size = 2147815, upload-time = "2026-09-23T01:37:04.042Z" },
+    { url = "https://files.pythonhosted.org/packages/71/73/8314f1ee0d735b772432a0c1e54e9c4f75147914dc0f5e684964a5172cc5/pyroscope_io-1.2.4-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:49ee23fc3399561ce154458dfb8597c35d0b7173e8e7e72b4e7358d612a0fc7e", size = 5573693, upload-time = "2026-09-23T01:37:05.458Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/c4/28e3e74583a5833be32aad042b56c07dafe3b22e53767e0b066341a59748/pyroscope_io-1.2.4-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:38f03a296e108101f6aea011097e3ed7870fc1afa096a46e85be487a62402216", size = 5083659, upload-time = "2026-09-23T01:37:07.088Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/d6/4eed0646ad323f1cb380ca876c09adfe492d8e1d483b486b380be2babafb/pyroscope_io-1.2.4-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:bf6aa99af285369dee1f02210e757ba2ef1b78a5f90bb8479328ebd0875718c7", size = 5505637, upload-time = "2026-09-23T01:37:08.52Z" },
+    { url = "https://files.pythonhosted.org/packages/08/22/bf98cfdb91ab5c9d36cfd593da72c644ab523069d94d8ce2f1fe8c2f3a70/pyroscope_io-1.2.4-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:eb3954160be14c5cebd99c9fc3ca8a49da6463627993622d7a51485113b60d05", size = 5230047, upload-time = "2026-09-23T01:37:10.118Z" },
 ]
 
 [[package]]

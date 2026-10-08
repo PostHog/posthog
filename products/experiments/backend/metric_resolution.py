@@ -128,6 +128,12 @@ def saved_metric_links(experiment: Experiment) -> list[ExperimentToSavedMetric]:
     return sorted(links, key=lambda link: link.id)
 
 
+def saved_metric_link_role(link: ExperimentToSavedMetric) -> MetricRole:
+    """The role of a shared-metric link. The API accepts a link without metadata, and such a link is primary."""
+    metadata = link.metadata if isinstance(link.metadata, dict) else {}
+    return "secondary" if metadata.get("type") == "secondary" else "primary"
+
+
 def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
     """Saved/shared metrics linked to the experiment, with the link overrides applied. The link's
     metadata["type"] holds the role, and a missing type means primary."""
@@ -140,7 +146,7 @@ def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMet
         resolved.append(
             ResolvedExperimentMetric(
                 uuid=saved_query["uuid"],
-                role="secondary" if metadata.get("type") == "secondary" else "primary",
+                role=saved_metric_link_role(link),
                 definition=resolve_saved_metric_definition(saved_query, metadata),
             )
         )
