@@ -1,47 +1,20 @@
-from typing import Any
-
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
-
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.models.user import User
-from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.facade.destinations import list_alert_destination_groups, list_delivery_destination_groups
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
-from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
+from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade.contracts import DestinationType
-from products.product_analytics.backend.facade.models import Insight
 
 
 class TestInsightAlertEmailDestination(APIBaseTest):
-    def _alert(self, **overrides: Any) -> AlertConfiguration:
-        insight = Insight.objects.create(
-            team=self.team,
-            name="insight",
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-                interval=IntervalType.DAY,
-                trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
-            ).model_dump(),
-        )
-        threshold = Threshold.objects.create(
-            team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100.0}}
-        )
-        fields: dict[str, Any] = {
-            "team": self.team,
-            "insight": insight,
-            "name": "alert",
-            "calculation_interval": AlertCalculationInterval.DAILY.value,
-            "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "condition": {"type": "absolute_value"},
-            "threshold": threshold,
-        }
-        fields.update(overrides)
-        return AlertConfiguration.objects.create(**fields)
+    def _alert(self) -> AlertConfiguration:
+        return create_insight_alert(self.team)
 
     def _subscribe(self, alert: AlertConfiguration, user: User) -> None:
         AlertSubscription.objects.create(user=user, alert_configuration=alert)

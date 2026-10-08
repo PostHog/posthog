@@ -9,8 +9,6 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
-
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
@@ -20,13 +18,14 @@ from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
     evaluate_insight_check,
     plan_insight_batch,
 )
+from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -35,7 +34,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformConfigurationSnapshot,
     SourceKind,
 )
-from products.product_analytics.backend.facade.models import Insight
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
 # A Wednesday, so no weekend rule applies.
@@ -49,30 +47,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.addCleanup(get_client().delete, INFLIGHT_KEY)
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        insight = Insight.objects.create(
-            team=self.team,
-            name="insight",
-            query=TrendsQuery(
-                series=[EventsNode(event="$pageview")],
-                interval=IntervalType.DAY,
-                trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
-            ).model_dump(),
-        )
-        threshold = Threshold.objects.create(
-            team=self.team, insight=insight, configuration={"type": "absolute", "bounds": {"upper": 100.0}}
-        )
-        fields: dict[str, Any] = {
-            "team": self.team,
-            "insight": insight,
-            "name": "alert",
-            "calculation_interval": AlertCalculationInterval.DAILY.value,
-            "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "condition": {"type": "absolute_value"},
-            "threshold": threshold,
-            "next_check_at": CUTOFF - timedelta(minutes=1),
-        }
-        fields.update(overrides)
-        return AlertConfiguration.objects.create(**fields)
+        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
 
     def _copy(self, alert: AlertConfiguration | None) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):

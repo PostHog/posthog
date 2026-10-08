@@ -345,7 +345,7 @@ def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
-    return alert_email_recipients(alert)
+    return alert_email_recipients(team_id=alert.team_id, alert_id=alert.id)
 
 
 def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:

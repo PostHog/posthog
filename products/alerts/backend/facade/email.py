@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from typing import TYPE_CHECKING
+from uuid import UUID
 
 from posthog.email import EmailMessage
 
 from products.alerts.backend.logic import alert_email
-
-if TYPE_CHECKING:
-    from products.alerts.backend.models.alert import AlertConfiguration
 
 
 def send_alert_email(
@@ -33,6 +30,6 @@ def send_alert_email(
     message.send()
 
 
-def alert_email_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
+def alert_email_recipients(*, team_id: int, alert_id: UUID) -> list[tuple[int, str]]:
     """Subscribed users who can still view the project and the alert's insight, as (id, email)."""
-    return alert_email.alert_email_recipients(alert)
+    return alert_email.alert_email_recipients(team_id=team_id, alert_id=alert_id)

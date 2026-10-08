@@ -28,8 +28,11 @@ INSIGHT_ALERT_ERRORED_EVENT_ID: Final = "$insight_alert_errored"
 _EMAIL_EVENT_IDS: Final = frozenset({LEGACY_INSIGHT_ALERT_EVENT, INSIGHT_ALERT_ERRORED_EVENT_ID})
 
 
-def alert_email_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
+def alert_email_recipients(*, team_id: int, alert_id: UUID) -> list[tuple[int, str]]:
     """Subscribed users who can still view the project and the alert's insight."""
+    alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team", "insight").first()
+    if alert is None:
+        return []
     candidates = (
         alert.team.all_users_with_access()
         .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
@@ -65,10 +68,7 @@ def _insight_email_group(
         alert_uuid = UUID(alert_id)
     except ValueError:
         return None
-    alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_uuid).select_related("team", "insight").first()
-    if alert is None:
-        return None
-    addresses = sorted({email for _, email in alert_email_recipients(alert) if email})
+    addresses = sorted({email for _, email in alert_email_recipients(team_id=team_id, alert_id=alert_uuid) if email})
     if not addresses:
         return None
     data: AlertDestinationData = {"type": DestinationType.EMAIL, "email_addresses": addresses}
