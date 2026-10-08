@@ -230,7 +230,7 @@ SELECT
     type
 FROM heatmaps
 WHERE {predicates}
-ORDER BY timestamp DESC, distinct_id
+ORDER BY timestamp DESC, distinct_id, session_id, current_url, pointer_relative_x, pointer_y
 LIMIT 1 BY distinct_id
 LIMIT {limit}
 OFFSET {offset}

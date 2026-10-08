@@ -3,7 +3,7 @@
     "properties": {
         "aggregation": {
             "default": "total_count",
-            "description": "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n* `unique_visitors` - unique_visitors\n* `total_count` - total_count",
+            "description": "'total_count' (default) returns every interaction and counts them all. 'unique_visitors' returns only the most recent interaction for each person and counts distinct people.\n\n* `unique_visitors` - unique_visitors\n* `total_count` - total_count",
             "enum": ["unique_visitors", "total_count"],
             "type": "string"
         },
