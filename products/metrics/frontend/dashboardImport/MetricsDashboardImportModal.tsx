@@ -55,9 +55,22 @@ export function MetricsDashboardImportModal(): JSX.Element {
         ) : step === 'progress' ? (
             <div className="flex flex-1 items-center justify-between gap-2">
                 <span className="text-xs text-secondary">You can close this window. The import keeps running.</span>
-                <LemonButton type="secondary" onClick={closeImportModal} data-attr="metrics-dashboard-import-hide">
-                    Close
-                </LemonButton>
+                <div className="flex gap-2">
+                    <LemonButton type="secondary" onClick={closeImportModal} data-attr="metrics-dashboard-import-hide">
+                        Close
+                    </LemonButton>
+                    {currentImport?.dashboard_id ? (
+                        <LemonButton
+                            type="primary"
+                            onClick={() =>
+                                currentImport.dashboard_id && openImportedDashboard(currentImport.dashboard_id)
+                            }
+                            data-attr="metrics-dashboard-import-open-early"
+                        >
+                            Open dashboard
+                        </LemonButton>
+                    ) : null}
+                </div>
             </div>
         ) : currentImport?.dashboard_id ? (
             <>

@@ -435,6 +435,9 @@ class DashboardImportStatus:
     dashboard_name: str
     phase: DashboardImportPhase | None = None
     panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
+    layout_rounds: int | None = None
+    layout_round: int | None = None
     dashboard_id: int | None = None
     error: str | None = None
     summary: DashboardImportSummary | None = None

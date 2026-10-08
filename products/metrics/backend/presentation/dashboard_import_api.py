@@ -132,10 +132,19 @@ class DashboardImportSerializer(serializers.Serializer):
     phase = serializers.ChoiceField(
         choices=DashboardImportPhase.choices,
         allow_null=True,
-        help_text="The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard.",
+        help_text="The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the "
+        "dashboard, or 'checking_layout' against the screenshot.",
     )
     panel_progress = DashboardImportPanelProgressSerializer(
         many=True, help_text="Where each panel is, while the import runs."
+    )
+    layout_rounds = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many pictures of the dashboard the import compares with the screenshot, at most. "
+        "Null when the import does not check the layout.",
+    )
+    layout_round = serializers.IntegerField(
+        allow_null=True, help_text="The comparison that runs, from 1, while the phase is 'checking_layout'."
     )
     dashboard_id = serializers.IntegerField(allow_null=True, help_text="Id of the new dashboard, when it exists.")
     error = serializers.CharField(allow_null=True, help_text="Why the import failed, when it failed.")

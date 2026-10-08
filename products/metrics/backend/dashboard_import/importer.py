@@ -7,6 +7,11 @@ and the status endpoint both call `finalize`. It checks every query that the age
 the user, and creates the dashboard in the same transaction that records the result. So the dashboard
 exists once, whichever caller gets there first.
 
+A screenshot import also checks the layout. The agent run stays open after the agent answers. PostHog
+builds the dashboard, renders a picture of it, and sends the picture to the agent, which compares it with
+the screenshot and answers again with corrected boxes. PostHog moves the tiles and repeats this for a few
+rounds, then ends the run.
+
 The agent only reads data and answers. It has read-only scopes and no network, so instructions planted
 in a shared dashboard JSON can change nothing in the project.
 """
@@ -16,8 +21,10 @@ from __future__ import annotations
 import io
 import json
 import uuid
+import hashlib
 import datetime as dt
-from collections.abc import Iterable, Sequence
+import dataclasses
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from django.conf import settings
@@ -42,15 +49,24 @@ from products.dashboards.backend.facade.dashboard_creation import (
     NewTextTile,
     TileLayout,
     create_dashboard_with_tiles,
+    move_dashboard_tiles,
 )
+from products.exports.backend.facade.api import render_png_export
 from products.metrics.backend.dashboard_import.catalog import HISTOGRAM_TYPES, MetricCatalog
+from products.metrics.backend.dashboard_import.display import agent_unit
 from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError
-from products.metrics.backend.dashboard_import.layout import GridPacker
+from products.metrics.backend.dashboard_import.layout import (
+    MIN_INSIGHT_HEIGHT,
+    MIN_INSIGHT_WIDTH,
+    RequestedBox,
+    place_screenshot_boxes,
+)
 from products.metrics.backend.dashboard_import.prompt import (
     BRIEF_FILE_NAME,
     GRAFANA_FILE_NAME,
     SCREENSHOT_FILE_NAME,
     build_brief,
+    build_layout_message,
     build_prompt,
 )
 from products.metrics.backend.dashboard_import.promql_text import combine_targets, metric_names
@@ -64,6 +80,7 @@ from products.metrics.backend.dashboard_import.spec import (
     ImportSource,
     ImportState,
     ImportSummary,
+    LayoutCheck,
     PanelCheck,
     PanelOutcome,
     PanelQuery,
@@ -149,6 +166,7 @@ _AGENT_FAILED_MESSAGE = "The import agent stopped before it finished. Try again.
 MAX_RUNNING_IMPORTS = 3
 RECENT_IMPORTS_WINDOW = dt.timedelta(days=7)
 MAX_RECENT_IMPORTS = 20
+MAX_LAYOUT_ROUNDS = 3
 
 
 def promql_available(team: Team, user: User) -> bool:
@@ -158,6 +176,11 @@ def promql_available(team: Team, user: User) -> bool:
         organization_id=team.organization_id,
         team_id=team.pk,
     )
+
+
+def layout_check_available() -> bool:
+    # The pictures come from the image exporter, which renders in a browserless service.
+    return bool(settings.BROWSERLESS_CDP_URL)
 
 
 def _parse_state(raw: object) -> ImportState | None:
@@ -178,6 +201,7 @@ def _status_from_result(*, import_id: str | None, state: ImportState, result: Im
         dashboard_name=state.dashboard_name,
         dashboard_id=result.dashboard_id,
         error=result.error,
+        layout_rounds=MAX_LAYOUT_ROUNDS if state.layout_check else None,
         summary=DashboardImportSummary(**result.summary.model_dump()),
         panels=tuple(
             DashboardImportPanel(
@@ -304,11 +328,13 @@ class DashboardImporter:
             source=source,
             user_id=self._user.id,
             dashboard_name=name,
+            named_by_user=bool(request.name and request.name.strip()),
             date_from=spec.date_from if spec else None,
             promql_available=promql,
             spec=spec,
             resolved=resolved,
             started_at=timezone.now().isoformat(),
+            layout_check=LayoutCheck() if source == "screenshot" and layout_check_available() else None,
         )
         if spec is not None and len(resolved) == len(spec.panels):
             result = self._build(state, resolved, idempotency_key=uuid.uuid4().hex)
@@ -339,6 +365,7 @@ class DashboardImporter:
             dashboard_name=name,
             phase=DashboardImportPhase.STARTING,
             panel_progress=_panel_progress(state),
+            layout_rounds=MAX_LAYOUT_ROUNDS if state.layout_check else None,
         )
 
     def status(self, import_id: str) -> DashboardImportStatus | None:
@@ -358,9 +385,19 @@ class DashboardImporter:
             state = (
                 _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY)) or state
             )
+        check = state.layout_check
         if state.result is not None:
-            return _status_from_result(import_id=import_id, state=state, result=state.result)
-        if run.is_terminal:
+            finished = _status_from_result(import_id=import_id, state=state, result=state.result)
+            # The run ends when the layout check ends, so a run that ended for another reason ends the check too.
+            if check is None or check.done or run.is_terminal or state.result.dashboard_id is None:
+                return finished
+            return dataclasses.replace(
+                finished,
+                status=DashboardImportState.RUNNING,
+                phase=DashboardImportPhase.CHECKING_LAYOUT,
+                layout_round=max(check.round, 1),
+            )
+        if run.is_terminal or (check is not None and run.output):
             phase = DashboardImportPhase.BUILDING
         elif run.status == tasks_facade.TaskRunStatus.IN_PROGRESS:
             phase = DashboardImportPhase.MATCHING
@@ -373,6 +410,7 @@ class DashboardImporter:
             dashboard_name=state.dashboard_name,
             phase=phase,
             panel_progress=_panel_progress(state),
+            layout_rounds=MAX_LAYOUT_ROUNDS if check else None,
         )
 
     def recent(self) -> list[DashboardImportStatus]:
@@ -468,7 +506,8 @@ class DashboardImporter:
         return files
 
     def _start_task(self, state: ImportState, files: list[TaskRunInputFile]) -> str:
-        prompt = build_prompt(source=state.source, promql_available=state.promql_available)
+        checks_layout = state.layout_check is not None
+        prompt = build_prompt(source=state.source, promql_available=state.promql_available, checks_layout=checks_layout)
 
         def bind_inputs(run_id: uuid.UUID) -> dict[str, Any]:
             bound = [
@@ -485,7 +524,10 @@ class DashboardImporter:
             return {
                 # The run id names the import in the agent's check calls, so its progress shows per panel.
                 "pending_user_message": build_prompt(
-                    source=state.source, promql_available=state.promql_available, import_id=str(run_id)
+                    source=state.source,
+                    promql_available=state.promql_available,
+                    import_id=str(run_id),
+                    checks_layout=checks_layout,
                 ),
                 # The agent server and the dispatch workflow must see the same id for the first message.
                 "pending_user_message_id": str(run_id),
@@ -521,6 +563,8 @@ class DashboardImporter:
                 extra_run_state={
                     "mcp_exclude_tools": AGENT_HIDDEN_TOOLS,
                     "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
+                    # The layout check sends the agent more turns after its first answer, so the answer must not end the run.
+                    **({"caller_ends_run": True} if checks_layout else {}),
                 },
                 before_task_dispatch=bind_inputs,
             )
@@ -573,7 +617,14 @@ class DashboardImporter:
             )
         except DashboardCreationDenied as error:
             return ImportResult(status="failed", error=str(error), summary=summary, panels=verdicts)
-        return ImportResult(status="completed", dashboard_id=created.id, summary=summary, panels=verdicts)
+        keys = [verdict.key for verdict in verdicts if verdict.tile is not None]
+        return ImportResult(
+            status="completed",
+            dashboard_id=created.id,
+            summary=summary,
+            panels=verdicts,
+            tile_ids=dict(zip(keys, created.tile_ids)),
+        )
 
     def agent_verdicts(self, state: ImportState, output: AgentImportOutput) -> list[PanelVerdict]:
         """Check the agent's answer as the user, and merge it with the panels that the import resolved itself."""
@@ -594,7 +645,7 @@ class DashboardImporter:
         catalog.look_up(self._team, _query_metric_names(queries.values()))
         checks = validator.check_all(queries, deadline_seconds=FINAL_CHECK_SECONDS)
 
-        packer = GridPacker()
+        screenshot_layouts = screenshot_panel_layouts(answers.values()) if state.spec is None else {}
         agent_verdicts: dict[str, PanelVerdict] = {}
         ordered = sorted(
             answers.values(), key=lambda answer: (answer.layout.y, answer.layout.x) if answer.layout else (0, 0)
@@ -602,11 +653,7 @@ class DashboardImporter:
         for answer in ordered if state.spec is None else answers.values():
             spec_panel = spec_panels.get(answer.key)
             title = spec_panel.title if spec_panel else (" ".join(answer.title.split())[:200] or "Untitled panel")
-            if spec_panel is not None:
-                layout = spec_panel.layout
-            else:
-                requested = answer.layout or DEFAULT_SCREENSHOT_LAYOUT
-                layout = packer.place(x=requested.x, w=requested.w, h=requested.h)
+            layout = spec_panel.layout if spec_panel is not None else screenshot_layouts[answer.key]
             agent_verdicts[answer.key] = self._agent_verdict(
                 answer, spec_panel, title, layout, checks.get(answer.key), catalog, validator, state.date_from
             )
@@ -665,7 +712,11 @@ class DashboardImporter:
                 key=answer.key, title=title, outcome="failed", reason=error or "The query did not pass the check."
             )
         # The parser maps a Grafana panel's display exactly, so only a screenshot panel takes the agent's display.
-        display = spec_panel.display if spec_panel is not None else (answer.display or DisplaySpec())
+        if spec_panel is not None:
+            display = spec_panel.display
+        else:
+            display = answer.display or DisplaySpec()
+            display = display.model_copy(update={"unit": agent_unit(display.unit)})
         notes = [*(spec_panel.notes if spec_panel else []), *([reason] if reason else [])]
         outcome: PanelOutcome = (
             "approximated" if answer.outcome == "approximated" or (spec_panel and spec_panel.notes) else "imported"
@@ -683,8 +734,62 @@ class DashboardImporter:
             ),
         )
 
+    def move_tiles(self, result: ImportResult, output: AgentImportOutput) -> ImportResult:
+        """Move the dashboard tiles to the boxes of the agent's latest answer. A panel it left out keeps its box."""
+        tiles = {
+            verdict.key: verdict.tile
+            for verdict in result.panels
+            if verdict.tile is not None and verdict.key in result.tile_ids
+        }
+        answered = {answer.key: answer.layout for answer in output.panels if answer.layout is not None}
+        placed = place_screenshot_boxes(
+            [
+                _requested_box(key, answered.get(key, tile.layout), is_text=tile.kind == "text")
+                for key, tile in tiles.items()
+            ]
+        )
+        if result.dashboard_id is not None:
+            move_dashboard_tiles(
+                team_id=self._team.id,
+                user_id=self._user.id,
+                dashboard_id=result.dashboard_id,
+                layouts={
+                    result.tile_ids[key]: TileLayout(x=layout.x, y=layout.y, w=layout.w, h=layout.h)
+                    for key, layout in placed.items()
+                },
+            )
+        panels = [
+            verdict.model_copy(update={"tile": verdict.tile.model_copy(update={"layout": placed[verdict.key]})})
+            if verdict.tile is not None and verdict.key in placed
+            else verdict
+            for verdict in result.panels
+        ]
+        return result.model_copy(update={"panels": panels})
+
+    def render_dashboard(self, dashboard_id: int) -> bytes | None:
+        try:
+            asset, content = render_png_export(
+                team=self._team,
+                created_by=self._user,
+                dashboard_id=dashboard_id,
+                is_system=True,
+                expires_after=timezone.now() + dt.timedelta(days=1),
+            )
+        except Exception:
+            logger.exception("metrics_dashboard_import_render_failed", team_id=self._team.id)
+            return None
+        if content is None:
+            logger.warning("metrics_dashboard_import_render_empty", team_id=self._team.id, error=asset.exception)
+        return content
+
     def record(
-        self, task_id: str, state: ImportState, verdicts: list[PanelVerdict] | None, error: str | None
+        self,
+        task_id: str,
+        state: ImportState,
+        verdicts: list[PanelVerdict] | None,
+        error: str | None,
+        *,
+        agent_dashboard_name: str = "",
     ) -> ImportResult | None:
         """Create the dashboard and save the result while the task row is locked, unless a result exists."""
 
@@ -692,6 +797,10 @@ class DashboardImporter:
             latest = _parse_state(current)
             if latest is None or latest.result is not None:
                 return current, None
+            # A screenshot has no title that PostHog can read, so the agent names the dashboard unless the user did.
+            agent_name = " ".join(agent_dashboard_name.split())[:400]
+            if latest.source == "screenshot" and not latest.named_by_user and agent_name:
+                latest = latest.model_copy(update={"dashboard_name": agent_name})
             if verdicts is None:
                 result = ImportResult(
                     status="failed",
@@ -729,6 +838,7 @@ class DashboardImporter:
             "status": result.status,
             "dashboard_id": result.dashboard_id,
             "duration_seconds": round((timezone.now() - started).total_seconds(), 1),
+            "layout_rounds": state.layout_check.round if state.layout_check else None,
             **result.summary.model_dump(),
         }
         if not background:
@@ -742,6 +852,25 @@ class DashboardImporter:
                 properties=properties,
                 groups=groups(self._team.organization, self._team),
             )
+
+
+def _requested_box(key: str, layout: GridLayout | None, *, is_text: bool) -> RequestedBox:
+    return RequestedBox(
+        key=key,
+        layout=layout or DEFAULT_SCREENSHOT_LAYOUT,
+        min_w=1 if is_text else MIN_INSIGHT_WIDTH,
+        min_h=1 if is_text else MIN_INSIGHT_HEIGHT,
+    )
+
+
+def screenshot_panel_layouts(answers: Iterable[AgentPanel]) -> dict[str, GridLayout]:
+    """Grid boxes for the panels that an agent read from a screenshot, with no overlap."""
+    return place_screenshot_boxes(
+        [
+            _requested_box(answer.key, answer.layout, is_text=answer.query is None and bool(answer.text))
+            for answer in answers
+        ]
+    )
 
 
 def _dashboard_description(state: ImportState) -> str:
@@ -800,11 +929,13 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> None:
     user = User.objects.get(id=state.user_id)
     importer = DashboardImporter(team=team, user=user)
     verdicts: list[PanelVerdict] | None = None
+    agent_dashboard_name = ""
     error = _run_failure(run)
     if error is None and run is not None:
         try:
             output = AgentImportOutput.model_validate(run.output or {})
             verdicts = importer.agent_verdicts(state, output)
+            agent_dashboard_name = output.dashboard_name
         except ValidationError:
             logger.warning("metrics_dashboard_import_output_invalid", team_id=team_id)
             error = "The import agent returned an answer that PostHog cannot read. Try again."
@@ -812,7 +943,7 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> None:
             logger.exception("metrics_dashboard_import_finalize_failed", team_id=team_id)
             error = "The import failed while it built the dashboard. Try again."
     try:
-        result = importer.record(task_id, state, verdicts, error)
+        result = importer.record(task_id, state, verdicts, error, agent_dashboard_name=agent_dashboard_name)
     except Exception:
         logger.exception("metrics_dashboard_import_record_failed", team_id=team_id)
         result = importer.record(task_id, state, None, "The import failed while it built the dashboard. Try again.")
@@ -840,9 +971,7 @@ def _panel_progress(state: ImportState) -> tuple[DashboardImportPanelProgress, .
         return DashboardImportPanelProgress(key=key, title=title or check.title or key, state=state_)
 
     if state.spec is None:
-        return tuple(
-            item for key, check in state.checks.items() if (item := from_check(key, check.title)) is not None
-        )
+        return tuple(item for key, check in state.checks.items() if (item := from_check(key, check.title)) is not None)
     resolved = {verdict.key: verdict for verdict in state.resolved}
     items: list[DashboardImportPanelProgress] = []
     for panel in state.spec.panels:
@@ -927,3 +1056,133 @@ def check_panel_queries(
     if import_id:
         _record_checks(team=team, user=user, import_id=import_id, panels=panels, results=ordered)
     return ordered
+
+
+def _update_state(
+    team_id: int, task_id: str, change: Callable[[ImportState], ImportState | None]
+) -> ImportState | None:
+    """Apply `change` to the stored state while the task row is locked. `change` returns None to keep it."""
+
+    def update(current: Any) -> tuple[Any, ImportState | None]:
+        state = _parse_state(current)
+        changed = change(state) if state is not None else None
+        if changed is None:
+            return current, None
+        return changed.model_dump(mode="json"), changed
+
+    return tasks_facade.update_task_state_entry(task_id, team_id, IMPORT_STATE_KEY, update)
+
+
+def _with_layout_check(state: ImportState, **changes: Any) -> ImportState:
+    check = state.layout_check or LayoutCheck()
+    return state.model_copy(update={"layout_check": check.model_copy(update=changes)})
+
+
+def _claim_layout_round(team_id: int, task_id: str, digest: str) -> ImportState | None:
+    def change(state: ImportState) -> ImportState | None:
+        check = state.layout_check
+        if check is None or check.done or check.answer_digest == digest:
+            return None
+        return _with_layout_check(state, answer_digest=digest)
+
+    return _update_state(team_id, task_id, change)
+
+
+def _end_layout_check(importer: DashboardImporter, *, team_id: int, task_id: str, run: TaskRunDTO) -> None:
+    def change(state: ImportState) -> ImportState | None:
+        if state.layout_check is None or state.layout_check.done:
+            return None
+        return _with_layout_check(state, done=True)
+
+    state = _update_state(team_id, task_id, change)
+    # The run ends here, so the agent sandbox stops. Without a result, the task run receiver then builds one.
+    tasks_facade.signal_workflow_completion(run.id, tasks_facade.TaskRunStatus.COMPLETED, None)
+    if state is not None and state.result is not None:
+        _delete_inputs(state.input_paths)
+        importer.capture_finished(state, state.result, path="agent", background=True)
+
+
+def _send_picture(
+    *, team_id: int, task_id: str, run: TaskRunDTO, user_id: int, picture: bytes, layout_round: int
+) -> bool:
+    name = f"dashboard-round-{layout_round}.png"
+    artifact_id = str(uuid.uuid5(run.id, name))
+    uploaded = tasks_facade.upload_task_run_artifacts(
+        run.id,
+        task_id,
+        team_id,
+        artifacts=[
+            {
+                "id": artifact_id,
+                "name": name,
+                "type": "file",
+                "source": "internal",
+                "content_bytes": picture,
+                "content_type": "image/png",
+            }
+        ],
+    )
+    if uploaded is None:
+        return False
+    sent = tasks_facade.signal_task_run_user_message(
+        run.id,
+        task_id,
+        team_id,
+        content=build_layout_message(picture_name=name, layout_round=layout_round, rounds=MAX_LAYOUT_ROUNDS),
+        artifact_ids=[artifact_id],
+        actor_user_id=user_id,
+    )
+    return sent is True
+
+
+def check_import_layout(*, team_id: int, task_id: str) -> None:
+    """Use the latest answer of a screenshot import's agent, then send the agent a picture of the dashboard.
+
+    The first answer builds the dashboard and a later answer moves its tiles. The check ends the agent run
+    when the agent says the picture matches, when the rounds run out, or when a step fails.
+    """
+    run = tasks_facade.get_latest_run_by_task([task_id]).get(task_id)
+    if run is None or run.team_id != team_id or run.is_terminal or not run.output:
+        return
+    digest = hashlib.sha256(json.dumps(run.output, sort_keys=True).encode()).hexdigest()
+    state = _claim_layout_round(team_id, task_id, digest)
+    if state is None or state.layout_check is None:
+        return
+    importer = DashboardImporter(team=Team.objects.get(id=team_id), user=User.objects.get(id=state.user_id))
+    layout_round = state.layout_check.round
+    try:
+        output = AgentImportOutput.model_validate(run.output)
+        if state.result is None:
+            importer.record(
+                task_id, state, importer.agent_verdicts(state, output), None, agent_dashboard_name=output.dashboard_name
+            )
+        else:
+            moved = importer.move_tiles(state.result, output)
+            _update_state(
+                team_id, task_id, lambda latest: latest.model_copy(update={"result": moved}) if latest.result else None
+            )
+        latest = _parse_state(tasks_facade.read_task_state_entry(task_id, team_id, IMPORT_STATE_KEY))
+        dashboard_id = latest.result.dashboard_id if latest and latest.result else None
+        if dashboard_id is None or output.layout_matches or layout_round >= MAX_LAYOUT_ROUNDS:
+            _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run)
+            return
+        picture = importer.render_dashboard(dashboard_id)
+        if picture is None:
+            _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run)
+            return
+        _update_state(team_id, task_id, lambda latest: _with_layout_check(latest, round=layout_round + 1))
+        if not _send_picture(
+            team_id=team_id,
+            task_id=task_id,
+            run=run,
+            user_id=state.user_id,
+            picture=picture,
+            layout_round=layout_round + 1,
+        ):
+            _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run)
+    except ValidationError:
+        logger.warning("metrics_dashboard_import_output_invalid", team_id=team_id)
+        _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run)
+    except Exception:
+        logger.exception("metrics_dashboard_import_layout_check_failed", team_id=team_id)
+        _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run)

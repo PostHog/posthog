@@ -6,6 +6,7 @@ from products.dashboards.backend.dashboard_creation import (
     NewTextTile,
     TileLayout,
     create_dashboard_with_tiles,
+    move_dashboard_tiles,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "NewTextTile",
     "TileLayout",
     "create_dashboard_with_tiles",
+    "move_dashboard_tiles",
 ]

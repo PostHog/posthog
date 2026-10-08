@@ -32,6 +32,8 @@ const importStatus = (overrides: Partial<DashboardImportApi> = {}): DashboardImp
     dashboard_name: 'Checkout service',
     phase: null,
     panel_progress: [],
+    layout_rounds: null,
+    layout_round: null,
     dashboard_id: null,
     error: null,
     summary: null,
