@@ -32,6 +32,7 @@ from products.replay_vision.backend.jev_watch_feed import (
     rank_watch_feed_by_jev,
     store_watch_ranks,
     watch_feed_ranker,
+    watch_feed_ranker_variant,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -46,6 +47,7 @@ from products.replay_vision.backend.tests.helpers import snapshot_for as _snapsh
 
 _FLAG = "products.replay_vision.backend.jev_watch_feed.get_feature_flag_or_none"
 _API = "products.replay_vision.backend.jev_watch_feed.decision_api"
+_REGION = f"{_API}.decisions_available_here"
 
 
 def _answer_every_question(probability: float, reason: str = "visible_error"):
@@ -90,8 +92,19 @@ class TestWatchFeedRankerFlag(SimpleTestCase):
         ]
     )
     def test_only_known_variants_leave_the_default_arm(self, _name: str, flag_value: object, expected: str) -> None:
-        with patch(_FLAG, return_value=flag_value):
-            assert watch_feed_ranker(1) == expected
+        with patch(_FLAG, return_value=flag_value), patch(_REGION, return_value=True):
+            assert watch_feed_ranker(1, "project-uuid") == expected
+
+    def test_the_flag_keys_on_the_project_uuid_and_skips_regions_without_jev(self) -> None:
+        # Both regions evaluate this one flag and team ids repeat between them, so only the uuid is unique.
+        with patch(_FLAG, return_value="jev") as flag, patch(_REGION, return_value=True):
+            assert watch_feed_ranker_variant(2, "project-uuid") == "jev"
+        assert flag.call_args.kwargs["groups"] == {"project": "project-uuid"}
+        # A region with no sweep to fill the cache must not land a team on an empty jev feed.
+        with patch(_FLAG, return_value="jev") as flag, patch(_REGION, return_value=False):
+            assert watch_feed_ranker_variant(2, "project-uuid") is None
+            assert watch_feed_ranker(2, "project-uuid") == "weighted-score"
+        flag.assert_not_called()
 
 
 class TestJudgeScannerWindow(SimpleTestCase):
@@ -575,7 +588,7 @@ class TestJevWatchRankSweep(BaseTest):
 
     def _flag_arm(self, arm: str):
         """The experiment arm for self.team only, so the pinned team 2 stays on the default arm."""
-        return lambda team_id: arm if team_id == self.team.id else "weighted-score"
+        return lambda team_id, _team_uuid: arm if team_id == self.team.id else "weighted-score"
 
     def test_posthogs_own_team_is_always_swept_first(self) -> None:
         # While the experiment is internal-only, team 2 must never fall past the team cap,
