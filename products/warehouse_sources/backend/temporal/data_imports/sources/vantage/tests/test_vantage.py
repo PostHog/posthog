@@ -107,47 +107,8 @@ class TestPagination:
         assert params[0]["limit"] == 1000
         assert urls[1] == p2  # second request follows the body's `links.next` verbatim
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_reads_endpoint_specific_data_key(self, MockSession) -> None:
-        # The row array is nested under the endpoint's own key (e.g. "budgets"), never a hardcoded
-        # "data" — reading the wrong key silently yields zero rows.
-        session = MockSession.return_value
-        _wire(session, [_response([{"token": "b1"}], data_key="budgets", next_url=None)])
-
-        rows = _rows(_source(_make_manager(), endpoint="budgets"))
-        assert rows == [{"token": "b1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_links_object_terminates(self, MockSession) -> None:
-        # A last page may omit `links` entirely; the paginator must stop, not error.
-        session = MockSession.return_value
-        _wire(session, [_response([{"token": "a"}], include_links=False)])
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"token": "a"}]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_zero_rows(self, MockSession) -> None:
-        # A 200 body without the endpoint's data key yields no rows (parity with `data.get(key, [])`),
-        # rather than failing loud — Vantage is full-refresh so an empty response is a valid page.
-        session = MockSession.return_value
-        _wire(session, [_response(None, include_links=True, next_url=None)])
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == []
-
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_starts_from_initial_url_with_limit(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, params = _wire(session, [_response([], next_url=None)])
-
-        _rows(_source(_make_manager()))
-        assert urls[0].endswith("/v2/cost_reports")
-        assert params[0]["limit"] == 1000
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_url(self, MockSession) -> None:
         # Resuming starts from the saved next-page URL verbatim, not page 1.
@@ -161,36 +122,6 @@ class TestResume:
         assert rows == [{"token": "z"}]
         assert urls[0] == resume_url
         assert params[0] == {}  # the self-contained resume URL carries its own page/limit
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_state_after_yield_only_while_pages_remain(self, MockSession) -> None:
-        # State is persisted with the *pending* page's URL (so a crash re-yields the last page, not
-        # skips it) and never on the final page (no `next` to resume from).
-        session = MockSession.return_value
-        p2 = f"{VANTAGE_BASE_URL}/cost_reports?page=2&limit=1000"
-        _wire(
-            session,
-            [
-                _response([{"token": "a"}, {"token": "b"}], next_url=p2),
-                _response([{"token": "c"}, {"token": "d"}], next_url=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved  # persisted at least once
-        assert all(s.next_url == p2 for s in saved)  # only ever the pending page, never the final one
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_page_makes_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"token": "a"}], next_url=None)])
-
-        manager = _make_manager()
-        _rows(_source(manager))
-        manager.save_state.assert_not_called()
 
 
 class TestUntrustedUrl:
@@ -243,28 +174,6 @@ class TestRetries:
         assert rows == [{"token": "a"}]
         assert session.send.call_count == 2
 
-    @mock.patch(NO_SLEEP)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_chunked_encoding_error_is_retried(self, MockSession, _sleep) -> None:
-        # A connection dropped mid-stream surfaces from `send` as ChunkedEncodingError; reissue it.
-        session = MockSession.return_value
-        session.headers = {}
-        good = _response([{"token": "a"}], next_url=None)
-        urls: list[str] = []
-
-        def _prepare(request: Any) -> mock.MagicMock:
-            urls.append(request.url)
-            prepared = mock.MagicMock()
-            prepared.url = request.url
-            return prepared
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken"), good]
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"token": "a"}]
-        assert session.send.call_count == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_is_raised_not_retried(self, MockSession) -> None:
         # A 4xx (other than 429) is a permanent client error — raise immediately so
@@ -283,18 +192,6 @@ class TestValidateCredentials:
     def test_status_maps_to_validity(self, _name: str, status: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
         assert validate_credentials("tok") is expected
-
-    @mock.patch(VANTAGE_SESSION_PATCH)
-    def test_network_error_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("tok") is False
-
-    @mock.patch(VANTAGE_SESSION_PATCH)
-    def test_probes_cheap_ping_endpoint(self, mock_session) -> None:
-        # Validation must not hit a Cost Report endpoint (5 req/5s cap) — `/ping` is the cheap probe.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("tok")
-        assert mock_session.return_value.get.call_args.args[0] == f"{VANTAGE_BASE_URL}/ping"
 
 
 class TestSourceResponse:

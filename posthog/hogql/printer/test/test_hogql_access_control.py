@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery
+from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -960,14 +960,19 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             field_name="denied_join",
         )
 
+        # events.person is a lazy join only in this mode. Every other mode serializes it as a
+        # field traverser, which has no nested field list.
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+
         def serialized_fields() -> tuple[set[str], set[str]]:
-            database = Database.create_for(team=self.team, user=self.user)
-            context = HogQLContext(team_id=self.team.pk, team=self.team, database=database, user=self.user)
+            database = Database.create_for(team=self.team, user=self.user, modifiers=modifiers)
+            context = HogQLContext(
+                team_id=self.team.pk, team=self.team, database=database, user=self.user, modifiers=modifiers
+            )
             serialized = database.serialize(
                 context, include_only={"persons", "events"}, include_hidden_posthog_tables=True
             )
             persons_fields = set(serialized["persons"].fields.keys())
-            # events.person is itself a lazy join, so its nested field list names the persons joins.
             person_join_fields = set(serialized["events"].fields["person"].fields or [])
             return persons_fields, person_join_fields
 

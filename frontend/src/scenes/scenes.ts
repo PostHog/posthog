@@ -260,7 +260,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'live',
     },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
-    [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.Login]: { onlyUnauthenticated: true, name: 'Log in', layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
@@ -479,7 +479,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
-    [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
     [Scene.SurveyWizard]: {

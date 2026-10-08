@@ -1,3 +1,4 @@
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { TagOption } from './tagSelectLogic'
@@ -87,7 +88,14 @@ export function TagSelectMenu({
                         </LemonButton>
                     )}
                     {hasVisibleSelection && (
-                        <LemonButton fullWidth size="small" type="tertiary" className="!rounded-none" onClick={onClear}>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="tertiary"
+                            className="!rounded-none"
+                            icon={<IconX />}
+                            onClick={onClear}
+                        >
                             Clear selection
                         </LemonButton>
                     )}

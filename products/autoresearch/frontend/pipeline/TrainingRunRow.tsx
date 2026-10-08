@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { autoresearchPipelineLogic, trainingRunProgress } from '../autoresearchPipelineLogic'
 import { type AutoresearchRunApi, AutoresearchTrainingRunApi } from '../generated/api.schemas'
 import { IterationTrail } from './IterationTrail'
+import { RunFeatureComparison } from './RunFeatureComparison'
 
 // Derived from the field rather than the standalone enum: this pending/running/completed/failed
 // set is shared with another product, so the generated enum does not carry an autoresearch name.
@@ -130,6 +131,14 @@ export function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JS
                         <div className="text-xs font-semibold text-muted uppercase tracking-wide">Iterations</div>
                         <IterationTrail iterations={run.iterations} />
                     </div>
+                    {run.status === 'completed' && (
+                        <div className="space-y-2">
+                            <div className="text-xs font-semibold text-muted uppercase tracking-wide">
+                                What drives it
+                            </div>
+                            <RunFeatureComparison runId={run.id} />
+                        </div>
+                    )}
                     {run.summary && (
                         <div className="space-y-1">
                             <div className="text-xs font-semibold text-muted uppercase tracking-wide">

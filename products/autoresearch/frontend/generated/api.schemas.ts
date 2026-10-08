@@ -84,6 +84,29 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface AutoresearchRealizedAucPointApi {
+    /** Validated prediction date. */
+    readonly prediction_date: string
+    /** Realized AUC on that date. */
+    readonly realized_auc: number
+}
+
+export interface AutoresearchLiveTrainingRunApi {
+    /** Unique UUID of the live training run. */
+    readonly id: string
+    /** Maximum experiments allowed for this run. */
+    readonly iteration_budget: number
+    /** Experiments the agent has recorded so far in this run. */
+    readonly experiment_count: number
+    /**
+     * Best holdout AUC so far in this run. Null before any is recorded.
+     * @nullable
+     */
+    readonly best_holdout_score: number | null
+    /** The agent's rationale for its newest experiment. */
+    readonly latest_agent_description: string
+}
+
 /**
  * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
  */
@@ -210,6 +233,19 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly champion_is_preliminary: boolean | null
+    /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
+    readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPointApi[]
+    /**
+     * People scored by the most recent completed inference run. Null before the first scoring run.
+     * @nullable
+     */
+    readonly people_scored: number | null
+    /** Training runs started for this pipeline. */
+    readonly training_run_count: number
+    /** Experiments (iterations) recorded across every training run. */
+    readonly experiment_count: number
+    /** Progress of the pending or running training run. Null when no run is live. */
+    readonly live_training_run: AutoresearchLiveTrainingRunApi | null
 }
 
 export interface PaginatedAutoresearchPipelineListApi {

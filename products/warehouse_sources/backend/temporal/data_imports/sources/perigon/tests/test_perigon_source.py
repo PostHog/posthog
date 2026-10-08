@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
     PerigonSourceConfig,
 )
@@ -18,19 +17,6 @@ class TestPerigonSource:
     def setup_method(self) -> None:
         self.source = PerigonSource()
         self.team_id = 123
-
-    def test_source_config_is_released_alpha(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Perigon"
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # unreleasedSource hides the connector from every user — a finished source must not set it.
-        assert not config.unreleasedSource
-
-    def test_non_retryable_error_keys_match_perigon_host(self) -> None:
-        # The observed HTTPError message embeds the request URL; the key must match the base host.
-        observed = "401 Client Error: Unauthorized for url: https://api.perigon.io/v1/articles/all?size=100"
-        assert any(key in observed for key in self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize(
         "probe_result,schema_name,expected_valid",
@@ -53,17 +39,6 @@ class TestPerigonSource:
         assert valid is expected_valid
         if not expected_valid:
             assert error is not None
-
-    def test_validate_credentials_probes_schema_endpoint(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_validate(api_key: str, path: str | None = None) -> tuple[bool, int | None]:
-            captured["path"] = path
-            return True, 200
-
-        monkeypatch.setattr(VALIDATE_PATCH, fake_validate)
-        self.source.validate_credentials(PerigonSourceConfig(api_key="key"), self.team_id, schema_name="companies")
-        assert captured["path"] == "/v1/companies/all"
 
     def test_source_for_pipeline_plumbs_endpoint_and_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

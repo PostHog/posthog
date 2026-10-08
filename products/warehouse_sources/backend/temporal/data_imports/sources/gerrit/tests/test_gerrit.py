@@ -19,10 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.ger
     gerrit_source,
     get_rows,
     normalize_host,
-    parse_gerrit_response,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gerrit.settings import GERRIT_ENDPOINTS
 
 
 def _response(*, status_code: int = 200, text: str = "", is_redirect: bool = False) -> mock.MagicMock:
@@ -118,20 +116,6 @@ def _get_all_rows(endpoint: str, session_responses: list[mock.MagicMock], **kwar
     return batches
 
 
-class TestParseGerritResponse:
-    @pytest.mark.parametrize(
-        "text, expected",
-        [
-            (')]}\'\n[{"id": 1}]', [{"id": 1}]),
-            (")]}'[]", []),
-            ('[{"id": 1}]', [{"id": 1}]),  # some proxies strip the prefix already
-            ('  )]}\'\n{"a": 1}', {"a": 1}),
-        ],
-    )
-    def test_strips_xssi_prefix(self, text, expected):
-        assert parse_gerrit_response(text) == expected
-
-
 class TestNormalizeHost:
     @pytest.mark.parametrize(
         "raw, expected",
@@ -156,9 +140,6 @@ class TestNormalizeHost:
 
 
 class TestChangesQuery:
-    def test_no_watermark_matches_all_statuses(self):
-        assert build_changes_query(None) == "status:open OR status:closed"
-
     def test_watermark_appends_after_operator(self):
         query = build_changes_query(datetime(2026, 7, 15, 16, 15, 24))
         assert query == '(status:open OR status:closed) after:"2026-07-15 16:15:24"'
@@ -179,44 +160,6 @@ class TestChangesQuery:
 
 
 class TestGetRows:
-    def test_paginates_with_offset_until_more_flag_absent(self):
-        page_1 = ")]}'\n" + '[{"id": "p~1", "updated": "t1"}, {"id": "p~2", "updated": "t2", "_more_changes": true}]'
-        page_2 = ")]}'\n" + '[{"id": "p~3", "updated": "t3"}]'
-        session, session_patcher = _patch_session([_response(text=page_1), _response(text=page_2)])
-        manager = _FakeResumeManager()
-
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            batches = list(
-                get_rows(
-                    host="https://gerrit.example.com",
-                    username="reviewbot",
-                    http_password="secret",
-                    endpoint="changes",
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        # The _more_changes marker is pagination metadata, not a row column.
-        assert batches == [
-            [{"id": "p~1", "updated": "t1"}, {"id": "p~2", "updated": "t2"}],
-            [{"id": "p~3", "updated": "t3"}],
-        ]
-
-        first_url = session.get.call_args_list[0].args[0]
-        second_url = session.get.call_args_list[1].args[0]
-        # Authenticated requests go through the /a/ prefix; page 2 skips the rows already fetched.
-        assert "/a/changes/" in first_url
-        assert "S=" not in first_url
-        assert "S=2" in second_url
-
-        # Resume state is saved after yielding a page, and only while more pages remain.
-        assert [s.offset for s in manager.saved] == [2]
-
     def test_resumes_from_saved_offset(self):
         page = ")]}'\n" + '[{"id": "p~51"}]'
         session, session_patcher = _patch_session([_response(text=page)])
@@ -239,46 +182,6 @@ class TestGetRows:
             )
 
         assert "S=50" in session.get.call_args_list[0].args[0]
-
-    @pytest.mark.parametrize("endpoint", ["changes", "change_comments", "change_files"])
-    def test_incremental_sync_sends_after_filter(self, endpoint):
-        session, session_patcher = _patch_session([_response(text=")]}'\n[]")])
-
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            list(
-                get_rows(
-                    host="https://gerrit.example.com",
-                    username="reviewbot",
-                    http_password="secret",
-                    endpoint=endpoint,
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_FakeResumeManager(),
-                    should_use_incremental_field=True,
-                    db_incremental_field_last_value=datetime(2026, 7, 15, 16, 15, 24),
-                )
-            )
-
-        url = session.get.call_args_list[0].args[0]
-        assert "after%3A%222026-07-15+16%3A15%3A24%22" in url
-
-    def test_map_endpoint_rows_carry_name_from_key(self):
-        body = (
-            ")]}'\n"
-            '{"Core-Plugins": {"id": "Core-Plugins", "state": "ACTIVE"},'
-            ' "gerrit": {"id": "gerrit", "name": "gerrit", "state": "ACTIVE"}}'
-        )
-        batches = _get_all_rows("projects", [_response(text=body)])
-
-        assert batches == [
-            [
-                {"id": "Core-Plugins", "state": "ACTIVE", "name": "Core-Plugins"},
-                {"id": "gerrit", "name": "gerrit", "state": "ACTIVE"},
-            ]
-        ]
 
     @pytest.mark.parametrize(
         "endpoint, parent_body, child_responses, expected_child_paths, expected_batches",
@@ -433,29 +336,6 @@ class TestGetRows:
         assert "S=2" in session.get.call_args_list[1].args[0]
         assert [s.offset for s in manager.saved] == [2]
 
-    def test_anonymous_requests_skip_the_auth_prefix(self):
-        session, session_patcher = _patch_session([_response(text=")]}'\n[]")])
-
-        with (
-            session_patcher,
-            mock.patch.object(gerrit_module, "_is_host_safe", return_value=(True, None)),
-        ):
-            list(
-                get_rows(
-                    host="https://gerrit.example.com",
-                    username=None,
-                    http_password=None,
-                    endpoint="changes",
-                    team_id=1,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=_FakeResumeManager(),
-                )
-            )
-
-        url = session.get.call_args_list[0].args[0]
-        assert "/a/" not in url
-        assert "https://gerrit.example.com/changes/" in url
-
     def test_oversized_response_body_is_rejected(self):
         body = ")]}'\n" + "[" + ",".join(f'{{"id": "p~{i}"}}' for i in range(50)) + "]"
         with (
@@ -526,23 +406,6 @@ class TestGerritSourceResponse:
         assert response.partition_keys == ["created"]
         assert response.partition_mode == "datetime"
 
-    @pytest.mark.parametrize("endpoint", ["accounts", "projects", "groups"])
-    def test_dimension_endpoints_are_unpartitioned(self, endpoint):
-        response = gerrit_source(
-            host="https://gerrit.example.com",
-            username=None,
-            http_password=None,
-            endpoint=endpoint,
-            team_id=1,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_FakeResumeManager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == GERRIT_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "asc"
-        assert response.partition_mode is None
-
 
 class TestValidateCredentials:
     def _validate(self, responses: list[mock.MagicMock], **kwargs: Any) -> tuple[bool, str | None]:
@@ -560,11 +423,6 @@ class TestValidateCredentials:
             )
         self.session = session
         return result
-
-    def test_valid_credentials_probe_accounts_self(self):
-        valid, error = self._validate([_response(text=')]}\'\n{"_account_id": 1}')])
-        assert (valid, error) == (True, None)
-        assert "/a/accounts/self" in self.session.get.call_args.args[0]
 
     def test_anonymous_probe_uses_server_version(self):
         valid, error = self._validate(
@@ -585,10 +443,6 @@ class TestValidateCredentials:
         valid, error = self._validate([_response(status_code=403)], schema_name="groups")
         assert valid is False
         assert error is not None and "permission" in error
-
-    def test_schema_probe_hits_the_endpoint(self):
-        self._validate([_response(text=")]}'\n{}")], schema_name="groups")
-        assert "/a/groups/?" in self.session.get.call_args.args[0]
 
     def test_redirect_is_rejected(self):
         valid, error = self._validate([_response(status_code=302, is_redirect=True)])

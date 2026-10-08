@@ -275,6 +275,19 @@ DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
 )
+# At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
+# nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
+# hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes
+# hand-offs frequent and they must not use the retry attempts.
+DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED", False, type_cast=str_to_bool
+)
+# How long a source has, after the shutdown starts, to hand off by itself before the pipeline preempts it.
+# Keep it above the read timeout of a source request, so a healthy source hands off first and
+# preemption is only the backstop.
+DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
+)
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
@@ -323,6 +336,15 @@ ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-tas
 ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
+# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
