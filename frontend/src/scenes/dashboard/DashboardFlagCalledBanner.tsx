@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { Fragment } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -42,13 +41,14 @@ export function DashboardFlagCalledBanner(): JSX.Element | null {
                         <span>{pluralize(affectedInsights.length, 'insight')}</span> on this dashboard won't show new
                         feature flag calls once your organization's flag calls move out of the events table. Open each
                         one to rebuild it:{' '}
+                        {/* Elements, not bare text, so page translation can't break list updates (react#11538). */}
                         {affectedInsights.map((insight, index) => (
-                            <Fragment key={insight.short_id}>
-                                {index > 0 && ', '}
+                            <span key={insight.short_id}>
+                                {index > 0 && <span>, </span>}
                                 <Link to={urls.insightView(insight.short_id)}>
                                     {insight.name || insight.derived_name || 'Untitled'}
                                 </Link>
-                            </Fragment>
+                            </span>
                         ))}
                     </>
                 )
