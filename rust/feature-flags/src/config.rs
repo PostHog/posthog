@@ -435,6 +435,15 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
     pub realtime_cohort_lookup_timeout_ms: u64,
 
+    // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
+    // check, write, and read, the group type mapping lookup, and the properties fetch.
+    // statement_timeout cannot cancel a query on a database that has stopped answering.
+    // Only this timer bounds the request then. On expiry, the flags that need persons data
+    // return an error and the other flags evaluate normally. The default leaves 2s of the
+    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
+    pub persons_db_deadline_ms: u64,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -696,6 +705,10 @@ pub struct Config {
 
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
+
+    /// Serve the v3 record on `/flags?v=3` and above. Off, those requests get the v2 record.
+    #[envconfig(from = "FLAGS_V3_RESPONSE_ENABLED", default = "false")]
+    pub flags_v3_response_enabled: bool,
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
@@ -1147,6 +1160,7 @@ impl Config {
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             realtime_cohort_lookup_timeout_ms: 1000,
+            persons_db_deadline_ms: 30_000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1185,6 +1199,7 @@ impl Config {
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: FlexBool(false),
             flags_session_replay_quota_check: false,
+            flags_v3_response_enabled: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             flag_definitions_conditional_rate_per_minute: 6000,
@@ -1318,6 +1333,12 @@ impl Config {
         }
     }
 
+    /// The budget for all persons DB work in one flag evaluation, or `None` when disabled.
+    pub fn persons_db_deadline(&self) -> Option<std::time::Duration> {
+        (self.persons_db_deadline_ms > 0)
+            .then(|| std::time::Duration::from_millis(self.persons_db_deadline_ms))
+    }
+
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
@@ -1387,6 +1408,7 @@ mod tests {
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
+        assert!(!config.flags_v3_response_enabled);
         assert_eq!(config.skip_writes, FlexBool(false));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently

@@ -235,6 +235,13 @@ class AutoresearchModel(PipelineScopedModel):
     )
     calibration_error = models.FloatField(null=True, blank=True)
     metrics = models.JSONField(default=dict, help_text="Full metrics bundle (train/holdout/realized)")
+    negative_sample_rate = models.FloatField(
+        default=1.0,
+        db_default=1.0,
+        validators=UNIT_INTERVAL_VALIDATORS,
+        help_text="Fraction of negative training anchors the fit kept by case-control sampling; every positive "
+        "is kept. 1.0 means no sampling. Scoring adds log(rate) to the logit.",
+    )
 
     # Provenance
     source_training_run = models.ForeignKey(
@@ -463,9 +470,20 @@ class AutoresearchRun(PipelineScopedModel):
     )
     run_type = models.CharField(max_length=20, choices=RunType.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    scheduled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="True when the daily sweep started this run. False for a manual run or a command.",
+    )
 
     rows_scored = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     metrics = models.JSONField(default=dict)
+    negative_sample_rate = models.FloatField(
+        default=1.0,
+        db_default=1.0,
+        validators=UNIT_INTERVAL_VALIDATORS,
+        help_text="The negative sample rate whose prior correction this run applied. 1.0 means none.",
+    )
     error = models.TextField(blank=True, default="")
 
     started_at = models.DateTimeField(null=True, blank=True)

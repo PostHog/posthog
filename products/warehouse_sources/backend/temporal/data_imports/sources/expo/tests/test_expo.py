@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo 
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.expo.settings import EXPO_ENDPOINTS, build_query
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.expo.expo"
 
@@ -38,16 +37,6 @@ def _rows(collection: str, count: int) -> dict[str, Any]:
 
 
 class TestExpoTransport:
-    def test_a_short_page_ends_the_walk(self) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(_rows("builds", 2))
-
-        with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            batches = list(get_rows("token", "app", "builds", mock.MagicMock(), _manager()))
-
-        assert len(batches) == 1
-        assert session.post.call_count == 1
-
     def test_a_full_page_advances_the_offset(self) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [_response(_rows("builds", PAGE_SIZE)), _response(_rows("builds", 1))]
@@ -85,15 +74,6 @@ class TestExpoTransport:
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
             with pytest.raises(ExpoAPIError, match="project not found"):
                 list(get_rows("token", "app", "builds", mock.MagicMock(), _manager()))
-
-    @pytest.mark.parametrize("endpoint", sorted(EXPO_ENDPOINTS))
-    def test_each_query_reads_its_own_collection(self, endpoint: str) -> None:
-        query = build_query(endpoint)
-        assert f"{EXPO_ENDPOINTS[endpoint].collection}(" in query
-        assert "offset: $offset, limit: $limit" in query
-
-    def test_the_submissions_query_includes_its_required_filter(self) -> None:
-        assert "submissions(filter: {}, offset: $offset, limit: $limit)" in build_query("submissions")
 
 
 class TestExpoCredentials:

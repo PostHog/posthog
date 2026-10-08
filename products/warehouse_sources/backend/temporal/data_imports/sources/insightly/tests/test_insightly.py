@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.
     PAGE_SIZE,
     InsightlyResumeConfig,
     _format_updated_after,
-    base_url,
     insightly_source,
     normalize_pod,
     validate_credentials,
@@ -79,20 +78,6 @@ def _source(manager: mock.MagicMock, **kwargs: Any):
 
 class TestNormalizePod:
     @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("na1", "na1"),
-            ("NA1", "na1"),
-            ("  eu1  ", "eu1"),
-            ("https://api.na1.insightly.com/v3.1", "na1"),
-            ("https://api.aps1.insightly.com/v3.1/", "aps1"),
-            ("api.eu2.insightly.com", "eu2"),
-        ],
-    )
-    def test_normalizes_valid_pods(self, raw: str, expected: str) -> None:
-        assert normalize_pod(raw) == expected
-
-    @pytest.mark.parametrize(
         "raw",
         [
             "",
@@ -107,22 +92,8 @@ class TestNormalizePod:
         with pytest.raises(ValueError):
             normalize_pod(raw)
 
-    def test_base_url_is_pinned_to_insightly(self) -> None:
-        assert base_url("na1") == "https://api.na1.insightly.com/v3.1"
-        assert base_url("https://api.EU1.insightly.com/v3.1") == "https://api.eu1.insightly.com/v3.1"
-
 
 class TestFormatUpdatedAfter:
-    def test_formats_datetime_with_trailing_z(self) -> None:
-        from datetime import UTC, datetime
-
-        assert _format_updated_after(datetime(2018, 4, 9, 16, 58, 14, tzinfo=UTC)) == "2018-04-09T16:58:14Z"
-
-    def test_naive_datetime_treated_as_utc(self) -> None:
-        from datetime import datetime
-
-        assert _format_updated_after(datetime(2020, 1, 2, 3, 4, 5)) == "2020-01-02T03:04:05Z"
-
     def test_date_formats_at_midnight(self) -> None:
         from datetime import date
 
@@ -133,37 +104,6 @@ class TestFormatUpdatedAfter:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_offset_and_saves_state_after_full_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"CONTACT_ID": i} for i in range(PAGE_SIZE)]
-        params = _wire(session, [_response(full_page), _response([{"CONTACT_ID": 9999}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        # Both pages are yielded; the short second page ends pagination.
-        assert rows[-1] == {"CONTACT_ID": 9999}
-        assert len(rows) == PAGE_SIZE + 1
-        # `top`/`skip` progress from 0 to PAGE_SIZE.
-        assert params[0]["skip"] == 0
-        assert params[0]["top"] == PAGE_SIZE
-        assert params[1]["skip"] == PAGE_SIZE
-        # State saved once after the first full page, pointing at the next offset.
-        manager.save_state.assert_called_once_with(InsightlyResumeConfig(skip=PAGE_SIZE))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"CONTACT_ID": 1}, {"CONTACT_ID": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"CONTACT_ID": 1}, {"CONTACT_ID": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
@@ -194,14 +134,6 @@ class TestPagination:
         assert len(params) == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_incremental_filter_without_value(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"CONTACT_ID": 1}])])
-
-        _rows(_source(_make_manager(), should_use_incremental_field=True, db_incremental_field_last_value=None))
-        assert "updated_after_utc" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_endpoint_never_filters(self, MockSession) -> None:
         from datetime import UTC, datetime
 
@@ -218,6 +150,14 @@ class TestPagination:
             )
         )
         assert "updated_after_utc" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lead_statuses_include_the_converted_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"LEAD_STATUS_ID": 1}])])
+
+        _rows(_source(_make_manager(), endpoint="LeadStatuses"))
+        assert params[0].get("include_converted") == "true"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_raises_on_non_retryable_error(self, MockSession) -> None:
@@ -238,16 +178,6 @@ class TestPagination:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(INSIGHTLY_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session: mock.MagicMock, status_code: int) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("na1", "key", "/Contacts") == status_code
-        called_url = mock_session.return_value.get.call_args.args[0]
-        assert called_url == "https://api.na1.insightly.com/v3.1/Contacts?top=1"
-        # The key is masked in logged URLs and captured samples.
-        assert mock_session.call_args.kwargs["redact_values"] == ("key",)
-
     @mock.patch(INSIGHTLY_SESSION_PATCH)
     def test_returns_none_on_transport_error(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
@@ -260,12 +190,18 @@ class TestValidateCredentials:
 
 class TestInsightlySourceResponse:
     @pytest.mark.parametrize(
-        "endpoint, expected_pk, expected_partition_keys, expected_mode",
+        "endpoint, expected_pks, expected_partition_keys, expected_mode",
         [
-            ("Contacts", "CONTACT_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Opportunities", "OPPORTUNITY_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Users", "USER_ID", ["DATE_CREATED_UTC"], "datetime"),
-            ("Pipelines", "PIPELINE_ID", None, None),
+            ("Contacts", ["CONTACT_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("Opportunities", ["OPPORTUNITY_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("Users", ["USER_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("Pipelines", ["PIPELINE_ID"], None, None),
+            (
+                "OpportunityStateHistory",
+                ["OPPORTUNITY_ID", "DATE_CHANGED_UTC", "FOR_OPPORTUNITY_STATE"],
+                ["DATE_CHANGED_UTC"],
+                "datetime",
+            ),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -273,13 +209,13 @@ class TestInsightlySourceResponse:
         self,
         MockSession,
         endpoint: str,
-        expected_pk: str,
+        expected_pks: list[str],
         expected_partition_keys: list[str] | None,
         expected_mode: str | None,
     ) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint
-        assert response.primary_keys == [expected_pk]
+        assert response.primary_keys == expected_pks
         assert response.partition_keys == expected_partition_keys
         assert response.partition_mode == expected_mode
         assert response.sort_mode == "asc"

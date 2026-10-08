@@ -116,6 +116,39 @@ class TestScoutScannerCreditLimit(SimpleTestCase):
                 True,
             ),
             (
+                "arming_an_uncapped_experiment_scanner_to_start_on_launch",
+                {
+                    "credit_limit": None,
+                    "enabled": False,
+                    "scanner_type": "experiment",
+                    "scanner_config": {"experiment_id": 1},
+                },
+                {"scanner_config": {"experiment_id": 1, "start_on_launch": True}},
+                False,
+            ),
+            (
+                "arming_a_capped_experiment_scanner_to_start_on_launch",
+                {
+                    "credit_limit": 500,
+                    "enabled": False,
+                    "scanner_type": "experiment",
+                    "scanner_config": {"experiment_id": 1},
+                },
+                {"scanner_config": {"experiment_id": 1, "start_on_launch": True}},
+                True,
+            ),
+            (
+                "editing_an_uncapped_scanner_someone_else_armed",
+                {
+                    "credit_limit": None,
+                    "enabled": False,
+                    "scanner_type": "experiment",
+                    "scanner_config": {"experiment_id": 1, "start_on_launch": True},
+                },
+                {"scanner_config": {"prompt": "p", "experiment_id": 1, "start_on_launch": True}},
+                True,
+            ),
+            (
                 "re_sending_enabled_on_an_uncapped_scanner",
                 {"credit_limit": None, "enabled": True},
                 {"enabled": True},

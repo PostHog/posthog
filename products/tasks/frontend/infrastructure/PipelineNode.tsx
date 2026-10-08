@@ -1,12 +1,13 @@
 import { Badge, Card } from '@posthog/quill'
 
-import { Evidence, labels, variants } from './infrastructureTypes'
+import { Evidence, ReleaseBadge, labels, variants } from './infrastructureTypes'
 
 export function PipelineNode({
     id,
     title,
     subtitle,
     state,
+    badge,
     selected,
     onSelect,
 }: {
@@ -14,6 +15,7 @@ export function PipelineNode({
     title: string
     subtitle: string
     state: Evidence
+    badge?: ReleaseBadge
     selected: string
     onSelect: (id: string) => void
 }): JSX.Element {
@@ -27,7 +29,7 @@ export function PipelineNode({
             >
                 <strong>{title}</strong>
                 <span className="node-subtitle">{subtitle}</span>
-                <Badge variant={variants[state]}>{labels[state]}</Badge>
+                <Badge variant={badge?.variant || variants[state]}>{badge?.label || labels[state]}</Badge>
             </button>
         </Card>
     )

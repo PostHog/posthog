@@ -14,9 +14,12 @@ const CLOSE_DELAY_MS = 100
  */
 export function TodayPreviewTrigger({
     payload,
+    inline = false,
     children,
 }: {
     payload: TodayPreviewPayload
+    /** Wraps a link inside running text, so the trigger must not break the line. */
+    inline?: boolean
     children: ReactNode
 }): JSX.Element {
     const card = useContext(TodayPreviewCardContext)
@@ -29,7 +32,7 @@ export function TodayPreviewTrigger({
             payload={payload}
             delay={OPEN_DELAY_MS}
             closeDelay={CLOSE_DELAY_MS}
-            render={<div className="min-w-0" />}
+            render={inline ? <span /> : <div className="min-w-0" />}
         >
             {children}
         </PreviewCard.Trigger>

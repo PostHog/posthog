@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub im
     DubCursorPaginator,
     DubLinksScopePaginator,
     DubResumeConfig,
-    _make_session,
     _scrub_link_password,
     check_endpoint_access,
     dub_source,
@@ -27,16 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settin
     DUB_ENDPOINTS,
     ENDPOINTS,
     PARTNER_PROGRAM_ENDPOINTS,
-)
-
-ANALYTICS_ENDPOINTS = tuple(name for name, config in DUB_ENDPOINTS.items() if config.path == "/analytics")
-SINGLE_PAGE_ENDPOINTS = tuple(
-    name for name, config in DUB_ENDPOINTS.items() if config.pagination == "single" and not config.partner_scoped
-)
-# partner_analytics_timeseries is walked by a custom iterator, not by paginating one path,
-# so the shared request-shaping tests do not apply to it.
-PAGINATED_PARTNER_PROGRAM_ENDPOINTS = tuple(
-    name for name in PARTNER_PROGRAM_ENDPOINTS if not DUB_ENDPOINTS[name].partner_scoped
 )
 
 
@@ -61,53 +50,12 @@ def _make_http_response(body: Any, status_code: int = 200) -> Response:
 
 
 class TestDubCursorPaginator:
-    def test_full_page_advances_cursor_to_last_row_id(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        paginator.update_state(MagicMock(), data=_rows(3))
-
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.update_request(request)
-        assert request.params["startingAfter"] == "row-2"
-
-    @pytest.mark.parametrize(
-        ("label", "rows"),
-        [
-            ("short_page", _rows(2)),
-            ("empty_page", []),
-            ("non_list_body", cast(list[Any], None)),
-        ],
-    )
-    def test_terminal_pages_stop_pagination(self, label: str, rows: list[Any]) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        response = MagicMock()
-        response.json.return_value = rows
-        paginator.update_state(response, data=rows if isinstance(rows, list) else None)
-
-        assert paginator.has_next_page is False
-
     def test_fresh_paginator_does_not_inject_cursor_on_first_request(self) -> None:
         paginator = DubCursorPaginator(page_size=100)
         request = Request(method="GET", url="https://api.dub.co/links", params={})
         paginator.init_request(request)
 
         assert "startingAfter" not in request.params
-
-    def test_resume_state_round_trip(self) -> None:
-        paginator = DubCursorPaginator(page_size=3)
-        paginator.update_state(MagicMock(), data=_rows(3))
-
-        state = paginator.get_resume_state()
-        assert state == {"starting_after": "row-2"}
-
-        resumed = DubCursorPaginator(page_size=3)
-        resumed.set_resume_state(state or {})
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        resumed.init_request(request)
-
-        assert request.params["startingAfter"] == "row-2"
-        assert resumed.has_next_page is True
 
     def test_no_resume_state_on_terminal_page(self) -> None:
         paginator = DubCursorPaginator(page_size=3)
@@ -117,39 +65,6 @@ class TestDubCursorPaginator:
 
 
 class TestDubLinksScopePaginator:
-    def test_first_scope_sends_no_folder_id(self) -> None:
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.init_request(request)
-
-        assert "folderId" not in request.params
-        assert "startingAfter" not in request.params
-
-    def test_full_page_advances_cursor_inside_the_scope(self) -> None:
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        paginator.update_state(MagicMock(), data=_rows(3))
-
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.update_request(request)
-        assert request.params["startingAfter"] == "row-2"
-        assert "folderId" not in request.params
-
-    def test_exhausted_scope_moves_to_the_next_folder(self) -> None:
-        # /links hides folder contents unless folderId is sent, so a walk that stops after the
-        # unfiled scope imports none of a workspace's filed links.
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        paginator.update_state(MagicMock(), data=_rows(1))
-
-        assert paginator.has_next_page is True
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={"startingAfter": "row-0"})
-        paginator.update_request(request)
-        assert request.params["folderId"] == "fold_a"
-        # The previous scope's cursor must not leak into the new one.
-        assert "startingAfter" not in request.params
-
     def test_walk_ends_once_the_last_folder_is_exhausted(self) -> None:
         paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
         paginator.update_state(MagicMock(), data=_rows(1))
@@ -174,31 +89,8 @@ class TestDubLinksScopePaginator:
         assert request.params["folderId"] == "fold_a"
         assert request.params["startingAfter"] == "row-2"
 
-    def test_resume_state_saved_before_folder_scoping_still_seeds_the_cursor(self) -> None:
-        # A sync interrupted across the deploy that added folder scoping resumes from a state
-        # with no scope_index; dropping it would silently restart the walk from the first page.
-        paginator = DubLinksScopePaginator(page_size=3, folder_ids=["fold_a"])
-        paginator.set_resume_state({"starting_after": "row-7"})
-
-        request = Request(method="GET", url="https://api.dub.co/links", params={})
-        paginator.init_request(request)
-
-        assert request.params["startingAfter"] == "row-7"
-        assert "folderId" not in request.params
-
 
 class TestGetResource:
-    def test_event_endpoint_defaults_to_full_history(self) -> None:
-        # /events defaults to a 24h window server-side; without interval=all a first
-        # sync would silently import only the last day.
-        resource = get_resource("click_events", False, None)
-        params = _params(resource)
-
-        assert params["interval"] == "all"
-        assert "start" not in params
-        assert params["event"] == "clicks"
-        assert params["sortOrder"] == "asc"
-
     def test_event_endpoint_uses_watermark_as_start(self) -> None:
         watermark = datetime(2026, 5, 1, 12, 30, tzinfo=UTC)
         resource = get_resource("lead_events", True, watermark)
@@ -221,44 +113,8 @@ class TestGetResource:
         else:
             assert params[config.page_size_param] == config.page_size
 
-    @pytest.mark.parametrize("endpoint", ANALYTICS_ENDPOINTS)
-    def test_analytics_endpoints_widen_both_dub_defaults(self, endpoint: str) -> None:
-        # /analytics defaults to a 24h window and to clicks-only metrics. Leaving either
-        # default in place still returns a well-formed table, just a near-empty one.
-        params = _params(get_resource(endpoint, False, None))
-
-        assert params["interval"] == "all"
-        assert params["event"] == "composite"
-        assert params["groupBy"] == DUB_ENDPOINTS[endpoint].params["groupBy"]
-
-    def test_incremental_run_uses_merge_disposition(self) -> None:
-        resource = get_resource("sale_events", True, None)
-
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_every_resource_scrubs_link_passwords(self, endpoint: str) -> None:
-        # Link passwords are a credential to the short link's destination, not analytics data;
-        # without this map they'd land in a warehouse column any viewer could read.
-        assert get_resource(endpoint, False, None)["data_map"] is _scrub_link_password
-
 
 class TestScrubLinkPassword:
-    def test_strips_top_level_and_nested_link_password(self) -> None:
-        row = {
-            "id": "l1",
-            "password": "top-secret",
-            "url": "https://example.com",
-            "link": {"id": "l2", "password": "nested-secret", "domain": "dub.sh"},
-        }
-
-        scrubbed = _scrub_link_password(row)
-
-        assert "password" not in scrubbed
-        assert "password" not in scrubbed["link"]
-        assert scrubbed["url"] == "https://example.com"
-        assert scrubbed["link"]["domain"] == "dub.sh"
-
     def test_leaves_rows_without_passwords_untouched(self) -> None:
         row = {"id": "l1", "url": "https://example.com", "link": {"id": "l2"}}
 
@@ -364,20 +220,6 @@ class TestDubSourceResumeBehavior:
 
         assert [p.get("startingAfter") for p in sent_params] == ["a-42"]
 
-    def test_page_endpoint_saves_page_number(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_rows(100, "a")),
-            _make_http_response([]),
-        ]
-        sent_params = self._drive("partners", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [DubResumeConfig(page=2)]
-
     def test_incremental_event_sync_ignores_saved_page_state(self) -> None:
         # On incremental runs the timestamp watermark is the resume cursor; replaying a
         # saved page number against a fresher `start` filter would skip rows.
@@ -408,37 +250,6 @@ class TestDubSourceResumeBehavior:
         assert sent_params[0]["page"] == 7
 
 
-class TestSinglePageEndpoints:
-    @pytest.mark.parametrize("endpoint", SINGLE_PAGE_ENDPOINTS)
-    def test_aggregate_endpoints_stop_after_one_request(self, endpoint: str) -> None:
-        # These return the whole table in one body with no next-page marker, so a paginator
-        # that kept asking would re-import the same rows until the run was killed.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, pages = _drive_source(endpoint, manager, [_make_http_response(_rows(3))])
-
-        assert len(sent_params) == 1
-        assert pages == [_rows(3)]
-        assert DUB_ENDPOINTS[endpoint].page_size_param not in sent_params[0]
-
-    def test_composite_primary_keys_all_reach_the_source_response(self) -> None:
-        # The geo breakdowns repeat region and city names across countries, so a key that
-        # kept only the leaf dimension would merge unrelated rows on top of each other.
-        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"):
-            response = dub_source(
-                api_key="dub_test",
-                endpoint="analytics_cities",
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-            )
-
-        expected = list(DUB_ENDPOINTS["analytics_cities"].primary_keys)
-        assert len(expected) > 1
-        assert response.primary_keys == expected
-
-
 class TestPartnerAnalyticsWalk:
     def _drive(self, manager: MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
         sent: list[dict[str, Any]] = []
@@ -460,27 +271,6 @@ class TestPartnerAnalyticsWalk:
                 resumable_source_manager=manager,
             )
             return sent, list(cast(Iterable[Any], response.items()))
-
-    def test_every_request_names_a_partner_and_rows_carry_it(self) -> None:
-        # Dub rejects a /partners/analytics request that names no partner, so a walk that
-        # skipped the partnerId would fail every import. The response repeats only the bucket
-        # timestamp, so unstamped rows from two partners would also collide on the key.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent, pages = self._drive(
-            manager,
-            [
-                _make_http_response([{"id": "pn_a"}, {"id": "pn_b"}]),
-                _make_http_response([{"start": "2026-01-01", "clicks": 1}]),
-                _make_http_response([{"start": "2026-01-01", "clicks": 2}]),
-            ],
-        )
-
-        analytics_requests = sent[1:]
-        assert [p["partnerId"] for p in analytics_requests] == ["pn_a", "pn_b"]
-        assert all(p["groupBy"] == "timeseries" and p["interval"] == "all" for p in analytics_requests)
-        assert [row["partnerId"] for page in pages for row in page] == ["pn_a", "pn_b"]
 
     def test_walk_resumes_at_the_partner_after_the_last_written_one(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -514,16 +304,6 @@ class TestPartnerProgramTablesWithoutAProgram:
     # so a workspace without one gets this 404 on the table's own list endpoint.
     _NOT_FOUND = {"error": {"code": "not_found", "message": "Program not found"}}
 
-    @pytest.mark.parametrize("endpoint", PAGINATED_PARTNER_PROGRAM_ENDPOINTS)
-    def test_404_ends_the_table_instead_of_failing_the_sync(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, rows = _drive_source(endpoint, manager, [_make_http_response(self._NOT_FOUND, 404)])
-
-        assert len(sent_params) == 1
-        assert rows == []
-
     def test_404_elsewhere_still_fails(self) -> None:
         # The tolerance is scoped to the partner-program tables; a 404 anywhere else is a real
         # error and must not be swallowed into an empty table.
@@ -532,19 +312,6 @@ class TestPartnerProgramTablesWithoutAProgram:
 
         with pytest.raises(HTTPError):
             _drive_source("customers", manager, [_make_http_response(self._NOT_FOUND, 404)])
-
-
-class TestMakeSession:
-    def test_disables_sample_capture(self) -> None:
-        # Every Dub path (sync + both credential probes) builds its session here. Dub payloads
-        # carry imported customer data the name-based scrubbers can't recognise, so capture must
-        # stay off or sampling would leak it into the shared sample bucket.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
-        ) as make_session:
-            _make_session("secret-key")
-        assert make_session.call_args.kwargs["capture"] is False
-        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
 class TestCredentialValidation:

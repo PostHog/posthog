@@ -4,9 +4,10 @@ import { Avatar, AvatarFallback, AvatarGroup, Tooltip, TooltipContent, TooltipTr
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { PrStateEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestLinkLabel, pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
+import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionBadge } from './todayWorkItems'
@@ -20,8 +21,50 @@ interface TodaySessionBadgesProps {
     pinned: boolean
 }
 
-/** A session row's trailing stack, like PostHog Desktop: the pin, the source, then the pull request colored by its state. */
+/** A session row's trailing stack, like PostHog Desktop: who is working on it, the pin, the source, then the pull request colored by its state. */
 export function TodaySessionBadges({ badges, pullRequestState, pinned }: TodaySessionBadgesProps): JSX.Element {
+    const author = badges.find((badge) => badge.kind === 'author')
+    const stacked = badges.filter((badge) => badge.kind !== 'author')
+    return (
+        <>
+            {author && <AuthorBadge author={author.author} live={author.live} />}
+            {(pinned || stacked.length > 0) && (
+                <StackedBadges badges={stacked} pullRequestState={pullRequestState} pinned={pinned} />
+            )}
+        </>
+    )
+}
+
+function AuthorBadge({ author, live }: { author: TaskUserBasicInfoApi; live: boolean }): JSX.Element {
+    const name = taskUserName(author)
+    const label = live ? `${name} is working on this` : `${name} was here recently`
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                delay={200}
+                render={
+                    <span
+                        role="img"
+                        aria-label={label}
+                        className="relative flex shrink-0"
+                        data-attr="today-session-author"
+                    />
+                }
+            >
+                <TaskUserAvatar user={author} />
+                <span
+                    className={cn(
+                        'absolute right-0 bottom-0 size-1.5 rounded-full ring-1 ring-background',
+                        live ? 'bg-primary' : 'bg-muted-foreground'
+                    )}
+                />
+            </TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
+    )
+}
+
+function StackedBadges({ badges, pullRequestState, pinned }: TodaySessionBadgesProps): JSX.Element {
     return (
         <AvatarGroup stacked reverse size="xs" className="shrink-0">
             {pinned && (
@@ -55,6 +98,8 @@ export function TodaySessionBadges({ badges, pullRequestState, pinned }: TodaySe
                                 <IconLaptop className="size-2.5 text-muted-foreground" />
                             </IconBadge>
                         )
+                    default:
+                        return null
                 }
             })}
         </AvatarGroup>

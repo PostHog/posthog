@@ -204,7 +204,7 @@ describe('ScoutConfigForm', () => {
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
     it.each([
-        ['Claude Sonnet 5', 'claude-sonnet-5'],
+        ['Claude Sonnet 5.5', 'claude-sonnet-5-5'],
         ['Claude Opus 5.5', 'claude-opus-5-5'],
         ['GPT-6 Luna', 'gpt-6-luna'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],

@@ -5,7 +5,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import {
@@ -51,6 +51,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
 
     const groups = [
         { title: 'Native integrations', sources: getEnabledNativeMarketingSources(featureFlags) },
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+            ? [{ title: 'Organic search', sources: ['GoogleSearchConsole'] }]
+            : []),
         { title: 'External sources', sources: VALID_NON_NATIVE_MARKETING_SOURCES },
         { title: 'Self-managed sources', sources: VALID_SELF_MANAGED_MARKETING_SOURCES },
     ]
@@ -77,7 +80,10 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 title,
                 items: sources.map((integrationId) => ({
                     key: integrationId,
-                    label: nativeSourceDisplayLabel(integrationId),
+                    label:
+                        integrationId === 'GoogleSearchConsole'
+                            ? 'Google Search Console'
+                            : nativeSourceDisplayLabel(integrationId),
                     icon: <SourceIcon type={integrationId} size="xsmall" disableTooltip />,
                     tag:
                         showNewSourcesInMenu && newSources.some((source) => source === integrationId)

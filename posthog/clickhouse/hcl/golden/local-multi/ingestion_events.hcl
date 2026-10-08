@@ -783,12 +783,6 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
-    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -975,7 +969,7 @@ SELECT
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -990,9 +984,7 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
-  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -1067,12 +1059,6 @@ SQL
     }
     column "pattern_version" {
       type = "UInt8"
-    }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
     }
   }
 }

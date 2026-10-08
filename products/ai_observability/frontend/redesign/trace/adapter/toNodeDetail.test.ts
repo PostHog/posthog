@@ -1,12 +1,11 @@
-import { LLMTracePerson } from '~/queries/schema/schema-general'
-
 import { EvaluationRun } from '../../../evaluations/types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { isLLMEvent } from '../../../utils'
-import { EvalResult, EvalsState, TraceTreeNode } from '../types'
+import { EvalResult, EvalsState } from '../types'
 import { makeEvent, makeTrace } from './testFixtures'
 import { toNodeDetail } from './toNodeDetail'
 
-const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceTreeNode => ({
+const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceNodeApi => ({
     id,
     kind,
     name: id,
@@ -41,13 +40,6 @@ function readyResults(evals: EvalsState): EvalResult[] {
         throw new Error(`expected ready evals, got status "${evals.status}"`)
     }
     return evals.results
-}
-
-const cachedPerson: LLMTracePerson = {
-    uuid: 'person-1',
-    created_at: '2026-09-01T10:00:00Z',
-    distinct_id: 'user-ana',
-    properties: { email: 'ana@example.com' },
 }
 
 describe('toNodeDetail', () => {
@@ -121,11 +113,11 @@ describe('toNodeDetail', () => {
     })
 
     it.each([
-        { name: 'a cached person', person: cachedPerson, expectedPersonLabel: 'ana@example.com' },
-        { name: 'no cached person', person: null, expectedPersonLabel: 'user-ana' },
+        { name: 'a person label', person: 'ana@example.com' },
+        { name: 'no person', person: null },
     ])(
         'span shows its state as input and output, surfaces its error, and labels the person with $name',
-        ({ person, expectedPersonLabel }) => {
+        ({ person }) => {
             const event = makeEvent({
                 id: 'span-1',
                 properties: {
@@ -138,7 +130,7 @@ describe('toNodeDetail', () => {
             const detail = toNodeDetail({ ...base, event, node: node('span-1', 'span'), person })
             expect(detail.content).toEqual({ kind: 'io', input: { q: 'x' }, output: undefined })
             expect(detail.error).toBe('Timeout')
-            expect(detail.properties.person).toBe(expectedPersonLabel)
+            expect(detail.properties.person).toBe(person)
         }
     )
 

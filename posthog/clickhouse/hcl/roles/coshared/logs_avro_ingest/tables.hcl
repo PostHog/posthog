@@ -144,12 +144,6 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
-    }
   }
 
   table "writable_logs34" {
@@ -261,12 +255,6 @@ database "posthog" {
     }
     column "pattern_version" {
       type = "UInt8"
-    }
-    column "_source_topic" {
-      type = "String"
-    }
-    column "_source_partition" {
-      type = "UInt32"
     }
     settings = {
       background_insert_batch = "1"

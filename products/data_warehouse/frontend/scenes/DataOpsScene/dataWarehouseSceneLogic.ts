@@ -15,7 +15,6 @@ export enum DataWarehouseTab {
     OVERVIEW = 'overview',
     MONITORING = 'monitoring',
     SETTINGS = 'settings',
-    DATA_QUALITY = 'data-quality',
 }
 
 function isDataWarehouseTab(tab: unknown): tab is DataWarehouseTab {
@@ -121,9 +120,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] && warehouseReady) {
                     tabs.push(DataWarehouseTab.OVERVIEW)
                     tabs.push(DataWarehouseTab.MONITORING)
-                }
-                if (featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS]) {
-                    tabs.push(DataWarehouseTab.DATA_QUALITY)
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
                     tabs.push(DataWarehouseTab.SETTINGS)

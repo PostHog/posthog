@@ -173,13 +173,15 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
             )
         ),
     ),
+    ("uncompilable_regex", config(targeted(targeting={"properties": [person(operator="regex", value="[")]}))),
+    ("uncompilable_not_regex", config(targeted(targeting={"properties": [person(operator="not_regex", value="(")]}))),
     (
         "string_values",
         config(targeted(value="compact"), rollout(value="wide"), return_type="string", default_value="standard"),
     ),
     ("string_null_default", config(targeted(value="compact"), return_type="string", default_value=None)),
-    # Readers accept the event-storage sentinel; only the writer reserves it.
-    ("string_false_sentinel", config(targeted(value="$false"), return_type="string", default_value="$false")),
+    # Readers accept the event-storage sentinels; only the writer reserves them.
+    ("string_sentinels", config(targeted(value="$false"), return_type="string", default_value="$true")),
     ("number_values", config(targeted(value=1.25), rollout(value=-40), return_type="number", default_value=0)),
     (
         "number_safe_integer_bounds",

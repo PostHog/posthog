@@ -26,29 +26,62 @@ const OPTIONS: ApprovalCardOption[] = [
     },
 ]
 
+const WITH_REQUIRED_NOTE: ApprovalCardOption[] = [
+    ...OPTIONS,
+    {
+        optionId: 'redirect',
+        label: 'Do it differently',
+        decision: 'declined',
+        primary: false,
+        remembered: false,
+        requiresFeedback: true,
+        supportsFeedback: false,
+    },
+]
+
 describe('QuillPermissionQuestionnaire', () => {
     afterEach(() => {
         cleanup()
     })
 
     test.each([
-        { answer: 'the approve choice', pick: () => fireEvent.click(screen.getByText('Yes')), expected: ['allow'] },
-        { answer: 'the plain decline', pick: () => fireEvent.click(screen.getByText('No')), expected: ['reject'] },
+        {
+            answer: 'the approve choice',
+            options: OPTIONS,
+            pick: () => fireEvent.click(screen.getByText('Yes')),
+            expected: ['allow'],
+        },
+        {
+            answer: 'the plain decline',
+            options: OPTIONS,
+            pick: () => fireEvent.click(screen.getByText('No')),
+            expected: ['reject'],
+        },
         {
             answer: 'a typed note',
+            options: OPTIONS,
             pick: () =>
                 fireEvent.change(screen.getByLabelText('Tell the agent what to do differently'), {
                     target: { value: 'use the staging project' },
                 }),
             expected: ['reject', 'use the staging project'],
         },
-    ])('sends $answer on submit', ({ pick, expected }) => {
+        {
+            answer: 'a note under its own decline when several take one',
+            options: WITH_REQUIRED_NOTE,
+            pick: () =>
+                fireEvent.change(screen.getByLabelText('Do it differently'), {
+                    target: { value: 'use the staging project' },
+                }),
+            expected: ['redirect', 'use the staging project'],
+        },
+    ])('sends $answer on submit', ({ options, pick, expected }) => {
         const onRespond = jest.fn()
         render(
             <QuillPermissionQuestionnaire
                 headline="Update the task summary"
                 evidence={null}
-                options={OPTIONS}
+                options={options}
                 responding={false}
                 onRespond={onRespond}
             />

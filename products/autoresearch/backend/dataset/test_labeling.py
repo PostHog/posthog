@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import (
@@ -22,6 +22,11 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
+    ROLLING_SCORE_LIMIT,
+    SHADOW_MODEL_ROLE,
+    RollingSelection,
+    TrainingSample,
+    TrainingSampleTooLarge,
     _build_labeled_users_cte,
     _build_population_kind_conditions,
     _compile_population_filters,
@@ -30,7 +35,11 @@ from products.autoresearch.backend.dataset.labeling import (
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_random_t0_labeler_sql,
+    build_training_features_sql,
+    rolling_rescore_runs,
+    rolling_selection,
     strip_sql_comments,
+    utc_day_start,
 )
 from products.autoresearch.backend.query import run_hogql_rows
 
@@ -102,6 +111,26 @@ class TestBuildInferenceFeaturesSql(BaseTest):
         )
         self.assertNotIn("{anchors}", sql)
         self.assertNotIn("--", sql)
+
+
+class TestRollingSelection(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_cap", 50_000, 1),
+            ("one_cycle_past_the_minimum_window", 1_400_000, 1),
+            ("huge", 9_000_000, 1),
+            ("weekly_cadence", 1_400_000, 7),
+        ]
+    )
+    def test_score_history_window_outlasts_a_full_cycle(self, _name: str, eligible: int, cadence_days: int) -> None:
+        rolling = rolling_selection(eligible=eligible, pipeline_id="p", cadence_days=cadence_days)
+        assert rolling is not None
+        assert rolling.limit == ROLLING_SCORE_LIMIT
+        cycle_days = rolling_rescore_runs(eligible=eligible, scored=rolling.limit) * cadence_days
+        assert rolling.scored_lookback_days > cycle_days
+
+    def test_a_population_below_the_cap_scores_whole(self) -> None:
+        assert rolling_selection(eligible=49_999, pipeline_id="p", cadence_days=1) is None
 
 
 class TestPopulationFilterCompilation(SimpleTestCase):
@@ -429,7 +458,7 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
         )
         self.assertNotIn("now()", cte)
         self.assertIn("fromUnixTimestamp({anchor_ts})", cte)
-        self.assertEqual(values["anchor_ts"], 1_700_000_000)
+        self.assertEqual(values["anchor_ts"], 1_699_920_000)
 
     def test_t0_position_does_not_depend_on_a_moving_modulo(self) -> None:
         cte, _values = _build_labeled_users_cte(
@@ -442,13 +471,33 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
             sample_limit=None,
         )
         self.assertIn(
-            "intDiv((cutoff_ts - first_ts) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)",
+            "intDiv((cutoff_day - first_day + 1) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)",
             cte,
         )
-        self.assertNotIn("% (cutoff_ts - first_ts)", cte)
+        self.assertNotIn("% (cutoff_day - first_day", cte)
 
 
 _DAILY_PAGEVIEWS = [("$pageview", days_ago) for days_ago in range(100, 0, -1)]
+
+
+class TestTrainingSamplePlan(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fits_the_budget", 40, 4, 1.0, 40),
+            ("all_positives", 100, 100, 1.0, 100),
+            ("above_the_budget", 1_000, 100, 0.1, 190),
+        ]
+    )
+    def test_plan_keeps_every_positive_and_fills_the_budget_with_negatives(
+        self, _name: str, population: int, positives: int, rate: float, size: int
+    ) -> None:
+        sample = TrainingSample.plan(population=population, positives=positives, budget=190)
+        assert sample.negative_sample_rate == rate
+        assert sample.expected_size == size
+
+    def test_plan_refuses_positives_that_alone_exceed_the_budget(self) -> None:
+        with self.assertRaises(TrainingSampleTooLarge):
+            TrainingSample.plan(population=1_000, positives=200, budget=190)
 
 
 class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest):
@@ -565,6 +614,110 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         if expected_positives is not None:
             assert int(rows[0][1]) == expected_positives
 
+    @parameterized.expand([("one_day", 1), ("three_days", 3), ("seven_days", 7)])
+    def test_every_t0_is_a_utc_midnight_that_does_not_move_within_the_anchor_day(
+        self, _name: str, horizon_days: int
+    ) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        day_start = utc_day_start(int(now.timestamp()))
+        label_cutoff = day_start - 86400 - horizon_days * 86400
+        first_event_ts: dict[str, int] = {}
+        for i in range(20):
+            distinct_id = f"user_{i}"
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
+            for days_ago in range(40 - i, 0, -1):
+                timestamp = now - timedelta(days=days_ago, hours=5, minutes=i)
+                _create_event(team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp)
+            first_event_ts[str(person.uuid)] = int((now - timedelta(days=40 - i, hours=5, minutes=i)).timestamp())
+        for i in range(20):
+            distinct_id = f"midnight_user_{i}"
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
+            first_event_ts[str(person.uuid)] = label_cutoff - 86400
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=datetime.fromtimestamp(label_cutoff - 86400, tz=UTC),
+            )
+        flush_persons_and_events()
+
+        def t0s(anchor_ts: int) -> dict[str, int]:
+            cte, values = _build_labeled_users_cte(
+                target_event="feature_used",
+                target_definition=None,
+                team=self.team,
+                horizon_days=horizon_days,
+                lookback_days=90,
+                training_population=None,
+                sample_limit=None,
+                anchor_ts=anchor_ts,
+            )
+            rows = run_hogql_rows(
+                team=self.team,
+                query=HogQLQuery(
+                    query=f"{cte} SELECT person_id, t0_ts FROM labeled_users",
+                    values=values,
+                    modifiers=LABELER_QUERY_MODIFIERS,
+                ),
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+            return {str(person_id): int(t0_ts) for person_id, t0_ts in rows}
+
+        morning = t0s(day_start - 86400 + 2 * 3600)
+        afternoon = t0s(day_start - 86400 + 17 * 3600)
+
+        assert len(morning) == 40
+        assert afternoon == morning
+        for person_id, t0_ts in morning.items():
+            assert t0_ts % 86400 == 0
+            assert first_event_ts[person_id] < t0_ts <= label_cutoff
+
+    def test_negative_sampling_keeps_every_positive_and_the_training_rows_match_the_count(self) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        positives = [f"positive_{i}" for i in range(3)]
+        negatives = [f"negative_{i}" for i in range(40)]
+        for distinct_id in positives + negatives:
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
+            for event, days_ago in _DAILY_PAGEVIEWS:
+                _create_event(
+                    team=self.team, event=event, distinct_id=distinct_id, timestamp=now - timedelta(days=days_ago)
+                )
+                if distinct_id in positives:
+                    _create_event(
+                        team=self.team,
+                        event="feature_used",
+                        distinct_id=distinct_id,
+                        timestamp=now - timedelta(days=days_ago),
+                    )
+        flush_persons_and_events()
+        common: dict[str, Any] = {
+            "target_event": "feature_used",
+            "horizon_days": 7,
+            "lookback_days": 120,
+            "training_population": None,
+            "team": self.team,
+            "negative_sample_rate": 0.25,
+        }
+
+        def run(sql: str, values: dict[str, Any]) -> list[Any]:
+            return run_hogql_rows(
+                team=self.team,
+                query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+
+        [[eligible, sampled_positives]] = run(*build_random_t0_labeler_sql(**common))
+        rows = run(
+            *build_training_features_sql(
+                feature_sql="SELECT a.person_id AS distinct_id, 1 AS one FROM {anchors} a", **common
+            )
+        )
+        assert sampled_positives == len(positives)
+        assert len(positives) < eligible < len(positives) + len(negatives)
+        # Columns: distinct_id, one, __label, __fold.
+        assert len(rows) == eligible
+        assert sum(row[2] for row in rows) == len(positives)
+
     @parameterized.expand(
         [
             ("any_event_population", None),
@@ -602,3 +755,86 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         anchors_sql, anchors_values = build_inference_anchors_sql(lookback_days=30, inference_population=population)
         assert [int(v) for v in run(eligible_sql, eligible_values)] == [1, 2]
         assert int(run(f"SELECT count() FROM ({anchors_sql.strip()})", anchors_values)[0]) == 1
+
+    def test_rolling_selection_ranks_by_staleness_and_covers_everyone_in_ceil_m_over_n_runs(self) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
+        first_cutoff = now.replace(microsecond=0) - timedelta(days=3)
+        pipeline_id = "11111111-1111-1111-1111-111111111111"
+        # (days of activity before the first cutoff, days of this pipeline's last score before it)
+        people: dict[str, tuple[int, int | None]] = {
+            "active_never_scored": (1, None),
+            "idle_never_scored": (5, None),
+            "scored_by_another_pipeline": (3, None),
+            "scored_long_ago": (1, 10),
+            "scored_recently": (1, 2),
+        }
+        name_by_uuid: dict[str, str] = {}
+        for name, (active_days_ago, scored_days_ago) in people.items():
+            person = _create_person(team_id=self.team.pk, distinct_ids=[name], is_identified=True)
+            name_by_uuid[str(person.uuid)] = name
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=name,
+                timestamp=first_cutoff - timedelta(days=active_days_ago),
+            )
+            if scored_days_ago is not None:
+                _create_event(
+                    team=self.team,
+                    event=PREDICTION_EVENT_NAME,
+                    distinct_id=name,
+                    timestamp=first_cutoff - timedelta(days=scored_days_ago),
+                    properties={"$autoresearch_pipeline_id": pipeline_id},
+                )
+        _create_event(
+            team=self.team,
+            event=PREDICTION_EVENT_NAME,
+            distinct_id="scored_by_another_pipeline",
+            timestamp=first_cutoff - timedelta(days=1),
+            properties={"$autoresearch_pipeline_id": "22222222-2222-2222-2222-222222222222"},
+        )
+        # A shadow model's prediction is not a score of the person, so it must not move them down the ranking.
+        _create_event(
+            team=self.team,
+            event=PREDICTION_EVENT_NAME,
+            distinct_id="active_never_scored",
+            timestamp=first_cutoff - timedelta(days=1),
+            properties={"$autoresearch_pipeline_id": pipeline_id, "$autoresearch_model_role": SHADOW_MODEL_ROLE},
+        )
+        flush_persons_and_events()
+
+        def select(cutoff: Any) -> list[str]:
+            sql, values = build_inference_anchors_sql(
+                lookback_days=30,
+                inference_population={},
+                cutoff_ts=int(cutoff.timestamp()),
+                rolling=RollingSelection(pipeline_id=pipeline_id, limit=2, scored_lookback_days=30),
+            )
+            rows = run_hogql_rows(
+                team=self.team,
+                query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+            return sorted(name_by_uuid[str(row[0])] for row in rows)
+
+        selections: list[list[str]] = []
+        for day in range(3):
+            cutoff = first_cutoff + timedelta(days=day)
+            selected = select(cutoff)
+            assert select(cutoff) == selected
+            selections.append(selected)
+            for name in selected:
+                _create_event(
+                    team=self.team,
+                    event=PREDICTION_EVENT_NAME,
+                    distinct_id=name,
+                    timestamp=cutoff + timedelta(hours=1),
+                    properties={"$autoresearch_pipeline_id": pipeline_id},
+                )
+            flush_persons_and_events()
+
+        assert selections == [
+            ["active_never_scored", "scored_by_another_pipeline"],
+            ["idle_never_scored", "scored_long_ago"],
+            ["active_never_scored", "scored_recently"],
+        ]

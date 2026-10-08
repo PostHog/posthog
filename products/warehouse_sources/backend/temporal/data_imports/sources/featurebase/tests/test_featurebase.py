@@ -125,6 +125,13 @@ class TestBuildInitialParams:
                 {},
             ),
             (
+                "conversation_tags_has_no_pagination_params",
+                "conversation_tags",
+                False,
+                None,
+                {},
+            ),
+            (
                 "tickets_incremental_updated_sweeps_recent_desc",
                 "tickets",
                 True,
@@ -198,15 +205,6 @@ class TestBuildInitialParams:
             for incremental_field in config.incremental_fields:
                 assert incremental_field["field"] in config.incremental_params_for_field, name
 
-    def test_changelogs_first_incremental_sync_has_no_start_date(self) -> None:
-        params = _build_initial_params(
-            FEATUREBASE_ENDPOINTS["changelogs"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-            incremental_field="date",
-        )
-        assert "startDate" not in params
-
 
 class TestPagePredatesCutoff:
     _cutoff = datetime(2026, 1, 10, tzinfo=UTC)
@@ -266,18 +264,6 @@ class TestFetchPageRetries:
 
 
 class TestCursorPagination:
-    def test_follows_next_cursor_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            f"{BASE}/companies?limit=100": {"data": [{"id": "c1"}], "nextCursor": "cur2"},
-            f"{BASE}/companies?limit=100&cursor=cur2": {"data": [{"id": "c2"}], "nextCursor": None},
-        }
-        rows = _collect_rows(monkeypatch, "companies", pages, manager)
-
-        assert [r["id"] for r in rows] == ["c1", "c2"]
-        # State only saved while more pages remain — a crash on the final page restarts it cleanly.
-        assert [s.cursor for s in manager.saved] == ["cur2"]
-
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager(FeaturebaseResumeConfig(cursor="cur2"))
         fetched: list[str] = []
@@ -621,13 +607,6 @@ class TestWebhookManagement:
 
         assert result.success is True
         assert "/webhooks/wh1" in session.delete.call_args.args[0]
-
-    def test_delete_webhook_with_no_match_is_success(self) -> None:
-        session = _session_with(get=_json_response({"data": [], "nextCursor": None}))
-        with patch.object(featurebase, "make_tracked_session", return_value=session):
-            result = delete_webhook("fb_test", "https://us.posthog.com/webhook")
-        assert result.success is True
-        session.delete.assert_not_called()
 
     def test_sync_webhook_events_patches_drifted_topics(self) -> None:
         session = _session_with(

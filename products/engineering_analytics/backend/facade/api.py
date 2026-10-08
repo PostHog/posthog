@@ -436,13 +436,23 @@ def list_pull_requests(
     *,
     team: Team,
     date_from: str | None = None,
+    date_to: str | None = None,
     author: str | None = None,
+    state: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        author=author,
+        state=state,
+        limit=limit,
+        offset=offset,
     )
 
 

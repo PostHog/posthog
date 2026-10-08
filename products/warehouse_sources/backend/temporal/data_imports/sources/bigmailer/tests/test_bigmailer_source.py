@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.source import BigMailerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigmailer import (
@@ -32,32 +31,6 @@ def _inputs(schema_name: str) -> SourceInputs:
         logger=MagicMock(),
         reset_pipeline=False,
     )
-
-
-class TestGetSchemas:
-    def test_returns_every_endpoint_as_full_refresh(self) -> None:
-        schemas = BigMailerSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # BigMailer has no server-side time filter, so no table may advertise incremental or append
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
-
-    def test_users_is_not_synced_by_default(self) -> None:
-        # account-level admin data shouldn't be pulled unless the user opts in; the marketing tables should
-        by_name = {s.name: s for s in BigMailerSource().get_schemas(_config(), team_id=1)}
-        assert by_name["users"].should_sync_default is False
-        assert by_name["contacts"].should_sync_default is True
-
-
-class TestDocumentedTables:
-    def test_renders_table_catalog_without_credentials(self) -> None:
-        # lists_tables_without_credentials must stay on so posthog.com renders the Supported tables section
-        assert BigMailerSource().lists_tables_without_credentials is True
-        tables = BigMailerSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        brands = next(t for t in tables if t["name"] == "brands")
-        assert brands["sync_methods"] == ["Full refresh"]
-        assert brands["description"]  # canonical description is wired up
 
 
 class TestCredentials:

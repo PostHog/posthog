@@ -95,6 +95,9 @@ export function isScopeNotFoundError(error: unknown): boolean {
     return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
 }
 
+/** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
+export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',

@@ -324,10 +324,13 @@ describe('Invocation utils', () => {
                 new Error('Unsupported unit for dateDiff: super secret')
             )
 
-            const { logs } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+            const { logs, buildFailures } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
 
             expect(logs[0].message).toContain('Unsupported unit for dateDiff: ***REDACTED***')
             expect(logs[0].message).not.toContain('super secret')
+            // The failure is redacted on its own path, and it leaves the process as a header on the parked record.
+            expect(buildFailures[0].error).toContain('Unsupported unit for dateDiff: ***REDACTED***')
+            expect(buildFailures[0].error).not.toContain('super secret')
             jest.restoreAllMocks()
         })
 

@@ -7,12 +7,15 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
+
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import {
@@ -21,6 +24,7 @@ import {
     autoresearchResumeCreate,
     autoresearchRetrieve,
     autoresearchRunsList,
+    autoresearchRunsRetrieve,
     autoresearchScoreCreate,
     autoresearchSuggestionsCreate,
     autoresearchSuggestionsList,
@@ -30,13 +34,24 @@ import {
     autoresearchTrainCreate,
 } from './generated/api'
 import {
+    AutoresearchModelRoleEnumApi,
     type AutoresearchModelApi,
     type AutoresearchPipelineApi,
     type AutoresearchRunApi,
     type AutoresearchSuggestionApi,
     type AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
+    type ModelExplanationFieldApi,
 } from './generated/api.schemas'
+import {
+    PREDICTION_SEGMENTS,
+    PREDICTION_SEGMENT_THRESHOLDS,
+    type PredictionLinkDestination,
+    type PredictionSegmentCounts,
+    type PredictionSegmentKey,
+    predictionSegmentCohortFilters,
+} from './predictionSegments'
+import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
@@ -56,10 +71,33 @@ function isPipelineTab(value: string | undefined): value is AutoresearchPipeline
     return value !== undefined && (AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)
 }
 
-/** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
+/** How often the Score now button checks a running scoring run. */
+export const SCORE_RUN_POLL_INTERVAL_MS = 5000
+
+/** Matches the backend cutoff: a run still running after the workflow timeout lost its worker. */
+export const SCORE_RUN_STALE_AFTER_MS = 5 * 60 * 60 * 1000
+
+function isScoreRunInProgress(run: AutoresearchRunApi): boolean {
+    return run.status === 'running' || run.status === 'pending'
+}
+
+/** The inference run that is scoring now, if any. Scoring runs in the background, so a reload resumes from it. */
+function findRunningScoreRun(runs: AutoresearchRunApi[]): AutoresearchRunApi | null {
+    const cutoff = Date.now() - SCORE_RUN_STALE_AFTER_MS
+    return (
+        runs.find(
+            (r) =>
+                r.run_type === 'inference' &&
+                isScoreRunInProgress(r) &&
+                new Date(r.started_at ?? r.created_at).getTime() >= cutoff
+        ) ?? null
+    )
+}
+
 /** How far back the Predictions tab looks for the latest scoring batch, so it never scans the full history. */
 export const LATEST_BATCH_LOOKBACK_DAYS = 90
 
+/** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
 export interface ProbabilityBucket {
     lower: number
     users: number
@@ -150,6 +188,58 @@ export function trainingRunProgress(run: AutoresearchTrainingRunApi): TrainingRu
     }
 }
 
+/**
+ * Features in the run model's reported top drivers but not the champion's, and the reverse.
+ * Each list is capped and can be partial, so a feature missing from a list can still be a model input.
+ */
+export interface FeatureChanges {
+    added: string[]
+    dropped: string[]
+}
+
+export function featureChanges(
+    runExplanation: ModelExplanationFieldApi,
+    championExplanation: ModelExplanationFieldApi
+): FeatureChanges {
+    const runNames = (runExplanation.top_features ?? []).map((f) => f.name)
+    const championNames = (championExplanation.top_features ?? []).map((f) => f.name)
+    // An empty list means the model recorded no importances, which says nothing about its features.
+    if (runNames.length === 0 || championNames.length === 0) {
+        return { added: [], dropped: [] }
+    }
+    return {
+        added: runNames.filter((name) => !championNames.includes(name)),
+        dropped: championNames.filter((name) => !runNames.includes(name)),
+    }
+}
+
+/** How much of the inference population the latest scoring run covered, when it scored only part of it. */
+export interface ScoringCoverage {
+    scored: number
+    eligible: number
+    /** Days it takes to score everyone once: the runs a rotation needs times the days between runs. */
+    rescoreDays: number
+}
+
+/**
+ * A population at or above the scoring cap is scored on a rolling basis: each run scores the
+ * people whose last score is oldest. Returns null when the latest completed run scored everyone.
+ */
+export function scoringCoverage(runs: AutoresearchRunApi[], cadenceDays: number): ScoringCoverage | null {
+    const latest = runs
+        .filter((run) => run.run_type === 'inference' && run.status === 'completed')
+        .reduce<AutoresearchRunApi | null>(
+            (newest, run) => (newest === null || run.created_at > newest.created_at ? run : newest),
+            null
+        )
+    const scored = latest?.rows_scored ?? 0
+    const eligible = latest?.metrics?.rows_eligible
+    if (scored <= 0 || typeof eligible !== 'number' || eligible <= scored) {
+        return null
+    }
+    return { scored, eligible, rescoreDays: Math.ceil(eligible / scored) * Math.max(cadenceDays, 1) }
+}
+
 /** One scoring day's volume: emitted prediction events and their average probability as a 0-100 percentage. */
 export interface DailyVolumePoint {
     day: string
@@ -176,22 +266,31 @@ export interface OnlinePerformanceRow {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface autoresearchPipelineLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
+    activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
+    champion: AutoresearchModelApi | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
     detailRequested: boolean
     expandedRunId: string | null
+    modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
+    modelsError: boolean
     modelsLoading: boolean
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
+    predictionSegments: PredictionSegmentCounts | null
+    predictionSegmentsError: boolean
+    predictionSegmentsLoading: boolean
+    predictionsPeopleView: PredictionsPeopleView
     probabilityDistribution: ProbabilityBucket[] | null
     probabilityDistributionError: boolean
     probabilityDistributionLoading: boolean
@@ -201,8 +300,10 @@ export interface autoresearchPipelineLogicValues {
     runs: AutoresearchRunApi[]
     runsError: boolean
     runsLoading: boolean
+    savingCohortSegment: PredictionSegmentKey | null
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
+    scoringCoverage: ScoringCoverage | null
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     suggestionDraft: string
@@ -305,6 +406,21 @@ export interface autoresearchPipelineLogicActions {
         payload?: any
     ) => {
         pipeline: AutoresearchPipelineApi | null
+        payload?: any
+    }
+    loadPredictionSegments: () => any
+    loadPredictionSegmentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPredictionSegmentsSuccess: (
+        predictionSegments: PredictionSegmentCounts,
+        payload?: any
+    ) => {
+        predictionSegments: PredictionSegmentCounts
         payload?: any
     }
     loadProbabilityDistribution: () => any
@@ -430,6 +546,15 @@ export interface autoresearchPipelineLogicActions {
         pipeline: AutoresearchPipelineApi | null
         payload?: any
     }
+    pollScoreRun: () => {
+        value: true
+    }
+    reportNotebookOpened: (runId: string) => {
+        runId: string
+    }
+    reportPredictionLinkClicked: (destination: PredictionLinkDestination) => {
+        destination: PredictionLinkDestination
+    }
     resumePipeline: () => any
     resumePipelineFailure: (
         error: string,
@@ -444,6 +569,12 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         pipeline: AutoresearchPipelineApi | null
         payload?: any
+    }
+    saveSegmentCohort: (segment: PredictionSegmentKey) => {
+        segment: PredictionSegmentKey
+    }
+    saveSegmentCohortFinished: () => {
+        value: true
     }
     scoreNow: () => any
     scoreNowFailure: (
@@ -460,14 +591,26 @@ export interface autoresearchPipelineLogicActions {
         scoreResult: AutoresearchRunApi | null
         payload?: any
     }
+    scoreRunFinished: (run: AutoresearchRunApi) => {
+        run: AutoresearchRunApi
+    }
+    setActiveScoreRun: (run: AutoresearchRunApi | null) => {
+        run: AutoresearchRunApi | null
+    }
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
+    }
+    setPredictionsPeopleView: (view: PredictionsPeopleView) => {
+        view: PredictionsPeopleView
     }
     setSuggestionDraft: (draft: string) => {
         draft: string
     }
     setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => {
         priority: CreateSuggestionPriorityEnumApi
+    }
+    startScorePolling: () => {
+        value: true
     }
     startTraining: () => any
     startTrainingFailure: (
@@ -543,7 +686,13 @@ export interface autoresearchPipelineLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (pipeline: AutoresearchPipelineApi | null) => Breadcrumb[]
+        champion: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
+        modelByTrainingRun: (models: AutoresearchModelApi[]) => Record<string, AutoresearchModelApi>
         validationRuns: (runs: AutoresearchRunApi[]) => AutoresearchRunApi[]
+        scoringCoverage: (
+            runs: AutoresearchRunApi[],
+            pipeline: AutoresearchPipelineApi | null
+        ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
     }
@@ -561,15 +710,24 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     props({} as AutoresearchPipelineLogicProps),
     key((props) => props.id),
     connect({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
         actions: [teamLogic, ['loadCurrentTeamSuccess'], featureFlagLogic, ['setFeatureFlags']],
     }),
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
+        setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
+        reportNotebookOpened: (runId: string) => ({ runId }),
+        reportPredictionLinkClicked: (destination: PredictionLinkDestination) => ({ destination }),
         setSuggestionDraft: (draft: string) => ({ draft }),
         setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => ({ priority }),
+        setActiveScoreRun: (run: AutoresearchRunApi | null) => ({ run }),
+        startScorePolling: true,
+        pollScoreRun: true,
+        scoreRunFinished: (run: AutoresearchRunApi) => ({ run }),
+        saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
+        saveSegmentCohortFinished: true,
     }),
     reducers({
         detailRequested: [
@@ -582,6 +740,21 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'overview' as AutoresearchPipelineTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        predictionsPeopleView: [
+            'most_likely' as PredictionsPeopleView,
+            {
+                setPredictionsPeopleView: (_, { view }) => view,
+            },
+        ],
+        activeScoreRun: [
+            null as AutoresearchRunApi | null,
+            {
+                setActiveScoreRun: (_, { run }) => run,
+                scoreNowSuccess: (_, { scoreResult }) => (scoreResult?.status === 'running' ? scoreResult : null),
+                loadRunsSuccess: (current, { runs }) => current ?? findRunningScoreRun(runs),
+                scoreRunFinished: () => null,
             },
         ],
         expandedRunId: [
@@ -603,6 +776,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 setSuggestionPriority: (_, { priority }) => priority,
             },
         ],
+        savingCohortSegment: [
+            null as PredictionSegmentKey | null,
+            {
+                saveSegmentCohort: (_, { segment }) => segment,
+                saveSegmentCohortFinished: () => null,
+            },
+        ],
+        predictionSegmentsError: [
+            false,
+            {
+                loadPredictionSegments: () => false,
+                loadPredictionSegmentsFailure: () => true,
+            },
+        ],
         probabilityDistributionError: [
             false,
             {
@@ -616,6 +803,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadPipeline: () => false,
                 loadPipelineSuccess: () => false,
                 loadPipelineFailure: () => true,
+            },
+        ],
+        modelsError: [
+            false,
+            {
+                loadModels: () => false,
+                loadModelsFailure: () => true,
             },
         ],
         trainingRunsError: [
@@ -809,7 +1003,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as ProbabilityBucket[] | null,
             {
                 loadProbabilityDistribution: async () => {
-                    // A scoring run stamps its whole batch with one timestamp, so the latest batch is its exact timestamp.
+                    // Capture can shift the timestamps of one batch apart, so the latest batch is its prediction date.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT least(floor(p * 10), 9) AS bucket, count() AS users
@@ -820,8 +1014,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                                 FROM events
                                 WHERE event = 'autoresearch_prediction'
                                   AND properties.$autoresearch_pipeline_id = ${props.id}
-                                  AND timestamp = (
-                                      SELECT max(timestamp)
+                                  AND properties.$autoresearch_model_role != 'shadow'
+                                  AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  AND properties.$autoresearch_prediction_date = (
+                                      SELECT max(properties.$autoresearch_prediction_date)
                                       FROM events
                                       WHERE event = 'autoresearch_prediction'
                                         AND properties.$autoresearch_pipeline_id = ${props.id}
@@ -838,6 +1034,51 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                         lower: Number(row[0]) / 10,
                         users: Number(row[1]),
                     }))
+                },
+            },
+        ],
+        predictionSegments: [
+            null as PredictionSegmentCounts | null,
+            {
+                loadPredictionSegments: async () => {
+                    // The same per-person scores as the probability distribution, so the segments add up to its total.
+                    const response = await api.queryHogQL(
+                        hogql`
+                            SELECT
+                                multiIf(p >= ${PREDICTION_SEGMENT_THRESHOLDS.high}, 'likely', p >= ${PREDICTION_SEGMENT_THRESHOLDS.low}, 'possible', 'unlikely') AS segment,
+                                count() AS people,
+                                sum(p) AS expected_conversions
+                            FROM (
+                                SELECT
+                                    coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
+                                    argMax(toFloat(properties.$autoresearch_p_y), timestamp) AS p
+                                FROM events
+                                WHERE event = 'autoresearch_prediction'
+                                  AND properties.$autoresearch_pipeline_id = ${props.id}
+                                  AND properties.$autoresearch_model_role != 'shadow'
+                                  AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  AND properties.$autoresearch_prediction_date = (
+                                      SELECT max(properties.$autoresearch_prediction_date)
+                                      FROM events
+                                      WHERE event = 'autoresearch_prediction'
+                                        AND properties.$autoresearch_pipeline_id = ${props.id}
+                                        AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  )
+                                GROUP BY person_id
+                            )
+                            GROUP BY segment
+                        `,
+                        { productKey: 'autoresearch', name: 'autoresearch_prediction_segments' }
+                    )
+                    const rows = new Map<string, any[]>(
+                        (response.results ?? []).map((row: any[]) => [String(row[0]), row])
+                    )
+                    return Object.fromEntries(
+                        PREDICTION_SEGMENTS.map(({ key }) => {
+                            const row = rows.get(key)
+                            return [key, { people: Number(row?.[1] ?? 0), expectedConversions: Number(row?.[2] ?? 0) }]
+                        })
+                    ) as PredictionSegmentCounts
                 },
             },
         ],
@@ -901,10 +1142,27 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 },
             ],
         ],
+        champion: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): AutoresearchModelApi | null =>
+                models.find((m) => m.role === AutoresearchModelRoleEnumApi.Champion) ?? null,
+        ],
+        modelByTrainingRun: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): Record<string, AutoresearchModelApi> =>
+                Object.fromEntries(
+                    models.filter((m) => m.source_training_run).map((m) => [m.source_training_run as string, m])
+                ),
+        ],
         validationRuns: [
             (s) => [s.runs],
             (runs: AutoresearchRunApi[]): AutoresearchRunApi[] =>
                 runs.filter((r) => r.run_type === 'validation' && r.status === 'completed'),
+        ],
+        scoringCoverage: [
+            (s) => [s.runs, s.pipeline],
+            (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null): ScoringCoverage | null =>
+                scoringCoverage(runs, pipeline?.cadence_days ?? 1),
         ],
         onlinePerformanceRows: [
             (s) => [s.validationRuns],
@@ -958,7 +1216,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         loadDetail: () => {
             actions.loadPipeline()
             actions.loadModels()
@@ -985,6 +1243,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             // The prediction-event queries are only worth running once the pipeline has ever scored.
             if (pipeline?.last_scored_at && !values.probabilityDistribution && !values.probabilityDistributionLoading) {
                 actions.loadProbabilityDistribution()
+            }
+            if (pipeline?.last_scored_at && !values.predictionSegments && !values.predictionSegmentsLoading) {
+                actions.loadPredictionSegments()
             }
             if (pipeline?.last_scored_at && !values.dailyVolume && !values.dailyVolumeLoading) {
                 actions.loadDailyVolume()
@@ -1017,17 +1278,82 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             lemonToast.error('Could not resume the model')
         },
         scoreNowSuccess: ({ scoreResult }) => {
-            posthog.capture('autoresearch model scored', { pipeline_id: props.id })
+            if (!scoreResult) {
+                return
+            }
+            posthog.capture('autoresearch model score started', { pipeline_id: props.id, run_id: scoreResult.id })
+            if (scoreResult.status === 'running') {
+                lemonToast.info('Scoring started. Predictions update when it finishes.')
+                actions.startScorePolling()
+            } else {
+                actions.scoreRunFinished(scoreResult)
+            }
+        },
+        scoreNowFailure: ({ error }) => {
+            posthog.capture('autoresearch model action failed', { action: 'score', pipeline_id: props.id })
+            lemonToast.error(error ? `Could not start scoring. ${error}` : 'Could not start scoring. Try again.')
+        },
+        loadRunsSuccess: () => {
+            // A run started before a reload, or by the daily schedule, is still followed to the end.
+            if (values.activeScoreRun) {
+                actions.startScorePolling()
+            }
+        },
+        startScorePolling: () => {
+            if (cache.disposables.registry.has('scorePoll')) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timer = window.setInterval(() => actions.pollScoreRun(), SCORE_RUN_POLL_INTERVAL_MS)
+                return () => clearInterval(timer)
+            }, 'scorePoll')
+        },
+        pollScoreRun: async () => {
+            const active = values.activeScoreRun
+            if (!values.currentTeamId || !active) {
+                cache.disposables.dispose('scorePoll')
+                return
+            }
+            let run: AutoresearchRunApi
+            try {
+                run = await autoresearchRunsRetrieve(String(values.currentTeamId), props.id, active.id)
+            } catch {
+                // A failed check is retried on the next interval.
+                return
+            }
+            if (isScoreRunInProgress(run)) {
+                return
+            }
+            actions.scoreRunFinished(run)
+        },
+        scoreRunFinished: ({ run }) => {
+            cache.disposables.dispose('scorePoll')
             actions.loadRuns()
             actions.loadPipeline()
-            actions.loadProbabilityDistribution()
-            actions.loadDailyVolume()
-            const scored = scoreResult?.rows_scored
-            lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
-        },
-        scoreNowFailure: () => {
-            posthog.capture('autoresearch model action failed', { action: 'score', pipeline_id: props.id })
-            lemonToast.error('Could not score users. Train a champion model first.')
+            if (run.status === 'completed') {
+                posthog.capture('autoresearch model scored', {
+                    pipeline_id: props.id,
+                    run_id: run.id,
+                    rows_scored: run.rows_scored,
+                })
+                actions.loadProbabilityDistribution()
+                actions.loadPredictionSegments()
+                actions.loadDailyVolume()
+                const scored = run.rows_scored ?? 0
+                lemonToast.success(`Scored ${scored.toLocaleString()} users`)
+            } else {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'score',
+                    stage: 'run',
+                    pipeline_id: props.id,
+                    run_id: run.id,
+                })
+                lemonToast.error(
+                    run.error
+                        ? `Scoring failed. ${run.error}`
+                        : 'Scoring failed. Try again, and contact support if it keeps happening.'
+                )
+            }
         },
         submitSuggestionSuccess: () => {
             posthog.capture('autoresearch model suggestion sent', { pipeline_id: props.id })
@@ -1047,6 +1373,50 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 if (values.reportByRun[runId] === undefined) {
                     actions.loadRunReport({ runId })
                 }
+            }
+        },
+        reportNotebookOpened: ({ runId }) => {
+            posthog.capture('autoresearch model report notebook opened', { pipeline_id: props.id, run_id: runId })
+        },
+        reportPredictionLinkClicked: ({ destination }) => {
+            posthog.capture('autoresearch model prediction link clicked', { pipeline_id: props.id, destination })
+        },
+        setPredictionsPeopleView: ({ view }) => {
+            posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
+        },
+        saveSegmentCohort: async ({ segment }) => {
+            const { pipeline, currentProjectId } = values
+            const definition = PREDICTION_SEGMENTS.find(({ key }) => key === segment)
+            const outputProperty = pipeline?.output_person_property
+            if (!pipeline || !outputProperty || !currentProjectId || !definition) {
+                actions.saveSegmentCohortFinished()
+                return
+            }
+            try {
+                const cohort = await cohortsCreate(String(currentProjectId), {
+                    name: `${pipeline.name}: ${definition.label.toLowerCase()} (${definition.range.toLowerCase()})`,
+                    description: `People whose ${outputProperty} score is ${definition.range.toLowerCase()}. Updates each time the model scores.`,
+                    is_static: false,
+                    filters: predictionSegmentCohortFilters(segment, outputProperty),
+                })
+                posthog.capture('autoresearch model cohort saved', {
+                    pipeline_id: props.id,
+                    segment,
+                    cohort_id: cohort.id,
+                    people: values.predictionSegments?.[segment].people,
+                })
+                lemonToast.success('Cohort saved', {
+                    button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },
+                })
+            } catch {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'save_cohort',
+                    pipeline_id: props.id,
+                    segment,
+                })
+                lemonToast.error("Couldn't save the cohort. Try again.")
+            } finally {
+                actions.saveSegmentCohortFinished()
             }
         },
     })),

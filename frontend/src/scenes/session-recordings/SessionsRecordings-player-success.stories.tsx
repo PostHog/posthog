@@ -4,6 +4,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
 import { HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -208,6 +209,10 @@ export default meta
 type Story = StoryObj<{}>
 export const RecentRecordings: Story = {
     parameters: { pageUrl: sceneUrl(urls.replay()) },
+}
+
+export const RecentRecordingsConsolidatedControls: Story = {
+    parameters: { pageUrl: sceneUrl(urls.replay()), featureFlags: [FEATURE_FLAGS.REPLAY_CONSOLIDATED_CONTROLS] },
 }
 
 export const RecordingsPlayListNoPinnedRecordings: Story = {

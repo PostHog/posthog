@@ -956,7 +956,7 @@ class PullRequestListItem:
 class PullRequestList:
     """A page of the PR list plus an explicit truncation signal. ``items`` is capped
     at ``limit`` (newest first); ``truncated`` is True when more pull requests match
-    than the cap. Surfaced so a consumer never mistakes a capped page for the whole
+    after this page. Surfaced so a consumer never mistakes a capped page for the whole
     set — the aggregate counts in ``CICardSummary`` can legitimately exceed
     ``len(items)`` when ``truncated`` is True.
     """

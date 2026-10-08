@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product error_tracking
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product error_tracking
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Error tracking
 feature: error_tracking
 url_prefix: /error_tracking
@@ -20,24 +18,6 @@ ui_apps:
         detail_args: '{ issueId: item.id }'
         click_prop: onIssueClick
 tools:
-    error-tracking-alerts-create:
-        operation: error_tracking_alerts_create
-        enabled: false
-    error-tracking-alerts-destroy:
-        operation: error_tracking_alerts_destroy
-        enabled: false
-    error-tracking-alerts-list:
-        operation: error_tracking_alerts_list
-        enabled: false
-    error-tracking-alerts-partial-update:
-        operation: error_tracking_alerts_partial_update
-        enabled: false
-    error-tracking-alerts-retrieve:
-        operation: error_tracking_alerts_retrieve
-        enabled: false
-    error-tracking-alerts-update:
-        operation: error_tracking_alerts_update
-        enabled: false
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: true
@@ -51,9 +31,6 @@ tools:
         description: >
             Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors
             and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.
-    error-tracking-assignment-rules-destroy:
-        operation: error_tracking_assignment_rules_destroy
-        enabled: false
     error-tracking-assignment-rules-list:
         operation: error_tracking_assignment_rules_list
         enabled: true
@@ -67,18 +44,6 @@ tools:
         description: >
             List error tracking assignment rules for the current project. Returns rules in evaluation order with their
             filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
-    error-tracking-assignment-rules-partial-update:
-        operation: error_tracking_assignment_rules_partial_update
-        enabled: false
-    error-tracking-assignment-rules-reorder-partial-update:
-        operation: error_tracking_assignment_rules_reorder_partial_update
-        enabled: false
-    error-tracking-assignment-rules-retrieve:
-        operation: error_tracking_assignment_rules_retrieve
-        enabled: false
-    error-tracking-assignment-rules-update:
-        operation: error_tracking_assignment_rules_update
-        enabled: false
     error-tracking-bypass-rules-create:
         operation: error_tracking_bypass_rules_create
         enabled: true
@@ -96,9 +61,6 @@ tools:
             via error-tracking-settings-update instead. Keep filters scoped to the specific errors that must never be
             dropped: bypassed events are ingested and billed even during error spikes, so a broad rule can cause
             unbounded volume.
-    error-tracking-bypass-rules-destroy:
-        operation: error_tracking_bypass_rules_destroy
-        enabled: false
     error-tracking-bypass-rules-list:
         operation: error_tracking_bypass_rules_list
         enabled: true
@@ -113,15 +75,6 @@ tools:
             List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide
             and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled
             state. Supports pagination with `limit` and `offset`.
-    error-tracking-bypass-rules-partial-update:
-        operation: error_tracking_bypass_rules_partial_update
-        enabled: false
-    error-tracking-bypass-rules-reorder-partial-update:
-        operation: error_tracking_bypass_rules_reorder_partial_update
-        enabled: false
-    error-tracking-bypass-rules-retrieve:
-        operation: error_tracking_bypass_rules_retrieve
-        enabled: false
     error-tracking-bypass-rules-update:
         operation: error_tracking_bypass_rules_update
         enabled: true
@@ -157,43 +110,11 @@ tools:
             GitHub config {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace and reproduction
             details"}; GitLab config {"title":"Checkout TypeError","body":"Stack trace and reproduction details"}.
             Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body};
-            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list
-            first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
+            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Every kind also accepts
+            an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use
+            integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
             integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
             IDs.
-    error-tracking-external-references-destroy:
-        operation: error_tracking_external_references_destroy
-        enabled: false
-    error-tracking-external-references-link-issue-create:
-        operation: error_tracking_external_references_link_issue_create
-        enabled: false
-    error-tracking-external-references-list:
-        operation: error_tracking_external_references_list
-        enabled: false
-    error-tracking-external-references-retrieve:
-        operation: error_tracking_external_references_retrieve
-        enabled: false
-    error-tracking-external-references-search-issues-retrieve:
-        operation: error_tracking_external_references_search_issues_retrieve
-        enabled: false
-    error-tracking-fingerprints-destroy:
-        operation: error_tracking_fingerprints_destroy
-        enabled: false
-    error-tracking-fingerprints-list:
-        operation: error_tracking_fingerprints_list
-        enabled: false
-    error-tracking-fingerprints-resolve-retrieve:
-        operation: error_tracking_fingerprints_resolve_retrieve
-        enabled: false
-    error-tracking-fingerprints-retrieve:
-        operation: error_tracking_fingerprints_retrieve
-        enabled: false
-    error-tracking-git-provider-file-links-resolve-github-retrieve:
-        operation: error_tracking_git_provider_file_links_resolve_github_retrieve
-        enabled: false
-    error-tracking-git-provider-file-links-resolve-gitlab-retrieve:
-        operation: error_tracking_git_provider_file_links_resolve_gitlab_retrieve
-        enabled: false
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: true
@@ -207,9 +128,6 @@ tools:
         description: >
             Create an error tracking grouping rule for the current project. Provide required `filters`, and optionally
             set `assignee` and `description` for the issues this rule creates.
-    error-tracking-grouping-rules-destroy:
-        operation: error_tracking_grouping_rules_destroy
-        enabled: false
     error-tracking-grouping-rules-list:
         operation: error_tracking_grouping_rules_list
         enabled: true
@@ -223,15 +141,6 @@ tools:
         description: >
             List error tracking grouping rules for the current project. Returns rules in evaluation order with their
             filters, optional assignee, description, and linked issue when available.
-    error-tracking-grouping-rules-partial-update:
-        operation: error_tracking_grouping_rules_partial_update
-        enabled: false
-    error-tracking-grouping-rules-reorder-partial-update:
-        operation: error_tracking_grouping_rules_reorder_partial_update
-        enabled: false
-    error-tracking-grouping-rules-retrieve:
-        operation: error_tracking_grouping_rules_retrieve
-        enabled: false
     error-tracking-grouping-rules-update:
         operation: error_tracking_grouping_rules_update
         enabled: true
@@ -245,12 +154,6 @@ tools:
         description: >
             Update an error tracking grouping rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing
             the rule also clears any auto-disable state so the rule is re-enabled.
-    error-tracking-issues-activity-retrieve:
-        operation: error_tracking_issues_activity_retrieve
-        enabled: false
-    error-tracking-issues-all-activity-retrieve:
-        operation: error_tracking_issues_all_activity_retrieve
-        enabled: false
     error-tracking-issues-assign-partial-update:
         operation: error_tracking_issues_assign_partial_update
         enabled: true
@@ -265,21 +168,10 @@ tools:
             Assign an error tracking issue to an organization member or role. Provide the issue ID as `id` and set
             `assignee` to a user with a numeric ID or a role with a UUID. Set `assignee` to null to remove the current
             assignment.
-    error-tracking-issues-bulk-create:
-        operation: error_tracking_issues_bulk_create
-        enabled: false
-    error-tracking-issues-cohort-update:
-        operation: error_tracking_issues_cohort_update
-        enabled: false
-    error-tracking-issues-destroy:
-        operation: error_tracking_issues_destroy
-        enabled: false
-    error-tracking-issues-exists-retrieve:
-        operation: error_tracking_issues_exists_retrieve
-        enabled: false
     error-tracking-issues-list:
         operation: error_tracking_issues_list
         enabled: false
+        disabled_reason: Superseded by query-error-tracking-issues-list
         scopes:
             - error_tracking:read
         annotations:
@@ -331,6 +223,7 @@ tools:
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
         enabled: false
+        disabled_reason: Superseded by query-error-tracking-issue
         scopes:
             - error_tracking:read
         annotations:
@@ -358,15 +251,6 @@ tools:
             Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
             issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
             `fingerprint` and optional `name` or `description`.
-    error-tracking-issues-update:
-        operation: error_tracking_issues_update
-        enabled: false
-    error-tracking-issues-values-retrieve:
-        operation: error_tracking_issues_values_retrieve
-        enabled: false
-    error-tracking-recommendations-dismiss-create:
-        operation: error_tracking_recommendations_dismiss_create
-        enabled: false
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true
@@ -379,33 +263,6 @@ tools:
         title: List error tracking recommendations
         description_file: ./prompts/error-tracking-recommendations-list.md
         system_prompt_hint: Error tracking setup recommendations and how to act on each (error-tracking category)
-    error-tracking-recommendations-refresh-create:
-        operation: error_tracking_recommendations_refresh_create
-        enabled: false
-    error-tracking-recommendations-restore-create:
-        operation: error_tracking_recommendations_restore_create
-        enabled: false
-    error-tracking-releases-create:
-        operation: error_tracking_releases_create
-        enabled: false
-    error-tracking-releases-destroy:
-        operation: error_tracking_releases_destroy
-        enabled: false
-    error-tracking-releases-hash-retrieve:
-        operation: error_tracking_releases_hash_retrieve
-        enabled: false
-    error-tracking-releases-list:
-        operation: error_tracking_releases_list
-        enabled: false
-    error-tracking-releases-partial-update:
-        operation: error_tracking_releases_partial_update
-        enabled: false
-    error-tracking-releases-retrieve:
-        operation: error_tracking_releases_retrieve
-        enabled: false
-    error-tracking-releases-update:
-        operation: error_tracking_releases_update
-        enabled: false
     error-tracking-settings-get:
         operation: error_tracking_settings_retrieve_settings_retrieve
         enabled: true
@@ -454,9 +311,6 @@ tools:
             assign when a newly created issue first matches this rule. Supported severities are `low`, `medium`, `high`,
             and `critical`. Use `order_key` to set the evaluation priority. Lower values run first, and only the first
             matching rule applies. Rules do not change existing issues.
-    error-tracking-severity-rules-destroy:
-        operation: error_tracking_severity_rules_destroy
-        enabled: false
     error-tracking-severity-rules-list:
         operation: error_tracking_severity_rules_list
         enabled: true
@@ -471,15 +325,6 @@ tools:
             List error tracking severity rules for the current project. Returns rules in evaluation order with their
             filters, assigned severity, order key, and disabled state. Read the existing rules before creating or
             updating one because only the first matching rule applies.
-    error-tracking-severity-rules-partial-update:
-        operation: error_tracking_severity_rules_partial_update
-        enabled: false
-    error-tracking-severity-rules-reorder-partial-update:
-        operation: error_tracking_severity_rules_reorder_partial_update
-        enabled: false
-    error-tracking-severity-rules-retrieve:
-        operation: error_tracking_severity_rules_retrieve
-        enabled: false
     error-tracking-severity-rules-update:
         operation: error_tracking_severity_rules_update
         enabled: true
@@ -495,27 +340,6 @@ tools:
             their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters
             recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the
             update.
-    error-tracking-spike-detection-config-list:
-        operation: error_tracking_spike_detection_config_list
-        enabled: false
-    error-tracking-spike-detection-config-update-config-partial-update:
-        operation: error_tracking_spike_detection_config_update_config_partial_update
-        enabled: false
-    error-tracking-spike-events-list:
-        operation: error_tracking_spike_events_list
-        enabled: false
-    error-tracking-stack-frames-batch-get-create:
-        operation: error_tracking_stack_frames_batch_get_create
-        enabled: false
-    error-tracking-stack-frames-destroy:
-        operation: error_tracking_stack_frames_destroy
-        enabled: false
-    error-tracking-stack-frames-list:
-        operation: error_tracking_stack_frames_list
-        enabled: false
-    error-tracking-stack-frames-retrieve:
-        operation: error_tracking_stack_frames_retrieve
-        enabled: false
     error-tracking-suppression-rules-create:
         operation: error_tracking_suppression_rules_create
         enabled: true
@@ -534,9 +358,6 @@ tools:
             cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a
             fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user
             before creating any rule that could match more than one distinct error.
-    error-tracking-suppression-rules-destroy:
-        operation: error_tracking_suppression_rules_destroy
-        enabled: false
     error-tracking-suppression-rules-list:
         operation: error_tracking_suppression_rules_list
         enabled: true
@@ -550,15 +371,6 @@ tools:
         description: >
             List error tracking suppression rules for the current project. Returns rules in evaluation order with their
             filters, sampling rate, and disabled state. Supports pagination with `limit` and `offset`.
-    error-tracking-suppression-rules-partial-update:
-        operation: error_tracking_suppression_rules_partial_update
-        enabled: false
-    error-tracking-suppression-rules-reorder-partial-update:
-        operation: error_tracking_suppression_rules_reorder_partial_update
-        enabled: false
-    error-tracking-suppression-rules-retrieve:
-        operation: error_tracking_suppression_rules_retrieve
-        enabled: false
     error-tracking-suppression-rules-update:
         operation: error_tracking_suppression_rules_update
         enabled: true
@@ -576,21 +388,6 @@ tools:
             tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over
             widening the match. Confirm with the user before changing a rule's filters in a way that could match more
             than one distinct error.
-    error-tracking-symbol-sets-bulk-check-upload-create:
-        operation: error_tracking_symbol_sets_bulk_check_upload_create
-        enabled: false
-    error-tracking-symbol-sets-bulk-delete-create:
-        operation: error_tracking_symbol_sets_bulk_delete_create
-        enabled: false
-    error-tracking-symbol-sets-bulk-finish-upload-create:
-        operation: error_tracking_symbol_sets_bulk_finish_upload_create
-        enabled: false
-    error-tracking-symbol-sets-bulk-start-upload-create:
-        operation: error_tracking_symbol_sets_bulk_start_upload_create
-        enabled: false
-    error-tracking-symbol-sets-destroy:
-        operation: error_tracking_symbol_sets_destroy
-        enabled: false
     error-tracking-symbol-sets-download-retrieve:
         operation: error_tracking_symbol_sets_download_retrieve
         enabled: true
@@ -605,9 +402,6 @@ tools:
             Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it
             immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set
             reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.
-    error-tracking-symbol-sets-finish-upload-update:
-        operation: error_tracking_symbol_sets_finish_upload_update
-        enabled: false
     error-tracking-symbol-sets-list:
         operation: error_tracking_symbol_sets_list
         enabled: true
@@ -710,3 +504,14 @@ tools:
                 - source
                 - assignee
                 - aggregations
+            text_include:
+                - id
+                - name
+                - status
+                - severity
+                - first_seen
+                - last_seen
+                - aggregations.occurrences
+                - aggregations.users
+                - aggregations.sessions
+                - _posthogUrl

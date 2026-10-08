@@ -19,7 +19,7 @@ import type {
     IntegrationConfigApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 
-import { integrationsLogic } from './integrationsLogic'
+import { integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
 
 const githubIntegration = (overrides: Partial<IntegrationType> = {}): IntegrationType =>
     ({
@@ -355,6 +355,29 @@ describe('integrationsLogic', () => {
             logic.actions.stopPolling()
             expect(logic.cache.disposables.registry.has('poll')).toBe(false)
             expect(discoveryRequest).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('reconnectReturnUrl', () => {
+        it.each([
+            [
+                '/project/1/data-warehouse/new-source',
+                '?kind=googlesearchconsole',
+                '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
+            ],
+            [
+                '/project/1/data-warehouse/new-source',
+                '?kind=googlesearchconsole&integration_id=5&integration_error=access_denied',
+                '/project/1/data-warehouse/new-source?kind=googlesearchconsole',
+            ],
+            [
+                '/project/1/data-warehouse/connect',
+                '?kind=GoogleAds',
+                '/project/1/data-warehouse/connect?kind=GoogleAds',
+            ],
+            ['/project/1/data-warehouse/sources/abc', '', '/project/1/data-warehouse/sources/abc'],
+        ])('returns a reconnect from %s%s to the same wizard step', (pathname, search, expected) => {
+            expect(reconnectReturnUrl(pathname, search)).toEqual(expected)
         })
     })
 

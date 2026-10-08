@@ -2,8 +2,9 @@ import { useValues } from 'kea'
 import { ChangeEvent, useState } from 'react'
 
 import { IconStar } from '@posthog/icons'
-import { DropdownMenuRadioGroup, DropdownMenuRadioItem, Input, Text } from '@posthog/quill'
+import { DropdownMenuRadioGroup, DropdownMenuRadioItem, Input, ItemRadio, Text } from '@posthog/quill'
 
+import { useTodaySheetMenu } from './todaySheetMenuContext'
 import { fileToSpaces, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 
 /** Desktop's "File to…" list gets a fixed height past this many spaces; the web adds its search there. */
@@ -26,6 +27,7 @@ export function TodaySpaceFileList({
 }: TodaySpaceFileListProps): JSX.Element {
     const { spaces } = useValues(todaySpacesLogic)
     const [search, setSearch] = useState('')
+    const sheet = useTodaySheetMenu()
     const targets = fileToSpaces(spaces, currentSpaceId, search)
 
     return (
@@ -34,7 +36,7 @@ export function TodaySpaceFileList({
                 // Keep typing away from the menu's typeahead; Escape still closes the menu.
                 <div className="p-1" onKeyDown={(event) => event.key !== 'Escape' && event.stopPropagation()}>
                     <Input
-                        autoFocus
+                        autoFocus={!sheet}
                         value={search}
                         onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
                         placeholder="Search spaces…"
@@ -48,16 +50,36 @@ export function TodaySpaceFileList({
                     No spaces match your search
                 </Text>
             )}
-            <DropdownMenuRadioGroup value={currentSpaceId ?? ''} onValueChange={(value: string) => onSelect(value)}>
-                {targets.map((space) => (
-                    <DropdownMenuRadioItem key={space.id} value={space.id} closeOnClick data-attr={itemDataAttr}>
+            {sheet ? (
+                targets.map((space) => (
+                    <ItemRadio
+                        key={space.id}
+                        className="flex-nowrap"
+                        aria-checked={space.id === currentSpaceId}
+                        onClick={() => {
+                            onSelect(space.id)
+                            sheet.close()
+                        }}
+                        data-attr={itemDataAttr}
+                    >
                         <span className="truncate">{spaceLabel(space)}</span>
                         {space.starred && space.system_role !== 'personal' && (
-                            <IconStar className="ml-auto text-muted-foreground" />
+                            <IconStar className="shrink-0 text-muted-foreground" />
                         )}
-                    </DropdownMenuRadioItem>
-                ))}
-            </DropdownMenuRadioGroup>
+                    </ItemRadio>
+                ))
+            ) : (
+                <DropdownMenuRadioGroup value={currentSpaceId ?? ''} onValueChange={(value: string) => onSelect(value)}>
+                    {targets.map((space) => (
+                        <DropdownMenuRadioItem key={space.id} value={space.id} closeOnClick data-attr={itemDataAttr}>
+                            <span className="truncate">{spaceLabel(space)}</span>
+                            {space.starred && space.system_role !== 'personal' && (
+                                <IconStar className="ml-auto text-muted-foreground" />
+                            )}
+                        </DropdownMenuRadioItem>
+                    ))}
+                </DropdownMenuRadioGroup>
+            )}
         </>
     )
 }

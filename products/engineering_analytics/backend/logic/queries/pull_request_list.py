@@ -5,6 +5,11 @@ finished work; open PRs are always included regardless of age). Ordered newest
 first, capped at ``_LIMIT``. The query fetches ``_LIMIT + 1`` rows so an overflow is
 detectable, and the result reports ``truncated`` rather than silently dropping the
 tail (the aggregate counts in ``ci_cards`` can then legitimately exceed the list).
+
+A ``state`` narrows the list to one state and orders it by that state's own timestamp
+(``merged_at`` for merged, ``closed_at`` for closed), so the cap covers only those rows.
+Every ordering ends on the PR key, so ``limit`` / ``offset`` pages never skip or repeat
+a row when two PRs share a timestamp.
 """
 
 from datetime import datetime
@@ -39,19 +44,36 @@ _ATTENTION_LIMIT = 15
 _PUSH_HISTORY_LIMIT = 20
 
 
-def _visible_prs_where(prefix: str, author: str | None) -> str:
+def _visible_prs_where(prefix: str, author: str | None, state: PRState | None, has_date_to: bool) -> str:
     """The list's row predicate, buildable against the ``pr`` alias (outer WHERE) or
     unqualified curated PR columns (the runs-rollup scope) — one definition so the
     rollup scope can never drift narrower than the rows it must serve."""
+
+    def in_window(column: str) -> str:
+        upper = f" AND {prefix}{column} < {{date_to}}" if has_date_to else ""
+        return f"({prefix}{column} >= {{date_from}}{upper})"
+
     author_clause = f"AND {prefix}author_handle = {{author}}" if author else ""
-    return f"""(
-            {prefix}state = 'open'
-            OR {prefix}merged_at >= {{date_from}}
-            OR {prefix}closed_at >= {{date_from}}
-        ) {author_clause}"""
+    if state == PRState.OPEN:
+        state_clause = f"{prefix}state = 'open'"
+    elif state == PRState.MERGED:
+        state_clause = f"{prefix}state = 'merged' AND {in_window('merged_at')}"
+    elif state == PRState.CLOSED:
+        state_clause = f"{prefix}state = 'closed' AND {in_window('closed_at')}"
+    else:
+        state_clause = f"{prefix}state = 'open' OR {in_window('merged_at')} OR {in_window('closed_at')}"
+    return f"({state_clause}) {author_clause}"
 
 
-_SELECT = f"""
+_ORDER_COLUMN_BY_STATE = {PRState.MERGED: "merged_at", PRState.CLOSED: "closed_at"}
+
+
+def _order_by(state: PRState | None) -> str:
+    timestamp = _ORDER_COLUMN_BY_STATE.get(state, "created_at") if state else "created_at"
+    return f"pr.{timestamp} DESC, pr.number DESC, pr.repo_owner, pr.repo_name"
+
+
+_SELECT = """
     SELECT
         pr.number, pr.title, pr.repo_owner, pr.repo_name,
         pr.author_handle, pr.author_avatar_url, pr.is_bot,
@@ -71,7 +93,7 @@ _SELECT = f"""
     __READY_JOIN__
     WHERE __ROWS__
     ORDER BY __ORDER_BY__
-    LIMIT __LIMIT__
+    LIMIT __LIMIT__ OFFSET __OFFSET__
 """
 
 
@@ -189,6 +211,7 @@ def _query_rows(
     rows_where: str,
     order_by: str,
     limit: int,
+    offset: int = 0,
     query_type: str,
     placeholders: dict[str, ast.Expr],
     ready: ReadyToMergeSql,
@@ -203,6 +226,7 @@ def _query_rows(
         .replace("__ROWS__", rows_where)
         .replace("__ORDER_BY__", order_by)
         .replace("__LIMIT__", str(limit))
+        .replace("__OFFSET__", str(offset))
     )
     response = curated.run(
         curated.pr_rollup_query(select, pr_scope_where=scope_where, ready=ready),
@@ -224,23 +248,39 @@ def _enrich(*, curated: CuratedGitHubSource, rows: list[tuple]) -> list[PullRequ
 
 
 def query_pull_request_list(
-    *, curated: CuratedGitHubSource, date_from: datetime, author: str | None = None
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None = None,
+    author: str | None = None,
+    state: PRState | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> PullRequestList:
+    page_size = _LIMIT if limit is None else limit
+    if not 1 <= page_size <= _LIMIT:
+        raise ValueError(f"limit must be between 1 and {_LIMIT}")
+    if offset < 0:
+        raise ValueError("offset must be zero or greater")
+
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
     if author:
         placeholders["author"] = ast.Constant(value=author)
     rows = _query_rows(
         curated=curated,
-        scope_where=_visible_prs_where("", author),
-        rows_where=_visible_prs_where("pr.", author),
-        order_by="pr.created_at DESC",
-        limit=_LIMIT + 1,
+        scope_where=_visible_prs_where("", author, state, date_to is not None),
+        rows_where=_visible_prs_where("pr.", author, state, date_to is not None),
+        order_by=_order_by(state),
+        limit=page_size + 1,
+        offset=offset,
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
         ready=curated.ready_to_merge_sql(),
     )
     return PullRequestList(
-        items=_enrich(curated=curated, rows=rows[:_LIMIT]), truncated=len(rows) > _LIMIT, limit=_LIMIT
+        items=_enrich(curated=curated, rows=rows[:page_size]), truncated=len(rows) > page_size, limit=page_size
     )
 
 

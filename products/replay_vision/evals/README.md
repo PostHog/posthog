@@ -1,7 +1,7 @@
 # Replay Vision golden-dataset evals
 
 Test scanner prompt changes against a fixed set of real, already-observed sessions instead of shipping and watching production.
-The suite re-runs the exact production scan pipeline (`run_scan`: same Jinja templates, response schemas, events tool) over collected videos, then scores the fresh output against the recorded output and its human thumbs label.
+The suite re-runs the exact production scan pipeline (`run_scan`: same Jinja templates, response schemas, lookup round) over collected videos, then scores the fresh output against the recorded output and its human thumbs label.
 
 ## The loop
 
@@ -40,20 +40,16 @@ hogli evals eval_scanner_quality
 `BRAINTRUST_API_KEY` is required by the harness engine even though this private suite only logs locally.
 Without `REPLAY_VISION_EVAL_DATASET` the suite logs a warning and runs nothing, so it never breaks a full `hogli evals` run.
 Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substring>` for one case.
-Set `REPLAY_VISION_EVAL_VERIFY_POSITIVES=shadow` or `=enforce` to run monitor cases with verify-positives on.
-Only a first-pass `yes` is verified, so a case that answers `no` keeps `verification: null`, and a `yes` whose second draw cannot run (`no_cache`, `no_budget`, `draw_failed`) keeps the first verdict and records that reason.
-Both modes record the draw, but only `enforce` serves it, so `labeled_outcome` from a shadow run matches a run with the feature off.
-Compare `labeled_outcome` on the thumbs-downed `yes` cases against a run without it to see what the extra draws buy.
 
 ## Scorers
 
-| Scorer              | Applies to                               | Meaning                                                                                                    |
-| ------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `scan_completed`    | all cases                                | The scan produced schema-valid, semantically-valid output.                                                 |
-| `labeled_outcome`   | labeled monitor/classifier               | kept/fixed = 1, regressed/still_wrong = 0 (same semantics as the in-product prompt-suggestion evaluation). |
-| `output_stability`  | unlabeled monitor/classifier             | Fresh outcome matches the recorded baseline; measures churn, not correctness.                              |
-| `score_alignment`   | scorer (reference not thumbs-downed)     | 1 minus the scale-normalized distance from the recorded score.                                             |
-| `summary_alignment` | summarizer (reference not thumbs-downed) | LLM judge: does the fresh summary tell the same story as the recorded one?                                 |
+| Scorer              | Applies to                               | Meaning                                                                       |
+| ------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `scan_completed`    | all cases                                | The scan produced schema-valid, semantically-valid output.                    |
+| `labeled_outcome`   | labeled monitor/classifier               | kept/fixed = 1, regressed/still_wrong = 0                                     |
+| `output_stability`  | unlabeled monitor/classifier             | Fresh outcome matches the recorded baseline; measures churn, not correctness. |
+| `score_alignment`   | scorer (reference not thumbs-downed)     | 1 minus the scale-normalized distance from the recorded score.                |
+| `summary_alignment` | summarizer (reference not thumbs-downed) | LLM judge: does the fresh summary tell the same story as the recorded one?    |
 
 `output_stability` and `labeled_outcome` deliberately pull in opposite directions, so read them as a pair: a prompt change that only adds churn shows up as `labeled_outcome` flat or up while `output_stability` drops.
 

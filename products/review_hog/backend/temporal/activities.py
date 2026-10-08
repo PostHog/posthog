@@ -9,7 +9,7 @@ respected and the sandbox fan-out stays by-reference.
 
 Sandbox-turn activities (chunk / review / dedup) call `run_sandbox_review`, which spins a single-turn
 agent (minutes); `validate_chunk_activity` instead drives one warm multi-turn session per chunk. Both
-take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `Heartbeater()`. ORM
+take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `ReviewActivityHeartbeater`. ORM
 access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@scoped_temporal()` +
 `@close_db_connections` mirror the Signals report activities.
 """
@@ -19,6 +19,7 @@ import datetime
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from uuid import NAMESPACE_URL, uuid5
 
 import posthoganalytics
 from temporalio import activity
@@ -29,7 +30,6 @@ from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -50,6 +50,7 @@ from products.review_hog.backend.reviewer.constants import (
     review_arm_for_mode,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
@@ -85,6 +86,7 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_deduplicated_findings,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
 from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import (
@@ -138,6 +140,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_deterministic_chunks,
     reconcile_chunks,
 )
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
@@ -211,6 +214,8 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
+    # None means no automatic review has run on the PR, so the push gate stays off for this turn.
+    automatic_reviewed_head_sha: str | None = None
 
 
 @dataclass
@@ -445,6 +450,20 @@ class TrackReviewCompletedInput:
     # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    marker: ReviewHogMarker | None = None
+
+
+@frozen
+class RecordTurnMarkerInput:
+    """The turn whose version marker to compute and persist."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    acting_user_id: int
+    review_mode: str
+    flash_reasoning_effort: str
 
 
 @frozen
@@ -470,6 +489,19 @@ class TrackReviewFailedInput:
     turn_trigger_source: str | None = None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+
+
+@frozen
+class GatePushInput:
+    """An automatic follow-up turn for the push gate to judge."""
+
+    team_id: int
+    report_id: str
+    repository: str
+    previous_head_sha: str
+    head_sha: str
+    run_index: int
+    review_mode: str
 
 
 @dataclass(frozen=False)
@@ -669,6 +701,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         empty_diff=pr_number is None and not pr_files,
         already_completed=already_completed,
         pr_open=pr_metadata.state == "open",
+        automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
     )
 
 
@@ -821,6 +854,34 @@ async def generate_schemas_activity(input: GenerateSchemasInput) -> None:
         logger.exception("Schema generation failed; using the committed schemas")
 
 
+def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | None:
+    try:
+        return record_turn_marker(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            head_sha=input.head_sha,
+            run_index=input.run_index,
+            acting_user_id=input.acting_user_id,
+            review_mode=input.review_mode,
+            flash_reasoning_effort=input.flash_reasoning_effort,
+        )
+    except Exception:
+        logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
+        return None
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def record_turn_marker_activity(input: RecordTurnMarkerInput) -> ReviewHogMarker | None:
+    """Record the turn's ReviewHog version and input fingerprint as a `turn_marker` artefact.
+
+    Runs after the skill sync, so the fingerprint hashes the skill versions the stages then pin.
+    Returns the marker for the completed event and the status comment footer. Best-effort.
+    """
+    return await database_sync_to_async(_record_turn_marker_safe, thread_sensitive=False)(input)
+
+
 # --- Chunking --------------------------------------------------------------------------------------
 
 
@@ -860,7 +921,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     # shot keeps the agentic sandbox, which can navigate the repo instead of holding it all at once.
     additions = count_reviewable_additions(snapshot.pr_files)
     use_oneshot = bool(CHUNKING_ONESHOT_MAX_ADDITIONS) and additions <= CHUNKING_ONESHOT_MAX_ADDITIONS
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if use_oneshot:
             chunks = await run_oneshot_review(
                 team_id=input.team_id,
@@ -944,7 +1005,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
     if not chunks.chunks:
         return None
     prompt = generate_selection_prompt(snapshot.pr_metadata, chunks.chunks, snapshot.pr_files, input.perspectives)
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         raw = await run_oneshot_review(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1062,7 +1123,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         review = await run_sandbox_review(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1138,7 +1199,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         survivors = await deduplicate_issues(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1232,7 +1293,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     session: MultiTurnSession | None = None
     chunk_ok = False
     try:
-        async with Heartbeater():
+        async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
             for issue in pending:
                 issue_files = [f for f in pr_files if f.filename == issue.file]
                 try:
@@ -1495,6 +1556,66 @@ async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
     await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
+def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    posthoganalytics.capture(
+        distinct_id=_review_event_identity(report),
+        event="reviewhog_push_gate_decided",
+        # Keyed by head, not run_index: a skipped turn keeps the next turn's run_index, so two skipped
+        # pushes in a row share one.
+        uuid=str(
+            uuid5(NAMESPACE_URL, f"reviewhog_push_gate_decided:{input.report_id}:{input.head_sha}:{input.review_mode}")
+        ),
+        properties={
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=TRIGGER_AUTOMATIC),
+            "review_mode": input.review_mode,
+            "head_sha": input.head_sha,
+            "previous_head_sha": input.previous_head_sha,
+            "skipped": decision.skip,
+            "would_skip": decision.would_skip,
+            "reason": decision.reason,
+            "system_one_probability": decision.probability,
+            "system_one_model": decision.model,
+            "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
+            "own_commits": decision.own_commits,
+        },
+        groups=groups(team=report.team),
+    )
+
+
+def _gate_push(input: GatePushInput) -> PushGateDecision:
+    current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    if current is None:
+        decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
+    else:
+        token, installation_id = _installation_auth(input.team_id, input.repository)
+        decision = PushGate(
+            team_id=input.team_id, repository=input.repository, token=token, installation_id=installation_id
+        ).decide(
+            previous_head_sha=input.previous_head_sha,
+            head_sha=input.head_sha,
+            base_branch=current.pr_metadata.base_branch,
+        )
+    if decision.skip:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    try:
+        _track_push_gate_decided(input, decision)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_push_gate_decided for report %s; continuing", input.report_id)
+    return decision
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def gate_push_activity(input: GatePushInput) -> PushGateDecision:
+    """Decide whether an automatic follow-up turn reviews this push (see `reviewer/push_gate.py`).
+
+    A skip returns the report to rest, because the turn ends before any stage that would.
+    """
+    return await database_sync_to_async(_gate_push, thread_sensitive=False)(input)
+
+
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
@@ -1534,6 +1655,9 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             ),
             **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
+            # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
+            "reviewhog_version": input.marker.version if input.marker is not None else None,
+            "reviewhog_fingerprint": input.marker.fingerprint if input.marker is not None else None,
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

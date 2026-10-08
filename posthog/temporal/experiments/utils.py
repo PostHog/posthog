@@ -24,8 +24,7 @@ def recalculation_hour_filter(hour: int) -> Q:
     The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse
     relation. experiment_recalculation_times holds "HH:00:00" strings, so hour membership
     is a jsonb containment check. A null list or a missing config row means the default
-    hour; the deprecated experiment_recalculation_time column is not consulted, because
-    the API keeps the list in sync with it on every write.
+    hour.
     """
     match = Q(team__teamexperimentsconfig__experiment_recalculation_times__contains=[f"{hour:02d}:00:00"])
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:

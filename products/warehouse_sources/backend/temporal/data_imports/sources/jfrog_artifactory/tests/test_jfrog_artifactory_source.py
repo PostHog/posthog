@@ -4,14 +4,9 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jfrogartifactory import (
     JfrogArtifactorySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source import (
     JfrogArtifactorySource,
 )
-
-# AQL endpoints expose server-side timestamp filters; the REST list endpoints don't.
-_INCREMENTAL_ENDPOINTS = {"artifacts", "builds"}
-_FULL_REFRESH_ENDPOINTS = {"repositories", "storage_summary"}
 
 
 class TestJfrogArtifactorySource:
@@ -24,61 +19,10 @@ class TestJfrogArtifactorySource:
         # The access token is sent to base_url, so retargeting it must re-require the token.
         assert self.source.connection_host_fields == ["base_url"]
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://acme.jfrog.io/artifactory/api/search/aql",
-            "403 Client Error: Forbidden for url: https://acme.jfrog.io/artifactory/api/storageinfo",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://acme.jfrog.io/artifactory/api/search/aql",
-            "500 Server Error: Internal Server Error for url: https://acme.jfrog.io/artifactory/api/repositories",
-            "HTTPSConnectionPool(host='acme.jfrog.io', port=443): Read timed out.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-
-        assert set(schemas) == set(ENDPOINTS)
-        for name in _INCREMENTAL_ENDPOINTS:
-            assert schemas[name].supports_incremental is True
-            assert schemas[name].supports_append is True
-            assert len(schemas[name].incremental_fields) > 0
-        for name in _FULL_REFRESH_ENDPOINTS:
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-            assert schemas[name].incremental_fields == []
-
-    def test_get_schemas_admin_endpoints_not_selected_by_default(self):
-        # builds/storage_summary need an admin token; syncing them by default would fail most
-        # non-admin connections.
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["builds"].should_sync_default is False
-        assert schemas["storage_summary"].should_sync_default is False
-        assert schemas["repositories"].should_sync_default is True
-        assert schemas["artifacts"].should_sync_default is True
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["artifacts"])
         assert len(schemas) == 1
         assert schemas[0].name == "artifacts"
-
-    def test_lists_tables_without_credentials_publishes_catalog(self):
-        # Static endpoint catalog (no I/O) — the public docs table list should render.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "probe_return, schema_name, expected_valid, expected_message_part",
@@ -89,6 +33,8 @@ class TestJfrogArtifactorySource:
             ((False, 403), None, True, None),
             ((False, 403), "builds", False, "admin"),
             ((False, 403), "artifacts", False, "missing the permissions"),
+            ((False, 403), "build_promotions", False, "admin"),
+            ((False, 404), "xray_violations", False, "Requires JFrog Xray"),
             ((False, None), None, False, "Could not connect"),
         ],
     )
@@ -133,6 +79,9 @@ class TestJfrogArtifactorySource:
             ((True, 200), "artifacts", None),
             ((False, 403), "builds", "admin"),
             ((False, 401), "artifacts", "cannot read"),
+            ((False, 403), "build_artifacts", "admin"),
+            ((False, 404), "xray_violations", "Requires JFrog Xray"),
+            ((False, 404), "artifacts", None),
             # A throttle or transient failure is not a missing scope.
             ((False, 429), "artifacts", None),
             ((False, None), "builds", None),

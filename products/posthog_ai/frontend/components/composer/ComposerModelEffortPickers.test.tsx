@@ -14,8 +14,8 @@ import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 const CATALOGUE: ModelChoiceApi[] = [
     {
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
-        model: 'claude-sonnet-5',
-        display_name: 'Claude Sonnet 5',
+        model: 'claude-sonnet-5-5',
+        display_name: 'Claude Sonnet 5.5',
         supported_efforts: [ReasoningEffortEnumApi.Low, ReasoningEffortEnumApi.Medium, ReasoningEffortEnumApi.High],
     },
     {
@@ -52,7 +52,7 @@ describe('ComposerModelEffortPickers', () => {
     ])('waits for the default model %s before switching to Codex', async (defaultModel, expectedModel) => {
         const onModelChange = jest.fn()
         const props: React.ComponentProps<typeof ComposerModelEffortPickers> = {
-            selectedModel: 'claude-sonnet-5',
+            selectedModel: 'claude-sonnet-5-5',
             selectedEffort: ReasoningEffortEnumApi.Low,
             defaultModel,
             onModelChange,

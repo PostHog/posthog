@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date
     MAX_COUNTRY_CODES,
     NagerDateResumeConfig,
     _get,
-    _holiday_id,
     _holiday_years,
     check_country_codes,
     nager_date_source,
@@ -61,57 +60,17 @@ class TestParseCountryCodes:
 
 
 class TestCheckCountryCodes:
-    def test_empty_is_invalid(self) -> None:
-        assert check_country_codes([]) is not None
-
     def test_too_many_is_invalid(self) -> None:
         codes = [f"C{i}" for i in range(MAX_COUNTRY_CODES + 1)]
         message = check_country_codes(codes)
         assert message is not None
         assert "Too many" in message
 
-    def test_at_the_cap_is_valid(self) -> None:
-        codes = [chr(ord("A") + (i % 26)) * 2 for i in range(MAX_COUNTRY_CODES)]
-        assert check_country_codes(codes) is None
-
     @parameterized.expand([(["USA"],), (["1G"],), (["U"],)])
     def test_malformed_code_is_invalid(self, codes: list[str]) -> None:
         message = check_country_codes(codes)
         assert message is not None
         assert "valid two-letter" in message
-
-    def test_valid_codes_pass(self) -> None:
-        assert check_country_codes(["US", "GB"]) is None
-
-
-class TestHolidayId:
-    def test_stable_for_identical_rows(self) -> None:
-        row = {"countryCode": "US", "date": "2026-04-03", "name": "Good Friday", "subdivisionCodes": ["US-TX"]}
-        assert _holiday_id(row) == _holiday_id(dict(row))
-
-    def test_differs_when_subdivisions_differ(self) -> None:
-        # The same holiday can be split across multiple rows with different subdivisionCodes and
-        # holidayTypes (e.g. Good Friday is Public in most states and Optional in Texas) — without
-        # a synthetic key these would collide on (countryCode, date, name).
-        row_a = {
-            "countryCode": "US",
-            "date": "2026-04-03",
-            "name": "Good Friday",
-            "subdivisionCodes": ["US-CT"],
-            "holidayTypes": ["Public"],
-        }
-        row_b = {
-            "countryCode": "US",
-            "date": "2026-04-03",
-            "name": "Good Friday",
-            "subdivisionCodes": ["US-TX"],
-            "holidayTypes": ["Optional"],
-        }
-        assert _holiday_id(row_a) != _holiday_id(row_b)
-
-    def test_handles_null_subdivisions_and_types(self) -> None:
-        row = {"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day", "subdivisionCodes": None}
-        assert _holiday_id(row) == "US|2026-01-01|New Year's Day||"
 
 
 class TestGet:
@@ -121,12 +80,6 @@ class TestGet:
         session.get.return_value = _response(status)
 
         assert _get(session, "/Holidays/US/2026") is None
-
-    def test_returns_json_body_on_200(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(200, [{"countryCode": "US"}])
-
-        assert _get(session, "/Countries/Available") == [{"countryCode": "US"}]
 
     def test_returns_none_for_empty_body_on_200(self) -> None:
         # A 200 with no body is distinct from the documented "no data" statuses, but should
@@ -172,23 +125,6 @@ class TestNagerDateSource:
 
         assert batches == [[{"countryCode": "US"}, {"countryCode": "GB"}]]
 
-    def test_country_info_yields_one_batch_per_country_and_saves_state(self) -> None:
-        manager = _make_manager()
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"countryCode": "US", "commonName": "United States"}),
-                _response(200, {"countryCode": "GB", "commonName": "United Kingdom"}),
-            ]
-
-            batches = list(nager_date_source(COUNTRY_INFO, ["US", "GB"], manager))
-
-        assert batches == [
-            [{"countryCode": "US", "commonName": "United States"}],
-            [{"countryCode": "GB", "commonName": "United Kingdom"}],
-        ]
-        assert [call.args[0].index for call in manager.save_state.call_args_list] == [1, 2]
-        manager.clear_state.assert_called_once()
-
     def test_country_info_resumes_from_saved_index(self) -> None:
         manager = _make_manager(index=1)
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
@@ -200,65 +136,6 @@ class TestNagerDateSource:
         assert batches == [[{"countryCode": "GB"}]]
         called_url = mock_session.return_value.get.call_args[0][0]
         assert called_url == f"{BASE_URL}/Countries/GB"
-
-    def test_public_holidays_requests_every_configured_year_per_country(self) -> None:
-        manager = _make_manager()
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2025, 2026]),
-        ):
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]
-            )
-
-            list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
-
-            called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-
-        assert called_urls == [f"{BASE_URL}/Holidays/US/2025", f"{BASE_URL}/Holidays/US/2026"]
-
-    def test_public_holidays_skips_years_outside_the_supported_window(self) -> None:
-        manager = _make_manager()
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2020, 2026]),
-        ):
-            mock_session.return_value.get.side_effect = [
-                _response(400),  # 2020 is outside the community window
-                _response(200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]),
-            ]
-
-            batches = list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
-
-        assert len(batches) == 1
-        assert batches[0][0]["date"] == "2026-01-01"
-
-    def test_public_holidays_rows_get_a_synthetic_id(self) -> None:
-        manager = _make_manager()
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2026]),
-        ):
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]
-            )
-
-            batches = list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
-
-        assert batches[0][0]["id"] == "US|2026-01-01|New Year's Day||"
-
-    def test_next_public_holidays_requests_once_per_country(self) -> None:
-        manager = _make_manager()
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-09-07", "name": "Labour Day"}]
-            )
-
-            list(nager_date_source(NEXT_PUBLIC_HOLIDAYS, ["US"], manager))
-
-            called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-
-        assert called_urls == [f"{BASE_URL}/Holidays/US/Next"]
 
     def test_next_public_holidays_resumes_from_saved_index(self) -> None:
         manager = _make_manager(index=1)

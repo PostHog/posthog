@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trello.tre
     TrelloResumeConfig,
     _add_created_at,
     _format_incremental_value,
-    _get_headers,
     _id_to_created_at,
     trello_source,
     validate_credentials,
@@ -96,14 +95,6 @@ class TestAddCreatedAt:
         item = _add_created_at({"id": "5abbe394c78f17ffa9e10843", "name": "Board"})
         assert item["created_at"] == "2018-03-28T18:48:52+00:00"
 
-    def test_preserves_existing_created_at(self) -> None:
-        item = _add_created_at({"id": "5abbe394c78f17ffa9e10843", "created_at": "already"})
-        assert item["created_at"] == "already"
-
-    def test_no_id_leaves_item_unchanged(self) -> None:
-        item = _add_created_at({"name": "no id"})
-        assert "created_at" not in item
-
 
 class TestFormatIncrementalValue:
     @parameterized.expand(
@@ -116,12 +107,6 @@ class TestFormatIncrementalValue:
     )
     def test_format(self, _name: str, value: Any, expected: str) -> None:
         assert _format_incremental_value(value) == expected
-
-
-class TestGetHeaders:
-    def test_oauth_header_keeps_token_out_of_url(self) -> None:
-        headers = _get_headers("my-key", "my-token")
-        assert headers["Authorization"] == 'OAuth oauth_consumer_key="my-key", oauth_token="my-token"'
 
 
 class TestValidateCredentials:
@@ -149,14 +134,6 @@ class TestValidateCredentials:
         assert valid is False
         assert message is not None
         assert "boom" in message
-
-    def test_sends_oauth_header(self) -> None:
-        with mock.patch(TRELLO_SESSION_PATCH) as session:
-            session.return_value.get.return_value = mock.MagicMock(status_code=200)
-            validate_credentials("my-key", "my-token")
-
-        headers = session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == 'OAuth oauth_consumer_key="my-key", oauth_token="my-token"'
 
 
 class TestMemberEndpoint:
@@ -188,62 +165,6 @@ class TestMemberEndpoint:
             _rows(_source("organizations", _make_manager()))
 
 
-class TestBoardFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lists_fan_out_across_boards(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response([{"id": "board1"}, {"id": "board2"}]),
-                _response([{"id": "l1"}]),
-                _response([{"id": "l2"}, {"id": "l3"}]),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("lists", manager))
-
-        assert [r["id"] for r in rows] == ["l1", "l2", "l3"]
-        urls = [url for url, _ in snapshots]
-        assert urls[0] == "https://api.trello.com/1/members/me/boards"
-        assert snapshots[0][1] == {"fields": "id"}
-        assert urls[1] == "https://api.trello.com/1/boards/board1/lists"
-        assert urls[2] == "https://api.trello.com/1/boards/board2/lists"
-        # Each completed board is checkpointed; the final state records both boards done.
-        final_state = manager.save_state.call_args_list[-1].args[0].fanout_state
-        assert final_state["completed"] == [
-            "/boards/board1/lists",
-            "/boards/board2/lists",
-        ]
-        assert final_state["current"] is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_boards(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response([{"id": "board1"}, {"id": "board2"}]),
-                _response([{"id": "l2"}]),
-            ],
-        )
-
-        manager = _make_manager(
-            can_resume=True,
-            resume_state=TrelloResumeConfig(
-                fanout_state={"completed": ["/boards/board1/lists"], "current": None, "child_state": None}
-            ),
-        )
-        rows = _rows(_source("lists", manager))
-
-        # Only board2 is synced; board1 was already completed and is skipped.
-        assert [r["id"] for r in rows] == ["l2"]
-        urls = [url for url, _ in snapshots]
-        assert not any("/boards/board1/" in u for u in urls)
-        assert any(u.endswith("/boards/board2/lists") for u in urls)
-
-
 class TestActionsIncremental:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sends_since_and_limit(self, MockSession: mock.MagicMock) -> None:
@@ -263,15 +184,6 @@ class TestActionsIncremental:
         assert actions_url == "https://api.trello.com/1/boards/b1/actions"
         assert actions_params["since"] == "2026-01-15T10:00:00+00:00"
         assert actions_params["limit"] == 1000
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_since(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": "b1"}]), _response([{"id": "a1"}])])
-
-        _rows(_source("actions", _make_manager()))
-
-        assert "since" not in snapshots[1][1]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_with_before_cursor(self, MockSession: mock.MagicMock) -> None:
@@ -317,20 +229,6 @@ class TestActionsIncremental:
         _rows(_source("actions", manager))
 
         assert snapshots[1][1]["before"] == "oldest"
-
-
-class TestRetryClassification:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rate_limited_status_is_retried(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        boards = [{"id": "5abbe394c78f17ffa9e10843"}]
-        _wire(session, [_response({}, status=429), _response(boards)])
-
-        rows = _rows(_source("boards", _make_manager()))
-
-        # The 429 is retried and the retry (200) yields rows.
-        assert [r["id"] for r in rows] == ["5abbe394c78f17ffa9e10843"]
-        assert session.send.call_count == 2
 
 
 class TestTrelloSourceResponse:

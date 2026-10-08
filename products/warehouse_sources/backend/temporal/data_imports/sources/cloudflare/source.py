@@ -124,6 +124,12 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
                 False,
                 "Couldn't reach Cloudflare to verify your API token. Try again in a moment.",
             )
+        if check.is_malformed:
+            return (
+                False,
+                "Cloudflare couldn't read your API token. Paste an API token, not the Global API Key, "
+                "with no extra spaces, then reconnect.",
+            )
         # Naming Cloudflare's own reason matters more than naming a remedy: the token is refused
         # for reasons permissions never explain, so guessing one sends people round in circles.
         detail = f" Cloudflare said: {check.reason}." if check.reason else ""

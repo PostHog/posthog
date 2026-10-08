@@ -9,8 +9,8 @@ from temporalio.exceptions import ActivityError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
-    from ..logic.generate import RUN_TIMEOUT
-    from .activities import mark_failed_activity, run_agent_activity, start_due_briefings_activity
+    from ..logic.generate import ATTEMPT_TIMEOUT, ATTEMPTS, RETRY_INTERVAL, RUN_TIMEOUT
+    from .activities import mark_failed_activity, start_due_briefings_activity, write_briefing_activity
     from .inputs import (
         GENERATE_WORKFLOW_NAME,
         SCHEDULER_WORKFLOW_NAME,
@@ -36,13 +36,14 @@ class GenerateTodayBriefingWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: GenerateBriefingInputs) -> None:
         try:
-            # One attempt: a retry would start a second sandbox for the same briefing.
+            # A retry is safe: an attempt only reads, makes one LLM call and overwrites the same row.
             await temporalio.workflow.execute_activity(
-                run_agent_activity,
+                write_briefing_activity,
                 inputs,
-                start_to_close_timeout=RUN_TIMEOUT,
+                start_to_close_timeout=ATTEMPT_TIMEOUT,
+                schedule_to_close_timeout=RUN_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=ATTEMPTS, initial_interval=RETRY_INTERVAL),
             )
         except Exception as error:
             await temporalio.workflow.execute_activity(

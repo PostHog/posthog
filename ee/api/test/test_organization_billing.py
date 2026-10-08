@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
@@ -181,6 +182,40 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertNotIn("invoices_url", body)
         called_url = mock_get.call_args.args[0]
         self.assertTrue(called_url.endswith("/api/v2/billing/subscription/"), called_url)
+
+    @parameterized.expand(
+        [
+            ("partner_billed", None, {"partner_name": "Example Partner"}),
+            ("partner_billed_org_with_own_stripe_customer", "cus_example", None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_subscription_names_the_partner_that_locks_billing(
+        self, _name: str, customer_id: str | None, expected: dict[str, str] | None, mock_get: MagicMock
+    ) -> None:
+        mock_get.return_value = _response(SUBSCRIPTION)
+        application = OAuthApplication.objects.create(
+            name="Example Partner",
+            client_id="example-partner",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        application.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
+        self.organization.customer_id = customer_id
+        self.organization.save(update_fields=["customer_id"])
+
+        response = self.client.get(self._url("subscription/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["billing_managed_by_partner"], expected)
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_the_call_to_billing_carries_a_minted_token_with_the_grants(self, mock_get):
