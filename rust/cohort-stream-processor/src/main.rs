@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -422,21 +423,27 @@ async fn async_main(config: Config) -> Result<()> {
     }
 
     if let Some(manifest) = restore.manifest.as_ref() {
+        // A checkpoint can hold partitions other pods own (a split restores the parent's checkpoint),
+        // and rewinding those would replay them on top of their owners' newer state.
+        let owned = config.owned_partitions();
         commit_follower_offsets_from_manifest(
             &merges_follower_consumer,
             &config.person_merge_events_topic,
             manifest,
+            &owned,
         );
         commit_follower_offsets_from_manifest(
             &transfers_follower_consumer,
             &config.cohort_merge_state_transfer_topic,
             manifest,
+            &owned,
         );
         if let Some(cascade_consumer) = &cascade_follower_consumer {
             commit_follower_offsets_from_manifest(
                 cascade_consumer,
                 &config.cohort_cascade_events_topic,
                 manifest,
+                &owned,
             );
         }
         // State rolls back to the snapshot, so the seed offsets must roll back with it or the
@@ -446,6 +453,7 @@ async fn async_main(config: Config) -> Result<()> {
                 seed_consumer,
                 &config.cohort_stream_seed_events_topic,
                 manifest,
+                &owned,
             );
         }
     }
@@ -752,17 +760,18 @@ fn fetch_partition_count<C: ConsumerContext>(
 /// `incremental_assign` at [`Offset::Stored`](rdkafka::Offset::Stored) resolves to the restored
 /// position rather than the broker's last commit.
 ///
-/// A strict no-op when the manifest has no entry for `topic` or that entry is empty. Commits one
-/// `Offset::Offset(next)` per present partition; a commit error is logged and skipped, never fatal, so
-/// it cannot delay or break the existing follower assignment. The manifest stores `committed_offset`
+/// A strict no-op when the manifest has no entry for `topic` or that entry holds no owned partition.
+/// Commits one `Offset::Offset(next)` per present owned partition; a commit error is logged and
+/// skipped, never fatal, so it cannot delay or break the existing follower assignment. The manifest stores `committed_offset`
 /// (next-offset-to-consume), exactly what a Kafka committed offset means, so committing it verbatim is
 /// the correct resume point.
 fn commit_follower_offsets_from_manifest(
     consumer: &StreamConsumer,
     topic: &str,
     manifest: &OffsetManifest,
+    owned: &BTreeSet<i32>,
 ) {
-    let Some(tpl) = manifest_commit_tpl(topic, manifest) else {
+    let Some(tpl) = manifest_commit_tpl(topic, manifest, owned) else {
         return;
     };
     match consumer.commit(&tpl, CommitMode::Sync) {
@@ -778,16 +787,20 @@ fn commit_follower_offsets_from_manifest(
 }
 
 /// Returns the `TopicPartitionList` to commit for `topic`, or `None` when the manifest has no entry,
-/// the entry is empty, or no partition produced a valid offset. Pure (no I/O) so the behavior is
-/// unit-testable without a broker. Each partition is committed at `Offset::Offset(next_offset)` —
+/// the entry holds no partition in `owned`, or no partition produced a valid offset. Pure (no I/O)
+/// so the behavior is unit-testable without a broker. Each partition is committed at `Offset::Offset(next_offset)` —
 /// the next-to-consume value Kafka committed offsets denote — so `Offset::Stored` resolves to it.
-fn manifest_commit_tpl(topic: &str, manifest: &OffsetManifest) -> Option<TopicPartitionList> {
+fn manifest_commit_tpl(
+    topic: &str,
+    manifest: &OffsetManifest,
+    owned: &BTreeSet<i32>,
+) -> Option<TopicPartitionList> {
     let partitions = manifest.topics.get(topic)?;
-    if partitions.is_empty() {
-        return None;
-    }
     let mut tpl = TopicPartitionList::new();
-    for (&partition, &next_offset) in partitions {
+    for (&partition, &next_offset) in partitions
+        .iter()
+        .filter(|(partition, _)| owned.contains(partition))
+    {
         if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
             warn!(topic, partition, next_offset, error = %err, "skipping follower partition in manifest commit");
         }
@@ -901,10 +914,14 @@ mod tests {
         }
     }
 
+    fn all_partitions() -> BTreeSet<i32> {
+        (0..64).collect()
+    }
+
     #[test]
     fn manifest_commit_tpl_is_none_for_an_absent_topic() {
         let manifest = manifest_with(BTreeMap::new());
-        assert!(manifest_commit_tpl("person_merge_events", &manifest).is_none());
+        assert!(manifest_commit_tpl("person_merge_events", &manifest, &all_partitions()).is_none());
     }
 
     #[test]
@@ -913,23 +930,24 @@ mod tests {
         topics.insert("person_merge_events".to_string(), BTreeMap::new());
         let manifest = manifest_with(topics);
         assert!(
-            manifest_commit_tpl("person_merge_events", &manifest).is_none(),
+            manifest_commit_tpl("person_merge_events", &manifest, &all_partitions()).is_none(),
             "an empty follower topic entry must produce no commit (inert in Slice 2)",
         );
     }
 
     #[test]
-    fn manifest_commit_tpl_commits_present_follower_offsets() {
+    fn manifest_commit_tpl_commits_only_owned_follower_offsets() {
         let mut topics = BTreeMap::new();
         topics.insert(
             "person_merge_events".to_string(),
-            BTreeMap::from([(0, 7), (4, 19)]),
+            BTreeMap::from([(0, 7), (3, 11), (4, 19)]),
         );
         let manifest = manifest_with(topics);
+        let even = (0..64).filter(|partition| partition % 2 == 0).collect();
 
-        let tpl = manifest_commit_tpl("person_merge_events", &manifest)
+        let tpl = manifest_commit_tpl("person_merge_events", &manifest, &even)
             .expect("present follower offsets produce a commit list");
-        assert_eq!(tpl.count(), 2);
+        assert_eq!(tpl.count(), 2, "partition 3 belongs to another pod");
         assert_eq!(
             tpl.find_partition("person_merge_events", 0)
                 .unwrap()
@@ -974,7 +992,7 @@ mod tests {
             ("cohort_merge_state_transfer", 20),
             ("cohort_cascade_events", 30),
         ] {
-            let tpl = manifest_commit_tpl(topic, &manifest)
+            let tpl = manifest_commit_tpl(topic, &manifest, &all_partitions())
                 .unwrap_or_else(|| panic!("{topic} live capture must produce a commit list"));
             assert_eq!(tpl.count(), 2, "{topic} commits both owned partitions");
             assert_eq!(
@@ -988,7 +1006,7 @@ mod tests {
         }
 
         assert!(
-            manifest_commit_tpl("cohort_stream_events", &manifest).is_none(),
+            manifest_commit_tpl("cohort_stream_events", &manifest, &all_partitions()).is_none(),
             "a topic absent from the live capture must produce no commit",
         );
     }
