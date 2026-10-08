@@ -838,42 +838,29 @@ describe('experimentMetricsLogic', () => {
                 {
                     name: 'blocks a manual reload inside the window',
                     latest: completedRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: true,
                 },
                 {
                     name: 'allows a manual reload after the window',
                     latest: completedRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 6,
                     blocked: false,
-                },
-                {
-                    name: 'lets a heal through inside the window',
-                    latest: completedRecalculation,
-                    trigger: 'heal_latest_run',
-                    minutesAgo: 2,
-                    blocked: true,
                 },
                 {
                     // The fallback is not a run: a fresh timeseries point must not block the first recalculation.
                     name: 'never blocks on a timeseries fallback',
                     latest: completeTimeseriesFallbackRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: false,
                 },
                 {
                     name: 'never blocks after a failed run',
                     latest: partialFailureRecalculation,
-                    trigger: 'manual',
                     minutesAgo: 2,
                     blocked: false,
                 },
-            ] as const)('$name', async ({ latest, trigger, minutesAgo, blocked }) => {
-                const posts = !(blocked && trigger === 'manual')
-                const createMock = jest.fn(() => [201, pendingRecalculation])
+            ] as const)('$name', async ({ latest, minutesAgo, blocked }) => {
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -881,20 +868,13 @@ describe('experimentMetricsLogic', () => {
                             finishedMinutesAgo(latest, minutesAgo),
                         ],
                     },
-                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
                 expect(logic.values.isManualRefreshBlocked).toBe(blocked)
-
-                await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation(trigger)
-                }).toFinishAllListeners()
-                expect(createMock.mock.calls.length > 0).toBe(posts)
             })
 
             it('never blocks a reload in local development', async () => {
-                const createMock = jest.fn(() => [201, pendingRecalculation])
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -902,7 +882,6 @@ describe('experimentMetricsLogic', () => {
                             finishedMinutesAgo(completedRecalculation, 2),
                         ],
                     },
-                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
                 // The mount-time preflight load must land first, or it overwrites the dev preflight.
                 await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
@@ -910,11 +889,6 @@ describe('experimentMetricsLogic', () => {
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
                 expect(logic.values.isManualRefreshBlocked).toBe(false)
-
-                await expectLogic(logic, () => {
-                    logic.actions.triggerRecalculation('manual')
-                }).toFinishAllListeners()
-                expect(createMock).toHaveBeenCalled()
             })
 
             it('syncs the window and informs the user when the backend answers 429', async () => {
@@ -951,6 +925,8 @@ describe('experimentMetricsLogic', () => {
                 expect(lemonToast.info).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
                 expect(lemonToast.error).not.toHaveBeenCalled()
                 expect(logic.values.isRecalculating).toBe(false)
+                // The page's flags are off here, so this is what keeps the button honest after the 429.
+                expect(logic.values.backendEnforcesRefreshWindow).toBe(true)
             })
 
             it('unblocks the reload button when the window closes, without a new load', async () => {

@@ -743,6 +743,9 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 lemonToast.error('Could not restore the worksheet link.')
             }
             actions.restoreWorksheet(worksheet)
+            if (searchParams.starter) {
+                actions.setLastRunQuery(null)
+            }
             actions.setName('Untitled worksheet')
             actions.recordWorksheet(true)
         },

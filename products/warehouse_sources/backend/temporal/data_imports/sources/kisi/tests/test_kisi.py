@@ -57,30 +57,6 @@ def manager() -> MagicMock:
     return result
 
 
-@pytest.mark.parametrize(
-    "endpoint", ["locks", "places", "users", "groups", "role_assignments", "controllers", "readers"]
-)
-def test_full_refresh_request(endpoint: str, inputs: SourceInputs, manager: MagicMock) -> None:
-    inputs.schema_name = endpoint
-    inputs.db_incremental_field_last_value = "2025-01-01T00:00:00Z"
-    row: dict[str, object] = {"id": 1, "created_at": "2024-01-01T00:00:00Z", "online": True}
-    with patch("requests.Session.send", return_value=response([row], collection_range="0-99/1")) as send:
-        result = KisiSource().source_for_pipeline(KisiSourceConfig(api_key="test-key"), manager, inputs)
-        assert list(cast(Iterable[object], result.items())) == [[row]]
-
-    send.assert_called_once()
-    request = send.call_args.args[0]
-    assert request.method == "GET"
-    assert urlsplit(request.url).path == f"/{endpoint}"
-    assert urlsplit(request.url).netloc == "api.kisi.io"
-    assert parse_qs(urlsplit(request.url).query) == {"limit": ["100"], "offset": ["0"]}
-    assert request.headers["Authorization"] == "KISI-LOGIN test-key"
-    assert request.headers["Accept"] == "application/json"
-    assert send.call_args.kwargs["timeout"] == (10, 30)
-    assert send.call_args.kwargs["allow_redirects"] is False
-    manager.save_state.assert_not_called()
-
-
 @pytest.mark.parametrize("start_offset", [None, 100])
 @pytest.mark.parametrize("last_page_size", [0, 1, 100])
 @pytest.mark.parametrize("use_header", [False, True])

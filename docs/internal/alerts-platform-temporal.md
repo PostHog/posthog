@@ -459,6 +459,7 @@ python manage.py backfill_platform_alert_configurations
 Pass `--team-id` to copy one team's configurations only.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
+A second run of either backfill, logs or insight, leaves an enabled copy's `next_check_at` alone unless it has none yet or its cadence changed, because the platform owns its schedule once the row exists. The logs product parks its own next check at the end of quiet hours, while the platform checks through them and only mutes. A new or re-enabled copy still takes the source's due time, which spreads a large copy's first checks the way the source spreads them.
 Each run also copies the logs alert's snooze onto its platform alert row, so a snoozed alert stays silent, and an alert unsnoozed since the last run is unsnoozed here too.
 
 Insight alerts are copied the same way:

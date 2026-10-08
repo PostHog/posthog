@@ -93,9 +93,12 @@ describe('BI editor query generation', () => {
         expect(result.query).toContain('toStartOfDay({filters.compareDate(timestamp)}) AS bi_row_timestamp')
         expect(result.query).toContain('{filters.previous}')
         expect(result.query).toContain("'Current period', bi_row_timestamp, NULL")
-        expect(result.query).toContain('ORDER BY bi_comparison_sort DESC, bi_row_timestamp ASC')
+        expect(result.query).toContain('ORDER BY bi_comparison_sort ASC, bi_row_timestamp ASC')
         expect(result.node.chartSettings?.seriesBreakdownColumn).toBe('bi_comparison')
         expect(parseBIEditorState(BIEditorView.BI, config)?.config.compareFilter).toEqual(config.compareFilter)
+        expect(
+            parseBIEditorState(BIEditorView.BI, { ...config, comparisonPeriod: null })?.config.compareFilter
+        ).toEqual(config.compareFilter)
         expect(buildBIQuery({ ...config, dateRange: { date_from: 'all' } })?.query).not.toContain('UNION ALL')
     })
 
@@ -246,7 +249,7 @@ describe('BI editor query generation', () => {
             kind: NodeKind.HogQLQuery,
             connectionId: source.connectionId,
             filters: { dateRange: { date_from: 'all' } },
-            query: "SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE ({filters((null) AS 'timestamp', (event) AS 'event', (properties.revenue) AS 'revenue')}) AND (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))\nLIMIT 100",
+            query: "SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE ({filters((null) AS 'timestamp', (event) AS 'event', (properties.revenue) AS 'revenue')}) AND (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))",
         })
         config.filters.push({
             field: { ...eventField, expression: '', name: '', source },
@@ -689,10 +692,15 @@ describe('BI editor query generation', () => {
         expect(buildBIQuery({ ...sortableConfig, sort })?.query).toContain(expectedClause)
     })
 
-    it('auto-sorts date dimensions newest first', () => {
-        const result = buildBIQuery({ ...sortableConfig, rows: [{ ...timestampField, dateBucket: 'day' }] })
+    it.each(['rows', 'columns'] as const)('auto-sorts date dimensions on %s chronologically', (shelf) => {
+        const result = buildBIQuery({
+            ...sortableConfig,
+            rows: shelf === 'columns' ? [browserField] : [],
+            columns: [],
+            [shelf]: [{ ...timestampField, dateBucket: 'day' }],
+        })
 
-        expect(result?.query).toContain('ORDER BY\n    toStartOfDay(timestamp) DESC')
+        expect(result?.query).toContain('ORDER BY\n    toStartOfDay(timestamp) ASC')
     })
 
     it('offers dimensions and values as sort options, and a count fallback without values', () => {

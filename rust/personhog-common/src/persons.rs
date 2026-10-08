@@ -20,8 +20,10 @@ pub fn person_uuid(team_id: i64, distinct_id: &str) -> Uuid {
     )
 }
 
-/// Every cookieless visitor shares this distinct id. Mirrors the constant in
-/// `common-cookieless`, which the personhog services do not depend on.
+/// Every cookieless visitor shares this distinct id. A hash key override that
+/// stores it counts as no override. Mirrors the constant in
+/// `common-cookieless`. The personhog services do not depend on that crate
+/// because it pulls in redis and moka.
 pub const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
 
 /// Validate a configured table identifier before it is interpolated into

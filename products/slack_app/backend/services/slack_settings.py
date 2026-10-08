@@ -1,6 +1,6 @@
 """Read helpers for per-(Slack workspace, Slack user) settings backed by
-`models.SlackSettings` (today: the untagged follow-up mode and the channel
-welcome mode), plus the shared
+`models.SlackSettings` (today: the untagged follow-up mode, the channel
+welcome mode and the automatic model choice), plus the shared
 AI-triple value object.
 
 Model preferences themselves live in the central tasks config
@@ -97,9 +97,34 @@ def set_channel_welcome_mode(slack_workspace_id: str, mode: ChannelWelcomeMode) 
     )
 
 
+def resolve_auto_model_choice(slack_workspace_id: str, slack_user_id: str | None) -> bool:
+    if not slack_user_id:
+        return False
+
+    from products.slack_app.backend.models import SlackSettings
+
+    return bool(
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("auto_model_choice", flat=True)
+        .first()
+    )
+
+
+def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: bool) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"auto_model_choice": enabled},
+    )
+
+
 __all__ = [
     "AIPreferences",
+    "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",
+    "set_auto_model_choice",
     "set_channel_welcome_mode",
     "resolve_untagged_followup_mode",
 ]
