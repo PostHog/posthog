@@ -10,6 +10,58 @@ import {
 } from '@/schema/tool-inputs'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const CanvasActionInvokeSchema = () => {
+    const CanvasesActionsInvokeBody = orvalSchemas.CanvasesActionsInvokeBody()
+    const CanvasesActionsInvokeParams = orvalSchemas.CanvasesActionsInvokeParams()
+    return CanvasesActionsInvokeParams.omit({ project_id: true })
+        .extend(CanvasesActionsInvokeBody.shape)
+        .extend({
+            id: CanvasesActionsInvokeParams.shape['id'].describe('ID of the canvas whose declared verb to invoke.'),
+            verb: CanvasesActionsInvokeBody.shape['verb'].describe(
+                "Registered verb to invoke, exactly as listed by canvas-actions-list, e.g. 'feature_flags.enable'."
+            ),
+            payload: CanvasesActionsInvokeBody.shape['payload'].describe(
+                "The verb's arguments, matching the payload shape in its canvas-actions-list `usage` docs."
+            ),
+        })
+}
+
+const canvasActionInvoke = (): ToolBase<ReturnType<typeof CanvasActionInvokeSchema>, Schemas.CanvasActionResult> => ({
+    name: 'canvas-action-invoke',
+    schema: CanvasActionInvokeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasActionInvokeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.verb !== undefined) {
+            body['verb'] = params.verb
+        }
+        if (params.payload !== undefined) {
+            body['payload'] = params.payload
+        }
+        const result = await context.api.request<Schemas.CanvasActionResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/actions/invoke/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CanvasActionsListSchema = () => z.object({})
+
+const canvasActionsList = (): ToolBase<ReturnType<typeof CanvasActionsListSchema>, Schemas.CanvasActionsResponse> => ({
+    name: 'canvas-actions-list',
+    schema: CanvasActionsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof CanvasActionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasActionsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/actions/`,
+        })
+        return result
+    },
+})
+
 const CanvasBuildsRetrieveSchema = () => {
     const CanvasesBuildsRetrieveParams = orvalSchemas.CanvasesBuildsRetrieveParams()
     const CanvasesBuildsRetrieveQueryParams = orvalSchemas.CanvasesBuildsRetrieveQueryParams()
@@ -689,59 +741,9 @@ const canvasValidateCreate = (): ToolBase<
     },
 })
 
-const CanvasActionInvokeSchema = () => {
-    const CanvasesActionsInvokeBody = orvalSchemas.CanvasesActionsInvokeBody()
-    const CanvasesActionsInvokeParams = orvalSchemas.CanvasesActionsInvokeParams()
-    return CanvasesActionsInvokeParams.omit({ project_id: true })
-        .extend(CanvasesActionsInvokeBody.shape)
-        .extend({
-            id: CanvasesActionsInvokeParams.shape['id'].describe('ID of the canvas whose declared verb to invoke.'),
-            verb: CanvasesActionsInvokeBody.shape['verb'].describe(
-                "Registered verb to invoke, exactly as listed by canvas-actions-list, e.g. 'feature_flags.enable'."
-            ),
-            payload: CanvasesActionsInvokeBody.shape['payload'].describe(
-                "The verb's arguments, matching the payload shape in its canvas-actions-list `usage` docs."
-            ),
-        })
-}
-
-const canvasActionInvoke = (): ToolBase<ReturnType<typeof CanvasActionInvokeSchema>, Schemas.CanvasActionResult> => ({
-    name: 'canvas-action-invoke',
-    schema: CanvasActionInvokeSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasActionInvokeSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.verb !== undefined) {
-            body['verb'] = params.verb
-        }
-        if (params.payload !== undefined) {
-            body['payload'] = params.payload
-        }
-        const result = await context.api.request<Schemas.CanvasActionResult>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/actions/invoke/`,
-            body,
-        })
-        return result
-    },
-})
-
-const CanvasActionsListSchema = () => z.object({})
-
-const canvasActionsList = (): ToolBase<ReturnType<typeof CanvasActionsListSchema>, Schemas.CanvasActionsResponse> => ({
-    name: 'canvas-actions-list',
-    schema: CanvasActionsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof CanvasActionsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CanvasActionsResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/actions/`,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'canvas-action-invoke': canvasActionInvoke,
+    'canvas-actions-list': canvasActionsList,
     'canvas-builds-retrieve': canvasBuildsRetrieve,
     'canvas-comments-list': canvasCommentsList,
     'canvas-comments-retrieve': canvasCommentsRetrieve,
@@ -763,6 +765,4 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-state-set': canvasStateSet,
     'canvas-state-value-retrieve': canvasStateValueRetrieve,
     'canvas-validate-create': canvasValidateCreate,
-    'canvas-action-invoke': canvasActionInvoke,
-    'canvas-actions-list': canvasActionsList,
 }
