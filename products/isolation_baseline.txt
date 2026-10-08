@@ -75,4 +75,3 @@ tracing
 user_interviews
 warehouse_sources_queue
 web_analytics
-workflows

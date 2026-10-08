@@ -4114,8 +4114,16 @@ export namespace Schemas {
          * @nullable
          */
       selector?: string | null;
-      /** @nullable */
+      /**
+         * Compiled regex the selector matches against the event elements chain. Null when no selector is set.
+         * @nullable
+         */
       readonly selector_regex: string | null;
+      /**
+         * Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.
+         * @nullable
+         */
+      readonly selector_warning: string | null;
       /**
          * HTML tag name to match (e.g. "button", "a", "input").
          * @nullable
@@ -67121,8 +67129,6 @@ export namespace Schemas {
       LastSeen: 'last_seen',
     } as const;
 
-    export type OrganizationTeamsItem = { [key: string]: unknown };
-
     export type OrganizationProjectsItem = { [key: string]: unknown };
 
     export type OrganizationMetadata = {[key: string]: string};
@@ -67142,6 +67148,34 @@ export namespace Schemas {
       Number6: 6,
       Number9: 9,
     } as const;
+
+    /**
+     * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+     * Also used for nested serializers.
+     */
+    export interface OrganizationTeamBasic {
+      readonly id: number;
+      readonly uuid: string;
+      readonly organization: string;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      readonly project_id: number;
+      readonly api_token: string;
+      readonly name: string;
+      readonly completed_snippet_onboarding: boolean;
+      readonly has_completed_onboarding_for: unknown;
+      readonly ingested_event: boolean;
+      readonly is_demo: boolean;
+      readonly timezone: string;
+      readonly access_control: boolean;
+      /**
+         * The project group shown in the organization project switcher, or null if it has no group.
+         * @nullable
+         */
+      readonly project_group: string | null;
+    }
 
     export interface OrganizationMemberNoticeAction {
       /**
@@ -67183,7 +67217,7 @@ export namespace Schemas {
          */
       readonly membership_joined_at: string | null;
       readonly plugins_access_level: OrganizationPluginsAccessLevelEnum;
-      readonly teams: readonly OrganizationTeamsItem[];
+      readonly teams: readonly OrganizationTeamBasic[];
       readonly projects: readonly OrganizationProjectsItem[];
       /** @nullable */
       readonly available_product_features: readonly unknown[] | null;
@@ -80316,8 +80350,6 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
-    export type PatchedOrganizationTeamsItem = { [key: string]: unknown };
-
     export type PatchedOrganizationProjectsItem = { [key: string]: unknown };
 
     export type PatchedOrganizationMetadata = {[key: string]: string};
@@ -80339,7 +80371,7 @@ export namespace Schemas {
          */
       readonly membership_joined_at?: string | null;
       readonly plugins_access_level?: OrganizationPluginsAccessLevelEnum;
-      readonly teams?: readonly PatchedOrganizationTeamsItem[];
+      readonly teams?: readonly OrganizationTeamBasic[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
       /** @nullable */
       readonly available_product_features?: readonly unknown[] | null;
