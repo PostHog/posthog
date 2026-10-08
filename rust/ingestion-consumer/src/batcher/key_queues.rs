@@ -102,7 +102,7 @@ impl KeyState {
         self.claim.is_none() && self.retry_at.is_none() && self.queue.is_empty()
     }
 
-    fn ready_run(&self) -> Option<(RequestClass, ReadySize)> {
+    fn ready_size(&self) -> Option<(RequestClass, ReadySize)> {
         if !self.is_ready() {
             return None;
         }
@@ -227,7 +227,7 @@ impl KeyQueues {
             None => self.keys.entry(Arc::clone(&routing_key)).or_default(),
         };
         let was_ready = state.is_ready();
-        let before = state.ready_run();
+        let before = state.ready_size();
         match state.queue.back_mut() {
             Some(back) if back.class == class => {
                 back.bytes += bytes;
@@ -240,7 +240,7 @@ impl KeyQueues {
                 messages,
             }),
         }
-        update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
+        update_ready_sizes(&mut self.ready_sizes, before, state.ready_size());
         if !was_ready && state.is_ready() {
             self.ready.push_back(routing_key);
         }
@@ -253,9 +253,9 @@ impl KeyQueues {
             }
             let (_, key) = self.waiting.pop_first().expect("checked non-empty");
             if let Some(state) = self.keys.get_mut(&key) {
-                let before = state.ready_run();
+                let before = state.ready_size();
                 state.retry_at = None;
-                update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
+                update_ready_sizes(&mut self.ready_sizes, before, state.ready_size());
                 if state.is_ready() {
                     self.ready.push_back(key);
                 }
@@ -286,7 +286,7 @@ impl KeyQueues {
             let Some(state) = self.keys.get_mut(&key) else {
                 continue;
             };
-            let Some((run_class, size)) = state.ready_run() else {
+            let Some((run_class, size)) = state.ready_size() else {
                 continue;
             };
             if run_class != class {
@@ -378,7 +378,7 @@ impl KeyQueues {
             }
         }
 
-        update_ready_sizes(&mut self.ready_sizes, None, state.ready_run());
+        update_ready_sizes(&mut self.ready_sizes, None, state.ready_size());
         if state.is_idle() {
             self.keys.remove(&**routing_key);
             return Ok(true);
@@ -397,7 +397,7 @@ impl KeyQueues {
         let mut purged = 0usize;
         let mut purged_bytes = 0usize;
         for (key, state) in self.keys.iter_mut() {
-            let before = state.ready_run();
+            let before = state.ready_size();
             if let Some(claim) = &mut state.claim {
                 for revocation in revoked {
                     if !claim.revoked.contains(revocation) {
@@ -427,7 +427,7 @@ impl KeyQueues {
                     }
                 }
             }
-            update_ready_sizes(&mut self.ready_sizes, before, state.ready_run());
+            update_ready_sizes(&mut self.ready_sizes, before, state.ready_size());
         }
         self.queued_messages = self.queued_messages.saturating_sub(purged);
         self.queued_bytes = self.queued_bytes.saturating_sub(purged_bytes);
