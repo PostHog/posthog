@@ -29,6 +29,7 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.events_person_id_prefilter import EventsPersonIdPrefilter
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
@@ -283,6 +284,10 @@ def prepare_ast_for_printing(
     if context.enable_type_aware_cast_simplification or context.modifiers.typeAwareCastSimplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
+
+    if dialect == "clickhouse" and context.modifiers.personIdFilterPrewhere:
+        with context.timings.measure("events_person_id_prefilter"):
+            node = EventsPersonIdPrefilter(context, resolver_factory=resolver_factory).apply(node)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
