@@ -470,7 +470,13 @@ export function createAnswerFilterHogQLExpression(
         switch (filter.operator) {
             case 'exact':
             case 'is_not':
-                if (Array.isArray(filter.value)) {
+                if (question.type === SurveyQuestionType.Rating && isNumericFilterValue(filter.value)) {
+                    // Match the chart, which counts ratings by numeric value, so "5.0" or " 5" match 5
+                    const values = (Array.isArray(filter.value) ? filter.value : [filter.value]).map(Number)
+                    condition = `(toFloat(trim(${resolveResponseExpr(question, questionIndex)})) ${
+                        filter.operator === 'is_not' ? 'NOT IN' : 'IN'
+                    } (${values.join(', ')}))`
+                } else if (Array.isArray(filter.value)) {
                     const valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
                     condition = `(${resolveResponseExpr(question, questionIndex)} ${
                         filter.operator === 'is_not' ? 'NOT IN' : 'IN'
@@ -525,6 +531,11 @@ export function createAnswerFilterHogQLExpression(
     }
 
     return hasValidFilter ? `AND ${filterExpression}` : ''
+}
+
+function isNumericFilterValue(value: EventPropertyFilter['value']): boolean {
+    const values = Array.isArray(value) ? value : [value]
+    return values.length > 0 && values.every((v) => String(v).trim() !== '' && Number.isFinite(Number(v)))
 }
 
 export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>): boolean {

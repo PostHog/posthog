@@ -1,5 +1,6 @@
 import * as motion from 'motion/react-client'
-import { ComponentType } from 'react'
+import posthog from 'posthog-js'
+import { ComponentType, useEffect } from 'react'
 
 import * as floatPng from '@posthog/brand/hoggies/png/float'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
@@ -98,6 +99,19 @@ export function SurveyNoResponsesBanner({
         type,
         activeFilterTypes
     )
+
+    const { dateRange = false, answerFilters = false, propertyFilters = false } = activeFilterTypes ?? {}
+    useEffect(() => {
+        if (variant !== 'filtered') {
+            return
+        }
+        posthog.capture('survey filtered empty state shown', {
+            type,
+            date_range_active: dateRange,
+            answer_filters_active: answerFilters,
+            property_filters_active: propertyFilters,
+        })
+    }, [variant, type, dateRange, answerFilters, propertyFilters])
 
     const baseTransition = { duration: hogDuration, ease: 'easeInOut' }
     const delayedTransition = { ...baseTransition, delay: 0.1 }

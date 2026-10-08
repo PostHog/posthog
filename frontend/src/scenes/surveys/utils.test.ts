@@ -1225,8 +1225,8 @@ describe('survey utils', () => {
 
             // Filtering on the raw event expression would discard a submission whose matching
             // answer arrived on a non-final event.
-            expect(query).toContain("(q0_answer = '2')")
-            expect(query).not.toContain("getSurveyResponse(0, 'q-rating') = '2'")
+            expect(query).toContain('(toFloat(trim(q0_answer)) IN (2))')
+            expect(query).not.toContain("toFloat(trim(getSurveyResponse(0, 'q-rating')))")
             expect(query).toContain("uuid NOT IN ('archived-uuid')")
         })
 
@@ -1414,6 +1414,19 @@ describe('createAnswerFilterHogQLExpression', () => {
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
         expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} IN ('option1', 'option2'))`)
+    })
+
+    it.each([
+        ['exact', ['5'], 'IN (5)'],
+        ['is_not', ['1', '2'], 'NOT IN (1, 2)'],
+        ['exact', '5', 'IN (5)'],
+    ])('compares rating %s filter %j as numbers', (operator, value, expected) => {
+        const ratingSurvey = { questions: [{ id: 'q1', type: SurveyQuestionType.Rating }] } as any as Survey
+        const filters = [{ key: '$survey_response_q1', value, operator, type: PropertyFilterType.Event }] as any
+
+        expect(createAnswerFilterHogQLExpression(filters, ratingSurvey)).toBe(
+            `AND (toFloat(trim(${getSurveyResponse(ratingSurvey.questions[0], 0)})) ${expected})`
+        )
     })
 
     it('handles is_not operator with single value', () => {
