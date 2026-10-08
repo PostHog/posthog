@@ -150,13 +150,36 @@ func (s *Subscription) restrictions() *auth.PropertyRestrictions {
 }
 
 // A filter on a hidden key would let the subscriber infer its values from which events match.
+// Filters match the whole stringified $set / $set_once map, so those are hidden too once any person key is.
 func RestrictedFilterKey(filters []CompiledPropertyFilter, restrictions *auth.PropertyRestrictions) string {
 	for i := range filters {
-		if restrictions.RestrictsEventProperty(filters[i].Key) {
-			return filters[i].Key
+		key := filters[i].Key
+		if restrictions.RestrictsEventProperty(key) {
+			return key
+		}
+		if restrictions.HasPersonRestrictions() && slices.Contains(personPropertyContainers, key) {
+			return key
 		}
 	}
 	return ""
+}
+
+// StripRestricted removes hidden properties from an already built response. The handler calls it
+// at write time, so events queued before a re-check tightened the rules go out under the new set.
+func (e *ResponsePostHogEvent) StripRestricted(restrictions *auth.PropertyRestrictions) {
+	if restrictions == nil {
+		return
+	}
+	properties := make(map[string]interface{}, len(e.Properties))
+	for k, v := range e.Properties {
+		if visible, ok := visibleProperty(k, v, restrictions); ok {
+			properties[k] = visible
+		}
+	}
+	if restrictions.RestrictsEventProperty("$pathname") {
+		delete(properties, "$virt_cleaned_pathname")
+	}
+	e.Properties = properties
 }
 
 func visibleProperty(key string, value interface{}, restrictions *auth.PropertyRestrictions) (interface{}, bool) {

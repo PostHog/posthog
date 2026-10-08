@@ -237,6 +237,10 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSu
 				log.Debugf("SSE client disconnected, ip: %v", c.RealIP())
 				return nil
 			case payload := <-subscription.EventChan:
+				if response, ok := payload.(events.ResponsePostHogEvent); ok {
+					response.StripRestricted(currentRestrictions.Load())
+					payload = response
+				}
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
 					// TODO capture error to PostHog

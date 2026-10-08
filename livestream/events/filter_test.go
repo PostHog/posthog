@@ -829,3 +829,29 @@ func TestDeliverEventSkipsSubscriptionFilteringOnRestrictedProperty(t *testing.T
 	deliverEvent(event, []Subscription{sub})
 	assert.Len(t, eventChan, 1)
 }
+
+func TestRestrictedFilterKeyHidesPersonContainers(t *testing.T) {
+	personOnly := &auth.PropertyRestrictions{PersonProperties: map[string]struct{}{"email": {}}}
+	filters := []CompiledPropertyFilter{
+		NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"}),
+		NewCompiledPropertyFilter("$set", OpIContains, []string{"hidden@example.com"}),
+	}
+	assert.Equal(t, "$set", RestrictedFilterKey(filters, personOnly))
+	assert.Equal(t, "", RestrictedFilterKey(filters, nil))
+}
+
+func TestStripRestrictedReappliesNewerRules(t *testing.T) {
+	response := ResponsePostHogEvent{Properties: map[string]interface{}{
+		"$pathname":              "/classes/1",
+		"$virt_cleaned_pathname": "/classes/:id",
+		"$set":                   map[string]interface{}{"email": "hidden@example.com", "name": "Test User"},
+	}}
+	response.StripRestricted(nil)
+	assert.Len(t, response.Properties, 3)
+
+	response.StripRestricted(&auth.PropertyRestrictions{
+		EventProperties:  map[string]struct{}{"$pathname": {}},
+		PersonProperties: map[string]struct{}{"email": {}},
+	})
+	assert.Equal(t, map[string]interface{}{"$set": map[string]interface{}{"name": "Test User"}}, response.Properties)
+}
