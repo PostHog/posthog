@@ -21,6 +21,9 @@ export function ReleaseConditionsModal(): JSX.Element {
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, nonEmptyVariants } = useValues(_featureFlagLogic)
     const { setFeatureFlagFilters, saveSidebarExperimentFeatureFlag } = useActions(_featureFlagLogic)
+    const otherExperimentNames = (featureFlag?.experiment_set_metadata ?? [])
+        .filter((linkedExperiment) => linkedExperiment.id !== experiment.id)
+        .map((linkedExperiment) => linkedExperiment.name)
 
     return (
         <LemonModal
@@ -63,6 +66,12 @@ export function ReleaseConditionsModal(): JSX.Element {
                     Adjusting user targeting may impact the validity of your results. Adjust only if you're aware of how
                     changes will affect your experiment.
                 </LemonBanner>
+                {otherExperimentNames.length > 0 && (
+                    <LemonBanner type="warning">
+                        This feature flag is shared with other experiments: {otherExperimentNames.join(', ')}. Changes
+                        here also apply to them.
+                    </LemonBanner>
+                )}
 
                 <BindLogic logic={featureFlagLogic} props={{ id: experiment.feature_flag?.id ?? null }}>
                     <FeatureFlagReleaseConditions
