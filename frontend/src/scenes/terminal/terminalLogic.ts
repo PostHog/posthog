@@ -20,6 +20,7 @@ import { PosthogFilesystem } from './posthogFilesystem'
 import { TerminalAI } from './terminalAI'
 import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
+import { TerminalNetplay } from './terminalNetplay'
 import { TerminalRuntime } from './terminalRuntime'
 import { TerminalSession } from './TerminalSession'
 
@@ -564,7 +565,8 @@ export const terminalLogic = kea<terminalLogicType>([
                             }, 'clock-sync')
                         }
                     },
-                    folder ?? undefined
+                    folder ?? undefined,
+                    new TerminalNetplay(String(projectId), controller.signal)
                 )
                 if (controller.signal.aborted) {
                     return
