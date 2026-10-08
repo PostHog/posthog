@@ -309,8 +309,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             return
                         repository = self._selected_repo
 
-            # After repo selection, so the repository can inform the pick. The activity returns
-            # the mention's own override whenever it does not route.
+            # After repo selection, so the repository can inform the pick.
             if workflow.patched(_PATCH_ID_MODEL_ROUTER):
                 model_override = await _execute_posthog_code_activity(
                     classify_slack_app_model_router_activity,

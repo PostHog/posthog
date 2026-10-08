@@ -159,7 +159,6 @@ class TestRouteSlackAppModelActivity:
         assert result is None
 
     def test_request_to_the_decision_model_matches_snapshot(self, integration, user, snapshot):
-        # Update with `--snapshot-update` after checking the diff.
         _opt_in(integration)
         update_user_ai_run_preferences(
             integration.team_id, user.id, runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high"

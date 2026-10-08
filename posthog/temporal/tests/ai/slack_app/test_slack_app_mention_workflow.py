@@ -55,7 +55,6 @@ class _Recorder:
         self.model_overrides: dict[str, SlackAppModelOverride] = {}
         # event text -> what the model router returns; missing means it passes the override through.
         self.routed_overrides: dict[str, SlackAppModelOverride] = {}
-        # Every model-router call, in execution order.
         self.router_inputs: list[SlackAppModelRouterInput] = []
         # ts -> model override the create-task call actually received.
         self.created_with_override: dict[str, SlackAppModelOverride | None] = {}

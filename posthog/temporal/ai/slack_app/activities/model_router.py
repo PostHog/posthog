@@ -43,7 +43,6 @@ def classify_slack_app_model_router(
     distinct_id: str | None,
     trace_id: str | None = None,
 ) -> ModelRouterOption | None:
-    """`None` when there is nothing to pick between, or the answer is not one of the options."""
     options = options[:GATEWAY_MAX_CHOICE_OPTIONS]
     if len(options) < 2:
         return None
@@ -84,7 +83,6 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
     override = input.model_override
     if (override is not None and override.model) or not input.event_text.strip():
         return override
-    # The settings row is a cheap query, so it goes before the flag check, which is a network call.
     if not resolve_auto_model_choice(input.slack_team_id, input.slack_user_id):
         return override
 

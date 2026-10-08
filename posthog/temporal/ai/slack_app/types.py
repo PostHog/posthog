@@ -166,8 +166,6 @@ class SlackAppModelOverride(BaseModel):
 
 
 class SlackAppModelRouterInput(BaseModel):
-    """Single-argument input for the model-router activity."""
-
     integration_id: int
     slack_team_id: str
     slack_user_id: str

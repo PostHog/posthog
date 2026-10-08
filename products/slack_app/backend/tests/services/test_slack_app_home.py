@@ -287,7 +287,6 @@ def _find_block(view: dict, block_prefix: str) -> dict | None:
 
 
 def _option_objects(view: dict) -> list[dict]:
-    """Every option object the view hands to Slack, from both `options` and `initial_options`."""
     out: list[dict] = []
 
     def walk(node):
