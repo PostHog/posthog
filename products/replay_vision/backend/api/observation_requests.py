@@ -33,12 +33,10 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.observation_requests import (
     IdempotencyKeyConflict,
     InlineScanSpec,
-    RequestProgress,
     RequestSession,
     RequestSessionState,
     create_observation_request,
     request_progress,
-    request_progress_many,
 )
 from products.replay_vision.backend.scanner_access import can_read_targeted_experiment, readable_observation_scanner_ids
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
@@ -183,16 +181,14 @@ class ObservationRequestPSAKTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThr
     rate = "1000/hour"
 
 
-class ObservationRequestViewSet(
-    TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
-):
+class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Start scans for named sessions from code, and read their results back through one request id."""
 
     scope_object = "replay_scanner"
     # Reading a request returns what the scanner saw in each recording, so every action needs both scopes.
     required_scopes = ["replay_scanner:write", "session_recording:read"]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["create", "list", "retrieve"]
+    psak_allowed_actions = ["create", "retrieve"]
     serializer_class = ObservationRequestSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = ReplayObservationRequest.objects.unscoped()
@@ -229,8 +225,8 @@ class ObservationRequestViewSet(
         readable = readable_observation_scanner_ids(self.user_access_control, self.team_id)
         return queryset.filter(Q(scanner_id__in=readable) | Q(scanner__isnull=True))
 
-    def _render(self, request: ReplayObservationRequest, progress: RequestProgress | None = None) -> dict[str, Any]:
-        progress = progress or request_progress(request)
+    def _render(self, request: ReplayObservationRequest) -> dict[str, Any]:
+        progress = request_progress(request)
         completed = request.completed_at is not None or progress.settled
         return ObservationRequestSerializer(
             {
@@ -246,14 +242,6 @@ class ObservationRequestViewSet(
     @extend_schema(responses={200: ObservationRequestSerializer})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self._render(self.get_object()))
-
-    @extend_schema(responses={200: ObservationRequestSerializer(many=True)})
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        page = self.paginate_queryset(self.filter_queryset(self.get_queryset()))
-        rows = page if page is not None else list(self.get_queryset())
-        progress = request_progress_many(rows)
-        data = [self._render(r, progress[r.id]) for r in rows]
-        return self.get_paginated_response(data) if page is not None else Response(data)
 
     @extend_schema(
         request=CreateObservationRequestSerializer,

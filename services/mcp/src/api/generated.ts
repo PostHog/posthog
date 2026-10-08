@@ -70345,15 +70345,6 @@ export namespace Schemas {
       results: ObjectMediaPreview[];
     }
 
-    export interface PaginatedObservationRequestList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ObservationRequest[];
-    }
-
     /**
      * OpenAPI shape for the paginated opt-outs response, so the generated clients get the
      * {count, next, previous, results} envelope instead of an untyped object.
@@ -128444,17 +128435,6 @@ export namespace Schemas {
      * Scope to a single scanner's observations. Defaults to every scanner you can read.
      */
     scanner_id?: string;
-    };
-
-    export type VisionRequestsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type VisionScannersListParams = {
