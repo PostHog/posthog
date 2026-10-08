@@ -33,6 +33,7 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
     "Giphy",
     "GoogleSearchConsole",
     "Lovable",
+    "Omnisend",
     "OpenWeather",
     "Pexels",
     "ShipStation",

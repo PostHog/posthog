@@ -76,6 +76,40 @@ def get_version_check_skipped_metric() -> MetricCounter:
     )
 
 
+def get_retry_budget_reduced_metric(source_type: str | None) -> MetricCounter:
+    # Read against `data_import_finished{status="failed"}`: the two converging means the give-up
+    # covers the failures it was built for.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "data_import_retry_budget_reduced",
+            "Runs whose import retry cap was cut because the schema keeps failing.",
+        )
+    )
+
+
+def get_run_deferred_metric() -> MetricCounter:
+    # Same visibility gap as the lock and version-check metrics: the skip leaves no job row, so
+    # without this counter a schema can silently miss every scheduled slot.
+    return workflow.metric_meter().create_counter(
+        "data_import_run_deferred", "Scheduled runs that stood down because the schema keeps failing."
+    )
+
+
+def get_progressless_stand_down_metric(source_type: str | None) -> MetricCounter:
+    # The resumable cap is justified only while attempts continue, and this counts where they did
+    # not, so a source that cannot checkpoint at all shows up as a class rather than as a ticket.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "data_import_progressless_stand_down",
+            "Imports that stopped retrying because no attempt committed anything to resume from.",
+        )
+    )
+
+
 def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter:
     # Counts imports that gave up a shutting-down worker so another pod can continue them. An
     # import that never hands off keeps its pod alive for the whole graceful shutdown timeout.

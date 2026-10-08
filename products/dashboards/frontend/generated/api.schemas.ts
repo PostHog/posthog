@@ -2912,6 +2912,7 @@ export const ChartDisplayTypeApi = {
     Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsDonut: 'ActionsDonut',
+    ActionsProportionBar: 'ActionsProportionBar',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
     WorldMap: 'WorldMap',
@@ -9287,7 +9288,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
-    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: LegendPositionApi | null
     metric?: MetricChartSettingsApi | null
     pie?: PieChartSettingsApi | null
@@ -9367,6 +9368,25 @@ export const BIDateBucketApi = {
     Year: 'year',
 } as const
 
+export interface BICategoryGroupApi {
+    name: string
+    values: string[]
+}
+
+export interface BILocalFieldDefinition1Api {
+    expression: string
+    groups: BICategoryGroupApi[]
+    kind?: 'groups'
+    other: string
+}
+
+export interface BILocalFieldDefinition2Api {
+    expression: string
+    kind?: 'bins'
+    origin: number
+    width: number
+}
+
 export interface BIDataSourceApi {
     connectionId?: string | null
     table: string
@@ -9398,10 +9418,17 @@ export interface BIFieldApi {
     dateBucket?: BIDateBucketApi | null
     expression: string
     id: string
+    localDefinition?: BILocalFieldDefinition1Api | BILocalFieldDefinition2Api | null
     name: string
     source: BIDataSourceApi
     type: DatabaseSerializedFieldTypeApi
 }
+
+export type ComparisonPeriodApi = (typeof ComparisonPeriodApi)[keyof typeof ComparisonPeriodApi]
+
+export const ComparisonPeriodApi = {
+    Previous: 'previous',
+} as const
 
 export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
 
@@ -9437,6 +9464,13 @@ export const BIQueryLimitApi = {
     Number1000: 1000,
     Number10000: 10000,
     Number50000: 50000,
+} as const
+
+export type MissingDatesApi = (typeof MissingDatesApi)[keyof typeof MissingDatesApi]
+
+export const MissingDatesApi = {
+    Gap: 'gap',
+    Zero: 'zero',
 } as const
 
 export type Operator1Api = (typeof Operator1Api)[keyof typeof Operator1Api]
@@ -9529,6 +9563,8 @@ export const BITableCalculationTypeApi = {
 export interface BITableCalculationApi {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string | null
+    /** Require a complete window of non-null values before displaying a moving average. */
+    requireFullWindow?: boolean | null
     type: BITableCalculationTypeApi
     /** Number of points, including the current point, in a trailing moving average. */
     window?: number | null
@@ -9548,11 +9584,17 @@ export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
     columns: BIFieldApi[]
     compareFilter?: CompareFilterApi | null
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: ComparisonPeriodApi | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIFieldApi[] | null
+    /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+    missingDates?: MissingDatesApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null

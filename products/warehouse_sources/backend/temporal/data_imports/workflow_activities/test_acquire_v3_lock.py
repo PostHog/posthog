@@ -5,8 +5,14 @@ import pytest
 import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 from temporalio.client import WorkflowExecutionStatus
 
+from posthog.models import Organization, Team
+
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -115,6 +121,86 @@ class TestAcquireV3PipelineLockActivity:
 
         assert result.acquired is False
         assert result.token == ""
+
+
+def _schema_with_config(sync_type_config: dict) -> ExternalDataSchema:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="t")
+    source = ExternalDataSource.objects.create(source_id="src", connection_id="conn", team=team, source_type="Stripe")
+    return ExternalDataSchema.objects.create(name="Charge", team=team, source=source, sync_type_config=sync_type_config)
+
+
+def _streak(runs: int, failed_ago: timedelta) -> dict:
+    return {"runs": runs, "last_failed_at": (datetime.now(UTC) - failed_ago).isoformat()}
+
+
+@pytest.mark.django_db
+class TestAcquireV3PipelineLockActivityDeferral:
+    @pytest.mark.parametrize(
+        "_name,config_extra,runs,failed_ago,expect_deferred",
+        [
+            ("streak_at_threshold_inside_gap", {}, 5, timedelta(minutes=2), True),
+            ("long_streak_inside_capped_gap", {}, 30, timedelta(minutes=40), True),
+            ("streak_at_threshold_past_gap", {}, 5, timedelta(minutes=11), False),
+            ("long_streak_past_capped_gap", {}, 30, timedelta(minutes=61), False),
+            ("streak_below_threshold", {}, 4, timedelta(seconds=1), False),
+            ("reset_pipeline_runs_anyway", {"reset_pipeline": True}, 8, timedelta(minutes=1), False),
+        ],
+    )
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_deferral(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+        _name: str,
+        config_extra: dict,
+        runs: int,
+        failed_ago: timedelta,
+        expect_deferred: bool,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        mock_activity.info.return_value.workflow_id = "wf-abc-123"
+        schema = _schema_with_config({**config_extra, "failure_streak": _streak(runs, failed_ago)})
+
+        result = acquire_v3_pipeline_lock_activity(
+            AcquireV3LockActivityInputs(team_id=schema.team_id, schema_id=schema.id)
+        )
+
+        assert result.deferred is expect_deferred
+        assert result.acquired is not expect_deferred
+        assert result.token == WORKFLOW_RUN_ID
+        if expect_deferred:
+            mock_acquire.assert_not_called()
+        else:
+            mock_acquire.assert_called_once()
+
+    @patch(f"{MODULE}.write_v3_pipeline_lock_meta")
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.ExternalDataSchema.objects")
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_failing_schema_read_does_not_stop_the_sync(
+        self,
+        _bind: MagicMock,
+        mock_activity: MagicMock,
+        mock_objects: MagicMock,
+        mock_acquire: MagicMock,
+        _mock_write_meta: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
+        mock_activity.info.return_value.workflow_id = "wf-abc-123"
+        mock_objects.filter.side_effect = OperationalError("db unavailable")
+
+        result = acquire_v3_pipeline_lock_activity(AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID))
+
+        assert result.deferred is False
+        assert result.acquired is True
+        mock_acquire.assert_called_once()
 
 
 class TestTakeOverStaleLock:

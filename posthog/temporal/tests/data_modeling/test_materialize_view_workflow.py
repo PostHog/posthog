@@ -76,7 +76,6 @@ class TestQualityGateBranching:
             stack.enter_context(
                 patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
             )
-            stack.enter_context(patch.object(temporalio.workflow, "deprecate_patch"))
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))

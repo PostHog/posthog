@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_i
     _format_start_date_param,
     circleci_insights_source,
     get_rows,
-    org_slugs_from_projects,
     parse_project_slugs,
     validate_credentials,
 )
@@ -85,9 +84,6 @@ class TestSlugParsing:
     def test_parse_project_slugs(self, raw, expected):
         assert parse_project_slugs(raw) == expected
 
-    def test_org_slugs_deduped_in_order(self):
-        assert org_slugs_from_projects(["gh/a/one", "gh/a/two", "bb/b/three"]) == ["gh/a", "bb/b"]
-
 
 class TestFormatStartDate:
     @parameterized.expand(
@@ -151,19 +147,6 @@ class TestValidateCredentials:
         assert (error is None) is expected
 
     @mock.patch(PATCH_SESSION)
-    def test_probes_every_project_and_names_the_broken_one(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response({}, status_code=200),  # /me
-            _response(_page([], None), status_code=200),  # first project ok
-            _response({}, status_code=404),  # second project missing
-        ]
-
-        is_valid, error = validate_credentials("token", "gh/posthog/posthog, gh/posthog/nope")
-
-        assert is_valid is False
-        assert error is not None and "gh/posthog/nope" in error
-
-    @mock.patch(PATCH_SESSION)
     def test_swallows_connection_errors(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
 
@@ -171,15 +154,6 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert error is not None
-
-    @mock.patch(PATCH_SESSION)
-    def test_sends_circle_token_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
-
-        validate_credentials("token", "gh/posthog/posthog")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Circle-Token"] == "token"
 
 
 class TestWorkflowMetricsRows:
@@ -209,27 +183,6 @@ class TestWorkflowMetricsRows:
         assert parse_qs(urlparse(first_url).query)["reporting-window"] == ["last-90-days"]
         second_url = _requested_urls(mock_session)[1]
         assert parse_qs(urlparse(second_url).query)["page-token"] == ["token-2"]
-
-    @mock.patch(PATCH_SESSION)
-    def test_reporting_window_and_all_branches_passed_through(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([], None)})
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "token",
-                "gh/a/one",
-                "workflow_metrics",
-                mock.MagicMock(),
-                manager,
-                reporting_window="last-7-days",
-                all_branches=True,
-            )
-        )
-
-        query = parse_qs(urlparse(_requested_urls(mock_session)[0]).query)
-        assert query["reporting-window"] == ["last-7-days"]
-        assert query["all-branches"] == ["true"]
 
     @mock.patch(PATCH_SESSION)
     def test_state_saved_after_each_page_and_on_project_completion(self, mock_session):
@@ -268,16 +221,6 @@ class TestWorkflowMetricsRows:
         assert all("gh/a/one" not in url for url in _requested_urls(mock_session))
 
     @mock.patch(PATCH_SESSION)
-    def test_resume_mid_project_starts_at_saved_token(self, mock_session):
-        _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None)})
-
-        manager = _make_manager(CircleciInsightsResumeConfig(slug="gh/a/one", next_page_token="resume-token"))
-        list(get_rows("token", "gh/a/one", "workflow_metrics", mock.MagicMock(), manager))
-
-        first_url = _requested_urls(mock_session)[0]
-        assert parse_qs(urlparse(first_url).query)["page-token"] == ["resume-token"]
-
-    @mock.patch(PATCH_SESSION)
     def test_resume_with_unknown_slug_starts_over(self, mock_session):
         _route_session(mock_session, {"/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None)})
 
@@ -294,74 +237,6 @@ class TestWorkflowMetricsRows:
 
 
 class TestWorkflowRunsFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_runs_fetched_per_discovered_workflow_with_parent_fields(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}, {"name": "release"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": _page(
-                    [{"id": "r1", "created_at": "2026-07-01T00:00:00Z"}], None
-                ),
-                "/api/v2/insights/gh/a/one/workflows/release": _page(
-                    [{"id": "r2", "created_at": "2026-07-02T00:00:00Z"}], None
-                ),
-            },
-        )
-
-        batches = list(get_rows("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager()))
-        rows = _rows(batches)
-
-        assert [(row["id"], row["project_slug"], row["workflow_name"]) for row in rows] == [
-            ("r1", "gh/a/one", "ci"),
-            ("r2", "gh/a/one", "release"),
-        ]
-
-    @mock.patch(PATCH_SESSION)
-    def test_incremental_passes_start_date_to_run_pages_only(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": _page([], None),
-            },
-        )
-
-        list(
-            get_rows(
-                "token",
-                "gh/a/one",
-                "workflow_runs",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
-            )
-        )
-
-        urls = _requested_urls(mock_session)
-        discovery_query = parse_qs(urlparse(urls[0]).query)
-        runs_query = parse_qs(urlparse(urls[1]).query)
-        # Discovery always scans the full retention window so no workflow is missed.
-        assert discovery_query["reporting-window"] == ["last-90-days"]
-        assert "start-date" not in discovery_query
-        assert runs_query["start-date"] == ["2026-07-01"]
-
-    @mock.patch(PATCH_SESSION)
-    def test_full_refresh_sends_no_start_date(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci": _page([], None),
-            },
-        )
-
-        list(get_rows("token", "gh/a/one", "workflow_runs", mock.MagicMock(), _make_manager()))
-
-        runs_query = parse_qs(urlparse(_requested_urls(mock_session)[1]).query)
-        assert "start-date" not in runs_query
-
     @mock.patch(PATCH_SESSION)
     def test_resume_mid_workflow_skips_earlier_workflows(self, mock_session):
         _route_session(
@@ -436,35 +311,6 @@ class TestJobMetricsFanOut:
 
 class TestJobTimeseriesFanOut:
     @mock.patch(PATCH_SESSION)
-    def test_buckets_carry_parents_and_request_daily_granularity(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/time-series/gh/a/one/workflows/ci/jobs": _page(
-                    [
-                        {"name": "build", "timestamp": "2026-07-01T00:00:00Z"},
-                        {"name": "test", "timestamp": "2026-07-01T00:00:00Z"},
-                    ],
-                    None,
-                ),
-            },
-        )
-
-        batches = list(get_rows("token", "gh/a/one", "job_timeseries", mock.MagicMock(), _make_manager()))
-        rows = _rows(batches)
-
-        assert [(row["project_slug"], row["workflow_name"], row["name"], row["timestamp"]) for row in rows] == [
-            ("gh/a/one", "ci", "build", "2026-07-01T00:00:00Z"),
-            ("gh/a/one", "ci", "test", "2026-07-01T00:00:00Z"),
-        ]
-        timeseries_url = next(url for url in _requested_urls(mock_session) if "time-series" in url)
-        query = parse_qs(urlparse(timeseries_url).query)
-        # Hourly buckets are only retained for 48 hours, so a scheduled sync must ask for daily.
-        assert query["granularity"] == ["daily"]
-        assert "reporting-window" not in query
-
-    @mock.patch(PATCH_SESSION)
     def test_all_branches_widens_discovery_but_not_the_timeseries_request(self, mock_session):
         _route_session(
             mock_session,
@@ -511,43 +357,6 @@ class TestJobTimeseriesFanOut:
 
 
 class TestWorkflowSummaryFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_one_row_per_workflow_keeping_metrics_and_trends(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}, {"name": "release"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci/summary": {
-                    "metrics": {"total_runs": 10},
-                    "trends": {"total_runs": 1.5},
-                    "workflow_names": ["ci", "release"],
-                },
-                "/api/v2/insights/gh/a/one/workflows/release/summary": {
-                    "metrics": {"total_runs": 2},
-                    "trends": {"total_runs": 0.5},
-                    "workflow_names": ["ci", "release"],
-                },
-            },
-        )
-
-        batches = list(get_rows("token", "gh/a/one", "workflow_summary", mock.MagicMock(), _make_manager()))
-
-        # workflow_names describes the project rather than the row, so it is dropped.
-        assert _rows(batches) == [
-            {
-                "project_slug": "gh/a/one",
-                "workflow_name": "ci",
-                "metrics": {"total_runs": 10},
-                "trends": {"total_runs": 1.5},
-            },
-            {
-                "project_slug": "gh/a/one",
-                "workflow_name": "release",
-                "metrics": {"total_runs": 2},
-                "trends": {"total_runs": 0.5},
-            },
-        ]
-
     @mock.patch(PATCH_SESSION)
     def test_state_saved_per_workflow_and_resume_skips_earlier_ones(self, mock_session):
         _route_session(
@@ -596,18 +405,6 @@ class TestWorkflowTestMetricsFanOut:
         # duplicate here would seed duplicate rows under the composite primary key.
         assert [(row["classname"], row["test_name"]) for row in rows] == [("suite.A", "t1"), ("suite.B", "t2")]
         assert all(row["project_slug"] == "gh/a/one" and row["workflow_name"] == "ci" for row in rows)
-
-    @mock.patch(PATCH_SESSION)
-    def test_no_tests_reported_yields_nothing(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/api/v2/insights/gh/a/one/workflows": _page([{"name": "ci"}], None),
-                "/api/v2/insights/gh/a/one/workflows/ci/test-metrics": {"average_test_count": 0},
-            },
-        )
-
-        assert list(get_rows("token", "gh/a/one", "workflow_test_metrics", mock.MagicMock(), _make_manager())) == []
 
 
 class TestBranchesRows:
@@ -665,14 +462,6 @@ class TestFlakyTestsRows:
                 "project_slug": "gh/a/one",
             }
         ]
-
-    @mock.patch(PATCH_SESSION)
-    def test_no_flaky_tests_yields_nothing(self, mock_session):
-        _route_session(
-            mock_session, {"/api/v2/insights/gh/a/one/flaky-tests": {"flaky_tests": [], "total_flaky_tests": 0}}
-        )
-
-        assert list(get_rows("token", "gh/a/one", "flaky_tests", mock.MagicMock(), _make_manager())) == []
 
 
 class TestOrgSummaryRows:

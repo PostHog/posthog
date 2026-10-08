@@ -12,12 +12,12 @@ import { urls } from 'scenes/urls'
 
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
-import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { ScannerTypeBadge, scannerTypeIcon } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
-import { ScannerType } from '../types'
+import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
 
 const roundScore = (value: number): number => Math.round(value * 100) / 100
@@ -459,27 +459,17 @@ export function jevCardSentence(observation: ReplayObservationApi, reason: Watch
 }
 
 /**
- * One muted line of context under the sentence: the scan's prose the sentence did not use. A card
- * leading with the notability sentence gets the whole derived narration; a card already leading
- * with the derived headline gets the prose after it. A filler row gets none, so it stays small.
+ * The scanner behind a jev row: a circle in its type's color, then its name. Clicking it narrows the
+ * feed to that scanner. The tooltip carries the scanner's question and verdict.
  */
-export function jevCardContext(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string | null {
-    if (FILLER_REASON_KINDS.has(reason.kind)) {
-        return null
-    }
-    const headline = watchCardHeadline(observation)
-    if (reason.notability_reason) {
-        return [headline?.title, headline?.body?.text].filter(Boolean).join(' ') || null
-    }
-    return headline?.body?.text ?? null
-}
-
-function JevCardScannerChip({
+function JevScannerLink({
     observation,
     scannerName,
+    scannerType,
 }: {
     observation: ReplayObservationApi
     scannerName: string
+    scannerType: ScannerType | undefined
 }): JSX.Element {
     const { setScannerIdsFilter } = useActions(watchFeedLogic)
     const verdict = readResult(observation)?.verdict
@@ -494,64 +484,60 @@ function JevCardScannerChip({
                             {typeof verdict === 'string' && verdict ? ` Answered ${verdict}.` : ''}
                         </span>
                     )}
-                    <span className="italic">Click to show only this scanner's clips</span>
+                    <span className="italic">Click to show only this scanner's sessions</span>
                 </div>
             }
         >
-            <LemonTag
-                className="max-w-60 cursor-pointer"
-                forceClickable
+            <button
+                type="button"
                 onClick={() => setScannerIdsFilter([observation.scanner_id])}
+                className="relative z-10 flex max-w-full min-w-0 cursor-pointer items-center gap-2 self-start text-sm text-secondary hover:text-default"
                 data-attr="vision-watch-feed-scanner-chip"
             >
-                <span className="truncate">{scannerName}</span>
-            </LemonTag>
+                {scannerType && (
+                    <LemonTag
+                        type={SCANNER_TYPE_TAG_TYPE[scannerType]}
+                        className="size-6 shrink-0 justify-center !rounded-full !p-0"
+                    >
+                        {scannerTypeIcon(scannerType)}
+                    </LemonTag>
+                )}
+                <span className="truncate font-medium">{scannerName}</span>
+            </button>
         </Tooltip>
     )
 }
 
 /**
- * The title under a jev tile and the detail its poster reveals on hover. A summarizer's authored title
- * is already short, so it leads and the scan's sentence moves into the detail. Other scans lead with
- * jevCardSentence and reveal the narration it did not use. A filler tile reveals nothing, so it never
- * reads like a finding.
+ * The title of a jev row. A summarizer's authored title is already short, so it leads. Other scans
+ * lead with jevCardSentence.
  */
-export function jevTileText(
-    observation: ReplayObservationApi,
-    reason: WatchFeedReasonApi
-): { title: string; detail: string | null } {
-    const filler = FILLER_REASON_KINDS.has(reason.kind)
+export function jevRowTitle(observation: ReplayObservationApi, reason: WatchFeedReasonApi): string {
     const result = readResult(observation)
     const scannerType =
         (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
         (result?.scanner_type as ScannerType | undefined)
-    const authoredTitle =
-        scannerType === 'summarizer' && typeof result?.title === 'string' && result.title ? result.title : null
-    if (authoredTitle) {
-        const summary = typeof result?.summary === 'string' ? result.summary : null
-        return { title: authoredTitle, detail: filler ? null : reason.notability_reason || summary || null }
+    if (scannerType === 'summarizer' && typeof result?.title === 'string' && result.title) {
+        return result.title
     }
-    return { title: jevCardSentence(observation, reason), detail: jevCardContext(observation, reason) }
+    return jevCardSentence(observation, reason)
 }
 
 /**
- * The jev arm's tile: a large key-moment poster, a short title, and one meta line. The whole tile
- * opens the observation page, which starts the player at the key moment.
+ * The jev arm's row, laid out like a video search result: a large key-moment poster, then a title,
+ * the scanner, and the person and time. The whole row opens the observation page, which starts the
+ * player at the key moment.
  */
-export function JevWatchFeedTile({ item, position }: WatchFeedCardProps): JSX.Element {
+export function JevWatchFeedRow({ item, position }: WatchFeedCardProps): JSX.Element {
     const { observation, reason } = item
-    const data = useWatchFeedCardData(item, position, 'grid')
-    const { title, detail } = jevTileText(observation, reason)
+    const data = useWatchFeedCardData(item, position, 'list')
+    const title = jevRowTitle(observation, reason)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     return (
-        <article className="group relative flex flex-col gap-2 min-w-0" data-attr="vision-watch-feed-tile">
-            <div className="relative overflow-hidden rounded-lg border group-hover:border-accent group-focus-within:border-accent">
+        <article className="group relative flex min-w-0 gap-4" data-attr="vision-watch-feed-row">
+            <div className="relative w-36 shrink-0 self-start overflow-hidden rounded-lg border group-hover:border-accent group-focus-within:border-accent @xl:w-80">
                 {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
-                <ObservationThumbnail observation={observation} className="rounded-none border-0">
-                    <span className="absolute bottom-2 left-2 flex size-7 items-center justify-center rounded-full bg-black/70 text-white">
-                        <IconPlayFilled className="text-sm" aria-hidden />
-                    </span>
-                </ObservationThumbnail>
+                <ObservationThumbnail observation={observation} className="rounded-none border-0" />
                 {!observation.viewed && (
                     <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
                 )}
@@ -560,28 +546,27 @@ export function JevWatchFeedTile({ item, position }: WatchFeedCardProps): JSX.El
                         {colonDelimitedDuration(Math.floor(data.keyMomentMs / 1000), null)}
                     </span>
                 )}
-                {detail && (
-                    <p className="pointer-events-none absolute inset-x-0 bottom-0 z-10 m-0 bg-gradient-to-t from-black/85 to-transparent px-3 pt-8 pb-10 text-xs text-white line-clamp-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                        {detail}
-                    </p>
-                )}
             </div>
-            <Link
-                to={data.observationUrl}
-                onClick={data.captureObservationOpened}
-                className="text-default after:absolute after:inset-0 after:content-['']"
-                data-attr="vision-watch-feed-tile-open"
-            >
-                <h3
-                    className={`m-0 text-sm line-clamp-2 ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
-                    title={title}
+            <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+                <Link
+                    to={data.observationUrl}
+                    onClick={data.captureObservationOpened}
+                    className="text-default after:absolute after:inset-0 after:content-['']"
+                    data-attr="vision-watch-feed-row-open"
                 >
-                    {!observation.viewed && <span className="sr-only">New: </span>}
-                    {title}
-                </h3>
-            </Link>
-            <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                <JevCardScannerChip observation={observation} scannerName={data.scannerName} />
+                    <h3
+                        className={`m-0 text-base line-clamp-2 group-hover:text-accent ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
+                        title={title}
+                    >
+                        {!observation.viewed && <span className="sr-only">New: </span>}
+                        {title}
+                    </h3>
+                </Link>
+                <JevScannerLink
+                    observation={observation}
+                    scannerName={data.scannerName}
+                    scannerType={data.scannerType}
+                />
                 <WatchCardPerson observation={observation} person={data.person} />
             </div>
         </article>

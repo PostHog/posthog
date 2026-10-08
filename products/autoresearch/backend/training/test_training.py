@@ -145,6 +145,11 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         assert ("notebooks-create-markdown" in prompt) is report_notebook
         assert ("report_notebook_short_id" in prompt) is report_notebook
         assert prompt.index("report.md") < prompt.index("autoresearch-training-runs-complete-create")
+        if report_notebook:
+            # The model row the "What drives it" cell reads exists only after complete.
+            assert prompt.index("autoresearch-training-runs-complete-create") < prompt.index(
+                "**What drives it** — a SQL cell"
+            )
 
     def test_prompt_excludes_autoresearch_feedback_events(self) -> None:
         pipeline = self._make_pipeline()

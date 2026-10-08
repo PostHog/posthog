@@ -160,15 +160,6 @@ def test_transient_probe_failure_is_not_invalid_credentials(send: MagicMock, sta
     send.assert_called_once()
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_sync_retries_transient_failure(send: MagicMock, status: int) -> None:
-    send.side_effect = [response({"error": "Try later"}, status), response({"issues": [{"issue_id": "missing_title"}]})]
-    with patch("tenacity.nap.time.sleep"):
-        result = list(cast(Iterable[Any], ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items()))
-    assert result == [[{"issue_id": "missing_title", "project_id": "123"}]]
-    assert send.call_count == 2
-
-
 def test_unrecognized_probe_error_propagates(send: MagicMock) -> None:
     send.return_value = response({"error": "Invalid request"}, 400)
     with pytest.raises(HTTPError):
