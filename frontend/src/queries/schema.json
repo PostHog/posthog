@@ -2513,6 +2513,19 @@
                     "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
                     "description": "Settings for the left Y axis."
                 },
+                "legendPosition": {
+                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/AssistantDataVisualizationMetricSettings",
+                    "description": "Settings for `Metric`. `summary` defaults to `latest`."
+                },
+                "pie": {
+                    "$ref": "#/definitions/PieChartSettings",
+                    "description": "Settings for `ActionsPie` and `ActionsDonut`."
+                },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/AssistantDataVisualizationYAxisSettings",
                     "description": "Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: \"right\"`."
@@ -2560,13 +2573,16 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.\n- `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.\n- `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `Metric` — big number with a change pill and a sparkline (a KPI or scorecard). Uses the first numeric Y column, one value per row.\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.\n- `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.\n- `BoxPlot` — box plot from pre-aggregated SQL rows. Requires six numeric summary columns.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
+                "Metric",
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsBarValue",
                 "ActionsPie",
+                "ActionsDonut",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "TwoDimensionalHeatmap",
@@ -2590,6 +2606,19 @@
             "required": ["label", "value"],
             "type": "object"
         },
+        "AssistantDataVisualizationMetricSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "showChange": {
+                    "type": "boolean"
+                },
+                "summary": {
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDataVisualizationNode": {
             "additionalProperties": false,
             "description": "SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be expressed as a standard product-analytics insight — cross-source joins with the data warehouse, window functions, or bespoke aggregations.\n\nPrefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention, paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.",
@@ -2600,7 +2629,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Headline number with its change over time (KPI, scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -4600,6 +4629,10 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "AssistantRetentionDisplayType": {
+            "enum": ["ActionsLineGraph", "ActionsBar"],
+            "type": "string"
+        },
         "AssistantRetentionEntity": {
             "anyOf": [
                 {
@@ -4662,6 +4695,10 @@
                 "cumulative": {
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/AssistantRetentionDisplayType",
+                    "description": "`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."
                 },
                 "meanRetentionCalculation": {
                     "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
@@ -25304,6 +25341,41 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "ExperimentApiBreakdown": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdown"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentApiGroupBreakdown"
+                }
+            ],
+            "description": "Slim breakdown entry for experiment API payloads. Narrower than the full Breakdown type: the experiment query only resolves event, person, session and group properties, so the other breakdown types are not accepted here."
+        },
+        "ExperimentApiBreakdownAttributionType": {
+            "description": "'all_events' is excluded: the experiment funnel query rejects it.",
+            "enum": ["first_touch", "last_touch", "step"],
+            "type": "string"
+        },
+        "ExperimentApiBreakdownFilter": {
+            "additionalProperties": false,
+            "description": "Slim breakdown config for experiment API payloads. Only the fields the experiment query runner reads; the full BreakdownFilter's other knobs (breakdown, breakdown_type, attribution, …) are ignored for experiment metrics, so exposing them would only invite no-op input.",
+            "properties": {
+                "breakdown_limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of breakdown values to compute results for."
+                },
+                "breakdowns": {
+                    "description": "Properties to break the metric results down by.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentApiBreakdown"
+                    },
+                    "maxItems": 3,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentApiEventSource": {
             "additionalProperties": false,
             "description": "Slim event/action source for experiment API payloads.",
@@ -25398,10 +25470,43 @@
             },
             "type": "object"
         },
+        "ExperimentApiGroupBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by a group property.",
+            "properties": {
+                "group_type_index": {
+                    "description": "Which group type the property belongs to.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                }
+            },
+            "required": ["property", "type", "group_type_index"],
+            "type": "object"
+        },
         "ExperimentApiMetric": {
             "additionalProperties": false,
             "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownAttributionType",
+                    "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                },
+                "breakdownAttributionValue": {
+                    "$ref": "#/definitions/integer",
+                    "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                },
+                "breakdownFilter": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownFilter",
+                    "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                },
                 "completion_event": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For retention metrics: completion event."
@@ -25504,6 +25609,26 @@
             },
             "required": ["kind", "metric_type"],
             "type": "object"
+        },
+        "ExperimentApiPropertyBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by an event, person or session property.",
+            "properties": {
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdownType",
+                    "description": "Where the property lives. Defaults to 'event'."
+                }
+            },
+            "required": ["property"],
+            "type": "object"
+        },
+        "ExperimentApiPropertyBreakdownType": {
+            "enum": ["event", "person", "session"],
+            "type": "string"
         },
         "ExperimentApiRetentionStart": {
             "additionalProperties": false,
@@ -36342,6 +36467,10 @@
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36364,6 +36493,10 @@
                     "type": "number"
                 },
                 "position": {
+                    "type": ["number", "null"]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
                     "type": ["number", "null"]
                 }
             },
@@ -36488,6 +36621,10 @@
         "MarketingAnalyticsSearchRow": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36537,6 +36674,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
+                    "type": ["number", "null"]
                 }
             },
             "required": [
@@ -39319,7 +39460,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation": {
-                    "$ref": "#/definitions/MetricsAggregation"
+                    "$ref": "#/definitions/MetricsAggregation",
+                    "description": "Omit to get one line per series (at most 100), without combining them"
                 },
                 "filters": {
                     "items": {
@@ -39347,9 +39489,13 @@
                 "quantile": {
                     "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations",
                     "type": "number"
+                },
+                "rangeFunction": {
+                    "$ref": "#/definitions/MetricsRangeFunction",
+                    "description": "Applied to each series before `aggregation`, like `rate()` in PromQL"
                 }
             },
-            "required": ["name", "metricName", "aggregation"],
+            "required": ["name", "metricName"],
             "type": "object"
         },
         "MetricsQueryFilter": {
@@ -39494,6 +39640,11 @@
             },
             "required": ["labels", "points"],
             "type": "object"
+        },
+        "MetricsRangeFunction": {
+            "description": "Counter-aware transform applied to each series before any aggregation",
+            "enum": ["rate", "increase"],
+            "type": "string"
         },
         "MetricsReducer": {
             "description": "How a series collapses to one number for the scalar panels and legend calcs.",
@@ -41058,11 +41209,11 @@
             "additionalProperties": false,
             "properties": {
                 "showTotal": {
-                    "description": "Whether to show the aggregation total below the chart. Defaults to on.",
+                    "description": "Whether to show the aggregation total. Defaults to on only when slices show values.",
                     "type": "boolean"
                 },
                 "sliceContent": {
-                    "description": "What to render on each slice. Defaults to labels.",
+                    "description": "What to render on each slice. Defaults to values.",
                     "enum": ["labels", "values", "none"],
                     "type": "string"
                 },
