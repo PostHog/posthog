@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -647,11 +647,13 @@ export const PositionMetrics: Story = {
         await expect(await canvas.findAllByText('28.0%')).not.toHaveLength(0)
         await expect(canvas.queryByRole('button', { name: 'Visibility' })).not.toBeInTheDocument()
         await userEvent.hover((await canvas.findAllByText('Top'))[0])
-        await expect(
-            await within(document.body).findByText(
-                'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
-            )
-        ).toBeVisible()
+        await waitFor(() =>
+            expect(
+                within(document.body).getByText(
+                    'Percentage of Google Search ad impressions shown among the top ads. Excludes Search partners. Requires a sync with ad placement data.'
+                )
+            ).toBeVisible()
+        )
     },
 }
 export const NarrowPositionMetrics: Story = {
