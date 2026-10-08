@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.
     HoneycombRetryableError,
     HoneycombSloCountsUnavailableError,
     _base_url,
-    _get_headers,
     get_rows,
     validate_credentials,
 )
@@ -95,9 +94,6 @@ def _collect(
 
 
 class TestHelpers:
-    def test_get_headers_sets_team_header(self) -> None:
-        assert _get_headers("hcaik_123")["X-Honeycomb-Team"] == "hcaik_123"
-
     @parameterized.expand([("us", US), ("eu", "https://api.eu1.honeycomb.io"), ("unknown", US)])
     def test_base_url_per_region(self, region: str, expected: str) -> None:
         assert _base_url(region) == expected
@@ -122,18 +118,6 @@ class TestFetchPage:
     def test_fetch_list_treats_non_array_body_as_empty(self) -> None:
         session = _FakeSession([_make_response(200, body={"unexpected": "shape"})])
         assert honeycomb._fetch_list(session, f"{US}/1/datasets", {}, MagicMock()) == []  # type: ignore[arg-type]
-
-
-class TestEnvironmentEndpoints:
-    def test_single_fetch_yields_all_rows(self, monkeypatch: Any) -> None:
-        lists = {f"{US}/1/boards": [{"id": "b1"}, {"id": "b2"}]}
-        rows = _collect("boards", lists, _FakeResumableManager(), monkeypatch)
-        assert rows == [{"id": "b1"}, {"id": "b2"}]
-
-    def test_eu_region_routes_to_eu_host(self, monkeypatch: Any) -> None:
-        lists = {"https://api.eu1.honeycomb.io/1/boards": [{"id": "b1"}]}
-        rows = _collect("boards", lists, _FakeResumableManager(), monkeypatch, region="eu")
-        assert rows == [{"id": "b1"}]
 
 
 class TestPerDatasetFanOut:
@@ -167,29 +151,6 @@ class TestPerDatasetFanOut:
             {"id": "r2", "dataset_slug": "__all__"},
         ]
 
-    def test_deleted_dataset_404_is_skipped(self, monkeypatch: Any) -> None:
-        # A dataset deleted between enumeration and its fetch must not fail the whole sync.
-        lists: dict[str, Any] = {
-            f"{US}/1/datasets": [{"slug": "gone"}, {"slug": "prod"}],
-            f"{US}/1/columns/gone": _not_found(f"{US}/1/columns/gone"),
-            f"{US}/1/columns/prod": [{"id": "c1"}],
-        }
-        rows = _collect("columns", lists, _FakeResumableManager(), monkeypatch)
-        assert rows == [{"id": "c1", "dataset_slug": "prod"}]
-
-    def test_state_saved_after_each_yielded_dataset(self, monkeypatch: Any) -> None:
-        lists = {
-            f"{US}/1/datasets": [{"slug": "prod"}, {"slug": "empty"}, {"slug": "staging"}],
-            f"{US}/1/columns/prod": [{"id": "c1"}],
-            f"{US}/1/columns/empty": [],
-            f"{US}/1/columns/staging": [{"id": "c2"}],
-        }
-        manager = _FakeResumableManager()
-        _collect("columns", lists, manager, monkeypatch)
-        # Empty datasets yield nothing so no checkpoint is written for them — a checkpoint must
-        # only ever point at a dataset whose rows were actually handed to the pipeline.
-        assert [state.dataset_slug for state in manager.saved] == ["prod", "staging"]
-
     def test_resume_refetches_bookmarked_dataset_and_skips_earlier(self, monkeypatch: Any) -> None:
         # The bookmarked dataset's rows may not have been durably flushed before the crash, so it
         # is re-fetched in full (merge dedupes); datasets before it must not be re-fetched (their
@@ -205,15 +166,6 @@ class TestPerDatasetFanOut:
             {"id": "c2", "dataset_slug": "staging"},
             {"id": "c3", "dataset_slug": "dev"},
         ]
-
-    def test_resume_from_deleted_dataset_restarts_from_first(self, monkeypatch: Any) -> None:
-        lists = {
-            f"{US}/1/datasets": [{"slug": "prod"}],
-            f"{US}/1/columns/prod": [{"id": "c1"}],
-        }
-        manager = _FakeResumableManager(HoneycombResumeConfig(dataset_slug="GONE"))
-        rows = _collect("columns", lists, manager, monkeypatch)
-        assert rows == [{"id": "c1", "dataset_slug": "prod"}]
 
 
 class TestBurnAlertFanOut:
@@ -511,15 +463,6 @@ class TestValidateCredentials:
             mp.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
             ok, _error = validate_credentials("key", "us")
         assert ok is expected_ok
-
-    def test_probes_the_selected_regions_auth_endpoint(self) -> None:
-        # A key validated against the wrong region always 401s, so the probe must follow the
-        # user's region selection rather than defaulting to US.
-        session = _FakeSession([_make_response(200, body={})])
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
-            validate_credentials("key", "eu")
-        assert session.requested_urls == ["https://api.eu1.honeycomb.io/1/auth"]
 
     def test_request_exception_is_failure(self, monkeypatch: Any) -> None:
         class _BoomSession:

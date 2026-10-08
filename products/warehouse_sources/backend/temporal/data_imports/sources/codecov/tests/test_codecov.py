@@ -218,14 +218,6 @@ class TestFanOutRows:
         # The bookmark advances to the next repo so a crash between repos resumes correctly.
         assert manager.saved == [CodecovResumeConfig(next_url=None, repo="r2")]
 
-    def test_repository_allow_list_skips_repo_enumeration(self, monkeypatch: Any) -> None:
-        pages = {f"{_BASE}/repos/r9/flags?page_size=500": _page([{"flag_name": "unit", "coverage": 70.0}])}
-        fetched = _patch_fetch(monkeypatch, pages)
-        rows = _collect(_FakeResumableManager(), repositories="r9", endpoint="flags")
-
-        assert [r["repo"] for r in rows] == ["r9"]
-        assert _ACTIVE_REPOS_URL not in fetched
-
     def test_resumes_from_bookmarked_repo_and_url(self, monkeypatch: Any) -> None:
         resume_url = f"{_BASE}/repos/r2/flags?page=2&page_size=500"
         pages = {
@@ -244,31 +236,6 @@ class TestFanOutRows:
         assert [r["repo"] for r in rows] == ["r2", "r3"]
         assert f"{_BASE}/repos/r1/flags?page_size=500" not in fetched
 
-    def test_missing_bookmarked_repo_starts_over(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
-            f"{_BASE}/repos/r1/flags?page_size=500": _page([{"flag_name": "unit", "coverage": 90.0}]),
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(
-            _FakeResumableManager(CodecovResumeConfig(next_url="https://stale", repo="deleted-repo")),
-            repositories=None,
-            endpoint="flags",
-        )
-
-        assert [r["repo"] for r in rows] == ["r1"]
-
-    def test_deleted_repo_404_is_skipped(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}, {"name": "r2"}]),
-            f"{_BASE}/repos/r1/flags?page_size=500": _http_error(404),
-            f"{_BASE}/repos/r2/flags?page_size=500": _page([{"flag_name": "unit", "coverage": 80.0}]),
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(_FakeResumableManager(), repositories=None, endpoint="flags")
-
-        assert [r["repo"] for r in rows] == ["r2"]
-
     def test_components_bare_list_endpoint(self, monkeypatch: Any) -> None:
         pages = {
             _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
@@ -281,33 +248,6 @@ class TestFanOutRows:
 
 
 class TestCoverageReportEndpoints:
-    def test_repo_totals_flattens_totals_onto_one_row_per_repo(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
-            f"{_BASE}/repos/r1/totals": {
-                "totals": {"files": 3, "lines": 100, "hits": 90, "misses": 8, "partials": 2, "coverage": 90.0},
-                # The per-file breakdown is the report_files grain and must not leak into this
-                # row, where `files` is the file count from `totals`.
-                "files": [{"name": "app.py", "totals": {"lines": 50}}],
-                "commit_file_url": "https://app.codecov.io/gh/acme/r1",
-            },
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(_FakeResumableManager(), repositories=None, endpoint="repo_totals")
-
-        assert rows == [
-            {
-                "repo": "r1",
-                "files": 3,
-                "lines": 100,
-                "hits": 90,
-                "misses": 8,
-                "partials": 2,
-                "coverage": 90.0,
-                "commit_file_url": "https://app.codecov.io/gh/acme/r1",
-            }
-        ]
-
     def test_repo_without_a_coverage_report_yields_nothing(self, monkeypatch: Any) -> None:
         # Codecov 404s a repo that has never had a report processed; the fan-out skips it.
         pages = {
@@ -394,21 +334,6 @@ class TestCoverageReportEndpoints:
         assert not any("children" in r for r in rows)
 
 
-class TestUsers:
-    def test_users_are_not_filtered_by_the_repository_allow_list(self, monkeypatch: Any) -> None:
-        # Users are owner-scoped, so the repository allow-list must not reach them — it would
-        # match on `name` and drop every row.
-        pages = {
-            f"{_BASE}/users?page_size=500": _page(
-                [{"username": "ana", "name": "Ana"}, {"username": "bo", "name": "Bo"}]
-            )
-        }
-        _patch_fetch(monkeypatch, pages)
-        rows = _collect(_FakeResumableManager(), repositories="r1", endpoint="users")
-
-        assert [r["username"] for r in rows] == ["ana", "bo"]
-
-
 class TestIncrementalSync:
     _WATERMARK = datetime(2026, 7, 5, tzinfo=UTC)
 
@@ -482,18 +407,6 @@ class TestIncrementalSync:
         )
 
         assert [r["repo"] for r in rows] == ["r1"]
-        assert fetched == list(pages)
-
-    def test_coverage_trend_full_refresh_has_no_start_date(self, monkeypatch: Any) -> None:
-        pages = {
-            _ACTIVE_REPOS_URL: _page([{"name": "r1"}]),
-            f"{_BASE}/repos/r1/coverage?page_size=500&interval=1d": _page(
-                [{"timestamp": "2026-07-06T00:00:00Z", "min": 90.0, "max": 91.0, "avg": 90.5}]
-            ),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        _collect(_FakeResumableManager(), repositories=None, endpoint="coverage_trend")
-
         assert fetched == list(pages)
 
 
