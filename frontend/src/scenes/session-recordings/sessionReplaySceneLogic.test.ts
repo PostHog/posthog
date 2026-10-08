@@ -16,6 +16,7 @@ describe('sessionReplaySceneLogic', () => {
     let playlistLogic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
         router.actions.push('/replay/home', { sessionRecordingId: 'session-a', t: 42 })
         logic = sessionReplaySceneLogic()
@@ -97,6 +98,14 @@ describe('sessionReplaySceneLogic', () => {
             land('watch-tab', '/replay/home')
             router.actions.push('/replay/home')
             expect(router.values.location.pathname).toMatch(/\/replay\/home$/)
+        })
+
+        it('tells an automatic landing apart from a tab click', () => {
+            land('watch-tab', '/replay/home')
+            expect(logic.values.watchTabEntry).toBe('auto_landed')
+            router.actions.push('/replay/home')
+            router.actions.push('/replay/what-to-watch')
+            expect(logic.values.watchTabEntry).toBe('tab')
         })
     })
 

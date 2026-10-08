@@ -50,10 +50,10 @@ export interface watchPicksLogicValues {
     effectiveListMode: WatchPicksListMode
     listMode: WatchPicksListMode | null
     moreItems: WatchFeedItemApi[]
+    openedOnDeepLink: boolean
     picks: WatchFeedItemApi[] | null
     picksFailed: boolean
     picksLoading: boolean
-    preferredListMode: WatchPicksListMode | null
     topPicks: WatchFeedItemApi[]
     unwatchedCount: number
 }
@@ -107,7 +107,7 @@ export interface watchPicksLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveListMode: (
             listMode: WatchPicksListMode | null,
-            preferredListMode: WatchPicksListMode | null,
+            openedOnDeepLink: boolean,
             picks: WatchFeedItemApi[] | null,
             picksFailed: boolean
         ) => WatchPicksListMode
@@ -174,19 +174,18 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 ) ?? null,
         },
         listMode: [
-            (props.playlistLogicProps && replayUrlPointsSomewhere(router.values.searchParams, router.values.hashParams)
-                ? 'recordings'
-                : null) as WatchPicksListMode | null,
-            {
-                setListMode: (_, { mode }) => mode,
-            },
-        ],
-        preferredListMode: [
             null as WatchPicksListMode | null,
             { persist: true, storageKey: 'replay-vision.watch-picks-list-mode' },
             {
                 setListMode: (_, { mode }) => mode,
             },
+        ],
+        openedOnDeepLink: [
+            Boolean(
+                props.playlistLogicProps &&
+                replayUrlPointsSomewhere(router.values.searchParams, router.values.hashParams)
+            ),
+            {},
         ],
         picksFailed: [
             false,
@@ -205,15 +204,15 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
 
     selectors({
         effectiveListMode: [
-            (s) => [s.listMode, s.preferredListMode, s.picks, s.picksFailed],
+            (s) => [s.listMode, s.openedOnDeepLink, s.picks, s.picksFailed],
             (
                 listMode: WatchPicksListMode | null,
-                preferredListMode: WatchPicksListMode | null,
+                openedOnDeepLink: boolean,
                 picks: WatchFeedItemApi[] | null,
                 picksFailed: boolean
             ): WatchPicksListMode =>
                 listMode ??
-                (picksFailed || (picks !== null && picks.length === 0) ? 'recordings' : (preferredListMode ?? 'picks')),
+                (openedOnDeepLink || picksFailed || (picks !== null && picks.length === 0) ? 'recordings' : 'picks'),
         ],
         topPicks: [
             (s) => [s.picks],
@@ -237,6 +236,9 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
             }
             posthog.capture('replay_vision_watch_picks_shown', {
                 view: props.playlistLogicProps ? 'list' : 'page',
+                entry: props.playlistLogicProps
+                    ? undefined
+                    : sessionReplaySceneLogic.findMounted()?.values.watchTabEntry,
                 count: values.picks.length,
                 unwatched_count: values.unwatchedCount,
             })

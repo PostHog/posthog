@@ -92,14 +92,16 @@ describe('watchPicksLogic', () => {
             expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3 }])
         })
 
-        it('remembers the last choice across mounts', async () => {
-            logic.actions.setListMode('recordings')
+        it.each([
+            ['recordings', {}],
+            ['picks', { sessionRecordingId: 'session-a' }],
+        ])('remembers %s across mounts, even over a deep link', async (mode, params) => {
+            logic.actions.setListMode(mode as 'recordings' | 'picks')
             logic.unmount()
             playlistLogic.unmount()
+            router.actions.push('/replay/home', params)
             await mountList()
-            expect(logic.values.effectiveListMode).toBe('recordings')
-            logic.actions.setListMode('picks')
-            expect(logic.values.effectiveListMode).toBe('picks')
+            expect(logic.values.effectiveListMode).toBe(mode)
         })
 
         it.each([
