@@ -319,8 +319,8 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                         references={actionFlagCalledReferences(loadedAction)}
                     >
                         {actionOnlyReadsFlagCalls(loadedAction)
-                            ? "Every step in this action is on Feature flag called, so it won't match new flag calls once your organization's flag calls move out of the events table. Rebuild everything listed under Used in analytics with Feature flag called, then delete this action."
-                            : "This action has a step on Feature flag called, which won't match new flag calls once your organization's flag calls move out of the events table. Remove the step, and chart flag calls in insights with Feature flag called instead."}
+                            ? "Every step in this action is on Feature flag called, so it won't match flag calls made after your organization's flag calls move out of the events table. Rebuild everything listed under Used in analytics with Feature flag called, then delete this action."
+                            : "This action has a step on Feature flag called, which won't match flag calls made after your organization's flag calls move out of the events table. Remove the step, and chart flag calls in insights with Feature flag called instead."}
                     </FlagCalledRebuildBanner>
                 )}
 

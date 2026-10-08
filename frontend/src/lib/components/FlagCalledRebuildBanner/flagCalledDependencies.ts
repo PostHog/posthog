@@ -1,7 +1,11 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
-import { getExposureEventAndProperty, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
+import {
+    getActivationConfig,
+    getExposureEventAndProperty,
+    resolvedExposureEvent,
+} from 'scenes/experiments/exposureContract'
 import { isLegacyExperiment, isLegacyExperimentQuery } from 'scenes/experiments/utils'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/featureFlagUsageQueries'
 
@@ -195,7 +199,14 @@ export function experimentFlagCalledReferences(experiment: Experiment): FlagCall
         exposureCriteria: experiment.exposure_criteria,
         resolvedExposureEvent: resolvedExposureEvent(experiment),
     })
-    return eventReference(event)
+    // A user becomes an exposure only after an activation row in the events table.
+    const activationConfig = getActivationConfig(experiment.exposure_criteria)
+    const activationReferences = !activationConfig
+        ? NO_REFERENCES
+        : isActionsNode(activationConfig)
+          ? actionReference(activationConfig.id)
+          : eventReference(activationConfig.event)
+    return combineReferences([eventReference(event), activationReferences])
 }
 
 /** False until the referenced actions load, so a banner that depends on an action waits rather than guessing. */

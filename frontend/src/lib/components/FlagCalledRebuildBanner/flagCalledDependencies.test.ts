@@ -320,6 +320,31 @@ describe('flag called dependencies', () => {
                 }),
                 [FLAG_CALLED_ACTION],
             ],
+            // Activation composes with the default exposure. It reads the events table too.
+            [
+                'activated by a $feature_flag_called event',
+                true,
+                runningExperiment({
+                    resolved_exposure_event: '$experiment_exposure',
+                    exposure_criteria: {
+                        activation_config: {
+                            kind: NodeKind.ExperimentEventExposureConfig,
+                            event: FLAG_CALLED,
+                            properties: [],
+                        },
+                    },
+                }),
+                [],
+            ],
+            [
+                'activated by an action with a $feature_flag_called step',
+                true,
+                runningExperiment({
+                    resolved_exposure_event: '$experiment_exposure',
+                    exposure_criteria: { activation_config: action(ACTION_ID) },
+                }),
+                [FLAG_CALLED_ACTION],
+            ],
             [
                 'running on a resolved $experiment_exposure',
                 false,

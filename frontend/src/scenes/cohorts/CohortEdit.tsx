@@ -854,8 +854,8 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                             references={cohortFlagCalledReferences(cohort)}
                                         >
                                             This cohort has a criterion on Feature flag called, directly or through an
-                                            action. Once your organization's flag calls move out of the events table,
-                                            that criterion won't see new flag calls, so the cohort can include or leave
+                                            action. That criterion won't see flag calls made after your organization's
+                                            flag calls move out of the events table, so the cohort can include or leave
                                             out the wrong people. Remove that criterion.
                                         </FlagCalledRebuildBanner>
                                     )}

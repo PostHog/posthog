@@ -13,9 +13,9 @@ export function ExperimentFlagCalledBanner(): JSX.Element {
             references={experimentFlagCalledReferences(experiment)}
             className="mb-4"
         >
-            This experiment counts exposures on Feature flag called, and it won't count new exposures once your
-            organization's flag calls move out of the events table. Reach a decision before then, or launch a new
-            experiment, which counts exposures on Experiment exposure.
+            This experiment's exposure criteria use Feature flag called, so it won't count exposures made after your
+            organization's flag calls move out of the events table. Reach a decision with the exposures counted up to
+            then, or launch a new experiment whose exposure criteria don't use Feature flag called.
         </FlagCalledRebuildBanner>
     )
 }

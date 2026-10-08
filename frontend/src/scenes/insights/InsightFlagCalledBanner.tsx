@@ -30,7 +30,7 @@ export function InsightFlagCalledBanner({ insightProps }: { insightProps: Insigh
                     : undefined
             }
         >
-            This insight won't show new feature flag calls once your organization's flag calls move out of the events
+            This insight won't show feature flag calls made after your organization's flag calls move out of the events
             table. To rebuild it, replace each series that uses Feature flag called, directly or through an action, with
             a new Feature flag called series.
         </FlagCalledRebuildBanner>
