@@ -33,7 +33,11 @@ import {
     shortName,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL,
+    slackPermalink,
 } from './weekly-report-common.mjs'
+
+// Off, each team's slice stays in the digest thread, labeled with the channel it would go to.
+const TEAM_CHANNEL_POSTS = process.env.FLAKY_REPORT_TEAM_CHANNELS === 'true'
 
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
@@ -406,7 +410,12 @@ async function buildRunnerReports(
             )
             const queue = collapseClusters(ranked.slice(0, CANDIDATE_POOL), masksCi)
             const extrasFor = await getEnrichment(runner, queue)
-            return { runner, candidates: rankByReportedCounts(queue).slice(0, TOP_N), extrasFor }
+            return {
+                runner,
+                candidates: rankByReportedCounts(queue).slice(0, TOP_N),
+                extrasFor,
+                trunkResolved: Boolean(trunkFor),
+            }
         })
     )
 }
@@ -438,10 +447,8 @@ function tableRows(items, ownerFor, extrasFor, statusFor = quarantineStatusFor) 
     })
 }
 
-// Shadow mode for per-team routing: the per-team slices carry the same rows as the
-// channel digest, but posted as thread replies under it, labeled with the channel
-// they would go to. Validates attribution and volume per team before any team
-// channel receives a message. Takes [{owner, slack, row}] and groups by owner.
+// The per-team slices carry the same rows as the channel digest. Takes [{owner, slack, row}]
+// and groups by owner.
 function buildTeamDigests(entries) {
     const byOwner = new Map()
     for (const { owner, slack, row } of entries) {
@@ -501,38 +508,112 @@ const COLUMN_LEGEND = {
     ],
 }
 
-function buildShadowBlocks({ owner, channel, rows }) {
+const teamLabel = (owner) => owner.replace(/^team-/, '')
+
+// A slice kept in the digest thread. `note` says why it is not in the team's channel.
+function buildThreadSliceBlocks({ owner, rows }, note) {
     return [
-        {
-            type: 'section',
-            text: {
-                type: 'mrkdwn',
-                text: `*${owner.replace(/^team-/, '')}* _(shadow: would post to ${channel})_`,
-            },
-        },
+        { type: 'section', text: { type: 'mrkdwn', text: `*${teamLabel(owner)}* _(${note})_` } },
         flakyTable(rows),
         COLUMN_LEGEND,
     ]
 }
 
-function buildBlocks(now, rows) {
-    const dateLabel = now.toISOString().slice(0, 10)
-    const blocks = [
-        {
-            type: 'section',
-            text: {
-                type: 'mrkdwn',
-                text: `*Weekly flaky tests - ${dateLabel}* _(CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner)_`,
-            },
-        },
-        flakyTable(rows),
-        COLUMN_LEGEND,
-    ]
-    const editBlock = editWorkflowBlock()
-    if (editBlock) {
-        blocks.push(editBlock)
+function reportBlocks(title, rows, footerLinks) {
+    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: title } }, flakyTable(rows), COLUMN_LEGEND]
+    if (footerLinks.length > 0) {
+        blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: footerLinks.join(' · ') }] })
     }
     return blocks
+}
+
+function buildBlocks(now, rows) {
+    const editBlock = editWorkflowBlock()
+    const blocks = reportBlocks(
+        `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(CI, last ${REPORT_WINDOW_DAYS} days, up to ${TOP_N} per runner)_`,
+        rows,
+        []
+    )
+    return editBlock ? [...blocks, editBlock] : blocks
+}
+
+function buildTeamBlocks(now, { owner, rows }, digestUrl) {
+    return reportBlocks(
+        `*Weekly flaky tests - ${now.toISOString().slice(0, 10)}* _(owned by ${teamLabel(owner)}, CI, last ${REPORT_WINDOW_DAYS} days)_`,
+        rows,
+        digestUrl ? [`<${digestUrl}|Report for all teams>`] : []
+    )
+}
+
+function buildTeamIndexBlocks(posted) {
+    return [
+        {
+            type: 'table',
+            column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'left' }],
+            rows: [
+                [cell('team'), cell('tests'), cell('post')],
+                ...posted.map(({ owner, channel, rows, url }) => [
+                    cell(teamLabel(owner)),
+                    cell(String(rows.length)),
+                    url ? linkedCell([{ url, text: channel }]) : cell(channel),
+                ]),
+            ],
+        },
+    ]
+}
+
+const SLACK = {
+    post: postToSlack,
+    permalink: slackPermalink,
+    // chat.postMessage allows about one message per second per channel.
+    pause: () => new Promise((resolve) => setTimeout(resolve, 1100)),
+}
+
+// Sends each team its slice, then indexes those posts in the digest thread. A slice that cannot
+// go to its channel stays in the thread, so no team's rows are lost. `withheld` names a reason to
+// keep every slice in the thread.
+async function deliverTeamDigests(teamDigests, { now, digest, withheld = null, slack = SLACK }) {
+    const digestUrl = withheld ? null : await slack.permalink(digest).catch(() => null)
+    const posted = []
+    for (const [index, team] of teamDigests.entries()) {
+        if (index > 0) {
+            await slack.pause()
+        }
+        const fallbackText = `Flaky tests owned by ${team.owner}`
+        let note = withheld && `${withheld} ${team.channel}`
+        if (!withheld) {
+            try {
+                const post = await slack.post(buildTeamBlocks(now, team, digestUrl), 'Weekly flaky test report', {
+                    channel: team.channel,
+                })
+                posted.push({ ...team, url: await slack.permalink(post).catch(() => null) })
+                continue
+            } catch (err) {
+                console.warn(`team digest for ${team.owner} failed: ${err.message}`)
+                note = `not delivered to ${team.channel}`
+            }
+        }
+        // A failed slice must not sink the slices behind it; the digest itself already landed.
+        try {
+            await slack.post(buildThreadSliceBlocks(team, note), fallbackText, { threadTs: digest.ts })
+        } catch (err) {
+            console.warn(`thread slice for ${team.owner} failed: ${err.message}`)
+        }
+    }
+    if (posted.length > 0) {
+        await slack.post(buildTeamIndexBlocks(posted), 'Team posts for the weekly flaky test report', {
+            threadTs: digest.ts,
+        })
+    }
+    return posted
+}
+
+// A report built without Trunk state keeps unproven failures, which a team channel must not receive.
+function teamPostsWithheld(runnerReports, enabled = TEAM_CHANNEL_POSTS) {
+    if (!enabled) {
+        return 'shadow: would post to'
+    }
+    return runnerReports.every(({ trunkResolved }) => trunkResolved) ? null : 'Trunk state unavailable, not sent to'
 }
 
 async function main() {
@@ -560,31 +641,29 @@ async function main() {
         entries.map(({ row }) => row)
     )
     const teamDigests = buildTeamDigests(entries)
+    const withheld = teamPostsWithheld(runnerReports)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
-        console.info(JSON.stringify(teamDigests.map(buildShadowBlocks), null, 2))
+        console.info(
+            JSON.stringify(
+                teamDigests.map((team) =>
+                    withheld
+                        ? buildThreadSliceBlocks(team, `${withheld} ${team.channel}`)
+                        : buildTeamBlocks(now, team, null)
+                ),
+                null,
+                2
+            )
+        )
         return
     }
     if (!SLACK_BOT_TOKEN) {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
-    const digestTs = await postToSlack(blocks, 'Weekly flaky test report')
+    const digest = await postToSlack(blocks, 'Weekly flaky test report')
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
-    let postedSlices = 0
-    for (const [index, digest] of teamDigests.entries()) {
-        if (index > 0) {
-            // chat.postMessage allows about one message per second per channel.
-            await new Promise((resolve) => setTimeout(resolve, 1100))
-        }
-        // A failed slice must not sink the slices behind it; the digest itself already landed.
-        try {
-            await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, { threadTs: digestTs })
-            postedSlices += 1
-        } catch (err) {
-            console.warn(`shadow digest for ${digest.owner} failed: ${err.message}`)
-        }
-    }
-    console.info(`Posted ${postedSlices}/${teamDigests.length} shadow team digest(s) in thread.`)
+    const posted = await deliverTeamDigests(teamDigests, { now, digest, withheld })
+    console.info(`Posted ${posted.length}/${teamDigests.length} team digest(s) to team channels.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -596,8 +675,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
-    buildShadowBlocks,
     buildTeamDigests,
+    buildThreadSliceBlocks,
+    deliverTeamDigests,
+    teamPostsWithheld,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,

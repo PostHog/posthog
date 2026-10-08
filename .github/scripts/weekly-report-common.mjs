@@ -185,5 +185,18 @@ export async function postToSlack(blocks, text, { threadTs, channel = SLACK_CHAN
             : ''
         throw new Error(`Slack chat.postMessage failed: ${data.error}${validationDetails}`)
     }
-    return data.ts
+    // `channel` is the resolved channel ID, which chat.getPermalink needs when the post was addressed by name.
+    return { ts: data.ts, channel: data.channel }
+}
+
+export async function slackPermalink({ channel, ts }) {
+    const url = new URL('https://slack.com/api/chat.getPermalink')
+    url.searchParams.set('channel', channel)
+    url.searchParams.set('message_ts', ts)
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` } })
+    const data = await res.json()
+    if (!data.ok) {
+        throw new Error(`Slack chat.getPermalink failed: ${data.error}`)
+    }
+    return data.permalink
 }
