@@ -388,6 +388,7 @@ export const inviteLogic = kea<inviteLogicType>([
                 updateMessage: (state) => (state?.attr === 'message' ? null : state),
                 updateInviteAtIndex: (state, { payload }) =>
                     state?.attr === 'first_name' && 'first_name' in payload ? null : state,
+                deleteInviteAtIndex: (state) => (state?.attr === 'first_name' ? null : state),
                 hideInviteModal: () => null,
             },
         ],
@@ -479,13 +480,7 @@ export const inviteLogic = kea<inviteLogicType>([
             // Someone joined after the member list loaded. Reload it so the row shows the error.
             if (errorObject?.code === 'existing_member') {
                 actions.loadAllMembers()
-                return
             }
-            // Field errors render under their input; `inviteTeamMembers` opts out of the global toast.
-            if (values.inviteFieldError) {
-                return
-            }
-            lemonToast.error(`Invite team members failed: ${errorObject?.detail || errorObject?.statusText}`)
         },
         addProjectAccess: ({ projectId }) => {
             // Load access control for the project when it's added
