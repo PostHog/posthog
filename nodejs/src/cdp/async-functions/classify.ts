@@ -17,8 +17,9 @@ const getClassifyJwt = (): ScopedServiceJwt =>
 
 // Django gives the gateway 5 seconds (TIMEOUT_SECONDS in workflow_classifications.py) and returns a 503
 // on a gateway timeout, which this worker retries. The worker budget must be longer than that plus Django's
-// own work. Otherwise the worker aborts first, discards an answer that arrives late, and sends the same
-// classification to the gateway again.
+// own work. That 5 seconds limits each network operation, not the whole call, so Django can still overrun
+// this budget. The worker does not retry its own timeout, because the gateway may still be answering the
+// first request and a retry would pay for the same classification again.
 const CLASSIFY_TIMEOUT_MS = 7000
 
 // Match the limits of the classification endpoint (the request serializer in workflow_classifications.py),
@@ -108,6 +109,7 @@ registerAsyncFunction('postHogClassify', {
             entityClaims: { hog_flow_id: hogFlow.id },
             body: JSON.stringify(payload),
             timeoutMs: CLASSIFY_TIMEOUT_MS,
+            retryOnTimeout: false,
         })
     },
     mock: (args, logs) => {

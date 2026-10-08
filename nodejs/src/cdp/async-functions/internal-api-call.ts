@@ -5,7 +5,7 @@ import { internalFetch } from '~/common/utils/request'
 
 import { AsyncFunctionContext } from '../async-function-registry'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { RETRIABLE_STATUS_CODES, fetchErrorDetail } from '../utils/cdp-fetch'
+import { RETRIABLE_STATUS_CODES, fetchErrorDetail, isTimeoutError } from '../utils/cdp-fetch'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -45,9 +45,21 @@ export async function callInternalApi(
         retriableStatuses?: number[]
         /** Per-attempt budget. Defaults to internalFetch's inter-service timeout. */
         timeoutMs?: number
+        /** Retry an attempt that hit timeoutMs. Turn it off when the server may still be doing costly work for that attempt. */
+        retryOnTimeout?: boolean
     }
 ): Promise<void> {
-    const { jwt, path, method, entityClaims, body, extraHeaders, retriableStatuses = [], timeoutMs } = options
+    const {
+        jwt,
+        path,
+        method,
+        entityClaims,
+        body,
+        extraHeaders,
+        retriableStatuses = [],
+        timeoutMs,
+        retryOnTimeout = true,
+    } = options
     const startedAt = performance.now()
 
     // Counts once per handler call, not per retry attempt below: the retries are all one
@@ -110,7 +122,8 @@ export async function callInternalApi(
             break
         }
 
-        const willRetry = attempt < MAX_ATTEMPTS
+        const willRetry =
+            attempt < MAX_ATTEMPTS && (retryOnTimeout || fetchError === null || !isTimeoutError(fetchError))
         result.logs.push({
             level: willRetry ? 'info' : 'error',
             timestamp: DateTime.now(),
