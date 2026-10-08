@@ -18,7 +18,7 @@ import {
 } from "../layout";
 import type { PiControl } from "../models";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
-import { DoublePress, shortcutFor } from "../shortcuts";
+import { DoublePress, optionSplitFor, shortcutFor } from "../shortcuts";
 import type { Notice } from "./useNotice";
 import type { SearchState } from "./useSearch";
 import type { SettingsState } from "./useSettings";
@@ -199,6 +199,11 @@ export function useKeys({
 
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
   const onKey = (sequence: string): void => {
+    const optionSplit = optionSplitFor(sequence);
+    if (optionSplit && !search.open && !settings.open) {
+      setLayout((current) => splitFocused(current, optionSplit));
+      return;
+    }
     if (isAppKey(sequence)) return;
     if (search.open) {
       search.onKey(sequence);

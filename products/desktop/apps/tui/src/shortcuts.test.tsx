@@ -1,6 +1,12 @@
+import { StdinBuffer } from "@earendil-works/pi-tui";
 import { type Key, useInput } from "ink";
 import { describe, expect, it } from "vitest";
-import { DoublePress, type Shortcut, shortcutFor } from "./shortcuts";
+import {
+  DoublePress,
+  optionSplitFor,
+  type Shortcut,
+  shortcutFor,
+} from "./shortcuts";
 import { renderInTerminal } from "./testing";
 
 // Feeds raw terminal bytes through a real Ink instance and reports the shortcut they map to.
@@ -26,6 +32,8 @@ describe("shortcutFor", () => {
     ["kitty Ctrl+Shift+\\", "\x1b[92;6u", "splitDown"],
     ["kitty Cmd+Shift+\\", "\x1b[92;10u", "splitDown"],
     ["kitty Ctrl+|", "\x1b[124;5u", "splitDown"],
+    ["kitty Option+\\", "\x1b[92;3u", "splitRight"],
+    ["kitty Option+Shift+\\", "\x1b[92;4u", "splitDown"],
     ["kitty Ctrl+;", "\x1b[59;5u", "settings"],
     ["legacy Ctrl+S no longer splits", "\x13", null],
     ["kitty Ctrl+S no longer splits", "\x1b[115;5u", null],
@@ -46,6 +54,20 @@ describe("shortcutFor", () => {
     ["Tab", "\t", null],
   ])("%s", async (_, bytes, expected) => {
     expect(await shortcutFromBytes(bytes)).toBe(expected);
+  });
+});
+
+describe("optionSplitFor", () => {
+  it.each([
+    ["legacy Option+\\", "\x1b\\", "row"],
+    ["legacy Option+|", "\x1b|", "column"],
+    ["plain |", "|", null],
+  ])("%s", (_, bytes, expected) => {
+    const sequences: string[] = [];
+    const buffer = new StdinBuffer();
+    buffer.on("data", (sequence) => sequences.push(sequence));
+    buffer.process(bytes);
+    expect(optionSplitFor(sequences[0])).toBe(expected);
   });
 });
 

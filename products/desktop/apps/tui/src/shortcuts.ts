@@ -14,8 +14,8 @@ export type Shortcut =
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
   // Ctrl+\ splits side by side, as in VS Code, and Ctrl+Shift+\ (Ctrl+|) stacks.
-  // Legacy terminals send both as one raw byte, so there Ctrl+Shift+\ splits side by side too.
-  const modified = key.ctrl || key.super;
+  // Legacy terminals send both as one raw byte, so Option (sent as Meta) is the way to stack there.
+  const modified = key.ctrl || key.super || key.meta;
   if (modified && (input === "|" || (input === "\\" && key.shift)))
     return "splitDown";
   if (input === "\x1c" || (modified && input === "\\")) return "splitRight";
@@ -28,6 +28,13 @@ export function shortcutFor(input: string, key: Key): Shortcut | null {
   // As in VS Code. Inside tmux, Ctrl+B is tmux's own prefix, so Cmd+B does it too.
   if ((key.ctrl || key.super) && letter === "b") return "toggleSidebar";
   if (key.ctrl && letter === "r") return "reload";
+  return null;
+}
+
+// Ink drops Option (Meta) from \ and |, so a legacy terminal's Option splits are read from the raw sequence.
+export function optionSplitFor(sequence: string): "row" | "column" | null {
+  if (sequence === "\x1b\\") return "row";
+  if (sequence === "\x1b|") return "column";
   return null;
 }
 
