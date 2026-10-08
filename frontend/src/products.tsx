@@ -50,6 +50,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import {
     ActionType,
     AnnotationType,
+    AnyPropertyFilter,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -258,7 +259,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
-    '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
     '/inbox': ['Inbox', 'inbox'],
@@ -496,7 +496,6 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
-    '/replay-vision/templates': '/replay-vision/new/template',
     '/replay/vision': '/replay-vision',
     '/scout-trials': (_params, searchParams, hashParams) =>
         combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
@@ -1583,12 +1582,14 @@ export const productUrls = {
         template,
         intent,
         format,
+        properties,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
+        properties?: AnyPropertyFilter[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1605,6 +1606,9 @@ export const productUrls = {
         }
         if (format) {
             params.set('format', format)
+        }
+        if (properties?.length) {
+            params.set('properties', JSON.stringify(properties))
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -1764,7 +1768,6 @@ export const productUrls = {
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
-    replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,

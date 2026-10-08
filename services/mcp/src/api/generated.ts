@@ -4226,6 +4226,18 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
+    export interface ActionSelectorMatchChange {
+      /** ID of an affected action. */
+      action_id: number;
+      /**
+         * Name of the affected action, or null when it has no name.
+         * @nullable
+         */
+      action_name: string | null;
+      /** CSS selectors whose matching behavior changed, in action step order. */
+      selectors: string[];
+    }
+
     /**
      * * `immediately_actionable` - immediately_actionable
      * * `requires_human_input` - requires_human_input
@@ -5265,6 +5277,7 @@ export namespace Schemas {
       Metric: 'Metric',
       ActionsPie: 'ActionsPie',
       ActionsDonut: 'ActionsDonut',
+      ActionsProportionBar: 'ActionsProportionBar',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
       WorldMap: 'WorldMap',
@@ -10590,7 +10603,7 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
-      /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+      /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
       legendPosition?: LegendPosition | null;
       metric?: MetricChartSettings | null;
       pie?: PieChartSettings | null;
@@ -45410,7 +45423,6 @@ export namespace Schemas {
 
     /**
      * * `thumbnail` - Thumbnail
-     * * `clip` - Clip
      * * `chapter` - Chapter
      */
     export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
@@ -45418,38 +45430,26 @@ export namespace Schemas {
 
     export const ReplayObservationMediaKindEnum = {
       Thumbnail: 'thumbnail',
-      Clip: 'clip',
       Chapter: 'chapter',
     } as const;
 
     /**
-     * One thumbnail or clip illustrating an observation.
+     * One frame illustrating an observation.
      */
     export interface ReplayObservationMedia {
       /** Id of this media entry. */
       readonly id: string;
-      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
+      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter.
        *
        * * `thumbnail` - Thumbnail
-       * * `clip` - Clip
        * * `chapter` - Chapter */
       readonly kind: ReplayObservationMediaKindEnum;
       /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
       readonly position: number;
       /** Export asset holding the bytes; fetch it from the export content endpoint. */
       readonly asset_id: number;
-      /**
-         * One sentence saying what the clip shows. Null for thumbnails.
-         * @nullable
-         */
-      readonly description: string | null;
       /** Where this media starts in the analysis video, in milliseconds. */
       readonly video_start_ms: number;
-      /**
-         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
-         * @nullable
-         */
-      readonly video_end_ms: number | null;
     }
 
     export interface ReplayObservation {
@@ -45524,7 +45524,7 @@ export namespace Schemas {
       readonly label: ReplayObservationLabel | null;
       /** Whether the calling user has opened this observation. */
       readonly viewed: boolean;
-      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+      /** Frames illustrating this observation, in order. Empty until the media render finishes. */
       readonly media: readonly ReplayObservationMedia[];
       /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
       readonly summary_line: string;
@@ -114952,6 +114952,22 @@ export namespace Schemas {
 
 
     export const ActionsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type ActionsSelectorMatchChangesListParams = {
+    /**
+     * Action IDs used by the insight. Accepts repeated or comma-separated values.
+     */
+    action_ids: number[];
+    format?: ActionsSelectorMatchChangesListFormat;
+    };
+
+    export type ActionsSelectorMatchChangesListFormat = typeof ActionsSelectorMatchChangesListFormat[keyof typeof ActionsSelectorMatchChangesListFormat];
+
+
+    export const ActionsSelectorMatchChangesListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

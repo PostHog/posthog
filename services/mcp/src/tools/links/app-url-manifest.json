@@ -1464,11 +1464,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerSelfDriving": {
-        "template": "/replay-vision/{id}/self-driving",
-        "params": ["id"],
-        "scope": "project"
-    },
     "replayVisionScannerTemplate": {
         "template": "/replay-vision/{id}/template",
         "params": ["id"],

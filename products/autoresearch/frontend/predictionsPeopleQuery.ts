@@ -40,6 +40,7 @@ export function predictionsPeopleQuery(view: PredictionsPeopleView): string {
             FROM events
             WHERE event = 'autoresearch_prediction'
               AND properties.$autoresearch_pipeline_id = {pipeline_id}
+              AND properties.$autoresearch_model_role != 'shadow'
               AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
         ),
         top AS (
