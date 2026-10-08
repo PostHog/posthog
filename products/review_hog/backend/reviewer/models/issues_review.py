@@ -2,6 +2,7 @@ import logging
 from enum import Enum
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,14 @@ class Issue(BaseModel):
     source_perspective: str | None = Field(
         description="Which review perspective produced this issue; set by the pipeline, not the model",
         default=None,
+    )
+    # Only the single-agent design writes this, from its own output schema. It is left out of this
+    # model's JSON schema so the pipeline's review prompts never ask for it, and an unset value is
+    # left out of dumps so the issue JSON the pipeline sends to dedup and validation stays the same.
+    suggestion_code: SkipJsonSchema[str | None] = Field(
+        description="Replacement code for the finding's line range, posted as a GitHub suggestion",
+        default=None,
+        exclude_if=lambda value: value is None,
     )
 
 

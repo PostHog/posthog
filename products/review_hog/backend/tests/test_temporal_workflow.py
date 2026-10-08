@@ -44,6 +44,7 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
+    SandboxStageInput,
     SelectPerspectivesInput,
     StatusCommentInput,
     SyncReviewSkillsInput,
@@ -126,6 +127,7 @@ async def _run_full_review_pr_workflow(
     review_authored_prs: bool = False,
     already_completed: bool = False,
     pr_open: bool = True,
+    review_design: str = "pipeline",
     automatic_reviewed_head_sha: str | None = None,
     gate_skips: bool = False,
     fail_gate: bool = False,
@@ -168,6 +170,12 @@ async def _run_full_review_pr_workflow(
     def _saw_mode(stage: str, mode: str) -> None:
         mode_calls.setdefault(stage, set()).add(mode)
 
+    design_calls: dict[str, set[str]] = {}
+    single_agent_calls: list[str] = []
+
+    def _saw_design(stage: str, design: str) -> None:
+        design_calls.setdefault(stage, set()).add(design)
+
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
         return None
@@ -190,6 +198,7 @@ async def _run_full_review_pr_workflow(
             empty_diff=empty_diff,
             already_completed=already_completed,
             pr_open=pr_open,
+            review_design=review_design,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
         )
 
@@ -278,8 +287,13 @@ async def _run_full_review_pr_workflow(
             raise ApplicationError("sandbox died", non_retryable=True)
         return True
 
+    @activity.defn(name="single_agent_review_activity")
+    async def single_agent_review(input: SandboxStageInput) -> None:
+        single_agent_calls.append(input.review_design)
+
     @activity.defn(name="dedup_activity")
-    async def dedup(input) -> DedupResult:
+    async def dedup(input: SandboxStageInput) -> DedupResult:
+        _saw_design("dedup", input.review_design)
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
@@ -300,6 +314,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="build_body_activity")
     async def build_body(input: BuildBodyInput) -> None:
         threshold_calls.append(("body", input.urgency_threshold))
+        _saw_design("body", input.review_design)
         finalize_will_publish.append(input.will_publish)
         return None
 
@@ -307,6 +322,7 @@ async def _run_full_review_pr_workflow(
     async def publish_act(input: PublishInput) -> PublishResult:
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
+        _saw_design("publish", input.review_design)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
 
@@ -331,6 +347,7 @@ async def _run_full_review_pr_workflow(
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
+        _saw_design("status", input.review_design)
         marker_calls["status"] = input.marker
         return None
 
@@ -355,6 +372,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        _saw_design("track", input.review_design)
         marker_calls["track"] = input.marker
         return None
 
@@ -363,6 +381,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
+        _saw_design("track", input.review_design)
         return None
 
     result: str | None = None
@@ -391,6 +410,7 @@ async def _run_full_review_pr_workflow(
                 select_perspectives,
                 load_blind_spots,
                 review,
+                single_agent_review,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -461,6 +481,8 @@ async def _run_full_review_pr_workflow(
         "modes": mode_calls,
         "efforts": effort_calls,
         "markers": marker_calls,
+        "designs": design_calls,
+        "single_agent": single_agent_calls,
         "gate": gate_calls,
         "status_posts": status_posts,
     }
@@ -630,6 +652,18 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
 
 
 @pytest.mark.asyncio
+async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
+    recorded = await _run_full_review_pr_workflow(publish=True, review_mode="flash", review_design="single_agent")
+
+    assert recorded["single_agent"] == ["single_agent"]
+    assert recorded["split"] == []
+    assert recorded["review"] == []
+    assert recorded["validate"] == []
+    assert recorded["publish"] == [7]
+    assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "body", "publish", "status", "track")}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "enabled,completed,pr_open,expected_review",
     [(True, False, True, True), (False, False, True, False), (True, True, True, False), (True, False, False, False)],
@@ -651,15 +685,17 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "trigger_source,reviewed_head,gate_skips,fail_gate,expected_gate,expected_review",
+    "trigger_source,reviewed_head,gate_skips,fail_gate,review_design,expected_gate,expected_review",
     [
-        ("automatic", None, True, False, [], True),
-        ("label", "sha0", True, False, [], True),
-        ("manual", "sha0", True, False, [], True),
-        ("automatic", "sha0", True, False, ["sha0"], False),
-        ("automatic", "sha0", False, False, ["sha0"], True),
+        ("automatic", None, True, False, "pipeline", [], True),
+        ("label", "sha0", True, False, "pipeline", [], True),
+        ("manual", "sha0", True, False, "pipeline", [], True),
+        ("automatic", "sha0", True, False, "pipeline", ["sha0"], False),
+        ("automatic", "sha0", False, False, "pipeline", ["sha0"], True),
         # A broken gate must not silence automatic reviews.
-        ("automatic", "sha0", True, True, ["sha0"], True),
+        ("automatic", "sha0", True, True, "pipeline", ["sha0"], True),
+        ("automatic", "sha0", True, False, "single_agent", ["sha0"], False),
+        ("automatic", "sha0", False, False, "single_agent", ["sha0"], True),
     ],
 )
 async def test_push_gate_judges_only_automatic_follow_ups(
@@ -667,6 +703,7 @@ async def test_push_gate_judges_only_automatic_follow_ups(
     reviewed_head: str | None,
     gate_skips: bool,
     fail_gate: bool,
+    review_design: str,
     expected_gate: list[str],
     expected_review: bool,
 ) -> None:
@@ -678,9 +715,10 @@ async def test_push_gate_judges_only_automatic_follow_ups(
         automatic_reviewed_head_sha=reviewed_head,
         gate_skips=gate_skips,
         fail_gate=fail_gate,
+        review_design=review_design,
     )
     assert recorded["gate"] == expected_gate
-    assert bool(recorded["review"]) is expected_review
+    assert bool(recorded["review"] or recorded["single_agent"]) is expected_review
     assert bool(recorded["status_posts"]) is expected_review
     assert bool(recorded["track_started"]) is expected_review
 

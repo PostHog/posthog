@@ -495,6 +495,32 @@ class TestPublishReviewGate:
         if expected_count:
             assert "**Should fix**" in comments[0]["body"]  # the emitted comment displays the effective priority
 
+    @parameterized.expand(
+        [
+            ("range_fully_on_the_diff", {240, 241, 242}, True),
+            # The end line is off the diff, so the comment covers only line 240. GitHub would apply
+            # the three-line replacement to that one line and corrupt the file.
+            ("range_partly_off_the_diff", {240}, False),
+        ]
+    )
+    def test_suggestion_block_posts_only_when_the_comment_covers_the_finding_range(
+        self, _name: str, diff_line_numbers: set[int], expect_suggestion: bool
+    ) -> None:
+        finding = _finding().model_copy(
+            update={
+                "lines": [LineRange(start=240, end=242)],
+                "suggestion": "",
+                "suggestion_code": "a = 1\nb = 2\nc = 3",
+            }
+        )
+        comments = _build_inline_comments(
+            [(finding, _verdict())], {"src/auth.py": diff_line_numbers}, _SHOULD_FIX_PUBLISHED
+        )
+
+        assert len(comments) == 1
+        assert ("```suggestion\na = 1\nb = 2\nc = 3\n```" in comments[0]["body"]) is expect_suggestion
+        assert "**Suggested fix**" not in comments[0]["body"]
+
 
 class TestFormatIssueComment:
     @parameterized.expand(

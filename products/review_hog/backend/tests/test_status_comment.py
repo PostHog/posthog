@@ -9,7 +9,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.constants import (
+    REVIEW_DESIGN_SINGLE_AGENT,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -427,6 +431,49 @@ class TestFinalizeStatusComment(BaseTest):
         # The held-back link into the app. `?review=<report id>` is a permanent public contract
         # (baked into GitHub comments) — the frontend's URL sync accepts exactly this param.
         assert f"/project/{self.team.id}/code-review?review={report_id})" in body
+
+    def test_single_agent_lists_its_consider_findings_in_the_comment(
+        self, mock_request: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        # The single agent's P3 findings never post inline, so the status comment is the only place
+        # they reach the PR. They must neither vanish nor count as published or held back.
+        _wire_auth(mock_integration)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.save(update_fields=["status_comment_id"])
+        must_fix = self._issue("2000-1-1", IssuePriority.MUST_FIX)
+        consider = self._issue("2000-1-2", IssuePriority.CONSIDER).model_copy(
+            update={"title": "Rename the retry counter", "issue": "The name hides that it counts attempts."}
+        )
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[must_fix, consider], run_index=1)
+        for issue in (must_fix, consider):
+            persist_verdict(
+                team_id=self.team.id,
+                report_id=report_id,
+                issue=issue,
+                validation=IssueValidation(is_valid=True, argumentation="a"),
+                run_index=1,
+            )
+
+        finalize_status_comment(
+            FinalizeStatusCommentInput(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                urgency_threshold=IssuePriority.CONSIDER.value,
+                review_mode=REVIEW_MODE_FLASH,
+                review_design=REVIEW_DESIGN_SINGLE_AGENT,
+            )
+        )
+
+        body = mock_request.call_args.kwargs["json"]["body"]
+        assert "Found **1 must fix**, **0 should fix**, **1 consider**" in body
+        assert "Published 1 finding." in body
+        assert "<summary>1 low-priority finding</summary>" in body
+        assert "**Rename the retry counter** (`a.py:10`)" in body
+        assert "The name hides that it counts attempts." in body
+        assert "urgency threshold" not in body
 
     def test_failed_edit_rewrites_the_comment_as_failed(
         self, mock_request: MagicMock, mock_integration: MagicMock

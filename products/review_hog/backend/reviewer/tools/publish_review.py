@@ -12,10 +12,11 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     PRIORITY_LABELS,
+    REVIEW_DESIGN_PIPELINE,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
-    published_priorities_for,
+    review_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
@@ -82,6 +83,7 @@ def publish_persisted_review(
     urgency_threshold: IssuePriority,
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -115,7 +117,8 @@ def publish_persisted_review(
         head_sha=head_sha,
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
-        published_priorities=published_priorities_for(urgency_threshold),
+        # The single-agent design keeps its P3 findings out of the review; the status comment lists them.
+        published_priorities=review_priorities_for(urgency_threshold, review_design),
         installation_id=installation_id,
         review_mode=review_mode,
     )
@@ -269,30 +272,38 @@ def _finding_meta_line(priority: IssuePriority, category: str | None) -> str:
     return meta
 
 
-def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
+def _format_issue_comment(
+    finding: ReviewIssueFinding, verdict: ValidationVerdict, *, with_suggestion_code: bool = False
+) -> str:
     """Format a finding + its verdict as an inline comment body: title, severity, issue, fix.
 
     The validator's argumentation stays out of the comment. It is stored on the verdict and the
     reviews API returns it as `validator_note`. The title must stay the first line, because the
     outcome sweep (`find_finding_comment`) matches a finding to its comment by that line.
+    A single-agent finding has no suggestion text, and may carry replacement code instead, which
+    `with_suggestion_code` posts as a GitHub suggestion block.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
-    return "\n".join(
-        [
-            f"### {finding.title}",
-            "",
-            _finding_meta_line(priority, verdict.category),
-            "",
-            finding.body,
-            "",
-            "**Suggested fix**",
-            "",
-            finding.suggestion,
-            "",
-            # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
-            REVIEW_HOG_FINDING_MARKER,
-        ]
-    )
+    lines = [f"### {finding.title}", "", _finding_meta_line(priority, verdict.category), "", finding.body, ""]
+    if finding.suggestion.strip():
+        lines.extend(["**Suggested fix**", "", finding.suggestion, ""])
+    if with_suggestion_code and finding.suggestion_code is not None:
+        lines.extend(["```suggestion", finding.suggestion_code, "```", ""])
+    # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
+    lines.append(REVIEW_HOG_FINDING_MARKER)
+    return "\n".join(lines)
+
+
+def _covers_whole_range(finding: ReviewIssueFinding, start_line: int, end_line: int | None) -> bool:
+    """Whether the inline comment spans exactly the finding's single line range.
+
+    GitHub applies a suggestion block to the commented lines, so replacement code written for the
+    finding's range is only safe to post when the comment covers that same range.
+    """
+    if len(finding.lines) != 1:
+        return False
+    line_range = finding.lines[0]
+    return start_line == line_range.start and (end_line or start_line) == (line_range.end or line_range.start)
 
 
 def _build_inline_comments(
@@ -316,7 +327,9 @@ def _build_inline_comments(
         start_line, end_line = position
         comment = ReviewComment(
             path=finding.file,
-            body=_format_issue_comment(finding, verdict),
+            body=_format_issue_comment(
+                finding, verdict, with_suggestion_code=_covers_whole_range(finding, start_line, end_line)
+            ),
             side="RIGHT",
         )
 

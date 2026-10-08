@@ -2,6 +2,8 @@ import logging
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
+from posthog.dataclasses import frozen
+
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
@@ -65,18 +67,62 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
-# RELEASE VERSION, one per review mode, because Full and Flash evolve on separate designs.
-# Bump a mode's (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
+# REVIEW DESIGN
+# How a turn finds its issues, decided per turn at fetch. Plain strings, like the review mode.
+REVIEW_DESIGN_PIPELINE = "pipeline"
+REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
+
+# The design a Flash turn runs on by default. Full turns always run on the pipeline. The
+# `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
+# (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
+FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
+
+# A Flash PR above either limit falls back to the pipeline, because the single agent receives the
+# whole diff in one prompt. Both count only the reviewable files that fetch keeps.
+FLASH_SINGLE_AGENT_MAX_CHANGED_LINES = 2500
+FLASH_SINGLE_AGENT_MAX_FILES = 40
+
+# Why a turn runs on its design. The review-started event reports it next to the design.
+REVIEW_DESIGN_REASON_FULL_MODE = "full_mode"
+REVIEW_DESIGN_REASON_DEFAULT = "default"
+REVIEW_DESIGN_REASON_KILL_SWITCH = "kill_switch"
+REVIEW_DESIGN_REASON_SIZE_FALLBACK = "size_fallback"
+
+
+@frozen
+class ReviewDesignChoice:
+    design: str
+    reason: str
+
+
+def select_review_design(
+    review_mode: str, *, changed_lines: int, changed_files: int, kill_switch_on: bool
+) -> ReviewDesignChoice:
+    """The design one turn runs on: the single agent for a Flash turn that fits in one prompt."""
+    if review_mode != REVIEW_MODE_FLASH:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
+    if kill_switch_on:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
+    if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
+    if changed_lines > FLASH_SINGLE_AGENT_MAX_CHANGED_LINES or changed_files > FLASH_SINGLE_AGENT_MAX_FILES:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_SIZE_FALLBACK)
+    return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
+
+
+# RELEASE VERSION, one per review mode and design, because each evolves on its own.
+# Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
-REVIEWHOG_VERSIONS: dict[str, tuple[int, int]] = {
-    REVIEW_MODE_FULL: (1, 2),
-    REVIEW_MODE_FLASH: (1, 2),
+REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 0),
 }
 
 
-def reviewhog_version_for_mode(review_mode: str) -> str:
-    """The version id a turn of this mode reports, like a model id: `reviewhog-flash-1-0`."""
-    major, minor = REVIEWHOG_VERSIONS[review_mode]
+def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-0`."""
+    major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
 
@@ -93,6 +139,15 @@ FLASH_ARM = ReviewArm(
 LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
+# Fixed at xhigh, whatever the user's Flash effort setting, because no validator runs after it.
+SINGLE_AGENT_FLASH_ARM = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+
+# Reserved so the single agent's persisted result never collides with a pipeline pass.
+SINGLE_AGENT_PASS_NUMBER = 2000
+SINGLE_AGENT_CHUNK_ID = 1
+SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
     if reasoning_effort == ReasoningEffort.XHIGH.value:
         return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
@@ -102,9 +157,15 @@ def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
 
 
 def review_arm_for_mode(
-    review_mode: str, persisted: ReviewArm, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    review_mode: str,
+    persisted: ReviewArm,
+    *,
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> ReviewArm:
     """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return SINGLE_AGENT_FLASH_ARM
     return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
@@ -330,6 +391,18 @@ def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
     findings below the threshold are dropped everywhere; placement (inline vs body) is unchanged.
     """
     return {priority for priority, rank in _PRIORITY_RANK.items() if rank >= _PRIORITY_RANK[threshold]}
+
+
+def review_priorities_for(threshold: IssuePriority, review_design: str) -> set[IssuePriority]:
+    """Priorities the PR review itself carries: its tally, its inline comments, its off-diff section.
+
+    The single-agent design lists its `consider` (P3) findings in the status comment instead, so only
+    P0-P2 findings reach the review. The pipeline posts everything at or above the threshold.
+    """
+    published = published_priorities_for(threshold)
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return published - {IssuePriority.CONSIDER}
+    return published
 
 
 def priority_rank(priority: IssuePriority) -> int:

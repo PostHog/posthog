@@ -63,14 +63,18 @@ class ReviewIssueFinding(BaseModel):
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")
     body: str = Field(description="Description of the problem.")
+    # Empty for single-agent findings: their body ends with the fix direction instead.
     suggestion: str = Field(description="Specific fix or improvement.")
+    suggestion_code: str | None = Field(
+        default=None, description="Replacement code for the finding's line range, posted as a GitHub suggestion."
+    )
     priority: IssuePriority = Field(description="Priority level of the finding.")
     source_perspective: str | None = Field(default=None, description="Which review perspective produced this finding.")
     is_directly_related_to_changes: bool = Field(
         default=False, description="Whether the finding is caused by the PR's changes, not just the same file."
     )
 
-    @field_validator("issue_key", "title", "file", "body", "suggestion")
+    @field_validator("issue_key", "title", "file", "body")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():

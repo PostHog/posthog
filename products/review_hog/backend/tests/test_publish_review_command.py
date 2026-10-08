@@ -13,6 +13,8 @@ from products.review_hog.backend.models import ReviewReport, ReviewReportArtefac
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
 )
@@ -71,14 +73,17 @@ class TestPublishReviewCommand(BaseTest):
         )
         return report_id
 
-    def _finding_mode(self, report_id: str, run_index: int, mode: str | None) -> None:
+    def _finding_mode(self, report_id: str, run_index: int, mode: str | None, design: str | None = None) -> None:
+        context: dict[str, str] = {"review_mode": mode} if mode is not None else {}
+        if design is not None:
+            context["review_design"] = design
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
             report_id=report_id,
             content=ReviewIssueFinding(
                 issue_key=f"r{run_index}:a.py:1:logic:1",
                 run_index=run_index,
-                validation_context=json.dumps({"review_mode": mode}) if mode is not None else None,
+                validation_context=json.dumps(context) if context else None,
                 title="Missing guard",
                 file="a.py",
                 body="The value can be absent.",
@@ -138,6 +143,30 @@ class TestPublishReviewCommand(BaseTest):
         assert kwargs["review_mode"] == expected_mode
         # The installation id rides along so the publish calls are metered against the right budget.
         assert kwargs["installation_id"] == "9876543"
+
+    @parameterized.expand(
+        [
+            ("single_agent", REVIEW_DESIGN_SINGLE_AGENT, REVIEW_DESIGN_SINGLE_AGENT),
+            ("before_designs", None, REVIEW_DESIGN_PIPELINE),
+        ]
+    )
+    @patch(_STALE, return_value=None)
+    @patch(_PUBLISH, return_value=PublishOutcome(posted=True))
+    def test_republishes_under_the_design_the_run_used(
+        self, _name: str, stored_design: str | None, expected: str, mock_publish: MagicMock, _stale: MagicMock
+    ) -> None:
+        # A single-agent turn lists its P3 findings in the status comment, so republishing it as the
+        # pipeline would post them as inline comments too.
+        report_id = self._report(run_count=1)
+        self._finding_mode(report_id, 1, REVIEW_MODE_FLASH, stored_design)
+        integration = MagicMock()
+        integration.get_access_token.return_value = "tok"
+        integration.github_installation_id = "9876543"
+
+        with patch(_INTEGRATION, return_value=integration):
+            call_command("publish_review", pr_url=_URL, team_id=self.team.id)
+
+        assert mock_publish.call_args.kwargs["review_design"] == expected
 
     @parameterized.expand([(REVIEW_MODE_FLASH, REVIEW_MODE_FULL), (REVIEW_MODE_FULL, REVIEW_MODE_FLASH)])
     def test_rejects_a_mode_that_differs_from_the_stored_review(self, stored_mode: str, requested_mode: str) -> None:

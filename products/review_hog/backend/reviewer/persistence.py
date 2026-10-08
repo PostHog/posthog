@@ -53,6 +53,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
+    REVIEW_DESIGN_PIPELINE,
     ReviewArm,
     ReviewTier,
     is_below_human_tier,
@@ -524,20 +525,23 @@ def replace_deduplicated_findings(
     head_sha: str,
     review_mode: str,
     review_arm: ReviewArm,
-    validation_arm: ReviewArm,
+    validation_arm: ReviewArm | None,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> list[str]:
     """Replace an unfinished turn's dedup snapshot, retaining only compatible cached verdicts.
 
     A failed turn keeps its index, so its next attempt can produce different findings or use different
     models. Only unpublished working rows retire: completed history and per-commit reviewer results
-    stay intact. Identical findings at the same head, mode, and arm configurations keep their verdicts.
+    stay intact. Identical findings at the same head, mode, design, and arm configurations keep their
+    verdicts. `validation_arm` is None for the single-agent design, which runs no validator.
     """
     context = json.dumps(
         {
             "head_sha": head_sha,
             "review_mode": review_mode,
+            "review_design": review_design,
             "review_arm": asdict(review_arm),
-            "validation_arm": asdict(validation_arm),
+            "validation_arm": asdict(validation_arm) if validation_arm is not None else None,
         },
         sort_keys=True,
     )
@@ -933,6 +937,7 @@ def _to_finding(issue: Issue, run_index: int, *, validation_context: str | None 
         lines=issue.lines,
         body=issue.issue,
         suggestion=issue.suggestion,
+        suggestion_code=issue.suggestion_code,
         priority=issue.priority,
         source_perspective=issue.source_perspective,
         is_directly_related_to_changes=issue.is_directly_related_to_changes,
@@ -948,6 +953,7 @@ def _from_finding(finding: ReviewIssueFinding) -> Issue:
         lines=finding.lines,
         issue=finding.body,
         suggestion=finding.suggestion,
+        suggestion_code=finding.suggestion_code,
         priority=finding.priority,
         source_perspective=finding.source_perspective,
         is_directly_related_to_changes=finding.is_directly_related_to_changes,

@@ -255,6 +255,28 @@ flowchart TD
     MD --> PUBLISH["10. Publish PR review (GitHub API, DB-driven)"]
 ```
 
+### Single-agent Flash (the Flash default)
+
+A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
+The **single-agent design** (`reviewhog-flash-2-0`) replaces steps 4, 5, and 8 below with one activity,
+`single_agent_review_activity`: one Codex sandbox session (`SINGLE_AGENT_FLASH_ARM`, `gpt-6-luna` @ xhigh) reviews
+the whole PR from one prompt and returns `SingleAgentReview`. The prompt is three files in
+`prompts/single_agent_review/`: `core.md` (the DevEx-owned rubric, adapted from OpenAI's Codex review rubric, sent as
+the system prompt), `prompt.jinja` (title, description, numbered diff, earlier turns' findings, the
+finding format), and the generated `schema.json`. There is no team slot: every team runs the same core rubric. Findings persist as one
+`perspective_result` under `SINGLE_AGENT_PASS_NUMBER`, so step 7 (dedup against earlier turns and PR comments) runs
+unchanged; no validator runs, so dedup writes an accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as
+`should_fix`, P3 as `consider`. P0-P2 publish inline; P3 findings stay out of the review (`review_priorities_for`) and
+the status comment lists them. An optional `suggestion_code` posts as a GitHub suggestion block only when the inline
+comment covers exactly the finding's range.
+
+A Flash PR over 2,500 changed lines or 40 files (reviewable files only) falls back to the **pipeline design**
+(`reviewhog-flash-1-1`), the steps below. The `reviewhog-flash-pipeline-kill-switch` feature flag (organization-keyed,
+read in the fetch activity by `reviewer/feature_flags.py`) moves Flash turns back to the pipeline without a deploy; a
+flag evaluation error reads as off. `FLASH_DESIGN_DEFAULT` is the code default. Full turns always run the pipeline.
+`reviewhog_review_started` reports the choice as `review_design` and its cause as `review_design_reason`
+(`full_mode`, `default`, `kill_switch`, `size_fallback`).
+
 ### Step-by-step (as orchestrated by `ReviewPRWorkflow`)
 
 1. **Parse PR URL** — `PRParser.parse_github_pr_url` regex-extracts `owner/repo/pr_number`; raises on a
@@ -374,11 +396,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Turn event IDs distinguish Full and Flash while preserving the legacy Full IDs across deployments.
     Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
     After the skill sync, `record_turn_marker_activity` records the turn's version marker: a version id per review mode
-    (`reviewhog-flash-1-0`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in `REVIEWHOG_VERSIONS`,
-    `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
-    Full and Flash evolve on separate designs, so each mode bumps its own version.
+    and design (`reviewhog-flash-2-0`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
+    `REVIEWHOG_VERSIONS`, `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
+    Full, Flash pipeline, and Flash single agent evolve separately, so each bumps its own version.
     The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
     the review-turn prompts and schemas, and the content of the skills the acting user runs, team edits included.
+    A single-agent turn hashes its own prompt files, the dedup prompt, and its arm instead.
     A prompt or skill edit changes it without a version bump.
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final

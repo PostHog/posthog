@@ -1,11 +1,12 @@
 """The version marker of one review turn: the ReviewHog release plus a fingerprint of the turn's inputs.
 
-`REVIEWHOG_VERSIONS` names one release per review mode (Full and Flash evolve separately) and
+`REVIEWHOG_VERSIONS` names one release per review mode and design (each evolves separately) and
 changes only with a manual bump. The fingerprint is a short hash of everything else that decides how
 one turn reviews: the review mode, the model pins of every stage, the prompt texts, and the content
-of the skills the acting user runs (a team's own edited skill rows included). A prompt edit or a
-skill edit changes the fingerprint without a version bump, so production data can be split by
-"reviewhog-flash-1-0 with inputs Y".
+of the skills the acting user runs (a team's own edited skill rows included). A single-agent turn
+hashes its own prompt files and the dedup stage it still runs instead of the pipeline's prompts and
+skills. A prompt edit or a skill edit changes the fingerprint without a
+version bump, so production data can be split by "reviewhog-flash-1-0 with inputs Y".
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     ReviewArm,
     resolve_review_arm,
     review_arm_for_mode,
@@ -49,6 +52,7 @@ from products.review_hog.backend.reviewer.tools.issue_validation import (
 )
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.select_perspectives import SELECTION_SYSTEM_PROMPT
+from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_CORE_FILE
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import CHUNKING_SYSTEM_PROMPT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -76,6 +80,12 @@ _REVIEW_TURN_EXTRA_PROMPTS = {
     "issue_validation/followup": VALIDATION_FOLLOWUP_TEMPLATE,
     "sandbox/json_retry": JSON_RETRY_PROMPT,
 }
+
+# The prompt directories a single-agent turn renders: its own review, then the shared dedup stage.
+_SINGLE_AGENT_TURN_PROMPT_DIRS = (
+    "single_agent_review",
+    "issue_deduplicator",
+)
 
 FINGERPRINT_LENGTH = 7
 
@@ -131,12 +141,27 @@ class TurnFingerprint:
         }
 
     @staticmethod
-    def _prompt_hashes() -> dict[str, str]:
+    def _prompt_dir_hashes(prompt_dirs: tuple[str, ...]) -> dict[str, str]:
+        return {
+            f"{prompt_dir}/{filename}": _text_hash((PROMPTS_DIR / prompt_dir / filename).read_text())
+            for prompt_dir in prompt_dirs
+            for filename in ("prompt.jinja", "schema.json")
+        }
+
+    @classmethod
+    def _prompt_hashes(cls) -> dict[str, str]:
         hashes = {f"{name}/system": _text_hash(text) for name, text in _REVIEW_TURN_SYSTEM_PROMPTS.items()}
         hashes.update({name: _text_hash(text) for name, text in _REVIEW_TURN_EXTRA_PROMPTS.items()})
-        for prompt_dir in _REVIEW_TURN_PROMPT_DIRS:
-            for filename in ("prompt.jinja", "schema.json"):
-                hashes[f"{prompt_dir}/{filename}"] = _text_hash((PROMPTS_DIR / prompt_dir / filename).read_text())
+        hashes.update(cls._prompt_dir_hashes(_REVIEW_TURN_PROMPT_DIRS))
+        return hashes
+
+    @classmethod
+    def _single_agent_prompt_hashes(cls) -> dict[str, str]:
+        hashes = cls._prompt_dir_hashes(_SINGLE_AGENT_TURN_PROMPT_DIRS)
+        # The whole file, attribution comment included, so any edit to it changes the fingerprint.
+        hashes["single_agent_review/core.md"] = _text_hash(SINGLE_AGENT_CORE_FILE.read_text())
+        hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
+        hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
         return hashes
 
     @staticmethod
@@ -190,6 +215,7 @@ class TurnFingerprint:
         acting_user_id: int,
         review_mode: str,
         flash_reasoning_effort: str,
+        review_design: str = REVIEW_DESIGN_PIPELINE,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -197,7 +223,19 @@ class TurnFingerprint:
             report.review_reasoning_effort,
             report.review_initial_permission_mode,
         )
-        review_arm = review_arm_for_mode(review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort)
+        review_arm = review_arm_for_mode(
+            review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
+        )
+        if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            return cls(
+                {
+                    "review_mode": review_mode,
+                    "review_design": review_design,
+                    "review_arm": _arm_payload(review_arm),
+                    "stage_pins": cls._stage_pins(),
+                    "prompts": cls._single_agent_prompt_hashes(),
+                }
+            )
         validation_arm = validation_arm_for_mode(review_mode, flash_reasoning_effort=flash_reasoning_effort)
         return cls(
             {
@@ -225,6 +263,7 @@ def record_turn_marker(
     acting_user_id: int,
     review_mode: str,
     flash_reasoning_effort: str,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact."""
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
@@ -234,8 +273,11 @@ def record_turn_marker(
         acting_user_id=acting_user_id,
         review_mode=review_mode,
         flash_reasoning_effort=flash_reasoning_effort,
+        review_design=review_design,
     )
-    marker = ReviewHogMarker(version=reviewhog_version_for_mode(review_mode), fingerprint=fingerprint.digest())
+    marker = ReviewHogMarker(
+        version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()
+    )
     ReviewReportArtefact.add_turn_marker(
         team_id=team_id,
         report_id=report_id,

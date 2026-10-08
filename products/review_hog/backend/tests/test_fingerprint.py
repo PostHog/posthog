@@ -1,6 +1,9 @@
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -8,11 +11,18 @@ from posthog.models import Team
 
 from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL, reviewhog_version_for_mode
+from products.review_hog.backend.reviewer.constants import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+    reviewhog_version_for_mode,
+)
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
+from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_CORE_FILE
 from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -44,16 +54,44 @@ class TestRecordTurnMarker(BaseTest):
             ),
         )
 
-    def _record(self, run_index: int, team_id: int | None = None, report_id: str | None = None) -> ReviewHogMarker:
+    def _record(
+        self,
+        run_index: int,
+        team_id: int | None = None,
+        report_id: str | None = None,
+        review_mode: str = REVIEW_MODE_FULL,
+        review_design: str = REVIEW_DESIGN_PIPELINE,
+    ) -> ReviewHogMarker:
         return record_turn_marker(
             team_id=team_id or self.team.id,
             report_id=report_id or self.report_id,
             head_sha="sha1",
             run_index=run_index,
             acting_user_id=self.user.id,
-            review_mode=REVIEW_MODE_FULL,
+            review_mode=review_mode,
             flash_reasoning_effort="medium",
+            review_design=review_design,
         )
+
+    def _record_single_agent(self, run_index: int) -> ReviewHogMarker:
+        return self._record(run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT)
+
+    def _edit_core_prompt(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        edited = Path(directory.name) / "core.md"
+        edited.write_text(SINGLE_AGENT_CORE_FILE.read_text() + "\nFlag missing tests.\n")
+        patcher = patch("products.review_hog.backend.reviewer.fingerprint.SINGLE_AGENT_CORE_FILE", edited)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_core_prompt_edit_changes_the_single_agent_fingerprint(self) -> None:
+        original = self._record_single_agent(run_index=1)
+        self._edit_core_prompt()
+        changed = self._record_single_agent(run_index=2)
+
+        assert original.version == "reviewhog-flash-2-0"
+        assert changed.fingerprint != original.fingerprint
 
     def _publish_validation_body(self, body: str, base_version: int) -> None:
         publish_skill_version(
