@@ -211,7 +211,6 @@ import {
 
 import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
-import type { WarehouseSavedQueriesRetrieveParams } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
@@ -5439,11 +5438,8 @@ const api = {
         async list(): Promise<PaginatedResponse<DataWarehouseSavedQuery>> {
             return await new ApiRequest().dataWarehouseSavedQueries().get()
         },
-        async get(
-            viewId: DataWarehouseSavedQuery['id'],
-            params?: WarehouseSavedQueriesRetrieveParams
-        ): Promise<DataWarehouseSavedQuery> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withQueryString(params).get()
+        async get(viewId: DataWarehouseSavedQuery['id']): Promise<DataWarehouseSavedQuery> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).get()
         },
         async create(data: Partial<DataWarehouseSavedQuery> & { types: string[][] }): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQueries().create({ data })

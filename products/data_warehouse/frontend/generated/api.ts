@@ -92,7 +92,6 @@ import type {
     WarehouseColumnAnnotationsListParams,
     WarehouseExpressionsListParams,
     WarehouseSavedQueriesListParams,
-    WarehouseSavedQueriesRetrieveParams,
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
     WarehouseTablesListParams,
@@ -1594,24 +1593,8 @@ export const warehouseSavedQueriesCreate = async (
     })
 }
 
-export const getWarehouseSavedQueriesRetrieveUrl = (
-    projectId: string,
-    id: string,
-    params?: WarehouseSavedQueriesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/warehouse_saved_queries/${id}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/warehouse_saved_queries/${id}/`
+export const getWarehouseSavedQueriesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/`
 }
 
 /**
@@ -1620,10 +1603,9 @@ export const getWarehouseSavedQueriesRetrieveUrl = (
 export const warehouseSavedQueriesRetrieve = async (
     projectId: string,
     id: string,
-    params?: WarehouseSavedQueriesRetrieveParams,
     options?: RequestInit
 ): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRetrieveUrl(projectId, id, params), {
+    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

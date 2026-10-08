@@ -133,6 +133,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         ENDPOINT = DataWarehouseSavedQueryOrigin.ENDPOINT
         MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
+    READ_SUMMARY_FIELDS = ("last_read_at", "read_count_30d", "user_count_30d")
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -163,6 +165,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
+    last_read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a query last read this view, directly or through another view. Written once a day.",
+    )
+    read_count_30d = models.IntegerField(
+        default=0,
+        db_default=0,
+        help_text="Queries that read this view in the last 30 days, directly or through another view. "
+        "Written once a day.",
+    )
+    user_count_30d = models.IntegerField(
+        default=0,
+        db_default=0,
+        help_text="Distinct users whose queries read this view in the last 30 days. Written once a day.",
+    )
 
     # In case the saved query is materialized to a table, this will be set
     table = models.ForeignKey(

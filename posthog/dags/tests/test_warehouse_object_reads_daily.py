@@ -1,7 +1,7 @@
 import json
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import Any
 
@@ -114,6 +114,11 @@ def insert_archive_rows(rows: list[dict[str, Any]], client: Client) -> None:
         )
 
 
+def read_summary(view: DataWarehouseSavedQuery) -> tuple[datetime | None, int, int]:
+    view.refresh_from_db()
+    return view.last_read_at, view.read_count_30d, view.user_count_30d
+
+
 def read_rollup(team_id: int, day: date, subject_ids: list[str], client: Client) -> list[tuple]:
     return sorted(
         client.execute(
@@ -139,6 +144,15 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
     )
     customers = DataWarehouseSavedQuery.objects.create(
         team=team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+    )
+    last_read_before_window = datetime.now(UTC) - timedelta(days=45)
+    unread = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        name="unread",
+        query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        last_read_at=last_read_before_window,
+        read_count_30d=4,
+        user_count_30d=2,
     )
     stripe_charges = DataWarehouseTable.objects.create(
         team=team, name="stripe_charges", format="Parquet", url_pattern="https://example.com/stripe_charges"
@@ -192,6 +206,10 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
     subject_ids = [view_id, nested_view_id, table_id, joined_table_id]
     run_rollup(cluster, day)
     assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
+    read_at = datetime.combine(day, time(hour=12), tzinfo=UTC)
+    assert read_summary(orders) == (read_at, 3, 2)
+    assert read_summary(customers) == (read_at, 2, 2)
+    assert read_summary(unread) == (last_read_before_window, 0, 0)
 
     def insert_twice(*args: Any) -> None:
         insert_rollup_into_staging(*args)

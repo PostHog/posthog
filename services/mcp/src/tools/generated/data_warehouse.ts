@@ -292,10 +292,7 @@ const viewDelete = (): ToolBase<ReturnType<typeof ViewDeleteSchema>, unknown> =>
 
 const ViewGetSchema = () => {
     const WarehouseSavedQueriesRetrieveParams = orvalSchemas.WarehouseSavedQueriesRetrieveParams()
-    const WarehouseSavedQueriesRetrieveQueryParams = orvalSchemas.WarehouseSavedQueriesRetrieveQueryParams()
-    return WarehouseSavedQueriesRetrieveParams.omit({ project_id: true }).extend(
-        WarehouseSavedQueriesRetrieveQueryParams.shape
-    )
+    return WarehouseSavedQueriesRetrieveParams.omit({ project_id: true })
 }
 
 const viewGet = (): ToolBase<ReturnType<typeof ViewGetSchema>, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -306,9 +303,6 @@ const viewGet = (): ToolBase<ReturnType<typeof ViewGetSchema>, WithPostHogUrl<Sc
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
-            query: {
-                include_last_read: params.include_last_read,
-            },
         })
         return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
@@ -332,6 +326,7 @@ const viewList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             query: {
                 include_columns: params.include_columns,
+                ordering: params.ordering,
                 page: params.page,
                 search: params.search,
             },

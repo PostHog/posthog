@@ -787,6 +787,20 @@ data_modeling_views: PostgresTable = PostgresTable(
         "last_run_at": DateTimeDatabaseField(
             name="last_run_at", description="When the view was last materialized/run."
         ),
+        "last_read_at": DateTimeDatabaseField(
+            name="last_read_at",
+            description="When a query last read the view, directly or through another view. NULL if no read is "
+            "known. Updated once a day.",
+        ),
+        "read_count_30d": IntegerDatabaseField(
+            name="read_count_30d",
+            description="Queries that read the view in the last 30 days, directly or through another view. "
+            "Updated once a day.",
+        ),
+        "user_count_30d": IntegerDatabaseField(
+            name="user_count_30d",
+            description="Distinct users whose queries read the view in the last 30 days. Updated once a day.",
+        ),
         "_is_materialized": BooleanDatabaseField(name="is_materialized", hidden=True),
         "is_materialized": ExpressionField(
             name="is_materialized",

@@ -298,12 +298,20 @@ export const WarehouseSavedQueriesListParams = () => zod.object({
 })
 
 export const warehouseSavedQueriesListQueryIncludeColumnsDefault = true
+export const warehouseSavedQueriesListQueryOrderingDefault = `-created_at`
 
 export const WarehouseSavedQueriesListQueryParams = () => zod.object({
     include_columns: zod
         .boolean()
         .default(warehouseSavedQueriesListQueryIncludeColumnsDefault)
         .describe('Include column definitions. Set to false for table-only lists.'),
+    ordering: zod
+        .string()
+        .min(1)
+        .default(warehouseSavedQueriesListQueryOrderingDefault)
+        .describe(
+            'Sort order. Use read_count_30d or last_read_at to find the least used views. Read counts and last read times are updated once a day.\n\n\* `-created_at` - Newest first\n\* `read_count_30d` - Fewest reads in the last 30 days first\n\* `-read_count_30d` - Most reads in the last 30 days first\n\* `last_read_at` - Least recently read first, never-read views first\n\* `-last_read_at` - Most recently read first'
+        ),
     page: zod.number().optional().describe('A page number within the paginated result set.'),
     search: zod.string().optional().describe('A search term.'),
 })
@@ -422,15 +430,6 @@ export const WarehouseSavedQueriesRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
-})
-
-export const warehouseSavedQueriesRetrieveQueryIncludeLastReadDefault = false
-
-export const WarehouseSavedQueriesRetrieveQueryParams = () => zod.object({
-    include_last_read: zod
-        .boolean()
-        .default(warehouseSavedQueriesRetrieveQueryIncludeLastReadDefault)
-        .describe('Fill last_read_at. Costs one extra ClickHouse query, so leave it off unless you show the value.'),
 })
 
 /**

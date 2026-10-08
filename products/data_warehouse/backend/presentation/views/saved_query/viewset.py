@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import Model, Prefetch
+from django.db.models import F, Model, OrderBy, Prefetch, TextChoices
 
 import structlog
 import posthoganalytics
@@ -112,17 +112,34 @@ class SavedQueryMaterializeSerializer(serializers.Serializer):
     )
 
 
+class SavedQueryListOrdering(TextChoices):
+    NEWEST = "-created_at", "Newest first"
+    FEWEST_READS = "read_count_30d", "Fewest reads in the last 30 days first"
+    MOST_READS = "-read_count_30d", "Most reads in the last 30 days first"
+    LEAST_RECENTLY_READ = "last_read_at", "Least recently read first, never-read views first"
+    MOST_RECENTLY_READ = "-last_read_at", "Most recently read first"
+
+
+NEWEST_FIRST = F("created_at").desc()
+LIST_ORDER_BY: dict[str, tuple[OrderBy, ...]] = {
+    SavedQueryListOrdering.NEWEST: (NEWEST_FIRST,),
+    SavedQueryListOrdering.FEWEST_READS: (F("read_count_30d").asc(), NEWEST_FIRST),
+    SavedQueryListOrdering.MOST_READS: (F("read_count_30d").desc(), NEWEST_FIRST),
+    SavedQueryListOrdering.LEAST_RECENTLY_READ: (F("last_read_at").asc(nulls_first=True), NEWEST_FIRST),
+    SavedQueryListOrdering.MOST_RECENTLY_READ: (F("last_read_at").desc(nulls_last=True), NEWEST_FIRST),
+}
+
+
 class SavedQueryListQuerySerializer(serializers.Serializer):
     include_columns = serializers.BooleanField(
         default=True,
         help_text="Include column definitions. Set to false for table-only lists.",
     )
-
-
-class SavedQueryRetrieveQuerySerializer(serializers.Serializer):
-    include_last_read = serializers.BooleanField(
-        default=False,
-        help_text="Fill last_read_at. Costs one extra ClickHouse query, so leave it off unless you show the value.",
+    ordering = serializers.ChoiceField(
+        choices=SavedQueryListOrdering.choices,
+        default=SavedQueryListOrdering.NEWEST,
+        help_text="Sort order. Use read_count_30d or last_read_at to find the least used views. "
+        "Read counts and last read times are updated once a day.",
     )
 
 
@@ -137,14 +154,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     pagination_class = DataWarehouseSavedQueryPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
-    ordering = "-created_at"
     _include_columns: bool = True
-    _include_last_read: bool = False
+    _ordering: str = SavedQueryListOrdering.NEWEST
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
-        context["include_last_read"] = self._include_last_read
         context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
@@ -164,15 +179,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         self._include_columns = request.validated_query_data["include_columns"]
+        self._ordering = request.validated_query_data["ordering"]
         return super().list(request, *args, **kwargs)
-
-    @validated_request(
-        query_serializer=SavedQueryRetrieveQuerySerializer,
-        responses={200: OpenApiResponse(response=editing.DataWarehouseSavedQuerySerializer)},
-    )
-    def retrieve(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        self._include_last_read = request.validated_query_data["include_last_read"]
-        return super().retrieve(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -197,7 +205,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # fetches the folder once per foldered view.
             .select_related("folder")
             .exclude(deleted=True)
-            .order_by(self.ordering)
+            .order_by(*LIST_ORDER_BY[self._ordering])
         )
 
         # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.

@@ -920,6 +920,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "expires_at",
         "incremental_state",
         "semantic_enrichment_hash",
+        "last_read_at",
+        "read_count_30d",
+        "user_count_30d",
     ],
     "Endpoint": [
         "saved_query",
