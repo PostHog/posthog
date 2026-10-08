@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { IconBell } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
@@ -23,21 +22,20 @@ const SDK_REQUIREMENTS = [
 export function WizardPushStep(): JSX.Element {
     const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
-    const { stepDone } = useValues(workflowsOnboardingWizardLogic)
-    const { next } = useActions(workflowsOnboardingWizardLogic)
-    const [settingUpPush, setSettingUpPush] = useState(false)
+    const { stepDone, pushSetupStarted } = useValues(workflowsOnboardingWizardLogic)
+    const { next, startPushSetup } = useActions(workflowsOnboardingWizardLogic)
 
     const answer = (wantsPush: boolean): void => {
         // pinned: analytics event name - renaming breaks dashboards
         posthog.capture('workflows onboarding wizard push answered', { wants_push: wantsPush })
         if (wantsPush) {
-            setSettingUpPush(true)
+            startPushSetup()
         } else {
             next()
         }
     }
 
-    if (!settingUpPush && !stepDone?.push) {
+    if (!pushSetupStarted && !stepDone?.push) {
         return (
             <div className="flex flex-col items-center gap-3 py-6 text-center">
                 <div className="flex items-center justify-center size-12 rounded-full bg-surface-secondary">

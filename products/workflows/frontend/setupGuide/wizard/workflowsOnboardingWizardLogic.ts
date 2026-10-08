@@ -46,6 +46,7 @@ export interface workflowsOnboardingWizardLogicValues {
     isLastStep: boolean
     missingConnections: WizardConnection[]
     pushEnabled: boolean
+    pushSetupStarted: boolean
     selectedTemplate: HogFlowTemplate | null
     selectedTemplateId: string | null
     startsBlank: boolean
@@ -91,6 +92,9 @@ export interface workflowsOnboardingWizardLogicActions {
         index: number
     }
     positionIfReady: () => {
+        value: true
+    }
+    startPushSetup: () => {
         value: true
     }
     selectTemplate: (templateId: string) => {
@@ -175,6 +179,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         exit: true,
         positionAtFirstOpenStep: (index: number) => ({ index }),
         positionIfReady: true,
+        startPushSetup: true,
     }),
     reducers({
         wizardPath: [
@@ -214,6 +219,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             false,
             {
                 initWizard: () => true,
+            },
+        ],
+        pushSetupStarted: [
+            false,
+            {
+                startPushSetup: () => true,
             },
         ],
     }),
