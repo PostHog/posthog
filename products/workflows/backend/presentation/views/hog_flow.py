@@ -2477,7 +2477,7 @@ class HogFlowLastRunSerializer(serializers.Serializer):
 
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     # The fields the model used to supply. Each is read-only here; the full serializer declares the
-    # writable ones again.
+    # writable ones again, so those are typed as any field.
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True, allow_null=True)
     description = serializers.CharField(read_only=True)
@@ -2488,14 +2488,14 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
     created_by = UserBasicSerializer(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
     trigger = serializers.JSONField(read_only=True)
-    trigger_masking = serializers.JSONField(read_only=True, allow_null=True)
-    conversion = serializers.JSONField(read_only=True, allow_null=True)
+    trigger_masking: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
+    conversion: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
     exit_condition = serializers.ChoiceField(choices=HogFlow.ExitCondition.choices, read_only=True)
-    email_sending_rate_limit = serializers.JSONField(read_only=True, allow_null=True)
-    edges = serializers.JSONField(read_only=True)
-    actions = serializers.JSONField(read_only=True)
+    email_sending_rate_limit: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
+    edges: serializers.Field = serializers.JSONField(read_only=True)
+    actions: serializers.Field = serializers.JSONField(read_only=True)
     abort_action = serializers.CharField(read_only=True, allow_null=True)
-    variables = serializers.JSONField(read_only=True, allow_null=True)
+    variables: serializers.Field = serializers.JSONField(read_only=True, allow_null=True)
     billable_action_types = serializers.JSONField(read_only=True, allow_null=True)
     last_run = serializers.SerializerMethodField(
         help_text="Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run."
