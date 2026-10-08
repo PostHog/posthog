@@ -294,27 +294,26 @@ function WatchFeedScannerLink({
     )
 }
 
-/** The sentence after "Why this recording:" for each reason Jev can pick from its fixed list. */
+/** The sentence that says why a row was picked, for each reason Jev can pick from its fixed list. */
 const JEV_WATCH_REASON_COPY: Record<JevWatchReasonEnumApi, string> = {
-    visible_error: 'the user saw an error message or a failed action in this session.',
-    silent_failure: "something the user did didn't take effect, and nothing told them.",
-    unresponsive: "the user clicked on something that didn't respond.",
-    slow_or_stuck: 'the page was slow to load or got stuck while the user waited.',
-    blocked: "the user hit a dead end they couldn't get past.",
-    cant_find: "the user searched for something and couldn't find it.",
-    confused: 'the user seemed unsure how something worked and went back and forth.',
-    workaround: 'the user gave up on the usual path and found another way to finish.',
-    abandoned: 'the user started a task and left without finishing it.',
-    churn_signal: 'the user showed signs of churn or downgrading in this session.',
-    success: 'the user reached their goal smoothly, a good example of the product working.',
+    visible_error: 'The user saw an error message or a failed action in this session.',
+    silent_failure: "Something the user did didn't take effect, and nothing told them.",
+    unresponsive: "The user clicked on something that didn't respond.",
+    slow_or_stuck: 'The page was slow to load or got stuck while the user waited.',
+    blocked: "The user hit a dead end they couldn't get past.",
+    cant_find: "The user searched for something and couldn't find it.",
+    confused: 'The user seemed unsure how something worked and went back and forth.',
+    workaround: 'The user gave up on the usual path and found another way to finish.',
+    abandoned: 'The user started a task and left without finishing it.',
+    churn_signal: 'The user showed signs of churn or downgrading in this session.',
+    success: 'The user reached their goal smoothly, a good example of the product working.',
 }
 
-/** The sentence after "Why this recording:": Jev's pick when it gave one, otherwise what the reason kind
- * says, so both ranker arms explain each row. */
+/** Why a row was picked: Jev's pick when it gave one, otherwise what the reason kind says, so both
+ * ranker arms explain each row. */
 export function watchFeedRowWhy(reason: WatchFeedReasonApi): string {
     // A value this build does not know (the backend list grew first) falls back to the kind's copy.
-    const copy = (reason.watch_reason && JEV_WATCH_REASON_COPY[reason.watch_reason]) || watchReasonCopy(reason)
-    return copy.charAt(0).toLowerCase() + copy.slice(1)
+    return (reason.watch_reason && JEV_WATCH_REASON_COPY[reason.watch_reason]) || watchReasonCopy(reason)
 }
 
 /**
@@ -403,9 +402,13 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                 <div className="mt-1 flex flex-col gap-2" data-attr="vision-watch-feed-why">
                     <LemonDivider className="m-0 w-36" />
                     <p className="m-0 flex items-start gap-1.5 text-sm text-secondary">
-                        <IconFlag className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                        <Tooltip title="Why this recording">
+                            <span className="mt-0.5 flex shrink-0">
+                                <IconFlag className="text-accent" aria-hidden />
+                            </span>
+                        </Tooltip>
                         <span className="line-clamp-2">
-                            <span className="font-medium text-default">Why this recording:</span>{' '}
+                            <span className="sr-only">Why this recording: </span>
                             {watchFeedRowWhy(reason)}
                         </span>
                     </p>

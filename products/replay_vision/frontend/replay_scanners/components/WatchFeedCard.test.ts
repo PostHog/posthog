@@ -144,7 +144,7 @@ describe('WatchFeedCard helpers', () => {
                     jev_probability: 0.9,
                     watch_reason: 'churn_signal',
                 } as WatchFeedReasonApi,
-                expected: 'the user showed signs of churn or downgrading in this session.',
+                expected: 'The user showed signs of churn or downgrading in this session.',
             },
             {
                 name: "explains a weighted-score row from its reason kind, never repeating the title's sentence",
@@ -154,12 +154,12 @@ describe('WatchFeedCard helpers', () => {
                     window_mean: 5,
                     notability_reason: 'The card form rejected a valid card three times.',
                 } as WatchFeedReasonApi,
-                expected: "scored 9.5, far from this scanner's recent average of 5.",
+                expected: "Scored 9.5, far from this scanner's recent average of 5.",
             },
             {
                 name: 'falls back to the kind copy for a reason this build does not know',
                 reason: { kind: 'jev_watchable', watch_reason: 'some_future_reason' } as unknown as WatchFeedReasonApi,
-                expected: 'the decision model judged this session worth watching.',
+                expected: 'The decision model judged this session worth watching.',
             },
         ])('$name', ({ reason, expected }) => {
             expect(watchFeedRowWhy(reason)).toBe(expected)
