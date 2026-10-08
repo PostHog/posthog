@@ -21,6 +21,31 @@ from . import errors, run_queries
 from .run_queries import SnapshotKey
 
 
+def build_tolerated_lookup(
+    repo_id: UUID, identifiers: set[str], baseline_hashes: set[str], *, now: datetime
+) -> dict[tuple[str, str, str], ToleratedHash]:
+    """Active tolerations for a run, keyed by (identifier, baseline_hash, current_hash).
+
+    A toleration accepts a pair of renders, so it matches in both directions. Some stories
+    render in two stable states, and a retry or an approval can commit either one as the
+    baseline. Without the reverse key, that flip drops the toleration, and every run that
+    renders the old baseline fails again.
+    """
+    if not identifiers or not baseline_hashes:
+        return {}
+    lookup: dict[tuple[str, str, str], ToleratedHash] = {}
+    reversed_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
+    for t in ToleratedHash.objects.filter(
+        Q(baseline_hash__in=baseline_hashes) | Q(alternate_hash__in=baseline_hashes),
+        repo_id=repo_id,
+        identifier__in=identifiers,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
+        lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
+        reversed_lookup[(t.identifier, t.alternate_hash, t.baseline_hash)] = t
+    # A row recorded against the baseline in use wins over the reverse of another row.
+    return {**reversed_lookup, **lookup}
+
+
 @transaction.atomic(using=WRITER_DB)
 def mark_snapshot_as_tolerated(
     run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int, actor: ActorType = ActorType.HUMAN

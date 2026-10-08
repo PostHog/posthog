@@ -12,6 +12,7 @@ from products.visual_review.backend.facade.enums import (
     SnapshotResult,
     ToleratedReason,
 )
+from products.visual_review.backend.logic import toleration
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -303,18 +304,7 @@ class TestToleratedHashClassification:
 def _build_tolerated_lookup(
     repo: Repo, identifiers: set[str], baseline_hashes: set[str]
 ) -> dict[tuple[str, str, str], ToleratedHash]:
-    """Mirrors the tolerated hash query in runs.complete_run."""
-    from django.db.models import Q
-
-    now = timezone.now()
-    lookup: dict[tuple[str, str, str], ToleratedHash] = {}
-    for t in ToleratedHash.objects.filter(
-        repo=repo,
-        identifier__in=identifiers,
-        baseline_hash__in=baseline_hashes,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
-        lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
-    return lookup
+    return toleration.build_tolerated_lookup(repo.id, identifiers, baseline_hashes, now=timezone.now())
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -333,7 +323,7 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Button"}, {"baseline_h"})
 
-        assert len(lookup) == 0
+        assert lookup == {}
 
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
@@ -347,7 +337,7 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Button"}, {"baseline_h"})
 
-        assert len(lookup) == 1
+        assert lookup[("Button", "baseline_h", "current_h")] == tolerated
 
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
@@ -360,7 +350,7 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Button"}, {"baseline_h"})
 
-        assert len(lookup) == 1
+        assert lookup[("Button", "baseline_h", "current_h")] == tolerated
 
         result = _classify(run, {"Button": "baseline_h"}, lookup)
 
@@ -381,8 +371,7 @@ class TestExpiredToleratedHashFiltering:
 
         lookup = _build_tolerated_lookup(repo, {"Expired", "Active"}, {"base_e", "base_a"})
 
-        assert len(lookup) == 1
-        assert ("Active", "base_a", "curr_a") in lookup
+        assert {identifier for identifier, _, _ in lookup} == {"Active"}
 
         result = _classify(run, {"Expired": "base_e", "Active": "base_a"}, lookup)
 
