@@ -7,14 +7,19 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { buildBIAgentContext } from './biAgentContext'
+import { biAgentSyncLogic } from './biAgentSyncLogic'
 import { BIStarters } from './BIStarters'
 import { biWorksheetsLogic } from './biWorksheetsLogic'
+
+const LIBRARY_CONTEXT = buildBIAgentContext()
 
 export const scene: SceneExport = { component: BIWorksheetsScene, logic: biWorksheetsLogic }
 
@@ -22,6 +27,14 @@ export function BIWorksheetsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { worksheets, worksheetsLoading, search, page, recent, error } = useValues(biWorksheetsLogic)
     const { setSearch, setPage, setRecent, loadWorksheets } = useActions(biWorksheetsLogic)
+    useValues(biAgentSyncLogic)
+    useSceneAgentPanel({
+        sceneKey: 'business-intelligence',
+        contextItems: LIBRARY_CONTEXT,
+        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        autoOpen: false,
+        headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
+    })
     if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
         return <NotFound object="page" />
     }

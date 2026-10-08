@@ -119,6 +119,27 @@ describe('biSceneLogic', () => {
     })
     afterEach(() => logic.unmount())
 
+    it('opens catalog definitions as fixed snapshots and waits for Run', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_catalog/metrics/revenue/': {
+                    name: 'revenue',
+                    display_name: 'Revenue',
+                    definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+                },
+            },
+        })
+        await expectLogic(logic, () =>
+            router.actions.push(urls.businessIntelligenceNew(), { metric: 'revenue' })
+        ).toFinishAllListeners()
+        expect(logic.values.name).toBe('Revenue')
+        expect(logic.values.worksheet.config.querySnapshot?.query).toBe('SELECT 42 AS revenue')
+        expect(logic.values.lastRunQuery).toBeNull()
+        expect(logic.values.worksheet.config.source).toBeNull()
+        await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.source.query).toBe('SELECT 42 AS revenue')
+    })
+
     it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
         const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
         try {

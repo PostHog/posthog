@@ -88,6 +88,8 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         ...config,
         source,
         localFields: undefined,
+        querySnapshot: undefined,
+        catalogMetric: undefined,
         comparisonPeriod: undefined,
         rows: [],
         columns: [],
@@ -1095,7 +1097,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setMissingDates: () => actions.runAfterChange(),
         setDateField: () => actions.runAfterChange(),
         setDataSource: () => {
-            captureBIWorksheetAction('source_selected', values.config)
+            captureBIWorksheetAction('source_selected', values.config, {
+                source_certification:
+                    values.allTables.find((table) => table.name === values.config.source?.table)?.certification
+                        ?.status ?? 'unmarked',
+            })
             actions.runAfterChange()
         },
         setValueAggregation: () => actions.runAfterChange(),

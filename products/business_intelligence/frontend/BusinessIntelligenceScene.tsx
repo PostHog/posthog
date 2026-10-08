@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconShare } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
@@ -9,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +18,9 @@ import { Query } from '~/queries/Query/Query'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { buildBIAgentContext } from './biAgentContext'
 import { BIEditor } from './BIEditor'
+import { BIMetricProposalButton } from './BIMetricProposalButton'
 import { biSceneLogic } from './biSceneLogic'
 
 export const scene: SceneExport = {
@@ -44,6 +48,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         canRedo,
         copyDisabledReason,
         worksheet,
+        insight,
     } = useValues(logic)
     const {
         setName,
@@ -57,6 +62,17 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
         undo,
         redo,
     } = useActions(logic)
+    const contextItems = useMemo(
+        () => buildBIAgentContext(worksheet, insight?.short_id),
+        [worksheet, insight?.short_id]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'business-intelligence',
+        contextItems,
+        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        autoOpen: false,
+        headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
+    })
 
     useKeyboardHotkeys({
         z: {
@@ -130,6 +146,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                     >
                         Save as SQL view
                     </LemonButton>
+                    <BIMetricProposalButton tabId={tabId} />
                     <LemonButton
                         size="small"
                         onClick={discardChanges}
@@ -174,7 +191,7 @@ export function BusinessIntelligenceScene({ tabId = 'bi-default' }: { tabId?: st
                             />
                         ) : (
                             <div className="flex flex-1 items-center justify-center p-4 text-secondary">
-                                {worksheet.config.source
+                                {worksheet.config.source || worksheet.config.querySnapshot
                                     ? 'Press Run to see the results of this worksheet.'
                                     : 'Select a table and add fields to build your worksheet.'}
                             </div>

@@ -258,6 +258,11 @@ class TestRelationshipAPI(APIBaseTest):
         response = self.client.post(self.url, _JOIN, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["status"] == RelationshipStatus.PROPOSED
+        proposal_id = response.json()["id"]
+        for table_name in (_JOIN["source_table_name"], _JOIN["joining_table_name"]):
+            listed = self.client.get(self.url, {"table_name": table_name})
+            assert [item["id"] for item in listed.json()["results"]] == [proposal_id]
+        assert self.client.get(self.url, {"table_name": "unrelated"}).json()["results"] == []
 
     def test_duplicate_pair_returns_409_with_proposal_id(self) -> None:
         # The dedupe conflict must render through the HTTP exception handler and hand back the

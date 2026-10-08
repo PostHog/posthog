@@ -101,7 +101,12 @@ describe('BI data source tree', () => {
         expect(searchBIDataSourceTree(results, 'Views')).toEqual(results)
         expect(results).toHaveLength(1)
         expect(results[0].children).toEqual([
-            { id: getBIDataSourceKey(endpoint), name: 'report_v1', icon, record: { type: 'endpoint' } },
+            {
+                id: getBIDataSourceKey(endpoint),
+                name: 'report_v1',
+                icon,
+                record: { type: 'endpoint', tableName: 'report_v1' },
+            },
         ])
     })
 })

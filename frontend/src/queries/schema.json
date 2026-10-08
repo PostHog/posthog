@@ -6106,6 +6106,10 @@
         "BIConfig": {
             "additionalProperties": false,
             "properties": {
+                "catalogMetric": {
+                    "description": "Catalog provenance only: the snapshot does not track subsequent definition edits.",
+                    "type": "string"
+                },
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -6157,6 +6161,10 @@
                     "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
                     "enum": ["gap", "zero"],
                     "type": "string"
+                },
+                "querySnapshot": {
+                    "$ref": "#/definitions/HogQLQuery",
+                    "description": "Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves."
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"

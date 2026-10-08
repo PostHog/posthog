@@ -497,6 +497,15 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     if (candidate.comparisonPeriod != null && candidate.comparisonPeriod !== 'previous') {
         return null
     }
+    if (
+        (candidate.querySnapshot !== undefined &&
+            (!candidate.querySnapshot ||
+                candidate.querySnapshot.kind !== NodeKind.HogQLQuery ||
+                typeof candidate.querySnapshot.query !== 'string')) ||
+        (candidate.catalogMetric !== undefined && typeof candidate.catalogMetric !== 'string')
+    ) {
+        return null
+    }
     if (!isBIAnalysisConfig(candidate)) {
         return null
     }
@@ -628,6 +637,8 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.querySnapshot ? { querySnapshot: candidate.querySnapshot } : {}),
+        ...(candidate.catalogMetric ? { catalogMetric: candidate.catalogMetric } : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.comparisonPeriod ? { comparisonPeriod: candidate.comparisonPeriod } : {}),
         ...(candidate.rowFilterGroup ? { rowFilterGroup: candidate.rowFilterGroup } : {}),
@@ -1239,6 +1250,12 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
+    if (config.querySnapshot) {
+        return {
+            query: config.querySnapshot.query,
+            node: { kind: NodeKind.DataVisualizationNode, source: config.querySnapshot, display: config.chartType },
+        }
+    }
     config = normalizeBIConfig(config)
     if (
         !config.source ||

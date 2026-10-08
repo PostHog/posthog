@@ -6,7 +6,7 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 
 from typing import cast
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -346,10 +346,20 @@ class RelationshipProposalViewSet(
     def safely_get_queryset(self, queryset: QuerySet[RelationshipProposal]) -> QuerySet[RelationshipProposal]:
         proposals = api.relationships_for_team(self.team)
         status_filter = self.request.query_params.get("status")
-        return proposals.filter(status=status_filter) if status_filter else proposals
+        if status_filter:
+            proposals = proposals.filter(status=status_filter)
+        table_name = self.request.query_params.get("table_name")
+        if table_name:
+            proposals = proposals.filter(Q(source_table_name=table_name) | Q(joining_table_name=table_name))
+        return proposals
 
     @extend_schema(
-        parameters=[OpenApiParameter("status", OpenApiTypes.STR, description="Filter by proposed/accepted/rejected.")]
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by proposed/accepted/rejected."),
+            OpenApiParameter(
+                "table_name", OpenApiTypes.STR, description="Only relationships involving this table on either side."
+            ),
+        ]
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         return super().list(request, *args, **kwargs)
