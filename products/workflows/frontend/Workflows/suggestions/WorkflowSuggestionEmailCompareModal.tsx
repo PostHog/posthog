@@ -1,6 +1,18 @@
-import { LemonModal } from '@posthog/lemon-ui'
+import { useState } from 'react'
 
-function RenderedEmail({ label, html }: { label: string; html: string | null }): JSX.Element {
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
+import { withRemoteResourcesBlocked } from './suggestionEmailPreview'
+
+function RenderedEmail({
+    label,
+    html,
+    loadRemote,
+}: {
+    label: string
+    html: string | null
+    loadRemote: boolean
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-1 flex-1 min-w-xl">
             <span className="text-xs font-semibold uppercase text-secondary">{label}</span>
@@ -9,7 +21,7 @@ function RenderedEmail({ label, html }: { label: string; html: string | null }):
                 <iframe
                     title={`Rendered email: ${label}`}
                     sandbox=""
-                    srcDoc={html}
+                    srcDoc={loadRemote ? html : withRemoteResourcesBlocked(html)}
                     className="w-full h-[70vh] bg-white rounded border"
                 />
             ) : (
@@ -34,10 +46,17 @@ export function WorkflowSuggestionEmailCompareModal({
     before: string | null
     after: string | null
 }): JSX.Element {
+    // The suggested HTML is model-written, so its remote images load only when a person asks for them.
+    const [loadRemote, setLoadRemote] = useState(false)
+    const close = (): void => {
+        setLoadRemote(false)
+        onClose()
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={onClose}
+            onClose={close}
             width={1400}
             title="Compare emails"
             description={
@@ -46,13 +65,28 @@ export function WorkflowSuggestionEmailCompareModal({
                     : 'The email as it sends now, next to the email with this suggestion applied.'
             }
         >
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                <span className="text-secondary">
+                    {loadRemote
+                        ? 'Remote images are loaded.'
+                        : 'Remote images are blocked, so opening this preview does not contact the servers they come from.'}
+                </span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    data-attr="workflow-suggestion-load-remote-images"
+                    onClick={() => setLoadRemote(!loadRemote)}
+                >
+                    {loadRemote ? 'Block remote images' : 'Load remote images'}
+                </LemonButton>
+            </div>
             <div className="flex flex-wrap gap-4">
                 {isNewEmail ? (
-                    <RenderedEmail label="New email" html={after} />
+                    <RenderedEmail label="New email" html={after} loadRemote={loadRemote} />
                 ) : (
                     <>
-                        <RenderedEmail label="Now" html={before} />
-                        <RenderedEmail label="Suggested" html={after} />
+                        <RenderedEmail label="Now" html={before} loadRemote={loadRemote} />
+                        <RenderedEmail label="Suggested" html={after} loadRemote={loadRemote} />
                     </>
                 )}
             </div>
