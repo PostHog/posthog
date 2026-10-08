@@ -15,10 +15,11 @@ from parameterized import parameterized
 from personhog.types.v1 import person_pb2
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
-from posthog.models import Team
+from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
@@ -51,6 +52,9 @@ from posthog.models.signals import mute_selected_signals
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.test.persons import add_distinct_id, create_person
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
 CH_PROPERTIES = {"email": "clickhouse@example.com"}
@@ -890,6 +894,21 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert self._ch_mapping("target") == (str(person.uuid), *target_deleted_and_version)
         assert self._ch_mapping("other") == (str(person.uuid), 1, 100)
 
+    def _restrict_person_property_for_another_member(self, name: str) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        other = User.objects.create_and_join(self.organization, "restricted-member@example.com", None)
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.PERSON
+            ),
+            organization_member=OrganizationMembership.objects.get(user=other, organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
     def _stale_person_with_target(self, ch_properties: dict[str, Any]) -> Person:
         person = self._pg_person(version=5, distinct_ids={"target": 2})
         self._ch_person_row(person.uuid, 10, properties=ch_properties)
@@ -956,15 +975,17 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("capture_fails", 256 * 1024, frozenset(), "skipped_stale_merge_failed", True),
-            ("merge_too_large", 10, frozenset(), "skipped_stale_merge_too_large", False),
-            ("property_restricted", 256 * 1024, frozenset({"plan"}), "skipped_stale_merge_restricted", False),
+            ("capture_fails", 256 * 1024, False, "skipped_stale_merge_failed", True),
+            ("merge_too_large", 10, False, "skipped_stale_merge_too_large", False),
+            ("property_restricted_for_another_member", 256 * 1024, True, "skipped_stale_merge_restricted", False),
         ]
     )
     def test_reset_leaves_a_stale_person_alone_when_its_merge_cannot_be_sent(
-        self, _name: str, max_bytes: int, restricted: frozenset[str], person_outcome: str, capture_called: bool
+        self, _name: str, max_bytes: int, restricted: bool, person_outcome: str, capture_called: bool
     ) -> None:
         person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
+        if restricted:
+            self._restrict_person_property_for_another_member("plan")
         failing = MagicMock()
         failing.raise_for_status.side_effect = RuntimeError("capture rejected the event")
 
@@ -972,9 +993,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             patch("posthog.models.person.divergence._STALE_MERGE_MAX_BYTES", max_bytes),
             patch("posthog.models.person.divergence.capture_internal", return_value=failing) as capture,
         ):
-            summary = repair_distinct_id(
-                self.team.pk, "target", delivery_timeout_seconds=1, restricted_properties=restricted
-            )
+            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
 
         assert summary is not None
         assert (summary.person_outcomes, summary.mapping_outcomes) == ({person_outcome: 1}, {"skipped_stale": 1})

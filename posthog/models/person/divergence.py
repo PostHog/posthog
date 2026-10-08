@@ -52,6 +52,8 @@ from posthog.personhog_client.proto import (
     SetPersonVersionFloorRequest,
 )
 
+from products.access_control.backend.facade.api import team_has_property_access_rules
+
 PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent"]
 MappingDivergenceKind = Literal["hidden", "other_person", "stale", "absent"]
 SampleClassification = Literal["equal", "pg_below_ch", "pg_above_ch", "team_gone", "pg_tombstone", "pg_absent"]
@@ -940,14 +942,12 @@ def _clickhouse_only_properties(plan: _PersonPlan) -> dict[str, Any]:
     return {key: value for key, value in ch_properties.items() if key not in pg_properties}
 
 
-def _queue_stale_merge(
-    plan: _PersonPlan, distinct_id: str, missing: dict[str, Any], restricted_properties: frozenset[str]
-) -> RepairOutcome | None:
+def _queue_stale_merge(plan: _PersonPlan, distinct_id: str, missing: dict[str, Any]) -> RepairOutcome | None:
     """Send the ClickHouse-only properties to ingestion as $set_once, or return why they were not sent."""
     assert plan.person is not None
-    # Event reads apply event property restrictions, so the $set event would expose a person property the
-    # requester cannot read.
-    if restricted_properties.intersection(missing):
+    # Every member can read the $set event, and event reads apply event property restrictions only, so a team with
+    # any property rule could expose a person property that some member is denied.
+    if team_has_property_access_rules(team_id=plan.team_id):
         return "skipped_stale_merge_restricted"
     if len(json.dumps({**missing, **(plan.person.properties or {})})) > _STALE_MERGE_MAX_BYTES:
         return "skipped_stale_merge_too_large"
@@ -998,7 +998,6 @@ def _execute_plan(
     before_write: Callable[[], None],
     published: Callable[[ProduceResult], None],
     stale_merge_distinct_id: str | None = None,
-    restricted_properties: frozenset[str] = frozenset(),
 ) -> list[RepairAction]:
     person = plan.person
     if person is None:
@@ -1010,9 +1009,7 @@ def _execute_plan(
             missing = _clickhouse_only_properties(plan)
             # The merge goes out before the raise, so a send that fails leaves Postgres below ClickHouse and
             # the next ingestion update cannot overwrite the ClickHouse-only properties.
-            refusal = (
-                _queue_stale_merge(plan, stale_merge_distinct_id, missing, restricted_properties) if missing else None
-            )
+            refusal = _queue_stale_merge(plan, stale_merge_distinct_id, missing) if missing else None
             if refusal is None and missing:
                 stale_merge_keys = set(missing)
         if refusal is not None:
@@ -1260,18 +1257,12 @@ def repair_persons(
     return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
 
 
-def repair_distinct_id(
-    team_id: int,
-    distinct_id: str,
-    *,
-    delivery_timeout_seconds: float,
-    restricted_properties: frozenset[str] = frozenset(),
-) -> RepairSummary | None:
+def repair_distinct_id(team_id: int, distinct_id: str, *, delivery_timeout_seconds: float) -> RepairSummary | None:
     """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
 
     It always applies. For a stale person it sends the ClickHouse winner's properties that Postgres lacks to
     ingestion as $set_once, so newer Postgres values win, and then raises Postgres above ClickHouse. It leaves
-    the person stale when any of those properties is in ``restricted_properties``.
+    the person stale when the team has property access rules.
     """
     owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
     if owner is None:
@@ -1288,7 +1279,6 @@ def repair_distinct_id(
                 before_write=lambda: None,
                 published=deliveries.track,
                 stale_merge_distinct_id=distinct_id,
-                restricted_properties=restricted_properties,
             ):
                 outcomes.add(action)
     finally:
