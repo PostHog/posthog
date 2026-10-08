@@ -11,7 +11,13 @@ import { PushHandlerResult, PushSubscriptionsService } from './push-subscription
 describe('push subscriptions http', () => {
     let server: Server
     let base: string
-    let seen: { method: string; body: string; contentType?: string; compression?: string | null }[]
+    let seen: {
+        method: string
+        body: string
+        contentType?: string
+        compression?: string | null
+        mirrored?: boolean
+    }[]
     let answer: PushHandlerResult
     let failure: Error | null
 
@@ -26,6 +32,7 @@ describe('push subscriptions http', () => {
                     body: request.body.toString('utf8'),
                     contentType: request.contentType,
                     compression: request.query?.get('compression') ?? null,
+                    mirrored: request.mirrored,
                 })
                 return failure ? Promise.reject(failure) : Promise.resolve(answer)
             },
@@ -49,6 +56,24 @@ describe('push subscriptions http', () => {
     const post = (path: string, init: Record<string, any> = {}): Promise<FetchResponse> =>
         internalFetch(`${base}${path}`, { method: 'POST', ...init })
 
+    it.each([
+        ['us.i.posthog.com-shadow', true],
+        ['us.i.posthog.com', false],
+        ['shadow.example.com', false],
+    ])('marks a request with Host %s as mirrored: %s', async (host, mirrored) => {
+        await new Promise<void>((resolve, reject) => {
+            const req = httpRequest(
+                `${base}/api/push_subscriptions/`,
+                { method: 'POST', headers: { Host: host, 'Content-Type': 'application/json' } },
+                (res) => res.resume().on('end', resolve)
+            )
+            req.on('error', reject)
+            req.end('{}')
+        })
+
+        expect(seen[0].mirrored).toEqual(mirrored)
+    })
+
     it('delivers a DELETE body to the service', async () => {
         // The reason this endpoint is not on the plugin server's express framework: that one drops
         // the body on DELETE, and DELETE with a body is how every released SDK unregisters a device.
@@ -61,7 +86,9 @@ describe('push subscriptions http', () => {
         })
 
         expect(response.status).toEqual(200)
-        expect(seen).toEqual([{ method: 'DELETE', body, contentType: 'application/json', compression: null }])
+        expect(seen).toEqual([
+            { method: 'DELETE', body, contentType: 'application/json', compression: null, mirrored: false },
+        ])
     })
 
     it('passes the content type and query through untouched', async () => {

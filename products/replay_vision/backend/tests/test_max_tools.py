@@ -30,7 +30,6 @@ from products.replay_vision.backend.max_tools import (
     RetryReplayVisionObservationTool,
     ScanReplayVisionSessionsTool,
     SearchReplayVisionObservationsTool,
-    SummarizeReplayVisionSummariesTool,
     UpdateReplayVisionScannerTool,
 )
 from products.replay_vision.backend.models.replay_observation import (
@@ -47,7 +46,6 @@ from products.replay_vision.backend.tests.helpers import seed_scanner_spend
 
 from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
-_SCANNER_LOOKUP_PATH = "products.replay_vision.backend.max_tools.scanner_for_reading_observations"
 # The estimate refresh runs a ClickHouse query; these tests are about the tool, not the query.
 _REFRESH_ESTIMATE_PATH = "products.replay_vision.backend.api.scanners._refresh_estimate_fail_soft"
 _GENERATE_EMBEDDING_PATH = "products.replay_vision.backend.search.generate_embedding"
@@ -452,22 +450,6 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
         assert artifact["error"] == "embedding_unavailable"
         assert "AI data processing" in content
-
-
-class TestSummarizeReplayVisionSummariesTool(BaseTest):
-    def _tool(self) -> SummarizeReplayVisionSummariesTool:
-        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
-        return SummarizeReplayVisionSummariesTool(team=self.team, user=self.user, config=config)
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_internal_error_details_stay_out_of_content_and_artifact(self):
-        # The raw exception may carry connection strings; it belongs in error tracking, not the conversation.
-        with patch(_SCANNER_LOOKUP_PATH, side_effect=RuntimeError("postgres://user:hunter2@db/prod")):
-            content, artifact = await self._tool()._arun_impl(scanner_id=str(uuid.uuid4()))
-
-        assert artifact == {"error": "fetch_failed"}
-        assert "hunter2" not in content
 
 
 class TestReplayVisionChargeConfirmation(BaseTest):
@@ -1047,7 +1029,6 @@ class TestEveryReplayVisionToolDeclaresItsCost(BaseTest):
         "estimate_replay_vision_scanner": False,
         "get_replay_vision_quota": False,
         "search_replay_vision_observations": False,
-        "summarize_replay_vision_summaries": False,
         "draft_replay_vision_scanner_prompt": False,
         "label_replay_vision_observation": False,
         "analyze_replay_vision_impact": None,  # only when it creates a cohort

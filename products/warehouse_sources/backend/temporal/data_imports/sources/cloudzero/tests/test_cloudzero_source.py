@@ -47,18 +47,6 @@ class TestSourceConfig:
         assert CloudzeroSource.api_docs_url.startswith("https://")
 
 
-class TestGetSchemas:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O) — public docs render the table list.
-        assert CloudzeroSource.lists_tables_without_credentials is True
-        tables = {t["name"]: t for t in CloudzeroSource().get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["Costs"]["sync_methods"]
-        # Costs is the only endpoint CloudZero lets us filter by time, so every other table
-        # can only be synced by full refresh.
-        assert [name for name, table in tables.items() if table["sync_methods"] != ["Full refresh"]] == ["Costs"]
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [

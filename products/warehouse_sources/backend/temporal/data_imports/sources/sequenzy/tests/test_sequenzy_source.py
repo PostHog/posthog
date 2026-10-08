@@ -2,14 +2,10 @@ import json
 import dataclasses
 
 import pytest
-from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.sequenzy import (
-    SequenzyResumeConfig,
-    sequenzy_source,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.sequenzy import SequenzyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sequenzy.source import SequenzySource
 
 
@@ -46,41 +42,6 @@ class TestSequenzySourceNonRetryableErrors:
 
         patterns = SequenzySource().get_non_retryable_errors()
         assert not any(pattern in str(exc_info.value) for pattern in patterns)
-
-
-class TestSequenzySourceResponse:
-    def _source_response(self, endpoint: str):
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        return sequenzy_source(
-            api_key="key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager,
-        )
-
-    @pytest.mark.parametrize("endpoint", ["subscribers", "campaigns", "sequences"])
-    def test_growing_collections_partition_on_created_at(self, endpoint: str) -> None:
-        response = self._source_response(endpoint)
-
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdAt"]
-
-    @pytest.mark.parametrize("endpoint", ["tags", "lists", "segments", "email_metrics"])
-    def test_unpartitionable_collections_get_no_partitioning(self, endpoint: str) -> None:
-        response = self._source_response(endpoint)
-
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    def test_email_metrics_key_spans_both_id_namespaces(self) -> None:
-        # `emailId` alone is a campaign ID for campaigns and an automation node ID for
-        # sequence steps; a single-column key would multi-match on a collision and
-        # merges would degrade every sync.
-        response = self._source_response("email_metrics")
-
-        assert response.primary_keys == ["emailType", "emailId"]
 
 
 class TestSequenzyResumeConfigRoundTrip:

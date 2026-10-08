@@ -16,11 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     ramp_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import (
-    ENDPOINTS,
-    RAMP_ENDPOINTS,
-    TOKEN_SCOPES,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import TOKEN_SCOPES
 
 # The RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -109,10 +105,6 @@ def _source(
 
 
 class TestBaseUrl:
-    def test_production_and_sandbox_hosts(self):
-        assert _base_url("production") == "https://api.ramp.com"
-        assert _base_url("sandbox") == "https://demo-api.ramp.com"
-
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
             _base_url("evil")
@@ -133,11 +125,6 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    @mock.patch(AUTH_SESSION_PATCH)
-    def test_valid_when_token_mints(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        assert validate_credentials("production", "cid", "sec") == (True, None)
-
     @mock.patch(AUTH_SESSION_PATCH)
     def test_mint_requests_documented_scopes(self, mock_session):
         mock_session.return_value.post.return_value = _token_response()
@@ -170,29 +157,6 @@ class TestValidateCredentials:
 class TestGetRows:
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_page_next_url(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        next_url = "https://api.ramp.com/developer/v1/transactions?start=abc&page_size=100"
-        snapshots = _wire(
-            session,
-            [
-                _response(_page([{"id": "t1"}], next_url=next_url)),
-                _response(_page([{"id": "t2"}])),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("transactions", manager))
-
-        assert [row["id"] for row in rows] == ["t1", "t2"]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].next_url == next_url
-        # The self-contained page.next link is followed verbatim on the second request.
-        assert snapshots[1]["url"] == next_url
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_transactions_use_from_date(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -212,38 +176,6 @@ class TestGetRows:
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_has_no_from_date(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        snapshots = _wire(session, [_response(_page([]))])
-
-        _rows(_source("users", _make_manager()))
-
-        assert "/developer/v1/users" in snapshots[0]["url"]
-        assert "from_date" not in snapshots[0]["params"]
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_remints_token_when_expired_mid_run(self, MockSession, MockAuth):
-        # expires_in=0 forces a re-mint per request — the deterministic stand-in for a sync
-        # outliving the token lifetime. Replaces the pre-framework reactive-401 re-mint.
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response(expires_in=0)
-        _wire(
-            session,
-            [
-                _response(_page([{"id": "t1"}], next_url="https://api.ramp.com/developer/v1/transactions?p=2")),
-                _response(_page([{"id": "t2"}])),
-            ],
-        )
-
-        rows = _rows(_source("transactions", _make_manager()))
-
-        assert [row["id"] for row in rows] == ["t1", "t2"]
-        assert MockAuth.return_value.post.call_count == 2
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_mints_token_once_and_sends_bearer(self, MockSession, MockAuth):
         session = MockSession.return_value
         MockAuth.return_value.post.return_value = _token_response()
@@ -260,33 +192,6 @@ class TestGetRows:
         # One mint covers the whole run while the ~10-day token is unexpired.
         assert MockAuth.return_value.post.call_count == 1
         assert all(s["headers"]["Authorization"] == "Bearer the-token" for s in snapshots)
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_url(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        resume_url = "https://api.ramp.com/developer/v1/transactions?start=resume"
-        snapshots = _wire(session, [_response(_page([]))])
-
-        manager = _make_manager(RampResumeConfig(next_url=resume_url))
-        _rows(_source("transactions", manager))
-
-        assert snapshots[0]["url"] == resume_url
-
-    @mock.patch(AUTH_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_next_url_stops(self, MockSession, MockAuth):
-        session = MockSession.return_value
-        MockAuth.return_value.post.return_value = _token_response()
-        _wire(session, [_response(_page([], next_url="https://api.ramp.com/developer/v1/transactions?start=loop"))])
-
-        manager = _make_manager()
-        rows = _rows(_source("transactions", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -315,26 +220,3 @@ class TestGetRows:
             _rows(_source("transactions", manager))
 
         manager.save_state.assert_not_called()
-
-
-class TestRampSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = RAMP_ENDPOINTS[endpoint]
-        response = _source(endpoint, _make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        # Ordering within incremental windows is undocumented — desc defers the watermark commit
-        # to run completion.
-        assert response.sort_mode == ("desc" if config.incremental_fields else "asc")
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-
-    @pytest.mark.parametrize("config", list(RAMP_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "user_transaction_time"

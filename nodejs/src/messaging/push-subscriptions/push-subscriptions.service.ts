@@ -84,8 +84,9 @@ export class PushSubscriptionsService {
         private projectTokens: Pick<ProjectTokenLookup, 'getTeamByToken'>,
         private postgres: PostgresRouter,
         private encryptedFields: EncryptedFields,
-        private capture: PushCaptureService,
-        private secretKey: string
+        private capture: Pick<PushCaptureService, 'capture'>,
+        private secretKey: string,
+        private mirroredCapture: Pick<PushCaptureService, 'capture'> = capture
     ) {
         this.invalidTokens = new LRUCache({ max: INVALID_TOKEN_CACHE_SIZE, ttl: INVALID_TOKEN_CACHE_TTL_MS })
         this.configuredAppIdsCache = new LRUCache({
@@ -249,7 +250,8 @@ export class PushSubscriptionsService {
         try {
             // An SDK told the registration was stored stops re-sending it, so a capture that did
             // not happen has to surface here.
-            await this.capture.capture({
+            const capture = request.mirrored ? this.mirroredCapture : this.capture
+            await capture.capture({
                 token: team.api_token,
                 event: '$set',
                 distinctId,

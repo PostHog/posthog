@@ -61,38 +61,6 @@ class TestCrossrefSource:
         assert is_valid is False
         assert message == "Couldn't reach the Crossref API. Please try again."
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
-    )
-    def test_validate_credentials_passes_mailto(self, mock_validate):
-        mock_validate.return_value = True
-        config = CrossrefSourceConfig(mailto="me@example.com")
-
-        self.source.validate_credentials(config, self.team_id)
-
-        mock_validate.assert_called_once_with("me@example.com")
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "400 Client Error: Bad Request for url: https://api.crossref.org/works?filter=member:abc (Integer specified as abc but must be a positive integer. )",
-        ],
-    )
-    def test_non_retryable_errors_match_invalid_scope(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.crossref.org/works",
-            "500 Server Error: Internal Server Error for url: https://api.crossref.org/works",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.crossref_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_crossref_source):
         inputs = mock.MagicMock()

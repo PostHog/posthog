@@ -74,7 +74,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.destination_links import set_source_destinations
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    EMPTY_SET_MESSAGE,
+    set_source_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
@@ -787,6 +790,16 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
         ),
     )
+
+    def validate_destination_ids(self, destination_ids: list) -> list:
+        # An explicit empty list means the caller turned every destination off, which would leave
+        # the source syncing nowhere. Rejected here, before the source is created, because
+        # `set_source_destinations` runs after creation and swallows its own failures so that a bad
+        # destination set never costs the user the source. Omitting the field keeps its meaning of
+        # "the PostHog warehouse", which is what callers written before destinations existed send.
+        if not destination_ids:
+            raise serializers.ValidationError(EMPTY_SET_MESSAGE)
+        return destination_ids
 
 
 class SourceSetupSerializer(serializers.Serializer):

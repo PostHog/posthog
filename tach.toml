@@ -181,11 +181,6 @@ from = [
 ]
 
 [[modules]]
-path = "products.ai_gateway"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[modules]]
 path = "products.alerts"
 depends_on = [
     "products.alerts_platform",
