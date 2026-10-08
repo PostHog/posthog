@@ -72,6 +72,10 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
+from products.messaging.backend.services.unsubscribe_metrics import (
+    parse_unsubscribe_source,
+    record_email_unsubscribed_metric,
+)
 from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
@@ -652,6 +656,9 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
+            record_email_unsubscribed_metric(
+                team_id, parse_unsubscribe_source(data), [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
+            )
             report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
 
         if request.method == "POST":
@@ -781,6 +788,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
             and prior_preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
         ]
         if newly_opted_out:
+            record_email_unsubscribed_metric(team_id, parse_unsubscribe_source(data), newly_opted_out)
             report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
 
         new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)

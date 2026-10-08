@@ -11,7 +11,7 @@ import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { PreferencesTokenSource, RecipientTokensService } from './messaging/recipient-tokens.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
@@ -27,7 +27,8 @@ export class HogInputsService {
     public async buildInputs(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -88,14 +89,15 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
-                    team_id: hogFunction.team_id,
-                    identifier: emailValue.to.email,
-                })
-                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl({
-                    team_id: hogFunction.team_id,
-                    identifier: emailValue.to.email,
-                })
+                const recipient = { team_id: hogFunction.team_id, identifier: emailValue.to.email }
+                newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
+                    recipient,
+                    preferencesTokenSource
+                )
+                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl(
+                    recipient,
+                    preferencesTokenSource
+                )
             }
         }
 
@@ -126,11 +128,12 @@ export class HogInputsService {
     public async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs),
+            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource),
         }
     }
 

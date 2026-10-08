@@ -22,6 +22,7 @@ export interface BroadcastPerformanceStats {
     bounced: number
     markedAsSpam: number
     failed: number
+    unsubscribed: number
     /** Sends with open and click tracking, the denominator for engagement rates. */
     trackedSends: number
     /** Recipients who met the broadcast's goal. */
@@ -37,6 +38,7 @@ const TOTALS_METRICS = [
     'email_blocked',
     'email_failed',
     'email_untracked',
+    'email_unsubscribed',
     'conversion',
 ]
 
@@ -209,6 +211,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                     // Spam complaints are stored under email_blocked.
                     markedAsSpam: totals.email_blocked ?? 0,
                     failed: totals.email_failed ?? 0,
+                    unsubscribed: totals.email_unsubscribed ?? 0,
                     trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
                     converted: totals.conversion ?? 0,
                 }

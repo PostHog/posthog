@@ -340,7 +340,10 @@ describe('Hog Inputs', () => {
             expect(inputs.connection).toBeNull()
         })
 
-        it('should add unsubscribe url if email input is present', async () => {
+        it.each([
+            { name: 'a hog function', source: undefined },
+            { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
+        ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {
             hogFunction.inputs = {
                 email: {
                     templating: 'liquid',
@@ -353,11 +356,11 @@ describe('Hog Inputs', () => {
 
             hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
 
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals, undefined, source)
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             const recipient = { team_id: team.id, identifier: 'test@posthog.com' }
             expect(inputs.email.html).toEqual(
-                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>`
+                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient, source)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
         })
 
