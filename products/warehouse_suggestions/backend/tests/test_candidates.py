@@ -134,9 +134,15 @@ class TestMaterializeRules(SimpleTestCase):
 
         assert estimate.clears_a_floor is expect_clear
 
-    def test_a_view_that_cannot_refresh_incrementally_is_not_proposed(self) -> None:
+    @parameterized.expand(
+        [
+            ("limited", "SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10"),
+            ("no_key_column", "SELECT count() FROM events"),
+        ]
+    )
+    def test_a_view_that_cannot_refresh_incrementally_is_not_proposed(self, _name: str, hogql: str) -> None:
         reads = team_reads({view_subject(VIEW_ID): busy_reads()})
-        not_incremental = view(VIEW_ID, hogql="SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10")
+        not_incremental = view(VIEW_ID, hogql=hogql)
 
         result = MaterializeCandidate().evaluate(context(reads, views=[not_incremental]))
 

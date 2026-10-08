@@ -86,9 +86,8 @@ class MaterializeCandidate(Candidate):
         rejection = self._read_floor_rejection(context, reads)
         if rejection is not None:
             return rejection
-        if (
-            context.rules.materialize.require_incremental_eligibility
-            and not check_incremental_eligibility(saved_query.hogql, None).eligible
+        if context.rules.materialize.require_incremental_eligibility and not _can_refresh_incrementally(
+            saved_query.hogql
         ):
             return "its query cannot refresh incrementally"
         frequency = saved_query_target_bounds(context.team_id, saved_query.id)
@@ -138,6 +137,11 @@ class MaterializeCandidate(Candidate):
         if reads.alone_reads < rules.min_alone_reads:
             return f"read on its own {reads.alone_reads} times, needs {rules.min_alone_reads} to know its cost"
         return None
+
+
+def _can_refresh_incrementally(hogql: str) -> bool:
+    eligibility = check_incremental_eligibility(hogql, None)
+    return eligibility.eligible and bool(eligibility.key_candidates) and bool(eligibility.unique_key_candidates)
 
 
 def allowed_intervals(context: CandidateContext, allowed: Iterable[timedelta], reads: SubjectReads) -> list[timedelta]:
