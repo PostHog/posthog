@@ -11,9 +11,11 @@ import { WorkflowSuggestionFieldDiff } from './WorkflowSuggestionFieldDiff'
 function FieldDiffs({
     fields,
     emails = [],
+    isNewStep = false,
 }: {
     fields: SuggestedFieldChange[]
     emails?: SuggestedFieldChange[]
+    isNewStep?: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-3 pl-2 border-l">
@@ -21,7 +23,7 @@ function FieldDiffs({
                 <WorkflowSuggestionFieldDiff key={change.path} change={change} />
             ))}
             {emails.map((change) => (
-                <WorkflowSuggestionEmailChange key={change.path} change={change} />
+                <WorkflowSuggestionEmailChange key={change.path} change={change} isNewStep={isNewStep} />
             ))}
         </div>
     )
@@ -50,7 +52,7 @@ export function WorkflowSuggestionDetails({
                                 ? `New step: ${step.stepName ?? step.stepId}`
                                 : `Step: ${step.stepName ?? step.stepId}`}
                         </span>
-                        <FieldDiffs fields={main} emails={email} />
+                        <FieldDiffs fields={main} emails={email} isNewStep={step.isNew} />
                         {other.length > 0 && (
                             <LemonCollapse
                                 size="xsmall"

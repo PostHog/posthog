@@ -24,11 +24,13 @@ function RenderedEmail({ label, html }: { label: string; html: string | null }):
 export function WorkflowSuggestionEmailCompareModal({
     isOpen,
     onClose,
+    isNewEmail,
     before,
     after,
 }: {
     isOpen: boolean
     onClose: () => void
+    isNewEmail: boolean
     before: string | null
     after: string | null
 }): JSX.Element {
@@ -39,13 +41,13 @@ export function WorkflowSuggestionEmailCompareModal({
             width={1400}
             title="Compare emails"
             description={
-                before === null
+                isNewEmail
                     ? 'This suggestion adds a new email.'
                     : 'The email as it sends now, next to the email with this suggestion applied.'
             }
         >
             <div className="flex flex-wrap gap-4">
-                {before === null ? (
+                {isNewEmail ? (
                     <RenderedEmail label="New email" html={after} />
                 ) : (
                     <>

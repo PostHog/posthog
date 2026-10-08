@@ -10,7 +10,13 @@ function asHtml(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value : null
 }
 
-export function WorkflowSuggestionEmailChange({ change }: { change: SuggestedFieldChange }): JSX.Element {
+export function WorkflowSuggestionEmailChange({
+    change,
+    isNewStep,
+}: {
+    change: SuggestedFieldChange
+    isNewStep: boolean
+}): JSX.Element {
     const [comparing, setComparing] = useState(false)
 
     return (
@@ -31,6 +37,7 @@ export function WorkflowSuggestionEmailChange({ change }: { change: SuggestedFie
             <WorkflowSuggestionEmailCompareModal
                 isOpen={comparing}
                 onClose={() => setComparing(false)}
+                isNewEmail={isNewStep}
                 before={asHtml(change.before)}
                 after={asHtml(change.after)}
             />

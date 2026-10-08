@@ -21,6 +21,7 @@ const Template: StoryFn<typeof WorkflowSuggestionEmailChange> = (args) => (
 
 export const TextChange = Template.bind({})
 TextChange.args = {
+    isNewStep: false,
     change: {
         path: 'config.inputs.email.value.html',
         label: 'email › html',
@@ -31,10 +32,33 @@ TextChange.args = {
 
 export const StylingOnly = Template.bind({})
 StylingOnly.args = {
+    isNewStep: false,
     change: {
         path: 'config.inputs.email.value.html',
         label: 'email › html',
         before: email('Run the play'),
         after: email('Run the play', 'background:#1d4aff;color:#fff;padding:16px 28px;font-size:17px'),
+    },
+}
+
+export const NewEmailStep = Template.bind({})
+NewEmailStep.args = {
+    isNewStep: true,
+    change: {
+        path: 'config.inputs.email.value.html',
+        label: 'email › html',
+        before: undefined,
+        after: email('Create your first workflow'),
+    },
+}
+
+export const EmptyEmailOnExistingStep = Template.bind({})
+EmptyEmailOnExistingStep.args = {
+    isNewStep: false,
+    change: {
+        path: 'config.inputs.email.value.html',
+        label: 'email › html',
+        before: '',
+        after: email('Create your first workflow'),
     },
 }
