@@ -1273,7 +1273,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/workos/workos.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/world_bank/world_bank.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wrike/wrike.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/writesonic/writesonic.py
