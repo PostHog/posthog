@@ -76,6 +76,7 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
                     "type": "AdaptiveCard",
                     "version": "1.2",
                     "body": body,
+                    "actions": [{"type": "Action.OpenUrl", "title": "View alert", "url": message.alert_url}],
                 },
             }
         ],

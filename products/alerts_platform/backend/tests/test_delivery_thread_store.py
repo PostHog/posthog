@@ -20,6 +20,7 @@ from products.alerts_platform.backend.delivery.thread_store import (
     ThreadKey,
 )
 from products.alerts_platform.backend.delivery.transport import MessageHandle
+from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
 from products.alerts_platform.backend.tests.test_delivery_dispatch import TARGET, FakeTransport, _announcement
 
@@ -104,6 +105,7 @@ class TestDatabaseThreadStore(APIBaseTest):
                     thread_store=self.store,
                     team_id=self.team.id,
                     configuration_id=str(self.configuration.id),
+                    source=SourceKind.LOGS,
                     evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(episode_started_at=FIRING),

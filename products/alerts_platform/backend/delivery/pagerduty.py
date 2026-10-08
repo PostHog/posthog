@@ -72,6 +72,7 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
         return body
     transition = message.transition
     body["client"] = "PostHog"
+    body["client_url"] = message.alert_url
     body["payload"] = {
         "summary": message.headline[:_MAX_SUMMARY_LENGTH],
         "source": SOURCE,

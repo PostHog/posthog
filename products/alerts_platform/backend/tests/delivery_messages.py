@@ -11,10 +11,16 @@ from requests.adapters import BaseAdapter
 from requests.structures import CaseInsensitiveDict
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, IncidentAction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    AnnouncedTransition,
+    IncidentAction,
+    SourceKind,
+)
 
 EPISODE_STARTED = datetime(2026, 9, 30, 9, tzinfo=UTC)
 OCCURRED = datetime(2026, 9, 30, 10, tzinfo=UTC)
+ALERT_URL = "https://app.example.com/project/1/platform-alerts/cfg-1"
 
 
 def announced_transition(kind: AlertEventKind = AlertEventKind.FIRING, **overrides: Any) -> AnnouncedTransition:
@@ -45,6 +51,8 @@ def alert_message(
         details=details,
         configuration_id="cfg-1",
         alert_name=alert_name,
+        source=SourceKind.LOGS,
+        alert_url=ALERT_URL,
         transition=transition or announced_transition(),
         incident_action=incident_action,
     )

@@ -22,9 +22,15 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     EvaluationAnnouncement,
+    SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition, pinned_post
+from products.alerts_platform.backend.tests.delivery_messages import (
+    ALERT_URL,
+    alert_message,
+    announced_transition,
+    pinned_post,
+)
 
 SECRET_URL = "https://hooks.example.com/services/T000/B000/not-a-real-token"
 TARGET = cast(AlertDestinationData, {"type": "webhook", "webhook_url": SECRET_URL})
@@ -47,6 +53,7 @@ class TestAlertmanagerBody(SimpleTestCase):
             "service": "checkout",
             "alertname": "API errors",
             "posthog_configuration_id": "cfg-1",
+            "posthog_source_kind": "logs",
             "posthog_event_kind": "firing",
         }
         annotations = {"summary": "API errors is firing", "description": "Value: 312\nThreshold: > 300", "value": "312"}
@@ -56,7 +63,11 @@ class TestAlertmanagerBody(SimpleTestCase):
             "truncatedAlerts": 0,
             "status": "firing",
             "receiver": "posthog",
-            "groupLabels": {"alertname": "API errors", "posthog_configuration_id": "cfg-1"},
+            "groupLabels": {
+                "alertname": "API errors",
+                "posthog_configuration_id": "cfg-1",
+                "posthog_source_kind": "logs",
+            },
             "commonLabels": labels,
             "commonAnnotations": annotations,
             "externalURL": "https://us.posthog.com",
@@ -67,7 +78,7 @@ class TestAlertmanagerBody(SimpleTestCase):
                     "annotations": annotations,
                     "startsAt": "2026-09-30T09:00:00+00:00",
                     "endsAt": "0001-01-01T00:00:00Z",
-                    "generatorURL": "",
+                    "generatorURL": ALERT_URL,
                     "fingerprint": body["alerts"][0]["fingerprint"],
                 }
             ],
@@ -190,6 +201,7 @@ class TestWebhookThreads(APIBaseTest):
                 thread_store=DatabaseThreadStore(self.team.id),
                 team_id=self.team.id,
                 configuration_id=str(self.configuration.id),
+                source=SourceKind.LOGS,
                 evaluation_key=evaluation_key,
                 target=TARGET,
                 announcement=announcement,

@@ -33,16 +33,17 @@ def escape_markdown(text: str) -> str:
 
 def content_for(message: AlertMessage) -> str:
     headline = f"**{escape_markdown(message.headline)}**"
+    link = f"\n\n[View alert](<{message.alert_url}>)"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
     if not lines:
-        return headline
-    content = f"{headline}\n\n" + "\n".join(lines)
+        return headline + link
+    content = f"{headline}\n\n" + "\n".join(lines) + link
     if len(content) <= MAX_CONTENT_CHARS:
         return content
     # An error message can carry a whole query, so it is a detail that overflows. Each detail gets
     # an equal share, so clipping the error cannot drop the failure count after it.
-    share = (MAX_CONTENT_CHARS - len(headline) - 2 - (len(lines) - 1)) // len(lines)
-    return f"{headline}\n\n" + "\n".join(clip_text(line, share) for line in lines)
+    share = (MAX_CONTENT_CHARS - len(headline) - 2 - (len(lines) - 1) - len(link)) // len(lines)
+    return f"{headline}\n\n" + "\n".join(clip_text(line, share) for line in lines) + link
 
 
 class DiscordTransport(WebhookUrlTransport):

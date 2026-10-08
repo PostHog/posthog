@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    SourceKind,
 )
 
 TARGET = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
@@ -114,6 +115,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                 thread_store=store,
                 team_id=2,
                 configuration_id="cfg-1",
+                source=SourceKind.LOGS,
                 evaluation_key=evaluation_key,
                 target=TARGET,
                 announcement=announcement or _announcement(),
@@ -138,6 +140,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                     thread_store=NullThreadStore(),
                     team_id=2,
                     configuration_id="cfg-1",
+                    source=SourceKind.LOGS,
                     evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(),
@@ -201,6 +204,7 @@ class TestDeliveryDispatch(SimpleTestCase):
                     thread_store=NullThreadStore(),
                     team_id=2,
                     configuration_id="cfg-1",
+                    source=SourceKind.LOGS,
                     evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(),

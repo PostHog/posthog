@@ -10,7 +10,7 @@ from products.alerts_platform.backend.delivery.discord import MAX_CONTENT_CHARS,
 from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, pinned_post
+from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
 
 class TestDiscordMessage(SimpleTestCase):
@@ -27,7 +27,8 @@ class TestDiscordMessage(SimpleTestCase):
 
         assert body == {
             "content": "**@everyone \\[Checkout\\](https://evil.example) is firing**\n\n"
-            "**Threshold:** \\> 300\n**Error:** bad query\n\\# not a heading",
+            "**Threshold:** \\> 300\n**Error:** bad query\n\\# not a heading"
+            f"\n\n[View alert](<{ALERT_URL}>)",
             "allowed_mentions": {"parse": []},
             "flags": 4,
         }
@@ -41,7 +42,7 @@ class TestDiscordMessage(SimpleTestCase):
         content = content_for(message)
 
         assert len(content) <= MAX_CONTENT_CHARS
-        assert content.endswith("**Failed checks:** 3")
+        assert content.endswith(f"**Failed checks:** 3\n\n[View alert](<{ALERT_URL}>)")
 
 
 class TestDiscordTransport(SimpleTestCase):

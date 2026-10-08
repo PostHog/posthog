@@ -8,20 +8,26 @@ check it is rendered. A provider turns this into its own body shape.
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
-from posthog.utils import pluralize
+from posthog.utils import absolute_uri, pluralize
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
+    SourceKind,
 )
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
-    AlertEventKind.FIRING: "{name} is firing",
-    AlertEventKind.RESOLVED: "{name} is resolved",
-    AlertEventKind.ERRORED: "{name} could not be checked",
-    AlertEventKind.BROKEN: "{name} is turned off",
+    AlertEventKind.FIRING: "{kind} alert '{name}' is firing",
+    AlertEventKind.RESOLVED: "{kind} alert '{name}' is resolved",
+    AlertEventKind.ERRORED: "{kind} alert '{name}' could not be checked",
+    AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
+}
+
+SOURCE_LABELS: Final[dict[SourceKind, str]] = {
+    SourceKind.LOGS: "Log",
+    SourceKind.INSIGHT: "Insight",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
@@ -53,8 +59,15 @@ class AlertMessage:
     details: tuple[MessageDetail, ...]
     configuration_id: str
     alert_name: str
+    source: SourceKind
+    alert_url: str
     transition: AnnouncedTransition
     incident_action: IncidentAction | None = None
+
+
+def alert_url(team_id: int, configuration_id: str) -> str:
+    # pinned: the platform alert page route in products/alerts_platform/manifest.tsx.
+    return absolute_uri(f"/project/{team_id}/platform-alerts/{configuration_id}")
 
 
 def _number(value: float) -> str:
@@ -96,6 +109,8 @@ def build_message(
     announcement: EvaluationAnnouncement,
     transition: AnnouncedTransition,
     *,
+    team_id: int,
+    source: SourceKind,
     incident_action: IncidentAction | None = None,
 ) -> AlertMessage:
     """The message for one transition.
@@ -120,10 +135,12 @@ def build_message(
         else _breach_details(transition)
     )
     return AlertMessage(
-        headline=headline.format(name=announcement.alert_name),
+        headline=headline.format(kind=SOURCE_LABELS[source], name=announcement.alert_name),
         details=tuple(details),
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
+        source=source,
+        alert_url=alert_url(team_id, announcement.configuration_id),
         transition=transition,
         incident_action=incident_action,
     )
