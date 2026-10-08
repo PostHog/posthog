@@ -21,6 +21,8 @@ ten scenarios does not certify the full suite or its visual checks.
 
 ## Fixed measurement protocol
 
+- A small CI job initializes the same shared browser bootstrap before the
+  three full-stack jobs start. Startup failures stop the experiment early.
 - The workflow copies stack preparation from `ci-e2e-playwright.yml`, including
   the schema restore, frontend production build, ingestion services, four
   Granian workers and six test workers on `depot-ubuntu-24.04-8`.

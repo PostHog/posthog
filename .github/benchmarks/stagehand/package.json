@@ -2,7 +2,8 @@
     "name": "posthog-stagehand-benchmark",
     "private": true,
     "dependencies": {
-        "@browserbasehq/stagehand": "4.1.0"
+        "@browserbasehq/stagehand": "4.1.0",
+        "@playwright/test": "1.60.0"
     },
     "packageManager": "pnpm@10.29.3"
 }

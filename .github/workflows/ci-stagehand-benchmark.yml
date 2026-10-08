@@ -58,7 +58,28 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    startup:
+        if: github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 7
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/benchmarks/stagehand
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - run: |
+                  corepack enable
+                  corepack pnpm --dir .github/benchmarks/stagehand --ignore-workspace install --frozen-lockfile
+            - run: corepack pnpm --dir .github/benchmarks/stagehand exec playwright install chromium --with-deps --no-shell
+            - run: corepack pnpm --dir .github/benchmarks/stagehand exec playwright test --config smoke.config.ts
     benchmark:
+        needs: [startup]
         if: github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'trunk-merge/')
         runs-on: depot-ubuntu-24.04-8
         timeout-minutes: 45
