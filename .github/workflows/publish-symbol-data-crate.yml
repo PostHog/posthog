@@ -44,9 +44,27 @@ jobs:
                       echo "No posthog-symbol-data changesets remain"
                   fi
 
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: check-changesets
+        if: >-
+            github.repository == 'PostHog/posthog'
+            && needs.check-changesets.result == 'success'
+            && needs.check-changesets.outputs.has-changesets == 'true'
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
+        with:
+            checkout_repository: false
+            slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+            slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+            tag_pattern: posthog-symbol-data/v*
+            tag_sort: version
+        secrets:
+            slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+            posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+
     prepare-release:
         name: Prepare posthog-symbol-data release pull request
-        needs: [check-changesets, identify-release, publish]
+        needs: [check-changesets, identify-release, notify-approval-needed, publish]
         if: >-
             !cancelled()
             && github.repository == 'PostHog/posthog'
@@ -107,6 +125,16 @@ jobs:
                       echo "has-changesets=false" >> "$GITHUB_OUTPUT"
                       echo "No posthog-symbol-data changesets remain; skipping release preparation"
                   fi
+
+            - name: Notify Slack - Approved
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: Release approved. Preparing the posthog-symbol-data version bump.
+                  emoji_reaction: white_check_mark
 
             - name: Install Rust
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
@@ -303,6 +331,27 @@ jobs:
                   fi
 
                   echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+            - name: Notify Slack - Release pull request created
+              if: steps.release-pr.outputs.url != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}'
+                  emoji_reaction: eyes
+
+            - name: Notify Slack - Failed
+              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Failed to prepare the `posthog-symbol-data` release pull request. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  emoji_reaction: x
 
     identify-release:
         name: Identify merged posthog-symbol-data release
