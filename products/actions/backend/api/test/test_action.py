@@ -10,12 +10,15 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Tag, User
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
+from products.actions.backend.api.action import ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -68,6 +71,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "properties": None,
                     "selector": "div > button",
                     "selector_regex": ANY,
+                    "selector_warning": None,
                     "tag_name": None,
                     "text": "sign up",
                     "text_matching": None,
@@ -247,6 +251,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "properties": [{"key": "$browser", "value": "Chrome"}],
                 "selector": "div > button",
                 "selector_regex": ANY,
+                "selector_warning": None,
                 "tag_name": None,
                 "text": "sign up NOW",
                 "text_matching": None,
@@ -260,6 +265,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "properties": None,
                 "selector": None,
                 "selector_regex": None,
+                "selector_warning": None,
                 "tag_name": None,
                 "text": None,
                 "text_matching": None,
@@ -980,3 +986,23 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+
+class TestSelectorWarning(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("class_then_attribute", '.btn[ng-disabled="true"]'),
+            ("compound_attributes", '[type="button"][ng-click="save()"]'),
+            ("descendant", "form button.btn"),
+            ("plain_tag", "div > button"),
+        ]
+    )
+    def test_no_warning_for_matchable_selector(self, _name: str, selector: str) -> None:
+        assert ActionStepJSONSerializer().get_selector_warning({"selector": selector}) is None
+
+    def test_warns_for_selector_that_never_matches(self) -> None:
+        # Pseudo-class selectors are unsupported and compile to a regex that matches nothing.
+        assert ActionStepJSONSerializer().get_selector_warning({"selector": "input:disabled"}) is not None
+
+    def test_no_warning_without_selector(self) -> None:
+        assert ActionStepJSONSerializer().get_selector_warning({}) is None
