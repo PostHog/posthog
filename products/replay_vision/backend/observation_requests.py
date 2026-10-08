@@ -20,10 +20,12 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
@@ -230,6 +232,9 @@ def start_waiting_requests(*, now: datetime | None = None) -> int:
                 return started
             if not _sessions_ended(request, last_activity, now):
                 continue
+            if not _creator_still_allowed(request):
+                _refuse_start(request)
+                continue
             try:
                 _start_scans(request, scanner=request.scanner, inline=_inline_spec(request))
             except Exception:
@@ -237,6 +242,36 @@ def start_waiting_requests(*, now: datetime | None = None) -> int:
                 continue
             started += 1
     return started
+
+
+def _creator_still_allowed(request: ReplayObservationRequest) -> bool:
+    """Whether the person a waiting request runs as can still start it, hours after asking.
+
+    A request made with a project secret API key has no person behind it; the key's scopes were checked when
+    it was made, and a revoked key cannot have asked.
+    """
+    user = request.created_by
+    if user is None:
+        return True
+    team = request.team
+    if (
+        not user.is_active
+        or not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists()
+    ):
+        return False
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return False
+    if request.scanner is not None:
+        return access.check_access_level_for_object(request.scanner, "editor") is True
+    return access.check_access_level_for_resource("replay_scanner", required_level="editor")
+
+
+def _refuse_start(request: ReplayObservationRequest) -> None:
+    request.start_outcomes = [{"session_id": sid, "scan_outcome": "failed"} for sid in request.session_ids]
+    request.started_at = timezone.now()
+    request.save(update_fields=["start_outcomes", "started_at"])
+    logger.info("replay_vision.observation_request.creator_lost_access", request_id=str(request.id))
 
 
 def _sessions_ended(request: ReplayObservationRequest, last_activity: dict[str, datetime], now: datetime) -> bool:

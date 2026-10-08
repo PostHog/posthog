@@ -9,10 +9,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -450,3 +452,29 @@ class TestStartWaitingRequests(APIBaseTest):
         stuck.refresh_from_db()
         ready.refresh_from_db()
         self.assertEqual((stuck.started_at is None, ready.started_at is not None), (True, True))
+
+    def test_a_request_whose_creator_lost_recording_access_fails_instead_of_starting(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[],
+            source="user",
+            created_by=self.user,
+            wait_for_session_end=True,
+        )
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+        now = timezone.now()
+
+        with patch(
+            "products.replay_vision.backend.observation_requests.fetch_session_last_activity",
+            return_value={"s1": now - timedelta(hours=1)},
+        ):
+            start_waiting_requests(now=now)
+
+        request.refresh_from_db()
+        self.assertEqual([o["scan_outcome"] for o in request.start_outcomes], ["failed"])
