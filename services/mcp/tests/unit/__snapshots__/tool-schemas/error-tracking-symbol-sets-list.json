@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "include_count": {
+            "default": true,
+            "description": "Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
