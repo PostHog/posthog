@@ -43,6 +43,13 @@ class KoyebEndpointConfig:
 # `activities` are append-only but expose no time filter, so re-paging them is a full refresh by
 # definition; the remaining config entities are small and ship as full refresh too.
 KOYEB_ENDPOINTS: dict[str, KoyebEndpointConfig] = {
+    "projects": KoyebEndpointConfig(
+        name="projects",
+        path="/v1/projects",
+        response_data_key="projects",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
     "apps": KoyebEndpointConfig(
         name="apps",
         path="/v1/apps",
@@ -185,6 +192,20 @@ KOYEB_ENDPOINTS: dict[str, KoyebEndpointConfig] = {
         partition_key="started_at",
         supports_order=True,
         requires_time_window=True,
+    ),
+    # Koyeb-wide catalogs, not organization data: `id` is the instance type or region code that
+    # services, deployments and usage rows reference. Catalog rows carry no timestamps.
+    "catalog_instances": KoyebEndpointConfig(
+        name="catalog_instances",
+        path="/v1/catalog/instances",
+        response_data_key="instances",
+        primary_keys=["id"],
+    ),
+    "catalog_regions": KoyebEndpointConfig(
+        name="catalog_regions",
+        path="/v1/catalog/regions",
+        response_data_key="regions",
+        primary_keys=["id"],
     ),
 }
 

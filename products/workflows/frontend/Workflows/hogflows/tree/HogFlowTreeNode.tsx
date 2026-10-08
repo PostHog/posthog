@@ -41,7 +41,7 @@ export function HogFlowTreeNode({
     onDragStart: (event: DragEvent<HTMLDivElement>, actionId: string, dragPreviewElement: HTMLDivElement | null) => void
     showIncomingConnector?: boolean
     onFocusBranch?: (path: HogFlowEdge[]) => void
-    onSelectContinuation: (actionId: string, path: HogFlowEdge[]) => void
+    onSelectContinuation: (actionId: string) => void
     path: HogFlowEdge[]
     viewStates: Record<string, WorkflowTreeNodeViewState>
     onViewStateChange: (key: string, state: WorkflowTreeNodeViewState) => void
