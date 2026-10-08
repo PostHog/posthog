@@ -8,24 +8,25 @@ it, so the published row wins and the next ingestion update still outranks it.
 
 from __future__ import annotations
 
+import json
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import field
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Literal, TypeVar
 from uuid import UUID
 
 import grpc
 
+from posthog.api.capture import capture_internal
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
-from posthog.kafka_client.routing import flush_all_producers
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
 from posthog.models.person.sql import INSERT_PERSON_SQL
@@ -33,8 +34,10 @@ from posthog.models.person.util import (
     _batched_get_distinct_ids_for_persons,
     _batched_get_persons_by_distinct_ids,
     _batched_get_persons_by_uuids,
+    _flush_person_producers,
     _person_row,
     create_person_distinct_id,
+    get_person_by_distinct_id,
     get_person_tombstones,
     get_persons_by_uuids,
 )
@@ -48,6 +51,8 @@ from posthog.personhog_client.proto import (
     SetPersonDistinctIdVersionFloorRequest,
     SetPersonVersionFloorRequest,
 )
+
+from products.access_control.backend.facade.api import team_has_property_access_rules
 
 PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent"]
 MappingDivergenceKind = Literal["hidden", "other_person", "stale", "absent"]
@@ -64,6 +69,10 @@ RepairOutcome = Literal[
     "skipped_mapping_gone",
     "skipped_reread_lagging",
     "skipped_stale",
+    "skipped_stale_merge_failed",
+    "skipped_stale_merge_too_large",
+    "skipped_stale_merge_restricted",
+    "merge_queued",
     "skipped_too_many_distinct_ids",
 ]
 
@@ -97,6 +106,9 @@ _MAPPING_QUERY_CHUNK_SIZE = 1_000
 _MAX_REPAIR_DISTINCT_IDS_PER_PERSON = 1_000
 # The waits between re-reads give the replica about 0.5 s to show a raise, far above its usual lag of a few milliseconds.
 _REREAD_BACKOFF_SECONDS = (0.025, 0.05, 0.1, 0.15, 0.175)
+# Well under capture's 1,000,000-byte Kafka message limit and ingestion's 655,360-byte person properties limit
+# (trimmed to 512 KiB), so ingestion applies the merge whole.
+_STALE_MERGE_MAX_BYTES = 256 * 1024
 _TRANSIENT_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
 _TRANSIENT_RPC_CODES = frozenset(
     {grpc.StatusCode.INTERNAL, grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
@@ -665,6 +677,12 @@ WHERE team_id = %(team_id)s AND id IN %(person_uuids)s
 GROUP BY id
 """
 
+_PERSON_WINNER_PROPERTIES_SQL = """
+SELECT argMaxIf(properties, version, _row_exists)
+FROM person
+WHERE team_id = %(team_id)s AND id = %(person_uuid)s
+"""
+
 _MAPPING_STATE_SQL = """
 SELECT
     distinct_id,
@@ -749,7 +767,7 @@ def _ch_mapping_states(team_id: int, distinct_ids: list[str]) -> dict[str, _ChMa
     return states
 
 
-def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
+def _plan_chunk(team_id: int, person_uuids: Sequence[str], *, only_distinct_id: str | None = None) -> list[_PersonPlan]:
     live = {str(p.uuid): p for p in get_persons_by_uuids(team_id, list(person_uuids), distinct_id_limit=0)}
     person_states = _ch_person_states(team_id, list(live)) if live else {}
     distinct_ids_by_person = (
@@ -762,12 +780,19 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
         if live
         else {}
     )
-    all_distinct_ids = [
-        d.id
-        for dids in distinct_ids_by_person.values()
-        if len(dids) <= _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
-        for d in dids
-    ]
+    too_many: set[int] = set()
+    all_distinct_ids: list[str] = []
+    for person_id, dids in list(distinct_ids_by_person.items()):
+        over_cap = len(dids) > _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
+        if only_distinct_id is not None:
+            dids = [d for d in dids if d.id == only_distinct_id]
+            distinct_ids_by_person[person_id] = dids
+            # The capped read can miss the requested id, which must then be reported rather than dropped.
+            over_cap = over_cap and not dids
+        if over_cap:
+            too_many.add(person_id)
+        else:
+            all_distinct_ids.extend(d.id for d in dids)
     mapping_states = _ch_mapping_states(team_id, all_distinct_ids) if all_distinct_ids else {}
 
     plans: list[_PersonPlan] = []
@@ -790,7 +815,7 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
         state = person_states.get(person_uuid)
         ch_max_version = state.max_version if state is not None else None
         person_distinct_ids = distinct_ids_by_person.get(person.pk, [])
-        too_many_distinct_ids = len(person_distinct_ids) > _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
+        too_many_distinct_ids = person.pk in too_many
         mappings = []
         for mapping in [] if too_many_distinct_ids else person_distinct_ids:
             mapping_state = mapping_states.get(mapping.id)
@@ -925,6 +950,44 @@ def _reread_person(team_id: int, person_uuid: str, target_version: int | None) -
     return reread
 
 
+def _clickhouse_only_properties(plan: _PersonPlan) -> dict[str, Any]:
+    """The properties of the ClickHouse winner whose keys the Postgres person lacks."""
+    assert plan.person is not None
+    rows = _ch(
+        _PERSON_WINNER_PROPERTIES_SQL,
+        {"team_id": plan.team_id, "person_uuid": plan.person_uuid},
+        _REPAIR_READ_SETTINGS,
+    )
+    ch_properties = json.loads(rows[0][0]) if rows and rows[0][0] else {}
+    pg_properties = plan.person.properties or {}
+    return {key: value for key, value in ch_properties.items() if key not in pg_properties}
+
+
+def _queue_stale_merge(plan: _PersonPlan, distinct_id: str, missing: dict[str, Any]) -> RepairOutcome | None:
+    """Send the ClickHouse-only properties to ingestion as $set_once, or return why they were not sent."""
+    assert plan.person is not None
+    # Every member can read the $set event, and event reads apply event property restrictions only, so a team with
+    # any property rule could expose a person property that some member is denied.
+    if team_has_property_access_rules(team_id=plan.team_id):
+        return "skipped_stale_merge_restricted"
+    if len(json.dumps({**missing, **(plan.person.properties or {})})) > _STALE_MERGE_MAX_BYTES:
+        return "skipped_stale_merge_too_large"
+    try:
+        token = Team.objects.only("api_token").get(id=plan.team_id).api_token
+        capture_internal(
+            token=token,
+            event_name="$set",
+            event_source="person_divergence_reset",
+            distinct_id=distinct_id,
+            timestamp=datetime.now(UTC),
+            properties={"$set_once": missing},
+            process_person_profile=True,
+        ).raise_for_status()
+    except Exception:
+        return "skipped_stale_merge_failed"
+    return None
+
+
 def _is_transient(exc: BaseException) -> bool:
     return isinstance(exc, (*CH_TRANSIENT_ERRORS, ClickHouseQueryTimeOut)) or is_transient_rpc_error(
         exc, codes=_TRANSIENT_RPC_CODES
@@ -955,19 +1018,29 @@ def _execute_plan(
     include_stale: bool,
     before_write: Callable[[], None],
     published: Callable[[ProduceResult], None],
+    stale_merge_distinct_id: str | None = None,
 ) -> list[RepairAction]:
     person = plan.person
     if person is None:
         return [_person_action(plan, "skipped_not_live")]
     if plan.kind == "stale" and not include_stale:
-        return [
-            _person_action(plan, "skipped_stale"),
-            *(
-                _mapping_action(plan, m, "skipped_not_divergent" if m.kind is None else "skipped_stale")
-                for m in plan.mappings
-            ),
-            *([_too_many_distinct_ids_action(plan)] if plan.too_many_distinct_ids else []),
-        ]
+        refusal: RepairOutcome | None = "skipped_stale"
+        if apply and stale_merge_distinct_id is not None:
+            missing = _clickhouse_only_properties(plan)
+            # A later reset that finds nothing missing raises Postgres. Capture accepting the $set does not mean
+            # ingestion applies it, and a raise without the merged properties lets the next update overwrite them.
+            refusal = (
+                (_queue_stale_merge(plan, stale_merge_distinct_id, missing) or "merge_queued") if missing else None
+            )
+        if refusal is not None:
+            return [
+                _person_action(plan, refusal),
+                *(
+                    _mapping_action(plan, m, "skipped_not_divergent" if m.kind is None else "skipped_stale")
+                    for m in plan.mappings
+                ),
+                *([_too_many_distinct_ids_action(plan)] if plan.too_many_distinct_ids else []),
+            ]
 
     divergent_mappings = [m for m in plan.mappings if m.kind is not None]
     mapping_actions = [_mapping_action(plan, m, "skipped_not_divergent") for m in plan.mappings if m.kind is None]
@@ -1079,7 +1152,7 @@ class _Deliveries:
             self._prune()
 
     def undelivered(self, timeout: float) -> int:
-        flush_all_producers(timeout)
+        _flush_person_producers(timeout)
         self._prune()
         return self.failed + len(self.pending)
 
@@ -1094,6 +1167,25 @@ class _Deliveries:
             except Exception:
                 self.failed += 1
         self.pending = waiting
+
+
+@frozen(frozen=False)
+class _OutcomeCounts:
+    person: Counter[RepairOutcome] = field(default_factory=Counter)
+    mapping: Counter[RepairOutcome] = field(default_factory=Counter)
+
+    def add(self, action: RepairAction) -> None:
+        is_person_row = action.distinct_id is None and action.outcome != "skipped_too_many_distinct_ids"
+        (self.person if is_person_row else self.mapping)[action.outcome] += 1
+
+    def summary(self, *, applied: bool, persons: int, undelivered: int) -> RepairSummary:
+        return RepairSummary(
+            applied=applied,
+            persons=persons,
+            person_outcomes=dict(self.person),
+            mapping_outcomes=dict(self.mapping),
+            undelivered=undelivered,
+        )
 
 
 def repair_persons(
@@ -1120,8 +1212,7 @@ def repair_persons(
     for target in dict.fromkeys(targets):
         by_team[target.team_id].append(target.person_uuid)
 
-    person_outcomes: Counter[RepairOutcome] = Counter()
-    mapping_outcomes: Counter[RepairOutcome] = Counter()
+    outcomes = _OutcomeCounts()
     processed = 0
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
@@ -1142,7 +1233,7 @@ def repair_persons(
                         target_version=None,
                         outcome="skipped_team_gone",
                     )
-                    person_outcomes[action.outcome] += 1
+                    outcomes.add(action)
                     on_action(action)
                     processed += 1
                 log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
@@ -1166,8 +1257,7 @@ def repair_persons(
                         log=log,
                     )
                     for action in actions:
-                        is_person_row = action.distinct_id is None and action.outcome != "skipped_too_many_distinct_ids"
-                        (person_outcomes if is_person_row else mapping_outcomes)[action.outcome] += 1
+                        outcomes.add(action)
                         on_action(action)
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")
@@ -1176,10 +1266,34 @@ def repair_persons(
             undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
             if undelivered:
                 log(f"{undelivered} ClickHouse messages were not delivered; rerun the repair for the same input")
-    return RepairSummary(
-        applied=apply,
-        persons=processed,
-        person_outcomes=dict(person_outcomes),
-        mapping_outcomes=dict(mapping_outcomes),
-        undelivered=undelivered,
-    )
+    return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
+
+
+def repair_distinct_id(team_id: int, distinct_id: str, *, delivery_timeout_seconds: float) -> RepairSummary | None:
+    """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
+
+    It always applies. For a stale person whose ClickHouse winner holds properties Postgres lacks, it sends them
+    to ingestion as $set_once, so newer Postgres values win, and writes nothing else. A later reset, once
+    ingestion applied them, raises Postgres above ClickHouse and republishes. It leaves the person stale when the
+    team has property access rules.
+    """
+    owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
+    if owner is None:
+        return None
+    outcomes = _OutcomeCounts()
+    deliveries = _Deliveries()
+    undelivered = 0
+    try:
+        for plan in _plan_chunk(team_id, [str(owner.uuid)], only_distinct_id=distinct_id):
+            for action in _execute_plan(
+                plan,
+                apply=True,
+                include_stale=False,
+                before_write=lambda: None,
+                published=deliveries.track,
+                stale_merge_distinct_id=distinct_id,
+            ):
+                outcomes.add(action)
+    finally:
+        undelivered = deliveries.undelivered(delivery_timeout_seconds)
+    return outcomes.summary(applied=True, persons=1, undelivered=undelivered)
