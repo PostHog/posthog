@@ -1,5 +1,6 @@
 """API for programmatic scan requests: start scans for named sessions and read them back as one handle."""
 
+import dataclasses
 from typing import Any, cast
 
 from django.db import models
@@ -24,7 +25,7 @@ from products.replay_vision.backend.api.errors import ReplayVisionErrorSerialize
 from products.replay_vision.backend.api.observations import ScannerResultSerializer
 from products.replay_vision.backend.api.scanners import BulkObserveResultSerializer, InlineScanConfigSerializer
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
-from products.replay_vision.backend.models.replay_observation import ObservationStatus
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
     ReplayObservationRequest,
@@ -38,7 +39,11 @@ from products.replay_vision.backend.observation_requests import (
     create_observation_request,
     request_progress,
 )
-from products.replay_vision.backend.scanner_access import can_read_targeted_experiment, readable_observation_scanner_ids
+from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
+    readable_observation_scanner_ids,
+)
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
@@ -228,6 +233,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
     def _render(self, request: ReplayObservationRequest) -> dict[str, Any]:
         progress = request_progress(request)
         completed = request.completed_at is not None or progress.settled
+        sessions = progress.sessions if self._is_service_call else self._readable_sessions(progress.sessions)
         return ObservationRequestSerializer(
             {
                 "id": request.id,
@@ -235,9 +241,24 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
                 "scanner_id": request.scanner_id,
                 "reference": request.reference,
                 "created_at": request.created_at,
-                "sessions": progress.sessions,
+                "sessions": sessions,
             }
         ).data
+
+    def _readable_sessions(self, sessions: list[RequestSession]) -> list[RequestSession]:
+        # A row authorizes against the experiment in its own snapshot, like every other observation read.
+        ids = [s.observation.id for s in sessions if s.observation is not None]
+        readable = set(
+            accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                ReplayObservation.objects.filter(team_id=self.team_id, id__in=ids),
+            ).values_list("id", flat=True)
+        )
+        return [
+            s if s.observation is None or s.observation.id in readable else dataclasses.replace(s, observation=None)
+            for s in sessions
+        ]
 
     @extend_schema(responses={200: ObservationRequestSerializer})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -308,10 +329,23 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
                 ).data,
                 status=status.HTTP_409_CONFLICT,
             )
+        if not created and not self._is_service_call and not self._can_read(observation_request):
+            # The key is the caller's, but their access may have narrowed since they made the request.
+            return Response(
+                ReplayVisionErrorSerializer({"detail": "You can no longer read the request this key names."}).data,
+                status=status.HTTP_409_CONFLICT,
+            )
         if created:
             self._capture_created(request, observation_request, kind="scanner" if scanner is not None else "inline")
         return Response(
             self._render(observation_request), status=status.HTTP_202_ACCEPTED if created else status.HTTP_200_OK
+        )
+
+    def _can_read(self, observation_request: ReplayObservationRequest) -> bool:
+        return (
+            self.safely_get_queryset(ReplayObservationRequest.objects.unscoped())
+            .filter(id=observation_request.id)
+            .exists()
         )
 
     def _check_can_scan_with(self, scanner: ReplayScanner) -> None:

@@ -22,7 +22,7 @@ from products.replay_vision.backend.models.replay_observation_request import Rep
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_requests import request_progress
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
-from products.replay_vision.backend.tests.helpers import snapshot_for
+from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 
 
 class TestObservationRequestAPI(APIBaseTest):
@@ -121,6 +121,42 @@ class TestObservationRequestAPI(APIBaseTest):
         )
         self.assertEqual(other.status_code, 409, other.json())
         self.assertEqual(self.start_workflow.call_count, starts)
+
+    def test_reading_a_request_hides_rows_recorded_under_an_experiment_the_caller_cannot_view(self) -> None:
+        experiment = create_experiment(self.team, "restricted-flag")
+        self.scanner.experiment_targeting = {"experiment_id": experiment.id, "variant": "test"}
+        self.scanner.save(update_fields=["experiment_targeting"])
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="s1",
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            status=ObservationStatus.SUCCEEDED,
+            scanner_result={"model_output": {"verdict": "yes"}},
+            completed_at=timezone.now(),
+        )
+        # Clearing the targeting lets the scanner pass its own gate; the row's snapshot must still block it.
+        self.scanner.experiment_targeting = None
+        self.scanner.save(update_fields=["experiment_targeting"])
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[{"session_id": "s1", "scan_outcome": "already_scanned"}],
+            source="user",
+            created_by=self.user,
+        )
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is type(experiment) else qs,
+        ):
+            response = self.client.get(f"{self.url}{request.id}/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        session = response.json()["sessions"][0]
+        self.assertEqual((session["observation_id"], session["scanner_result"]), (None, None))
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 
