@@ -11,9 +11,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.cli_auth import CLI_SCOPES, DEVICE_CODE_EXPIRY_SECONDS, get_device_cache_key, get_user_code_cache_key
+from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, Team, User
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.utils import hash_key_value
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
@@ -241,6 +244,27 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         # Verify no API key was created
         api_keys = PersonalAPIKey.objects.filter(user=self.user).count()
         self.assertEqual(api_keys, 0)
+
+    def test_authorization_rejects_member_without_access_to_restricted_project(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        restricted_team = Team.objects.create(organization=self.organization, name="Restricted Team")
+        AccessControl.objects.create(
+            team=restricted_team, resource="project", resource_id=str(restricted_team.id), access_level="none"
+        )
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": restricted_team.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertFalse(PersonalAPIKey.objects.filter(user=self.user).exists())
 
     def test_authorization_rejects_nonexistent_project(self):
         """Test that authorization fails with non-existent project ID"""
