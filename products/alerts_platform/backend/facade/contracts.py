@@ -299,6 +299,7 @@ class EvaluationAnnouncement:
     """
 
     configuration_id: str
+    source: SourceKind
     alert_name: str
     # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
     # whole evaluation, and every group in one announcement saw the same count.

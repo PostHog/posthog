@@ -190,6 +190,7 @@ class TestWebhookThreads(APIBaseTest):
 
     def _deliver(self, kind: AlertEventKind, evaluation_key: str) -> Any:
         announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
             configuration_id=str(self.configuration.id),
             alert_name="API errors",
             consecutive_failures=0,
@@ -201,7 +202,6 @@ class TestWebhookThreads(APIBaseTest):
                 thread_store=DatabaseThreadStore(self.team.id),
                 team_id=self.team.id,
                 configuration_id=str(self.configuration.id),
-                source=SourceKind.LOGS,
                 evaluation_key=evaluation_key,
                 target=TARGET,
                 announcement=announcement,

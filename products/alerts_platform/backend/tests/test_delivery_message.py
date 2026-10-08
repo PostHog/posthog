@@ -31,9 +31,13 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> AnnouncedTransition:
     return AnnouncedTransition(**fields)
 
 
-def _announcement(consecutive_failures: int = 0) -> EvaluationAnnouncement:
+def _announcement(consecutive_failures: int = 0, source: SourceKind = SourceKind.LOGS) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
-        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=consecutive_failures, transitions=()
+        configuration_id="cfg-1",
+        source=source,
+        alert_name="API errors",
+        consecutive_failures=consecutive_failures,
+        transitions=(),
     )
 
 
@@ -41,10 +45,9 @@ def _build(
     announcement: EvaluationAnnouncement,
     transition: AnnouncedTransition,
     *,
-    source: SourceKind = SourceKind.LOGS,
     incident_action: IncidentAction | None = None,
 ) -> AlertMessage:
-    return build_message(announcement, transition, team_id=7, source=source, incident_action=incident_action)
+    return build_message(announcement, transition, team_id=7, incident_action=incident_action)
 
 
 class TestAlertMessage:
@@ -58,7 +61,7 @@ class TestAlertMessage:
     def test_a_message_names_its_source_and_links_to_its_alert(
         self, source: SourceKind, expected_headline: str
     ) -> None:
-        message = _build(_announcement(), _transition(AlertEventKind.FIRING), source=source)
+        message = _build(_announcement(source=source), _transition(AlertEventKind.FIRING))
 
         assert message.headline == expected_headline
         assert message.alert_url.endswith("/project/7/platform-alerts/cfg-1")

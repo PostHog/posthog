@@ -101,6 +101,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         request.team_id,
         request.configuration_id,
         request.evaluation_key,
+        source=request.source,
         incident_grouping_keys=request.incident_actions.keys(),
     )
     if announced is None:
@@ -130,7 +131,6 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     thread_store=thread_store,
                     team_id=request.team_id,
                     configuration_id=request.configuration_id,
-                    source=request.source,
                     evaluation_key=request.evaluation_key,
                     target=target,
                     announcement=replace(announced, transitions=transitions),

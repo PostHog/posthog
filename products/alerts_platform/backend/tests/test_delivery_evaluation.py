@@ -108,7 +108,11 @@ def _transition(kind: AlertEventKind, grouping_key: str = "") -> AnnouncedTransi
 
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
-        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=0, transitions=transitions
+        source=SourceKind.LOGS,
+        configuration_id="cfg-1",
+        alert_name="API errors",
+        consecutive_failures=0,
+        transitions=transitions,
     )
 
 

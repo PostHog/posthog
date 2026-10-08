@@ -25,7 +25,7 @@ _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
 }
 
-SOURCE_LABELS: Final[dict[SourceKind, str]] = {
+_SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
     SourceKind.INSIGHT: "Insight",
 }
@@ -65,9 +65,9 @@ class AlertMessage:
     incident_action: IncidentAction | None = None
 
 
-def alert_url(team_id: int, configuration_id: str) -> str:
+def alert_url(project_id: int, configuration_id: str) -> str:
     # pinned: the platform alert page route in products/alerts_platform/manifest.tsx.
-    return absolute_uri(f"/project/{team_id}/platform-alerts/{configuration_id}")
+    return absolute_uri(f"/project/{project_id}/platform-alerts/{configuration_id}")
 
 
 def _number(value: float) -> str:
@@ -110,7 +110,6 @@ def build_message(
     transition: AnnouncedTransition,
     *,
     team_id: int,
-    source: SourceKind,
     incident_action: IncidentAction | None = None,
 ) -> AlertMessage:
     """The message for one transition.
@@ -135,11 +134,12 @@ def build_message(
         else _breach_details(transition)
     )
     return AlertMessage(
-        headline=headline.format(kind=SOURCE_LABELS[source], name=announcement.alert_name),
+        headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         details=tuple(details),
         configuration_id=announcement.configuration_id,
         alert_name=announcement.alert_name,
-        source=source,
+        source=announcement.source,
+        # Platform rows live on the project's root team, so its id is the project id.
         alert_url=alert_url(team_id, announcement.configuration_id),
         transition=transition,
         incident_action=incident_action,

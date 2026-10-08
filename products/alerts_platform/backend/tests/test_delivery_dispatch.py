@@ -47,6 +47,7 @@ def _announcement(
     kind: AlertEventKind = AlertEventKind.FIRING, episode_started_at: datetime | None = FIRST_FIRING
 ) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
+        source=SourceKind.LOGS,
         configuration_id="cfg-1",
         alert_name="API errors",
         consecutive_failures=0,
@@ -115,7 +116,6 @@ class TestDeliveryDispatch(SimpleTestCase):
                 thread_store=store,
                 team_id=2,
                 configuration_id="cfg-1",
-                source=SourceKind.LOGS,
                 evaluation_key=evaluation_key,
                 target=TARGET,
                 announcement=announcement or _announcement(),
@@ -140,7 +140,6 @@ class TestDeliveryDispatch(SimpleTestCase):
                     thread_store=NullThreadStore(),
                     team_id=2,
                     configuration_id="cfg-1",
-                    source=SourceKind.LOGS,
                     evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(),
@@ -166,6 +165,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         store = RecordingThreadStore()
         transport = FakeTransport()
         announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
             configuration_id="cfg-1",
             alert_name="API errors",
             consecutive_failures=0,
@@ -204,7 +204,6 @@ class TestDeliveryDispatch(SimpleTestCase):
                     thread_store=NullThreadStore(),
                     team_id=2,
                     configuration_id="cfg-1",
-                    source=SourceKind.LOGS,
                     evaluation_key="eval-1",
                     target=TARGET,
                     announcement=_announcement(),

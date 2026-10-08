@@ -14,7 +14,6 @@ from products.alerts_platform.backend.facade.contracts import (
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
-    SourceKind,
 )
 
 
@@ -24,7 +23,6 @@ def deliver(
     thread_store: ThreadStore,
     team_id: int,
     configuration_id: str,
-    source: SourceKind,
     evaluation_key: str,
     target: AlertDestinationData,
     announcement: EvaluationAnnouncement,
@@ -46,9 +44,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(
-                    announcement, transition, team_id=team_id, source=source, incident_action=incident_action
-                ),
+                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
                 in_reply_to=None,
             )
             continue
@@ -70,9 +66,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(
-                    announcement, transition, team_id=team_id, source=source, incident_action=incident_action
-                ),
+                message=build_message(announcement, transition, team_id=team_id, incident_action=incident_action),
                 in_reply_to=claim.handle,
             )
         except Exception:
