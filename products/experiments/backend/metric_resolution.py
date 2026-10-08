@@ -8,6 +8,7 @@ uuids between activities and re-resolve the definition at the point of use.
 from typing import Any, Literal
 
 from posthog.schema import (
+    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
@@ -127,6 +128,12 @@ def saved_metric_links(experiment: Experiment) -> list[ExperimentToSavedMetric]:
     return sorted(links, key=lambda link: link.id)
 
 
+def saved_metric_link_role(link: ExperimentToSavedMetric) -> MetricRole:
+    """The role of a shared-metric link. The API accepts a link without metadata, and such a link is primary."""
+    metadata = link.metadata if isinstance(link.metadata, dict) else {}
+    return "secondary" if metadata.get("type") == "secondary" else "primary"
+
+
 def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMetric]:
     """Saved/shared metrics linked to the experiment, with the link overrides applied. The link's
     metadata["type"] holds the role, and a missing type means primary."""
@@ -139,7 +146,7 @@ def _resolve_saved_metrics(experiment: Experiment) -> list[ResolvedExperimentMet
         resolved.append(
             ResolvedExperimentMetric(
                 uuid=saved_query["uuid"],
-                role="secondary" if metadata.get("type") == "secondary" else "primary",
+                role=saved_metric_link_role(link),
                 definition=resolve_saved_metric_definition(saved_query, metadata),
             )
         )
@@ -183,3 +190,34 @@ def find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict[str, Any]
 
 def build_metric(metric_dict: dict[str, Any]) -> ExperimentMetric:
     return METRIC_BUILDERS[metric_dict["metric_type"]](**metric_dict)
+
+
+# A metric reads a data warehouse table when any of its source nodes is an ExperimentDataWarehouseNode.
+# Such metrics never precompute (the precomputed table lacks the join keys). The source-bearing fields
+# are the same across the two readers below: source, series[*], numerator, denominator, start_event,
+# completion_event. Keep the pair in step — one reads the typed metric, the other a raw saved definition.
+def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
+    """Typed check, for callers that already hold a built metric (the query runner)."""
+    if isinstance(metric, ExperimentMeanMetric):
+        nodes: list[Any] = [metric.source]
+    elif isinstance(metric, ExperimentFunnelMetric):
+        nodes = list(metric.series)
+    elif isinstance(metric, ExperimentRatioMetric):
+        nodes = [metric.numerator, metric.denominator]
+    else:
+        nodes = [metric.start_event, metric.completion_event]
+    return any(isinstance(node, ExperimentDataWarehouseNode) for node in nodes)
+
+
+def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
+    """Dict check, for callers that only hold a saved definition they may not be able to build (canary
+    sampling). A field absent on a shape is simply missing from the dict."""
+    nodes = [
+        metric_dict.get("source"),
+        *(metric_dict.get("series") or []),
+        metric_dict.get("numerator"),
+        metric_dict.get("denominator"),
+        metric_dict.get("start_event"),
+        metric_dict.get("completion_event"),
+    ]
+    return any(isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode" for node in nodes)

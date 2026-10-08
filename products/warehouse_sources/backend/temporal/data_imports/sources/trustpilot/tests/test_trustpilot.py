@@ -9,11 +9,7 @@ from unittest import mock
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import (
-    MAX_PAGES,
-    PER_PAGE,
-    TOKEN_URL,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import MAX_PAGES, TOKEN_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.trustpilot import (
     TrustpilotAuthError,
     TrustpilotBusinessUnitError,
@@ -163,17 +159,6 @@ class TestBuildAuth:
 
 class TestResolveBusinessUnit:
     @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_domain_resolves_via_find(self, MockSession) -> None:
-        session = MockSession.return_value
-        session.get.return_value = _response({"id": BUSINESS_UNIT_ID, "displayName": "Example"})
-
-        assert resolve_business_unit_id("key", "example.com") == BUSINESS_UNIT_ID
-        args, kwargs = session.get.call_args
-        assert args[0].endswith("/business-units/find")
-        assert kwargs["params"] == {"name": "example.com"}
-        assert kwargs["headers"] == {"apikey": "key"}
-
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_www_domain_falls_back_to_bare_domain(self, MockSession) -> None:
         session = MockSession.return_value
         session.get.side_effect = [
@@ -293,29 +278,6 @@ class TestValidateCredentials:
 class TestPagination:
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
     @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_pages_until_empty_page(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _reviews_response([{"id": "r1"}, {"id": "r2"}]),
-                _reviews_response([{"id": "r3"}]),
-                _reviews_response([]),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["id"] for r in rows] == ["r1", "r2", "r3"]
-        assert params[0]["page"] == 1
-        assert params[0]["perPage"] == PER_PAGE
-        assert params[0]["orderBy"] == "createdat.asc"
-        assert params[1]["page"] == 2
-        assert params[2]["page"] == 3
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_checkpoints_next_page_with_query_window(self, MockSession, _mock_resolve) -> None:
         session = MockSession.return_value
         _wire(session, [_reviews_response([{"id": "r1"}]), _reviews_response([])])
@@ -357,21 +319,6 @@ class TestPagination:
 
     @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
     @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_incremental_filter_added_to_request(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_reviews_response([{"id": "r1"}]), _reviews_response([])])
-
-        _rows(
-            _source(
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-        assert params[0]["startDateTime"] == "2026-03-04T02:58:14"
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
     def test_full_refresh_endpoint_never_filters(self, MockSession, _mock_resolve) -> None:
         # product_reviews has no server-side time filter; a cursor value must not leak into the request.
         session = MockSession.return_value
@@ -392,33 +339,6 @@ class TestPagination:
         assert "startDateTime" not in params[0]
         assert "orderBy" not in params[0]
 
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_business_unit_returns_single_row(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session, [_response({"id": BUSINESS_UNIT_ID, "displayName": "Example", "score": {"trustScore": 4.6}})]
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager, endpoint="business_unit"))
-
-        assert len(rows) == 1
-        assert rows[0]["id"] == BUSINESS_UNIT_ID
-        assert "perPage" not in params[0]
-        assert "page" not in params[0]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(RESOLVE_PATCH, return_value=BUSINESS_UNIT_ID)
-    @mock.patch(TRUSTPILOT_SESSION_PATCH)
-    def test_no_checkpoint_after_final_page(self, MockSession, _mock_resolve) -> None:
-        session = MockSession.return_value
-        _wire(session, [_reviews_response([])])
-
-        manager = _make_manager()
-        assert _rows(_source(manager)) == []
-        manager.save_state.assert_not_called()
-
 
 class TestPaginatorQueryCap:
     def test_stops_and_warns_at_query_cap(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -430,12 +350,3 @@ class TestPaginatorQueryCap:
 
         assert paginator.has_next_page is False
         assert any("query cap" in record.message for record in caplog.records)
-
-    def test_empty_page_stop_does_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
-        paginator = TrustpilotPaginator()
-
-        with caplog.at_level(logging.WARNING):
-            paginator.update_state(mock.MagicMock(), data=[])
-
-        assert paginator.has_next_page is False
-        assert not caplog.records

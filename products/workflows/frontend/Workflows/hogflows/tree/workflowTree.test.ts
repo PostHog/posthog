@@ -6,9 +6,12 @@ import {
     isWorkflowTreeComplete,
 } from './workflowTree'
 import {
+    areAllWorkflowTreeBranchesCollapsed,
     findWorkflowTreePath,
+    getWorkflowTreeBranchGroups,
     getWorkflowTreeBranchSummary,
     getWorkflowTreeContinuationPath,
+    getWorkflowTreeOccurrenceKey,
     getWorkflowTreeStepId,
     getWorkflowTreeStepIds,
 } from './workflowTreePresentation'
@@ -176,6 +179,48 @@ describe('buildWorkflowTree', () => {
                 edge('deleted-branch', 'guided', 'branch', 0),
             ])
         ).toEqual([])
+    })
+
+    it('collects branching steps nested inside a path so collapsing covers them', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('paid'),
+                    action('trial'),
+                    action('onboarding', 'conditional_branch'),
+                    action('guided'),
+                    action('self-serve'),
+                    action('shared'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'paid', 'branch', 0),
+                    edge('outer', 'trial', 'branch', 1),
+                    edge('paid', 'shared'),
+                    edge('trial', 'onboarding'),
+                    edge('onboarding', 'guided', 'branch', 0),
+                    edge('onboarding', 'self-serve', 'branch', 1),
+                    edge('guided', 'shared'),
+                    edge('self-serve', 'shared'),
+                    edge('shared', 'exit'),
+                ]
+            )
+        )
+
+        const groups = getWorkflowTreeBranchGroups(tree)
+        expect(groups.map((group) => group.branchKeys.length)).toEqual([2, 2])
+        expect(groups[1].occurrenceKey).toBe(
+            getWorkflowTreeOccurrenceKey('onboarding', [edge('outer', 'trial', 'branch', 1)])
+        )
+
+        const collapseOnly = (index: number): Record<string, { collapsedBranches: Set<string> }> => ({
+            [groups[index].occurrenceKey]: { collapsedBranches: new Set(groups[index].branchKeys) },
+        })
+        expect(areAllWorkflowTreeBranchesCollapsed(groups, collapseOnly(0))).toBe(false)
+        expect(areAllWorkflowTreeBranchesCollapsed(groups, { ...collapseOnly(0), ...collapseOnly(1) })).toBe(true)
     })
 
     it('keeps a nested join inside the focused path and the outer join outside it', () => {

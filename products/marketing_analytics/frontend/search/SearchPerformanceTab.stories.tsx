@@ -33,6 +33,8 @@ const SOURCES = [
                 id: `example-${name}`,
                 name,
                 should_sync: true,
+                sync_frequency: '24hour',
+                last_synced_at: '2025-02-14T12:00:00Z',
                 status: 'Completed',
                 table: { name: `example_${name}`, hogql_name: `example.${name}` },
             })
@@ -44,10 +46,17 @@ const SOURCES = [
         description: 'Example Bing Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaigns', 'campaign_performance_report', 'keyword_performance_report'].map((name) => ({
+        schemas: [
+            'campaigns',
+            'campaign_performance_report',
+            'keyword_performance_report',
+            'destination_url_performance_report',
+        ].map((name) => ({
             id: `example-bing-${name}`,
             name,
             should_sync: true,
+            sync_frequency: '24hour',
+            last_synced_at: '2025-02-14T12:00:00Z',
             status: 'Completed',
             table: { name: `example_bing_${name}`, hogql_name: `example.bing_${name}` },
         })),
@@ -63,6 +72,8 @@ const SOURCES = [
                 id: `example-organic-${name}`,
                 name,
                 should_sync: true,
+                sync_frequency: '24hour',
+                last_synced_at: '2025-02-14T12:00:00Z',
                 status: 'Completed',
                 table: { name: `example_organic_${name}`, hogql_name: `example.organic_${name}` },
             })
@@ -178,7 +189,7 @@ const MOCKS: Mocks = {
                 200,
                 {
                     results: (query.breakdown === 'page'
-                        ? ROWS.filter((row) => row.platform !== 'BingAds' && row.clicks > 0).map((row) => ({
+                        ? ROWS.filter((row) => row.clicks > 0).map((row) => ({
                               ...row,
                               page: `https://example.com/${row.keyword?.replaceAll(' ', '-')}`,
                               keyword: null,
@@ -242,6 +253,7 @@ const meta: Meta<typeof SearchPerformanceTab> = {
     ],
     parameters: {
         layout: 'fullscreen',
+        mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
         pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
         featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
@@ -253,8 +265,69 @@ type Story = StoryObj<typeof meta>
 export const Connected: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
 }
+export const Pagination: Story = {
+    parameters: {
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        const { query } = (await request.json()) as { query: MarketingAnalyticsSearchQuery }
+                        return [
+                            200,
+                            {
+                                results: Array.from({ length: 23 }, (_, index) => ({
+                                    ...ROWS[index % ROWS.length],
+                                    previous: {
+                                        clicks: 50,
+                                        impressions: 1000,
+                                        ctr: 0.05,
+                                        cost: 100,
+                                        conversions: 2,
+                                        cpc: 2,
+                                        cpa: 50,
+                                        position: 5,
+                                    },
+                                    keyword: `Example keyword ${index + 1}`,
+                                    page: query.breakdown === 'page' ? `https://example.com/page-${index + 1}` : null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        const nextButton = canvas.getByRole('button', { name: 'Next page' })
+        const arrowTop = nextButton.getBoundingClientRect().top
+        await userEvent.click(canvas.getByRole('button', { name: 'Go to page' }))
+        await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
+        await canvas.findByText('21-23 of 23 entries')
+        await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
+        await userEvent.click(canvas.getByRole('button', { name: 'Landing pages' }))
+        await canvas.findByText('1-10 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('11-20 of 23 entries')
+        await userEvent.click(canvas.getByRole('button', { name: 'Keywords and queries' }))
+        await expect(await canvas.findByText('1-10 of 23 entries')).toBeVisible()
+    },
+}
 export const Comparison: Story = {
     parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Google Search Console')
+        const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
+        await expect(table.getBoundingClientRect().height).toBeLessThan(600)
+    },
 }
 export const MixedWithPosition: Story = {
     ...Comparison,
@@ -294,7 +367,7 @@ export const Narrow: Story = {
 }
 export const LandingPages: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByText('Landing pages', { exact: true }))
+        await userEvent.click(await within(canvasElement).findByText('Landing pages', { exact: true }))
     },
 }
 export const OrganicDetail: Story = {
@@ -329,7 +402,7 @@ export const AwaitingSync: Story = {
                     '/api/environments/:team_id/external_data_sources/': {
                         results: SOURCES.map((source) => ({
                             ...source,
-                            schemas: source.schemas.map((schema) => ({ ...schema, table: null })),
+                            schemas: source.schemas.map((schema) => ({ ...schema, table: null, last_synced_at: null })),
                         })),
                         count: SOURCES.length,
                         next: null,
@@ -339,6 +412,72 @@ export const AwaitingSync: Story = {
             },
         },
     },
+}
+export const StaleAggregate: Story = {
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/external_data_sources/': {
+                        results: SOURCES.map((source) => ({
+                            ...source,
+                            schemas: source.schemas.map((schema) => ({
+                                ...schema,
+                                last_synced_at:
+                                    schema.name === 'search_analytics_by_query'
+                                        ? '2025-02-01T12:00:00Z'
+                                        : schema.last_synced_at,
+                            })),
+                        })),
+                        count: SOURCES.length,
+                        next: null,
+                        previous: null,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText(/Showing query-and-page data instead/)).toBeVisible()
+        await expect(await canvas.findByText('1,240')).toBeVisible()
+    },
+}
+export const UnavailableSources: Story = {
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/external_data_sources/': {
+                        results: SOURCES.map((source) => ({
+                            ...source,
+                            schemas: source.schemas.map((schema) => ({
+                                ...schema,
+                                should_sync: source.source_type !== 'GoogleAds',
+                                last_synced_at: source.source_type === 'BingAds' ? null : '2025-02-01T12:00:00Z',
+                            })),
+                        })),
+                        count: SOURCES.length,
+                        next: null,
+                        previous: null,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText(/Enable keyword and keyword_stats/)).toBeVisible()
+        await expect(await canvas.findByText(/Waiting for the first sync/)).toBeVisible()
+        await expect(await canvas.findByText(/out of date/)).toBeVisible()
+        expect(canvas.queryByRole('table')).toBeNull()
+    },
+}
+export const UnavailableSourcesNarrow: Story = {
+    ...UnavailableSources,
+    decorators: Narrow.decorators,
 }
 export const OnlyGoogleAds: Story = {
     parameters: {

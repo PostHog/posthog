@@ -11,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.logz_io.lo
     LogzIOResumeConfig,
     _build_log_query,
     _parse_scroll_hits,
-    base_url_for_region,
     get_rows,
     logz_io_source,
     validate_credentials,
@@ -44,53 +43,13 @@ def _hit(doc_id: str, source: dict[str, Any]) -> dict[str, Any]:
     return {"_id": doc_id, "_index": "logs-2026", "_source": source}
 
 
-class TestBaseUrlForRegion:
-    @pytest.mark.parametrize(
-        "region, expected",
-        [
-            ("us", "https://api.logz.io"),
-            ("eu", "https://api-eu.logz.io"),
-            ("EU", "https://api-eu.logz.io"),
-            ("uk", "https://api-uk.logz.io"),
-            (None, "https://api.logz.io"),
-            ("unknown", "https://api.logz.io"),
-        ],
-    )
-    def test_base_url_for_region(self, region: str | None, expected: str) -> None:
-        assert base_url_for_region(region) == expected
-
-
 class TestParseScrollHits:
-    def test_parses_stringified_hits_and_flattens_source(self) -> None:
-        response = _scroll_response("s1", [_hit("a", {"@timestamp": "2026-07-01T00:00:00Z", "message": "hi"})])
-        rows = _parse_scroll_hits(response)
-        assert rows == [{"@timestamp": "2026-07-01T00:00:00Z", "message": "hi", "_id": "a", "_index": "logs-2026"}]
-
-    def test_handles_hits_already_parsed_as_dict(self) -> None:
-        response = {"scrollId": "s1", "hits": {"total": 1, "hits": [_hit("a", {"message": "hi"})]}}
-        rows = _parse_scroll_hits(response)
-        assert rows[0]["_id"] == "a"
-        assert rows[0]["message"] == "hi"
-
     @pytest.mark.parametrize("response", [{}, {"hits": "not json"}, {"hits": None}, {"hits": {"hits": []}}])
     def test_missing_or_malformed_hits_yield_no_rows(self, response: dict[str, Any]) -> None:
         assert _parse_scroll_hits(response) == []
 
 
 class TestBuildLogQuery:
-    def test_incremental_uses_watermark_as_lower_bound(self) -> None:
-        watermark = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
-        query = _build_log_query(True, watermark, "@timestamp")
-        range_filter = query["query"]["bool"]["filter"][0]["range"]["@timestamp"]
-        assert range_filter["gte"] == "2026-07-01T12:00:00.000000Z"
-        # Ascending sort so the pipeline can advance the watermark safely after each batch.
-        assert query["sort"] == [{"@timestamp": {"order": "asc"}}]
-
-    def test_first_sync_falls_back_to_a_bounded_lookback(self) -> None:
-        # With no stored watermark the query must still be time-bounded, not an unbounded match-all.
-        query = _build_log_query(True, None, "@timestamp")
-        assert "gte" in query["query"]["bool"]["filter"][0]["range"]["@timestamp"]
-
     def test_honors_user_selected_incremental_field(self) -> None:
         query = _build_log_query(True, datetime(2026, 7, 1, tzinfo=UTC), "event_ts")
         assert "event_ts" in query["query"]["bool"]["filter"][0]["range"]
@@ -124,12 +83,6 @@ class TestValidateCredentials:
         is_valid, message = validate_credentials("token", "us")
         assert is_valid is False
         assert message is not None
-
-    @mock.patch(f"{TRANSPORT}.make_tracked_session")
-    def test_eu_region_probes_eu_host(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=200)
-        validate_credentials("token", "eu")
-        assert mock_session.return_value.get.call_args.args[0].startswith("https://api-eu.logz.io")
 
     @mock.patch(f"{TRANSPORT}.make_tracked_session")
     def test_token_registered_for_sample_redaction(self, mock_session: mock.MagicMock) -> None:

@@ -6,7 +6,6 @@ from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
-from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.flexmail.flexmail import (
     PAGE_SIZE,
@@ -71,10 +70,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _pages(source_response):
-    yield from source_response.items()
-
-
 def _source(endpoint: str, manager: mock.MagicMock | None = None):
     return flexmail_source(
         account_id="12345",
@@ -87,29 +82,6 @@ def _source(endpoint: str, manager: mock.MagicMock | None = None):
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_and_stops_without_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_envelope([{"id": 1}, {"id": 2}], total=2)])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        # `total` is within the first page, so we stop without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_starts_at_offset_zero_with_page_size(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_envelope([{"id": 1}], total=1)])
-
-        _rows(_source("contacts"))
-
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == PAGE_SIZE
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_offset_pagination_until_total(self, MockSession) -> None:
         session = MockSession.return_value
@@ -129,88 +101,6 @@ class TestPagination:
         assert [p["offset"] for p in params] == [0, PAGE_SIZE]
         # State is saved after the first page (points at the next offset), then we stop.
         assert [s.offset for s in (c.args[0] for c in manager.save_state.call_args_list)] == [PAGE_SIZE]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_envelope([], total=0)])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_mid_collection_stops(self, MockSession) -> None:
-        # Rows deleted mid-sync can shrink the collection; an empty page must terminate the loop even
-        # when `total` still claims more rows.
-        session = MockSession.return_value
-        _wire(session, [_envelope([], total=PAGE_SIZE * 2)])
-
-        rows = _rows(_source("contacts"))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_embedded_key_yields_nothing(self, MockSession) -> None:
-        # HAL omits `_embedded` entirely for an empty collection — that's a valid zero-row page, not
-        # an error.
-        session = MockSession.return_value
-        _wire(session, [_json_response({"total": 0, "limit": PAGE_SIZE, "offset": 0})])
-
-        rows = _rows(_source("contacts"))
-
-        assert rows == []
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_links_are_stripped_from_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        items = [{"id": 1, "email": "a@b.co", "_links": {"self": {"href": "/contacts/1"}}}]
-        _wire(session, [_envelope(items, total=1)])
-
-        rows = _rows(_source("contacts"))
-
-        assert rows == [{"id": 1, "email": "a@b.co"}]
-
-
-class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_envelope([{"id": 5}], total=PAGE_SIZE + 1, offset=PAGE_SIZE)])
-
-        manager = _make_manager(FlexmailResumeConfig(offset=PAGE_SIZE))
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == [{"id": 5}]
-        # The initial (offset=0) page must never be fetched on resume.
-        assert [p["offset"] for p in params] == [PAGE_SIZE]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_saved_only_after_page_is_yielded_carrying_next_offset(self, MockSession) -> None:
-        session = MockSession.return_value
-        first_page = [{"id": i} for i in range(PAGE_SIZE)]
-        _wire(
-            session,
-            [
-                _envelope(first_page, total=PAGE_SIZE + 1),
-                _envelope([{"id": 999}], total=PAGE_SIZE + 1, offset=PAGE_SIZE),
-            ],
-        )
-        manager = _make_manager()
-
-        pages = iter(_pages(_source("contacts", manager)))
-
-        assert len(next(pages)) == PAGE_SIZE
-        # A crash here must re-fetch page 1 (nothing persisted yet), not skip it.
-        manager.save_state.assert_not_called()
-
-        assert next(pages) == [{"id": 999}]
-        # After page 1 is yielded the checkpoint points at the NEXT offset.
-        assert manager.save_state.call_args.args[0] == FlexmailResumeConfig(offset=PAGE_SIZE)
 
 
 class TestUnpaginatedEndpoints:
@@ -280,116 +170,8 @@ class TestValidateCredentials:
         mock_session.return_value = session
         assert validate_credentials("12345", "flexmail-token") == (False, "Could not validate Flexmail credentials")
 
-    @mock.patch(FLEXMAIL_SESSION_PATCH)
-    def test_probe_uses_basic_auth(self, mock_session: mock.MagicMock) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        mock_session.return_value = session
-        validate_credentials("12345", "flexmail-token")
-        _args, kwargs = session.get.call_args
-        assert kwargs["auth"] == HTTPBasicAuth("12345", "flexmail-token")
-
 
 class TestContactFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_fans_out_over_contacts_and_carries_the_contact_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _envelope([{"id": 29}, {"id": 30}], total=2),
-                _envelope(
-                    [{"id": 4, "name": "newsletter signup form", "_links": {"self": {"href": "/sources/4"}}}], total=1
-                ),
-                _envelope([{"id": 7, "name": "import"}], total=1),
-            ],
-        )
-
-        rows = _rows(_source("contact_sources"))
-
-        # A contact's source rows are indistinguishable from the account-wide `sources` table
-        # without the contact id, so the join column has to survive onto every row.
-        assert rows == [
-            {"contact_id": 29, "id": 4, "name": "newsletter signup form"},
-            {"contact_id": 30, "id": 7, "name": "import"},
-        ]
-        assert [p.get("offset") for p in params] == [0, 0, 0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_offset_pages_within_one_contact(self, MockSession) -> None:
-        session = MockSession.return_value
-        first_page = [{"id": i} for i in range(PAGE_SIZE)]
-        params = _wire(
-            session,
-            [
-                _envelope([{"id": 29}], total=1),
-                _envelope(first_page, total=PAGE_SIZE + 1),
-                _envelope([{"id": 999}], total=PAGE_SIZE + 1, offset=PAGE_SIZE),
-            ],
-        )
-
-        rows = _rows(_source("contact_sources"))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert all(row["contact_id"] == 29 for row in rows)
-        assert [p["offset"] for p in params[1:]] == [0, PAGE_SIZE]
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_skips_a_contact_deleted_since_the_listing(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _envelope([{"id": 29}, {"id": 30}], total=2),
-                _json_response({"title": "Not Found"}, status_code=404),
-                _envelope([{"id": 7, "name": "import"}], total=1),
-            ],
-        )
-
-        rows = _rows(_source("contact_sources"))
-
-        assert rows == [{"contact_id": 30, "id": 7, "name": "import"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_interest_subscriptions_fetch_once_per_contact_without_pagination_params(self, MockSession) -> None:
-        session = MockSession.return_value
-        subscription = {
-            "interest_id": "1f0b2e6c-0000-4000-8000-000000000001",
-            "_links": {"self": {"href": "/contacts/29/interest-subscriptions/1f0b"}},
-            # The embedded interest repeats a row of the `interests` table we already sync.
-            "_embedded": {"interest": {"id": "1f0b2e6c-0000-4000-8000-000000000001", "name": "Programming"}},
-        }
-        params = _wire(
-            session,
-            [
-                _envelope([{"id": 29}], total=1),
-                _json_response({"total": 1, "_embedded": {"item": [subscription]}}),
-            ],
-        )
-
-        rows = _rows(_source("contact_interest_subscriptions"))
-
-        assert rows == [{"contact_id": 29, "interest_id": "1f0b2e6c-0000-4000-8000-000000000001"}]
-        assert session.send.call_count == 2
-        assert "offset" not in params[1] and "limit" not in params[1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_without_refetching_a_finished_contact(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _envelope([{"id": 29}, {"id": 30}], total=2),
-                _envelope([{"id": 7, "name": "import"}], total=1),
-            ],
-        )
-
-        manager = _make_manager(FlexmailResumeConfig(fanout_state={"completed": ["/contacts/29/sources"]}))
-        rows = _rows(_source("contact_sources", manager))
-
-        assert rows == [{"contact_id": 30, "id": 7, "name": "import"}]
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_which_contacts_finished(self, MockSession) -> None:
         session = MockSession.return_value

@@ -336,56 +336,69 @@ def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) 
     return ranked if limit is None else ranked[:limit]
 
 
-def _relation_to_person(team_id: int, user: User) -> Case:
+def _relation_to_person(team_id: int, user: User, *, include_unowned: bool) -> Case:
     """A report's strongest `BriefingReportRelation` to the person, or NULL when it has none.
 
     Reads the `briefing_priority` annotation, so the queryset must carry `_latest_priority()` first.
+    `include_unowned` decides whether a P0 nobody owns counts as a relation. It belongs to the project
+    rather than to the person, so a surface that only pushes a person's own work leaves it out. Leaving
+    it out also drops the claim and implementation-PR subqueries from the expression, which Postgres
+    evaluates for every open report before the relation filter applies.
     """
     names_me = _names_person(team_id, user)
     claimed = reports_with_active_claim(team_id=team_id, actor=ArtefactAttribution.from_user(user.id))
-    unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
-        team_id=team_id, active_only=True
-    )
-    return Case(
+    branches = [
         When(
             names_me & Q(status=SignalReport.Status.PENDING_INPUT), then=Value(BriefingReportRelation.WAITING_FOR_YOU)
         ),
         When(claimed, then=Value(BriefingReportRelation.CLAIMED)),
         When(names_me & Q(status=SignalReport.Status.READY), then=Value(BriefingReportRelation.SUGGESTED_REVIEWER)),
-        When(
-            unowned
-            & Q(
-                status=SignalReport.Status.READY,
-                latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-                briefing_priority="P0",
-            ),
-            then=Value(BriefingReportRelation.URGENT_UNOWNED),
-        ),
-        default=Value(None),
-        output_field=CharField(),
-    )
+    ]
+    if include_unowned:
+        unowned = ~reports_with_active_claim(team_id=team_id) & ~implementation_pr_report_filter(
+            team_id=team_id, active_only=True
+        )
+        branches.append(
+            When(
+                unowned
+                & Q(
+                    status=SignalReport.Status.READY,
+                    latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                    briefing_priority="P0",
+                ),
+                then=Value(BriefingReportRelation.URGENT_UNOWNED),
+            )
+        )
+    return Case(*branches, default=Value(None), output_field=CharField())
 
 
-def _reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
+def _reports_for_person(team_id: int, user: User, *, include_unowned: bool) -> QuerySet[SignalReport]:
     """The open reports that are for this person: the set the briefing ranks and the Inbox counts."""
     return (
         _open_reports(team_id)
         .annotate(briefing_priority=_latest_priority())
-        .annotate(briefing_relation=_relation_to_person(team_id, user))
+        .annotate(briefing_relation=_relation_to_person(team_id, user, include_unowned=include_unowned))
         .filter(briefing_relation__isnull=False)
     )
 
 
-def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None) -> list[BriefingReport]:
+def reports_for_briefing(
+    *, team_id: int, user_id: int, limit: int | None = None, include_unowned: bool = True
+) -> list[BriefingReport]:
     """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
 
     A report appears once, under the first `BriefingReportRelation` that matches. One query reads
     every candidate with its relation, priority and served scores, up to `_CANDIDATE_LIMIT`, so the
     model ranks the whole set and not only the newest reports. Urgent-unowned keeps only P0.
     `_briefing_pick` orders the candidates and `limit` keeps the best of them.
+
+    `include_unowned` false drops the urgent-unowned relation, so the result holds only reports the
+    person is named on or claimed. The Today briefing asks for that: a P0 nobody owns sorts above
+    every other item, because P0 is the first key in `_briefing_pick` and is exempt from the
+    dismiss-wrong filter, so one unowned report would take the top of every briefing in the project.
     """
     rows = (
-        _reports_for_person(team_id, User.objects.get(id=user_id))
+        _reports_for_person(team_id, User.objects.get(id=user_id), include_unowned=include_unowned)
         .annotate(briefing_heads=_latest_served_heads())
         .order_by("-updated_at")
         .values_list("id", "updated_at", "briefing_relation", "briefing_priority", "briefing_heads")[:_CANDIDATE_LIMIT]
@@ -438,17 +451,20 @@ class OpenReportCounts:
     in_project: int
 
 
-def open_report_counts(*, team_id: int, user: User, exclude_report_ids: Sequence[str] = ()) -> OpenReportCounts:
+def open_report_counts(
+    *, team_id: int, user: User, exclude_report_ids: Sequence[str] = (), include_unowned: bool = True
+) -> OpenReportCounts:
     """How many open, actionable reports the project has, and how many of them are for this person.
 
-    `for_person` counts the same set `reports_for_briefing` ranks (named, claimed, or an unowned P0),
-    so a "more for you" number agrees with the list it follows. `exclude_report_ids` leaves out the
-    reports already on screen; one that is resolved or not for the person was never in the set, so
-    it is not subtracted from it.
+    `for_person` counts the same set `reports_for_briefing` ranks, so a "more for you" number agrees
+    with the list it follows; pass the `include_unowned` the list was built with to keep that true.
+    `in_project` ignores the relation either way, so a P0 nobody owns is still counted there.
+    `exclude_report_ids` leaves out the reports already on screen; one that is resolved or not for the
+    person was never in the set, so it is not subtracted from it.
     """
     excluded = list(exclude_report_ids)
     in_project = _open_reports(team_id).exclude(id__in=excluded).count()
-    for_person = _reports_for_person(team_id, user).exclude(id__in=excluded).count()
+    for_person = _reports_for_person(team_id, user, include_unowned=include_unowned).exclude(id__in=excluded).count()
     return OpenReportCounts(for_person=for_person, in_project=in_project)
 
 

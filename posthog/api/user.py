@@ -284,8 +284,9 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers "
-            "sidebar section and item visibility. Send the complete object: it replaces the stored value "
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar "
+            "section and item visibility, and SQL editor settings such as Vim mode and the vimrc. "
+            "Send the complete object: it replaces the stored value "
             "wholesale. Null means no customization; absent keys mean the element is shown. Once "
             "`sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true."
         ),

@@ -213,6 +213,9 @@ class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
     membership_level = serializers.SerializerMethodField()
+    membership_joined_at = serializers.SerializerMethodField(
+        help_text="When the requesting user joined this organization. Null if the user is not a member."
+    )
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -250,6 +253,7 @@ class OrganizationSerializer(
             "created_at",
             "updated_at",
             "membership_level",
+            "membership_joined_at",
             "plugins_access_level",
             "teams",
             "projects",
@@ -285,6 +289,7 @@ class OrganizationSerializer(
             "created_at",
             "updated_at",
             "membership_level",
+            "membership_joined_at",
             "plugins_access_level",
             "teams",
             "projects",
@@ -330,6 +335,11 @@ class OrganizationSerializer(
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return OrganizationMembership.Level(membership.level) if membership is not None else None
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_membership_joined_at(self, organization: Organization) -> str | None:
+        membership = self.user_permissions.organization_memberships.get(organization.pk)
+        return membership.joined_at.isoformat() if membership is not None else None
 
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
