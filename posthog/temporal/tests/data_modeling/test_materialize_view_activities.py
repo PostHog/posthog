@@ -748,8 +748,10 @@ class TestNodeSuspension:
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
             "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
-            "Arrow stream contains bytes that are not an IPC message: 'garbage'",
-            "Encapsulated IPC message format must begin with continuation bytes, received: 'bytearray(b'Code')'",
+            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: 'b'",
+            "This model has been suspended after 5 consecutive failed materializations. "
+            "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -788,8 +790,8 @@ class TestNodeSuspension:
             "Preempted",
             "QueueEmpty",
             "ProxyConnectionError",
-            "Arrow stream contains bytes that are not an IPC message",
-            "Encapsulated IPC message format must begin with continuation bytes",
+            "InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: ",
+            "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: ",
         ],
     )
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
