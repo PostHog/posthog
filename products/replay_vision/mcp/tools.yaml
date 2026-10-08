@@ -700,9 +700,37 @@ tools:
             List all replay vision scanners in the current project. A scanner watches a slice of session recordings
             (defined by its `query`, `sampling_mode` and `sampling_rate`) and runs one of four LLM analyses against each
             matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer`
-            (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each scanner returns
-            its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and its credit
-            figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).
+            (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each row carries
+            metadata only: name, description, type, `prompt_question` (the prompt condensed into one question), tags,
+            enabled state, sampling settings, `last_swept_at`, and the credit figures (`credits_per_observation`,
+            `estimated_monthly_credits`, `credits_this_month`). Call `vision-scanners-get` for one scanner to read its
+            full prompt in `scanner_config` and its recording filters in `query`.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - scanner_type
+                - prompt_question
+                - tags
+                - enabled
+                - emits_signals
+                - model
+                - sampling_mode
+                - sampling_rate
+                - credit_limit
+                - credits_per_observation
+                - estimated_monthly_credits
+                - estimated_at
+                - credits_this_month
+                - limit_reached
+                - last_swept_at
+                - scanner_version
+                - experiment_targeting
+                - created_at
+                - updated_at
+                - created_by.id
+                - created_by.email
         param_overrides:
             enabled:
                 description: >
