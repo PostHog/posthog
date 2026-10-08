@@ -54,10 +54,7 @@ impl WorkerPoolSource {
     /// The slice falls back to `None` while the peer set is unknown, at
     /// startup or with peer awareness disabled.
     pub fn slice(&self, ring: &[WorkerId], healthy: &[WorkerId]) -> Option<Vec<WorkerId>> {
-        if self.strategy != RoutingStrategy::Aperture {
-            return None;
-        }
-        let (tracker, width) = self.aperture.as_ref()?;
+        let (tracker, width) = self.active_aperture()?;
         let peers = tracker.snapshot();
         aperture::ring_slice(ring, healthy, peers.self_index, peers.peer_count(), *width)
     }
@@ -76,7 +73,16 @@ impl WorkerPoolSource {
         self.narrow(&healthy).unwrap_or(healthy)
     }
 
+    fn active_aperture(&self) -> Option<&(Arc<PeerTracker>, usize)> {
+        if self.strategy == RoutingStrategy::Aperture {
+            self.aperture.as_ref()
+        } else {
+            None
+        }
+    }
+
     fn narrow(&self, healthy: &[WorkerId]) -> Option<Vec<WorkerId>> {
+        self.active_aperture()?;
         let ring = aperture::sorted_ring(self.registry.workers());
         // The fleet's slices tile the pool, so each consumer's requests
         // consolidate onto few workers.
