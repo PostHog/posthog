@@ -17,6 +17,7 @@ import {
   type SourceDropTarget,
   type SourceFiles,
   type SourceRange,
+  shrinkGrid,
   updateBlockProps,
 } from "@posthog/core/canvas/blockLibrary/sourceEdits";
 import {
@@ -165,7 +166,12 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
       const range = dragged.selection.source;
       if (!range || !isFresh(canvasId, dragged.selection.rev)) return;
       if (!isJsxRange(entry.files, range)) return;
-      const files = moveRange(entry.files, range, hit.target);
+      const files = moveRange(
+        entry.files,
+        range,
+        hit.target,
+        dragged.selection.layout.grid,
+      );
       if (files !== entry.files) note("Moved", dragged.selection);
       apply(files, dragged.selection.blockId);
     };
@@ -176,7 +182,11 @@ export function useCanvasSourceActions(canvasId: string): CanvasSourceActions {
         return;
       if (isRootSelection(entry, selection)) return;
       note("Removed", selection);
-      apply(removeRange(entry.files, selection.source));
+      const grid = selection.layout.grid;
+      const files = grid
+        ? shrinkGrid(entry.files, grid, selection.source)
+        : entry.files;
+      apply(removeRange(files, selection.source));
       store().setSelection(canvasId, null);
     };
 
