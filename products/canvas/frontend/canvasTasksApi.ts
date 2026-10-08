@@ -149,6 +149,13 @@ export async function ownCanvasTaskIds(
     return [...ids]
 }
 
+/** What happened when a move failed, given how many chats could not move back. */
+export function partialMoveMessage(unrestored: number): string {
+    return unrestored
+        ? `The canvas didn’t move. ${unrestored} of its chats moved to your personal space and stayed there.`
+        : 'The canvas and its chats didn’t move, so nothing changed. Try again.'
+}
+
 /** Moves tasks back to the spaces they came from. Returns how many stayed where they were. */
 export async function restoreCanvasTasks(projectId: string, moves: CanvasTaskMove[]): Promise<number> {
     const results = await Promise.allSettled(
@@ -172,8 +179,7 @@ export async function moveCanvasTasks(
     )
     const moved = pending.filter((_, index) => results[index].status === 'fulfilled')
     if (moved.length < pending.length) {
-        await restoreCanvasTasks(projectId, moved)
-        throw new Error('The canvas’s chats didn’t move, so nothing changed. Try again.')
+        throw new Error(partialMoveMessage(await restoreCanvasTasks(projectId, moved)))
     }
     return moved
 }

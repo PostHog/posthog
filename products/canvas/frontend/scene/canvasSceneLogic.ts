@@ -44,6 +44,7 @@ import {
     CanvasTaskMove,
     moveCanvasTasks,
     ownCanvasTaskIds,
+    partialMoveMessage,
     restoreCanvasTasks,
 } from '../canvasTasksApi'
 import { CanvasVisibility, canvasVisibility, visibilitySpace } from '../canvasVisibility'
@@ -1037,8 +1038,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                     updated = await canvasesPartialUpdate(projectId, props.id, { channel_id: spaceId })
                 } catch (error) {
                     // The canvas stayed, so its chats go back to stay in the same space as it.
-                    await restoreCanvasTasks(projectId, moved)
-                    throw error
+                    const unrestored = await restoreCanvasTasks(projectId, moved)
+                    throw unrestored ? new Error(partialMoveMessage(unrestored)) : error
                 }
                 const unrestored = await restoreCanvasTasks(projectId, restoreTasks)
                 actions.canvasUpdated(updated)

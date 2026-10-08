@@ -2,6 +2,8 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { toast } from '@posthog/quill'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -104,9 +106,11 @@ describe('canvasSceneLogic', () => {
     })
 
     it.each([
-        ['moves the creator’s chats first and leaves a teammate’s chat alone', 200],
-        ['moves the chats back when the canvas cannot move', 403],
-    ])('Make private %s', async (_, canvasStatus) => {
+        ['moves the creator’s chats first and leaves a teammate’s chat alone', 200, false],
+        ['moves the chats back when the canvas cannot move', 403, false],
+        ['says which chats stayed private when one cannot move back', 403, true],
+    ])('Make private %s', async (_, canvasStatus, restoreFails) => {
+        const errorToast = jest.spyOn(toast, 'error')
         const order: string[] = []
         const tasksPatched: Record<string, unknown[]> = {}
         const me = { id: 1, uuid: MOCK_USER_UUID }
@@ -151,11 +155,11 @@ describe('canvasSceneLogic', () => {
             patch: {
                 '/api/projects/:team_id/tasks/:id/': async ({ params, request }) => {
                     order.push(`task:${params.id}`)
-                    tasksPatched[params.id as string] = [
-                        ...(tasksPatched[params.id as string] ?? []),
-                        await request.json(),
-                    ]
-                    return [200, { id: params.id }]
+                    const body = (await request.json()) as { channel: string }
+                    tasksPatched[params.id as string] = [...(tasksPatched[params.id as string] ?? []), body]
+                    return restoreFails && params.id === 'task-authoring' && body.channel === 'space-team'
+                        ? [500, { detail: 'Server error' }]
+                        : [200, { id: params.id }]
                 },
                 '/api/projects/:team_id/canvases/:id/': async ({ request }) => {
                     order.push('canvas')
@@ -195,6 +199,14 @@ describe('canvasSceneLogic', () => {
         })
         expect(order.indexOf('canvas')).toBeGreaterThan(order.indexOf('task:task-authoring'))
         expect(logic.values.canvas?.channel).toEqual(canvasStatus === 200 ? 'space-1' : 'space-team')
+        if (restoreFails) {
+            expect(errorToast).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    description: expect.stringContaining('1 of its chats moved to your personal space'),
+                })
+            )
+        }
+        errorToast.mockRestore()
     })
 
     it('Undo after Make private moves the canvas back first, then its chats', async () => {
