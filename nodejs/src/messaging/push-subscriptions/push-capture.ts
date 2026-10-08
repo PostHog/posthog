@@ -136,8 +136,8 @@ export class PushCaptureService {
     }
 }
 
-/** Answers like a capture that accepted the event, and sends nothing. A deployment that receives a
- * copy of traffic Django already stores runs with this, so the copy writes and bills nothing twice. */
+/** Answers like a capture that accepted the event, and sends nothing. A mirrored copy of traffic that
+ * Django already stores goes here, so the copy writes and bills nothing twice. */
 export class DryRunPushCaptureService {
     public capture(_event: PushCaptureEvent): Promise<void> {
         captureCounter.inc({ outcome: 'dry_run' })

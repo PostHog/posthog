@@ -21,8 +21,8 @@ export type PushApiConfig = {
      * fingerprint the same in both services' logs while both serve the endpoint. The key also stops a
      * secret API key submitted in the wrong field from being confirmable out of the log. */
     SECRET_KEY: string
-    /** Skips the person update and still answers as if it was stored. Set while the deployment only
-     * receives mirrored traffic that Django also serves. */
+    /** Skips the person update for a mirrored copy and still answers as if it was stored. A request
+     * that reaches the service directly is still stored. */
     PUSH_API_DRY_RUN: boolean
 }
 
@@ -91,17 +91,17 @@ export class PushApiServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         if (this.config.PUSH_API_DRY_RUN) {
-            logger.warn('push-api is in dry-run mode: registrations are answered but not stored')
+            logger.warn('push-api is in dry-run mode: mirrored registrations are answered but not stored')
         }
 
+        const capture = new PushCaptureService(this.config.CAPTURE_INTERNAL_URL)
         const service = new PushSubscriptionsService(
             new ProjectTokenLookup(this.postgres),
             this.postgres,
             new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS),
-            this.config.PUSH_API_DRY_RUN
-                ? new DryRunPushCaptureService()
-                : new PushCaptureService(this.config.CAPTURE_INTERNAL_URL),
-            this.config.SECRET_KEY
+            capture,
+            this.config.SECRET_KEY,
+            this.config.PUSH_API_DRY_RUN ? new DryRunPushCaptureService() : capture
         )
 
         if (!isTestEnv()) {
