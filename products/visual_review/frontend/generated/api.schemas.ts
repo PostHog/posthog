@@ -128,7 +128,6 @@ export interface BaselineOverviewApi {
  * * `broken` - broken
  * * `unstable` - unstable
  * * `at_risk` - at_risk
- * * `noisy` - noisy
  * * `clean` - clean
  */
 export type FlakinessStateEnumApi = (typeof FlakinessStateEnumApi)[keyof typeof FlakinessStateEnumApi]
@@ -137,7 +136,6 @@ export const FlakinessStateEnumApi = {
     Broken: 'broken',
     Unstable: 'unstable',
     AtRisk: 'at_risk',
-    Noisy: 'noisy',
     Clean: 'clean',
 } as const
 
@@ -188,12 +186,11 @@ export interface FlakinessEntryApi {
      * @nullable
      */
     baseline_moved_day_index?: number | null
-    /** An urgency ladder, where each rung asks for a different fix. `broken` fails nearly every run, so its baseline is wrong and quarantining it only hides that. `unstable` fails some runs and not others, the classic flake. `at_risk` never fails, but its worst absorbed diff is already touching the threshold, so the next unrelated change turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` matched its baseline on every run in the window.
+    /** An urgency ladder, where each rung asks for a different fix. `broken` fails nearly every run, so its baseline is wrong and quarantining it only hides that. `unstable` fails some runs and not others, the classic flake. `at_risk` never fails, but its worst absorbed diff is already touching the threshold, so the next unrelated change turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed sits far below the threshold.
      *
      * * `broken` - broken
      * * `unstable` - unstable
      * * `at_risk` - at_risk
-     * * `noisy` - noisy
      * * `clean` - clean */
     flakiness_state: FlakinessStateEnumApi
     /** True when an active quarantine has run out, is about to, or covers a snapshot that has stopped failing the gate. All three mean a human has to extend it or lift it. */
@@ -234,9 +231,7 @@ export interface FlakinessTotalsApi {
     unstable: number
     /** Identifiers whose `flakiness_state` is `at_risk`. */
     at_risk: number
-    /** Identifiers whose `flakiness_state` is `noisy`. */
-    noisy: number
-    /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live variants or older history, and reported here so every listed entry is reachable. */
+    /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a quarantine or older gate failures, and reported here so every listed entry is reachable. */
     clean: number
     /** Listed identifiers per run type, so one suite's noise can be told from another's. */
     by_run_type: FlakinessTotalsApiByRunType
@@ -287,14 +282,17 @@ export interface QuarantineInputApi {
      */
     reason: string
     /**
+     * When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.
+     * @nullable
+     */
+    expires_at?: string | null
+    /**
      * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
      * @nullable
      */
     source_run_id?: string | null
     /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
     notify_owners?: boolean
-    /** @nullable */
-    expires_at?: string | null
 }
 
 export interface UnquarantineQueryApi {
@@ -303,6 +301,13 @@ export interface UnquarantineQueryApi {
      * @maxLength 512
      */
     identifier: string
+}
+
+export interface ErrorDetailApi {
+    /** What went wrong and what to do next. */
+    detail: string
+    /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+    code?: string
 }
 
 export interface TolerationPileupEntryApi {
@@ -591,6 +596,81 @@ export interface FinalizeResultApi {
     baseline_content: string
 }
 
+export interface LiftOnMergeInputApi {
+    /**
+     * Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture.
+     * @maxLength 512
+     */
+    identifier: string
+}
+
+/**
+ * * `pending` - pending
+ * * `applied` - applied
+ * * `cancelled` - cancelled
+ * * `superseded` - superseded
+ */
+export type QuarantineLiftStateEnumApi = (typeof QuarantineLiftStateEnumApi)[keyof typeof QuarantineLiftStateEnumApi]
+
+export const QuarantineLiftStateEnumApi = {
+    Pending: 'pending',
+    Applied: 'applied',
+    Cancelled: 'cancelled',
+    Superseded: 'superseded',
+} as const
+
+export interface QuarantineLiftEntryApi {
+    /** UUID of the lift request. */
+    id: string
+    /** UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event. */
+    quarantine_id: string
+    /** Snapshot identifier under quarantine. */
+    identifier: string
+    /** Run type of the quarantine, for example storybook. */
+    run_type: string
+    /** Pull request whose merge the lift waits for. */
+    pr_number: number
+    /** Content hash a default-branch run must render, against a baseline entry with the same hash, for the lift to apply. */
+    expected_hash: string
+    /** `pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. `cancelled` was withdrawn, or the pull request closed without merging into the run's branch. `superseded` means the quarantine ended some other way, or another request lifted it.
+     *
+     * * `pending` - pending
+     * * `applied` - applied
+     * * `cancelled` - cancelled
+     * * `superseded` - superseded */
+    state: QuarantineLiftStateEnumApi
+    /** The latest verification outcome, in plain words. */
+    detail: string
+    /** When the lift was requested. */
+    created_at: string
+    /** When the request last changed. */
+    updated_at: string
+    /**
+     * When the request left `pending`. Null while it waits.
+     * @nullable
+     */
+    resolved_at?: string | null
+    /**
+     * Run the lift was requested from. Null after that run is deleted.
+     * @nullable
+     */
+    source_run_id?: string | null
+    /** User who requested the lift, or on whose behalf an agent did. */
+    requested_by?: UserBasicInfoApi | null
+    /**
+     * Merge commit of the pull request. Set when the lift applies.
+     * @nullable
+     */
+    merge_commit_sha?: string | null
+    /**
+     * Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that does not contain it still treats the snapshot as quarantined.
+     * @nullable
+     */
+    lifted_at_sha?: string | null
+    /** Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP. */
+    source: string
+}
+
 export interface RecomputeResultApi {
     run: RunApi
     counts_changed: boolean
@@ -852,6 +932,10 @@ export type VisualReviewRunsSnapshotsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.
+     */
+    quarantined_only?: boolean
     /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */

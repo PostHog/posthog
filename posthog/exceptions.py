@@ -167,6 +167,13 @@ def as_drf_validation_error(error: FieldedValidationError) -> ValidationError:
     return ValidationError(error.message)
 
 
+def first_error_message(detail: Any) -> str:
+    """The first message in a DRF error detail, which nests messages in dicts and lists."""
+    while isinstance(detail, (dict, list)) and detail:
+        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
+    return str(detail)
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 

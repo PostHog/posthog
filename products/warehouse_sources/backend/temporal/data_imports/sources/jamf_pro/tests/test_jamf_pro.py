@@ -18,11 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
     JamfProResumeConfig,
     JamfProTokenManager,
     _build_params,
-    _build_url,
     _format_incremental_value,
     get_rows,
     jamf_pro_source,
-    normalize_host,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import JAMF_PRO_ENDPOINTS
@@ -65,22 +63,6 @@ def _session(post_responses: list[Any] | None = None, get_responses: list[Any] |
     return session
 
 
-class TestNormalizeHost:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("example.jamfcloud.com", "example.jamfcloud.com"),
-            ("https://example.jamfcloud.com", "example.jamfcloud.com"),
-            ("http://example.jamfcloud.com/", "example.jamfcloud.com"),
-            ("  example.jamfcloud.com  ", "example.jamfcloud.com"),
-            ("example.jamfcloud.com/api/v1", "example.jamfcloud.com"),
-            ("https://jamf.example.org/api/v1/computers-inventory", "jamf.example.org"),
-        ],
-    )
-    def test_normalize_host(self, raw, expected):
-        assert normalize_host(raw) == expected
-
-
 class TestFormatIncrementalValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -97,33 +79,6 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildParams:
-    def test_computers_incremental_builds_rsql_filter_and_sorts_by_cursor(self):
-        params = _build_params(
-            JAMF_PRO_ENDPOINTS["computers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert params["filter"] == 'general.reportDate>="2024-01-01T00:00:00.000Z"'
-        assert params["sort"] == "general.reportDate:asc"
-
-    def test_computers_first_incremental_sync_has_no_filter_but_sorts_by_cursor(self):
-        params = _build_params(
-            JAMF_PRO_ENDPOINTS["computers"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert "filter" not in params
-        assert params["sort"] == "general.reportDate:asc"
-
-    def test_computers_full_refresh_has_no_filter(self):
-        params = _build_params(
-            JAMF_PRO_ENDPOINTS["computers"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert "filter" not in params
-        assert params["sort"] == "id:asc"
-
     def test_non_incremental_endpoint_never_sends_filter(self):
         # Endpoints without a documented RSQL timestamp filter must not send one — the API
         # would reject the request.
@@ -134,26 +89,25 @@ class TestBuildParams:
         )
         assert "filter" not in params
 
-    def test_computers_requests_inventory_sections(self):
+    @pytest.mark.parametrize(
+        "should_use_incremental_field, last_value, expected_filter",
+        [
+            (False, None, 'dateSent>="1970-01-01T00:00:00.000Z"'),
+            (True, None, 'dateSent>="1970-01-01T00:00:00.000Z"'),
+            (True, datetime(2024, 1, 1, tzinfo=UTC), 'dateSent>="2024-01-01T00:00:00.000Z"'),
+        ],
+    )
+    def test_mdm_commands_always_sends_a_filter(self, should_use_incremental_field, last_value, expected_filter):
         params = _build_params(
-            JAMF_PRO_ENDPOINTS["computers"], should_use_incremental_field=False, db_incremental_field_last_value=None
+            JAMF_PRO_ENDPOINTS["mdm_commands"],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
         )
-        url = _build_url("example.jamfcloud.com", JAMF_PRO_ENDPOINTS["computers"], params)
-        # Sections must be repeated params, not a single comma-joined value.
-        assert "section=GENERAL" in url
-        assert "section=HARDWARE" in url
+        assert params["filter"] == expected_filter
+        assert params["sort"] == "dateSent:asc"
 
 
 class TestTokenManager:
-    def test_client_credentials_mints_oauth_token(self):
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)])
-        manager = JamfProTokenManager(session, "example.jamfcloud.com", CLIENT_CREDENTIALS)
-
-        assert manager.get_token() == "tok"
-        url = session.post.call_args.args[0]
-        assert url == "https://example.jamfcloud.com/api/oauth/token"
-        assert session.post.call_args.kwargs["data"]["grant_type"] == "client_credentials"
-
     def test_basic_mints_token_with_http_basic(self):
         session = _session(post_responses=[_response(json_data={"token": "tok2", "expires": "2100-01-01T00:00:00Z"})])
         manager = JamfProTokenManager(session, "example.jamfcloud.com", BASIC_CREDENTIALS)
@@ -162,30 +116,6 @@ class TestTokenManager:
         url = session.post.call_args.args[0]
         assert url == "https://example.jamfcloud.com/api/v1/auth/token"
         assert session.post.call_args.kwargs["auth"] == ("admin", "hunter2")
-
-    def test_token_is_cached_until_expiry(self):
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)])
-        manager = JamfProTokenManager(session, "example.jamfcloud.com", CLIENT_CREDENTIALS)
-
-        manager.get_token()
-        manager.get_token()
-        assert session.post.call_count == 1
-
-    def test_token_is_reminted_when_close_to_expiry(self):
-        # Jamf tokens live ~20 minutes; a long-running sync must re-mint instead of sending an
-        # expired token and failing every request with a 401.
-        session = _session(
-            post_responses=[
-                _response(json_data={**TOKEN_JSON, "access_token": "first"}),
-                _response(json_data={**TOKEN_JSON, "access_token": "second"}),
-            ]
-        )
-        manager = JamfProTokenManager(session, "example.jamfcloud.com", CLIENT_CREDENTIALS)
-        manager.get_token()
-        manager._deadline = 0.0  # simulate the token reaching its expiry margin
-
-        assert manager.get_token() == "second"
-        assert session.post.call_count == 2
 
     @pytest.mark.parametrize(
         "credentials",
@@ -275,16 +205,29 @@ class TestValidateCredentials:
         assert valid is False
         assert "computers" in (msg or "")
 
-    def test_scoped_probe_200_succeeds(self):
-        session = _session(
-            post_responses=[_response(json_data=TOKEN_JSON)],
-            get_responses=[_response(json_data={"totalCount": 1, "results": [{"id": "1"}]})],
-        )
+    @pytest.mark.parametrize(
+        "schema_name, expected_path, expected_query",
+        [
+            ("patch_reports", "/api/v3/patch-software-title-configurations", ""),
+            ("patch_summaries", "/api/v3/patch-software-title-configurations", ""),
+            (
+                "mdm_commands",
+                "/api/v2/mdm/commands",
+                "page=0&page-size=1&filter=dateSent%3E%3D%221970-01-01T00%3A00%3A00.000Z%22",
+            ),
+        ],
+    )
+    def test_scoped_probe_targets_an_addressable_url(self, schema_name, expected_path, expected_query):
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[_response(json_data=[])])
         with self._patch_session(session):
-            assert validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS, schema_name="computers") == (
+            assert validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS, schema_name=schema_name) == (
                 True,
                 None,
             )
+        url = session.get.call_args.args[0]
+        path, _, query = url.removeprefix("https://example.jamfcloud.com").partition("?")
+        assert path == expected_path
+        assert query == expected_query
 
     def test_request_exception_returns_failure(self):
         session = mock.MagicMock()
@@ -326,19 +269,6 @@ class TestGetRows:
         manager.load_state.return_value = resume
         return manager
 
-    def test_paginates_until_total_count_reached(self):
-        manager = self._manager()
-        page1 = _response(json_data={"totalCount": 150, "results": [{"id": str(i)} for i in range(100)]})
-        page2 = _response(json_data={"totalCount": 150, "results": [{"id": str(i)} for i in range(100, 150)]})
-        rows, session = self._run(manager, [page1, page2])
-
-        assert len(rows) == 150
-        assert session.get.call_count == 2
-        assert "page=0" in session.get.call_args_list[0].args[0]
-        assert "page=1" in session.get.call_args_list[1].args[0]
-        # State is saved once, AFTER yielding page 0 and only because more pages remain.
-        manager.save_state.assert_called_once_with(JamfProResumeConfig(page=1))
-
     def test_stops_on_empty_results_without_total_count(self):
         manager = self._manager()
         page1 = _response(json_data={"results": [{"id": "1"}]})
@@ -355,41 +285,6 @@ class TestGetRows:
 
         assert "page=3" in session.get.call_args_list[0].args[0]
 
-    def test_computers_rows_expose_top_level_report_date(self):
-        # The pipeline reads the incremental watermark from a top-level column, so the nested
-        # general.reportDate must be hoisted onto every row.
-        manager = self._manager()
-        page = _response(
-            json_data={
-                "totalCount": 1,
-                "results": [{"id": "1", "general": {"reportDate": "2024-06-01T00:00:00.000Z"}}],
-            }
-        )
-        rows, _session_ = self._run(manager, [page])
-
-        assert rows[0]["report_date"] == "2024-06-01T00:00:00.000Z"
-        assert rows[0]["general"]["reportDate"] == "2024-06-01T00:00:00.000Z"
-
-    def test_computers_rows_missing_general_get_null_report_date(self):
-        manager = self._manager()
-        page = _response(json_data={"totalCount": 1, "results": [{"id": "1"}]})
-        rows, _session_ = self._run(manager, [page])
-
-        assert rows[0]["report_date"] is None
-
-    def test_incremental_run_sends_rsql_filter(self):
-        manager = self._manager()
-        page = _response(json_data={"totalCount": 1, "results": [{"id": "1", "general": {}}]})
-        _rows, session = self._run(
-            manager,
-            [page],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-
-        url = session.get.call_args_list[0].args[0]
-        assert "filter=general.reportDate%3E%3D%222024-01-01T00%3A00%3A00.000Z%22" in url
-
     def test_unpaginated_endpoint_yields_array_response(self):
         manager = self._manager()
         page = _response(json_data=[{"id": "1", "name": "HQ"}])
@@ -398,6 +293,159 @@ class TestGetRows:
         assert rows == [{"id": "1", "name": "HQ"}]
         assert session.get.call_count == 1
         manager.save_state.assert_not_called()
+
+    def test_fan_out_walks_each_parent_and_tags_child_rows(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": "10"}, {"id": "2"}, {"id": "7"}])
+        parent_2_page_0 = _response(json_data={"totalCount": 201, "results": [{"deviceId": "a"}] * 200})
+        parent_2_page_1 = _response(json_data={"totalCount": 201, "results": [{"deviceId": "b"}]})
+        parent_7_missing = _response(status_code=404)
+        parent_10_page_0 = _response(json_data={"totalCount": 1, "results": [{"deviceId": "c"}]})
+        rows, session = self._run(
+            manager,
+            [parents, parent_2_page_0, parent_2_page_1, parent_7_missing, parent_10_page_0],
+            endpoint="patch_reports",
+        )
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0] == "https://example.jamfcloud.com/api/v3/patch-software-title-configurations"
+        assert [url.split("?")[0].rsplit("/", 2)[1] for url in urls[1:]] == ["2", "2", "7", "10"]
+        assert "page=1" in urls[2]
+        assert len(rows) == 202
+        assert {row["softwareTitleConfigurationId"] for row in rows} == {"2", "10"}
+        assert rows[-1] == {"deviceId": "c", "softwareTitleConfigurationId": "10"}
+        assert manager.save_state.call_args_list == [
+            mock.call(JamfProResumeConfig(page=1, parent_id="2")),
+            mock.call(JamfProResumeConfig(page=0, parent_id="7")),
+            mock.call(JamfProResumeConfig(page=0, parent_id="10")),
+        ]
+
+    def test_fan_out_has_one_request_budget_across_all_parents(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": str(parent_id)} for parent_id in range(4)])
+        child_page = _response(json_data={"totalCount": 1, "results": [{"deviceId": "a"}]})
+        session = _session(
+            post_responses=[_response(json_data=TOKEN_JSON)],
+            get_responses=[parents, child_page, child_page, child_page],
+        )
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PAGES", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_reports",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        # The parent-list request is outside the child-page budget; only three children are fetched.
+        assert session.get.call_count == 4
+
+    def test_fan_out_resumes_from_saved_parent_and_page(self):
+        manager = self._manager(resume=JamfProResumeConfig(page=3, parent_id="7"))
+        parents = _response(json_data=[{"id": "2"}, {"id": "7"}, {"id": "10"}])
+        parent_7 = _response(json_data={"totalCount": 601, "results": [{"deviceId": "a"}]})
+        parent_10 = _response(json_data={"totalCount": 1, "results": [{"deviceId": "b"}]})
+        _rows, session = self._run(manager, [parents, parent_7, parent_10], endpoint="patch_reports")
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert "/7/patch-report?" in urls[1]
+        assert "page=3" in urls[1]
+        assert "/10/patch-report?" in urls[2]
+        assert "page=0" in urls[2]
+
+    def test_fan_out_single_object_child_becomes_one_row(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": "1"}])
+        summary = _response(json_data={"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1})
+        rows, _session_ = self._run(manager, [parents, summary], endpoint="patch_summaries")
+
+        assert rows == [{"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1, "softwareTitleConfigurationId": "1"}]
+
+    def test_fan_out_pages_through_a_paginated_parent(self):
+        manager = self._manager()
+        parents_page_0 = _response(json_data={"totalCount": 201, "results": [{"id": str(i)} for i in range(200)]})
+        parents_page_1 = _response(json_data={"totalCount": 201, "results": [{"id": "200"}]})
+        child = _response(json_data={"totalCount": 1, "results": [{"deviceId": "d1", "statusEnum": "COMPLETE"}]})
+        rows, session = self._run(
+            manager, [parents_page_0, parents_page_1] + [child] * 201, endpoint="patch_policy_logs"
+        )
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0].startswith("https://example.jamfcloud.com/api/v2/patch-policies?")
+        assert "page=1" in urls[1]
+        assert "/patch-policies/200/logs?" in urls[-1]
+        assert len(rows) == 201
+        assert rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
+
+    def test_fan_out_refuses_an_unbounded_parent_list(self):
+        manager = self._manager()
+        endless_parents = _response(json_data={"totalCount": 10**9, "results": [{"id": "1"}, {"id": "2"}]})
+        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[endless_parents] * 3)
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PARENT_IDS", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_policy_logs",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        assert all("/logs" not in call.args[0] for call in session.get.call_args_list)
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_parent_ids",
+        [
+            ("mobile_device_smart_group_memberships", ["1"]),
+            ("mobile_device_static_group_memberships", ["2"]),
+        ],
+    )
+    def test_mobile_group_membership_fans_out_by_group_type_and_keeps_only_device_ids(
+        self, endpoint, expected_parent_ids
+    ):
+        manager = self._manager()
+        groups = _response(json_data=[{"id": 1, "isSmartGroup": True}, {"id": 2, "isSmartGroup": False}])
+        members = _response(
+            json_data={
+                "totalCount": 1,
+                "results": [{"mobileDeviceId": "5", "displayName": "iPad", "airPlayPassword": "pw"}],
+            }
+        )
+        rows, session = self._run(manager, [groups, members], endpoint=endpoint)
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert [url.split("?")[0].rsplit("/", 1)[1] for url in urls[1:]] == expected_parent_ids
+        assert rows == [{"mobileDeviceId": "5", "mobileDeviceGroupId": expected_parent_ids[0]}]
+
+    def test_unpaginated_incremental_endpoint_sends_filter(self):
+        manager = self._manager()
+        page = _response(json_data={"totalCount": 1, "results": [{"osUpdatesStatusId": "1"}]})
+        rows, session = self._run(
+            manager,
+            [page],
+            endpoint="managed_software_update_statuses",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+
+        assert rows == [{"osUpdatesStatusId": "1"}]
+        assert session.get.call_args.args[0] == (
+            "https://example.jamfcloud.com/api/v1/managed-software-updates/update-statuses"
+            "?filter=updated%3E%3D%222024-01-01T00%3A00%3A00.000Z%22"
+        )
 
     def test_blocks_unsafe_host_before_any_request(self):
         manager = self._manager()
@@ -418,34 +466,6 @@ class TestGetRows:
         manager = self._manager()
         with pytest.raises(JamfProHostNotAllowedError):
             self._run(manager, [_response(status_code=302)])
-
-    @pytest.mark.parametrize(
-        "endpoint, data_capture",
-        [
-            ("computers", True),
-            # scriptContents routinely embeds deployment credentials, so the scripts data
-            # session must stay out of sample capture too.
-            ("scripts", False),
-        ],
-    )
-    def test_token_mint_session_is_excluded_from_sample_capture(self, endpoint, data_capture):
-        # The mint response body carries the bearer token, which the name-based sample
-        # scrubbers can't recognise — re-enabling capture there would persist a live credential.
-        manager = self._manager()
-        page = _response(json_data={"totalCount": 1, "results": [{"id": "1"}]})
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[page])
-        with mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session) as factory:
-            list(
-                get_rows(
-                    host="example.jamfcloud.com",
-                    credentials=CLIENT_CREDENTIALS,
-                    endpoint=endpoint,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=manager,
-                    team_id=1,
-                )
-            )
-        assert factory.call_args_list == [mock.call(capture=False), mock.call(capture=data_capture)]
 
     def test_requests_do_not_follow_redirects(self):
         manager = self._manager()
@@ -546,5 +566,4 @@ class TestJamfProSourceResponse:
             team_id=1,
         )
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"

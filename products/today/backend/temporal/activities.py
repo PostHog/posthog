@@ -37,10 +37,12 @@ MAX_STARTS_PER_RUN = 500
 STUCK_AFTER = generate.RUN_TIMEOUT + timedelta(minutes=5)
 
 
-@temporalio.activity.defn
-async def run_agent_activity(inputs: GenerateBriefingInputs) -> None:
+# The activity type name is in the history of every generate workflow. A new name makes the
+# replay of a workflow that is in flight during a deploy fail with a non-determinism error.
+@temporalio.activity.defn(name="run_agent_activity")
+async def write_briefing_activity(inputs: GenerateBriefingInputs) -> None:
     async with Heartbeater():
-        await generate.run_agent(team_id=inputs.team_id, briefing_id=inputs.briefing_id)
+        await generate.write_briefing(team_id=inputs.team_id, briefing_id=inputs.briefing_id)
 
 
 @temporalio.activity.defn

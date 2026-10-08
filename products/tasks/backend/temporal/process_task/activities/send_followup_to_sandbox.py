@@ -758,7 +758,7 @@ def _refresh_sandbox_mcp(
         )
 
     try:
-        access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task_run.task, state, scopes=scopes, run_id=run_id)
     except Exception as e:
         logger.warning(
             "refresh_mcp_token_mint_failed",

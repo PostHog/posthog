@@ -48,6 +48,7 @@ Run responses omit internal cost accounting, including gateway request IDs.
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
+The bundled Codex 0.159.2 runtime supports this model with ChatGPT subscription billing.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.
 Adding the model does not change the default model or the capability slider.

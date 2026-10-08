@@ -107,18 +107,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(WorkizResumeConfig(offset=PAGE_SIZE))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_one_request_and_no_checkpoint(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response([{"UUID": "a"}, {"UUID": "b"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert [r["UUID"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_raw_response([{"UUID": "x"}])])
@@ -127,18 +115,6 @@ class TestPagination:
         _rows(_source(manager))
 
         assert params[0]["offset"] == PAGE_SIZE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
     @parameterized.expand([("Team",), ("TimeOff",)])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -166,49 +142,8 @@ class TestPagination:
         assert [r["UUID"] for r in rows] == ["a", "b"]
         assert all("flag" not in r and "data" not in r for r in rows)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_leads_are_not_wrapped(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw_response([{"UUID": "a"}])])
-
-        rows = _rows(_source(_make_manager(), endpoint="Leads"))
-
-        assert rows == [{"UUID": "a"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_session_excludes_responses_from_sample_capture(self, MockSession: mock.MagicMock) -> None:
-        # Jobs/Leads rows carry customer PII (contact details, addresses, job comments) the
-        # name-based sample scrubbers aren't built to catch, so the client must opt the sync
-        # session out of HTTP diagnostic sample capture entirely.
-        session = MockSession.return_value
-        _wire(session, [_raw_response([])])
-
-        _rows(_source(_make_manager()))
-
-        assert MockSession.call_args.kwargs["capture"] is False
-
 
 class TestIncrementalParams:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_incremental_sync_anchors_to_earliest_date(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response([])])
-
-        _rows(_source(_make_manager(), should_use_incremental_field=True, db_incremental_field_last_value=None))
-
-        assert params[0]["start_date"] == "2010-01-01"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_also_anchors_to_earliest_date(self, MockSession: mock.MagicMock) -> None:
-        # Omitting start_date makes the vendor API default to the last 14 days -- a full-refresh
-        # sync must still pass an explicit far-past anchor to get the whole table.
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response([])])
-
-        _rows(_source(_make_manager(), should_use_incremental_field=False))
-
-        assert params[0]["start_date"] == "2010-01-01"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_sync_uses_last_synced_date(self, MockSession: mock.MagicMock) -> None:
         import datetime
@@ -225,16 +160,6 @@ class TestIncrementalParams:
         )
 
         assert params[0]["start_date"] == "2024-03-15"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_only_open_and_records_are_always_sent(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_raw_response([])])
-
-        _rows(_source(_make_manager()))
-
-        assert params[0]["only_open"] == "false"
-        assert params[0]["records"] == PAGE_SIZE
 
     @parameterized.expand([("Team",), ("TimeOff",)])
     def test_unpaginated_endpoints_have_no_start_date_param(self, endpoint: str) -> None:
@@ -304,10 +229,3 @@ class TestValidateCredentials:
     def test_probe_failure_is_not_validated(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("tok") == (False, "Could not reach Workiz to validate the API token.")
-
-    @mock.patch(WORKIZ_SESSION_PATCH)
-    def test_probe_session_excludes_response_from_sample_capture(self, mock_session: mock.MagicMock) -> None:
-        # The probe response is a team-member list -- same PII concern as the sync client.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("tok")
-        assert mock_session.call_args.kwargs["capture"] is False

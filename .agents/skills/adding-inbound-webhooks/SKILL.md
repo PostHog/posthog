@@ -58,7 +58,7 @@ Reset the process-cached registry and the dedup cache between tests with `reset_
 ## Add a provider
 
 Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
-Copy `github/` for the full shape, or `vapi/` for a small one.
+Copy `github/` for the full shape, or `pandadoc/` for a small one.
 Copy the layout, not the behavior: a provider package holds only what is specific to its third party. A need that a second provider could share becomes a lane, a scheme option or a `WebhookProvider` attribute, the way `retry_status` and `throttle_class` did. A true one-off stays in the provider with a `# One-off:` comment that says why no other provider needs it.
 `provider.py` holds three things:
 
@@ -75,7 +75,7 @@ Copy the layout, not the behavior: a provider package holds only what is specifi
 
 Three exist. Configure one; do not write a fourth without reading [the Schemes section of the package README](../../../posthog/ingress/README.md#schemes).
 
-- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc, Vapi and Customer.io all use it.
+- `HmacSha256` (`verify/schemes.py`) — a shared secret over the raw body. Covers hex or base64, an optional prefix, and the `v0:{timestamp}:{body}` input with a replay window that Slack and Customer.io sign. GitHub, Slack, PandaDoc and Customer.io all use it.
 - `SnsSignature` (`verify/schemes.py`) — the AWS SNS envelope check plus a topic-ARN allowlist. The RSA work stays with a caller-supplied verifier.
 - `BearerJwt` (`verify/jwt.py`) — a `Bearer` token signed as a JWT, checked against the issuer's published JWKS. Its `facts` are the verified claims. The incarnation supplies the JWKS URI, the audience and the issuer allowlist as callables, and caches any discovery it does to find the URI. An endpoint on this scheme sets `throttle_class`, because an unsigned request costs a signing-key lookup.
 

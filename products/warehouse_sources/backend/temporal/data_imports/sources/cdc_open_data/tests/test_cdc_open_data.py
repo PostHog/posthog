@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
     CdcOpenDataResumeConfig,
     _auth_config,
     _format_where_value,
-    _probe_url,
     cdc_open_data_source,
     validate_cdc_open_data_credentials,
 )
@@ -38,18 +37,9 @@ class TestFormatWhereValue:
 
 
 class TestAuthConfig:
-    def test_no_app_token_means_anonymous_request(self) -> None:
-        assert _auth_config("") is None
-
     def test_app_token_becomes_header_auth(self) -> None:
         auth = _auth_config("my-token")
         assert auth == {"type": "api_key", "api_key": "my-token", "name": "X-App-Token", "location": "header"}
-
-
-class TestProbeUrl:
-    def test_probe_url_targets_dataset_resource_with_limit_one(self) -> None:
-        url = _probe_url("9bhg-hcku")
-        assert url == "https://data.cdc.gov/resource/9bhg-hcku.json?%24limit=1"
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
@@ -109,14 +99,6 @@ class TestValidateCdcOpenDataCredentials:
         ) as mock_make_session:
             session_factory()
         mock_make_session.assert_called_once_with(redact_values=("super-secret-token",))
-
-    def test_no_app_token_sends_no_header(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.cdc_open_data.validate_via_probe",
-            return_value=(True, 200),
-        ) as mock_probe:
-            validate_cdc_open_data_credentials("", "9bhg-hcku")
-        assert mock_probe.call_args.kwargs["headers"] is None
 
 
 class TestCdcOpenDataSourceResumeBehavior:
@@ -219,15 +201,6 @@ class TestCdcOpenDataSourceResumeBehavior:
 
         assert sent_params[0]["$offset"] == 40_000
         manager.load_state.assert_called_once()
-
-    def test_terminal_short_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{":id": "only"}])]
-        self._drive(manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

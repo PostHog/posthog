@@ -60,6 +60,7 @@ from products.tasks.backend.turn_completed import dispatch_turn_completed
 
 from ee.hogai.sandbox import (
     PI_RUNTIME_ERROR_MESSAGE,
+    is_background_turn_complete,
     is_idle_resume_turn_complete,
     is_turn_complete,
     pi_turn_error,
@@ -460,6 +461,8 @@ async def _relay_loop(
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
     # Brackets turn_started / turn_completed signals to the parent.
     slack_turn_active: list[bool] = [False]
+    # The message the next turn answers, from the prompt that opens it.
+    slack_turn_message_id: list[str | None] = [None]
     # ACP emits one tool_call + N tool_call_update per id; only render the start.
     emitted_tool_call_ids: set[str] = set()
     # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
@@ -586,18 +589,22 @@ async def _relay_loop(
                                     and workflow_handle is not None
                                 ):
                                     slack_turn_active[0] = False
-                                    # Awaited in order: the final prose must be recorded before
-                                    # turn_completed, which clears the parent's relay id and would
-                                    # otherwise drop a delta that arrived after it.
-                                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                                    await _signal_safely(
+                                    await _complete_slack_turn(
                                         workflow_handle,
-                                        "turn_completed",
-                                        arg=turn_complete_trace_id(event_data),
+                                        pending_text_parts,
+                                        last_text_flush,
+                                        turn_complete_trace_id(event_data),
                                     )
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
+                            elif is_background_turn_complete(event_data):
+                                if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
+                                    slack_turn_active[0] = False
+                                    # The agent server reports no trace id for a background turn.
+                                    await _complete_slack_turn(
+                                        workflow_handle, pending_text_parts, last_text_flush, None
+                                    )
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
                                 if workflow_handle is not None:
@@ -606,6 +613,8 @@ async def _relay_loop(
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
                             if is_agent_design_enabled and workflow_handle is not None:
+                                if not slack_turn_active[0] and _is_session_prompt(event_data):
+                                    slack_turn_message_id[0] = _prompt_message_id(event_data)
                                 if not slack_turn_active[0] and _is_session_update(event_data):
                                     slack_turn_active[0] = True
                                     # Await so turn_started is recorded before any delta of this turn,
@@ -615,8 +624,12 @@ async def _relay_loop(
                                     await _signal_safely(
                                         workflow_handle,
                                         "turn_started",
-                                        arg={"slack_thread_context": slack_thread_context or {}},
+                                        arg={
+                                            "slack_thread_context": slack_thread_context or {},
+                                            "message_id": slack_turn_message_id[0],
+                                        },
                                     )
+                                    slack_turn_message_id[0] = None
                                 if slack_turn_active[0]:
                                     step_payload = _extract_progress_update(event_data, emitted_tool_call_ids)
                                     if step_payload is not None:
@@ -751,6 +764,25 @@ async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_
             run_id=run_id,
             error=str(error),
         )
+
+
+def _event_method(event_data: dict) -> str | None:
+    """ACP notification method for the event, for tracing (e.g. ``session/update``)."""
+    notification = event_data.get("notification")
+    if isinstance(notification, dict):
+        return notification.get("method")
+    return None
+
+
+def _is_session_prompt(event_data: dict) -> bool:
+    """Whether the event is a user ``session/prompt`` — the start of a new conversational turn."""
+    return _event_method(event_data) == "session/prompt"
+
+
+def _prompt_message_id(event_data: dict) -> str | None:
+    """The id of the user message a ``session/prompt`` delivers. Delivery records the sender under it."""
+    params = event_data["notification"].get("params") or {}
+    return (params.get("_meta") or {}).get("messageId") or None
 
 
 def _is_session_update(event_data: dict) -> bool:
@@ -905,6 +937,18 @@ async def _flush_pending_text(
     if workflow_handle is not None and text:
         await _signal_safely(workflow_handle, "agent_text_delta", arg=text)
     pending_text_parts.clear()
+
+
+async def _complete_slack_turn(
+    workflow_handle: temporalio.client.WorkflowHandle,
+    pending_text_parts: list[str],
+    last_text_flush: list[float],
+    trace_id: str | None,
+) -> None:
+    # Awaited in order: the final prose must be recorded before turn_completed, which clears
+    # the parent's relay id and would otherwise drop a delta that arrived after it.
+    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+    await _signal_safely(workflow_handle, "turn_completed", arg=trace_id)
 
 
 async def _signal_safely(

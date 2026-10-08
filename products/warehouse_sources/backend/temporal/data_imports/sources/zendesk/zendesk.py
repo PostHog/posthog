@@ -4,6 +4,7 @@ import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Request, Response
 from requests.exceptions import HTTPError
@@ -137,6 +138,8 @@ def paginator_for(config: ZendeskEndpointConfig) -> BasePaginator:
         return SinglePagePaginator()
     if config.next_url_path == "after_url":
         return ZendeskAfterUrlPaginator()
+    if config.incremental_start_param is not None:
+        return ZendeskSinceCursorPaginator(next_url_path=config.next_url_path)
     return JSONLinkPaginator(next_url_path=config.next_url_path)
 
 
@@ -530,6 +533,37 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         if next_url is not None:
             self._next_page = str(next_url)
             self._has_next_page = True
+
+
+def _without_query_param(url: str, name: str) -> str:
+    parts = urlsplit(url)
+    kept = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != name]
+    return urlunsplit(parts._replace(query=urlencode(kept)))
+
+
+class ZendeskSinceCursorPaginator(JSONLinkPaginator):
+    """Cursor pagination for a declarative endpoint that also takes a server-side `since` filter
+    (currently only `activities`).
+
+    Zendesk echoes the request's `since` back into `links.next`, but re-serialized in its own
+    `YYYY-MM-DD HH:MM:SS UTC` format rather than the ISO 8601 this source sends — and then
+    rejects that format with a 400 on the next request. The cursor alone already encodes the
+    stream position, so continuing pages don't need `since` at all; drop it from the next-page
+    URL before following it.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._next_url:
+            self._next_url = _without_query_param(self._next_url, "since")
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        # A run that already failed on this URL checkpointed it with `since` still attached
+        # (that's the exact failure this paginator exists to fix) — clean it here too, or a
+        # retry just resumes straight back into the same 400.
+        super().set_resume_state(state)
+        if self._next_url:
+            self._next_url = _without_query_param(self._next_url, "since")
 
 
 class ZendeskAfterUrlPaginator(JSONLinkPaginator):

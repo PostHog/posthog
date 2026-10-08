@@ -213,7 +213,9 @@ class Command(BaseCommand):
         )
         prefix = bundle_prefix(team_id=pipeline.team_id, pipeline_id=str(pipeline.pk), training_run_id=str(model.pk))
         write_bundle(prefix, bundle)
-        metrics = fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix, bundle=bundle, user=user)
+        metrics = fit_champion_model(
+            team=pipeline.team, pipeline=pipeline, prefix=prefix, bundle=bundle, user=user, model_id=str(model.pk)
+        )
         model.holdout_score = metrics.get("holdout_auc")
         model.metrics = metrics
         now = timezone.now()

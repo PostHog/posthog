@@ -51,7 +51,7 @@ declare global {
         POSTHOG_USER_IDENTITY_WITH_FLAGS?: {
             distinctID?: string
             isIdentifiedID?: boolean
-            featureFlags: Record<string, boolean | string>
+            featureFlags?: Record<string, boolean | string> | null
         }
         IMPERSONATED_SESSION?: boolean
         POSTHOG_JS_UUID_VERSION?: string

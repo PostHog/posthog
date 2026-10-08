@@ -8,6 +8,13 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const SurveysListParams = () => zod.object({
     project_id: zod
         .string()
@@ -42,6 +49,13 @@ export const SurveysListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const SurveysCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -909,6 +923,13 @@ export const SurveysCreateBody = () => zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const SurveysRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -918,6 +939,13 @@ export const SurveysRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const SurveysPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -1788,6 +1816,13 @@ export const SurveysPartialUpdateBody = () => zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const SurveysDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod

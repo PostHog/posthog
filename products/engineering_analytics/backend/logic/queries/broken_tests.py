@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     BrokenTestRow,
     BrokenTestsResult,
     BrokenTestState,
+    CIEngine,
 )
 from products.engineering_analytics.backend.logic.merge_queue import looks_like_merge_queue_branch_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -102,7 +103,8 @@ _FINGERPRINTS_SELECT = """
         argMax(run_id, timestamp) AS latest_run_id,
         argMax(branch, timestamp) AS latest_branch,
         argMax(workflow_name, timestamp) AS workflow_name,
-        dateDiff('second', maxIf(timestamp, branch IN {default_branches}), now()) AS last_master_hit_age
+        dateDiff('second', maxIf(timestamp, branch IN {default_branches}), now()) AS last_master_hit_age,
+        argMax(tuple(ci_engine), timestamp).1 AS latest_ci_engine
     FROM __FAILURES_SOURCE__
     WHERE timestamp >= {date_from} AND lower(repo) = lower({repository})
     GROUP BY fingerprint
@@ -139,11 +141,12 @@ _MASTER_JOBS_SELECT = f"""
         workflow_name,
         name AS job_name,
         argMaxIf(conclusion, completed_at, status = 'completed') AS latest_conclusion,
-        dateDiff('second', maxIf(completed_at, status = 'completed'), now()) AS latest_completed_age
+        dateDiff('second', maxIf(completed_at, status = 'completed'), now()) AS latest_completed_age,
+        ci_engine
     FROM __JOBS_SOURCE__
     WHERE head_branch IN {{default_branches}}
         AND created_at >= {{date_from}}
-    GROUP BY workflow_name, name
+    GROUP BY ci_engine, workflow_name, name
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
@@ -271,7 +274,7 @@ def query_broken_tests(
     # Latest default-branch status per (workflow, job) — empty when the job-level source isn't synced,
     # in which case breaking_master / potentially_resolved can't be distinguished and those rows fall
     # through. Keyed on (workflow_name, job_name) so a job name shared across workflows doesn't collapse.
-    master_by_key: dict[tuple[str, str], tuple[str | None, int | None]] = {}
+    master_by_key: dict[tuple[str | None, str, str], tuple[str | None, int | None]] = {}
     breaking_master_jobs: set[str] = set()
     jobs_source = curated.jobs_source(created_floor=True)
     if jobs_source is not None:
@@ -287,11 +290,18 @@ def query_broken_tests(
             ).results
             or []
         )
-        for workflow_name, job_name, latest_conclusion, latest_completed_age in master_rows:
-            master_by_key[(workflow_name, job_name)] = (latest_conclusion, latest_completed_age)
+        for workflow_name, job_name, latest_conclusion, latest_completed_age, ci_engine in master_rows:
+            master_by_key[(ci_engine, workflow_name, job_name)] = (latest_conclusion, latest_completed_age)
             if latest_conclusion in _RED_MASTER_SET:
                 breaking_master_jobs.add(job_name)
 
+    # A legacy log has no engine: use status only when the workflow/job names identify one engine.
+    by_job: dict[tuple[str, str], list[tuple[str | None, int | None]]] = {}
+    for (_engine, workflow, job), status in master_by_key.items():
+        by_job.setdefault((workflow, job), []).append(status)
+    for (workflow, job), statuses in by_job.items():
+        if len(statuses) == 1:
+            master_by_key[(None, workflow, job)] = statuses[0]
     sparklines = _sparklines_by_fingerprint(hourly_rows)
 
     rows: list[BrokenTestRow] = []
@@ -314,8 +324,11 @@ def query_broken_tests(
         latest_branch,
         workflow_name,
         last_master_hit_age,
+        latest_ci_engine,
     ) in fingerprint_rows:
-        latest_conclusion, latest_completed_age = master_by_key.get((workflow_name, job_name), (None, None))
+        latest_conclusion, latest_completed_age = master_by_key.get(
+            (latest_ci_engine, workflow_name, job_name), (None, None)
+        )
         state = _classify(
             master_hits=master_hits,
             merge_queue_hits=merge_queue_hits,
@@ -341,6 +354,7 @@ def query_broken_tests(
                 branches=branches,
                 master_hits=master_hits,
                 latest_run_id=latest_run_id or 0,
+                latest_ci_engine=CIEngine(latest_ci_engine) if latest_ci_engine else None,
                 latest_branch=latest_branch or "",
                 trend_24h=sparklines.get(fingerprint, [0] * BROKEN_TEST_SPARKLINE_HOURS),
             )

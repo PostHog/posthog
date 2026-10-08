@@ -339,7 +339,7 @@ class TestLearningAnalyzer:
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(f"{_MODULE}._build_model", return_value=model),
-            patch(f"{_MODULE}.posthoganalytics", analytics),
+            patch("products.business_knowledge.backend.llm_telemetry.posthoganalytics", analytics),
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -500,7 +500,7 @@ class TestLearningAnalyzer:
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(f"{_MODULE}._build_model", return_value=model),
-            patch(f"{_MODULE}.posthoganalytics", analytics),
+            patch("products.business_knowledge.backend.llm_telemetry.posthoganalytics", analytics),
             pytest.raises(LearningAnalysisError, match="extraction_model_failed"),
         ):
             analyze_learning_evidence(input)

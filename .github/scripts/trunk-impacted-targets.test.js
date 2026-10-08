@@ -16,6 +16,10 @@ const path = require('node:path')
 
 const {
     computeTargets,
+    jsLockfileNodeLanes,
+    loadNodeLaneMap,
+    NODE_LANES,
+    NODE_SUB_LANES,
     allKnownTargets,
     buildContext,
     parseRustAffectedCrates,
@@ -555,14 +559,30 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
-    )
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    for (const file of [
+        '.github/workflows/ci-frontend.yml',
+        '.github/workflows/ci-storybook.yml',
+        '.github/workflows/ci-storybook-update-test-timing.yml',
+    ]) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            javascript.filter((target) => !target.startsWith('node:')),
+            file
+        )
+    }
+    for (const file of ['.github/workflows/ci-nodejs.yml', '.github/workflows/ci-nodejs-container.yml']) {
+        assert.deepEqual(
+            computeTargets([file], CONTEXT),
+            computeTargets(['Dockerfile.ml-mirror-image-scrub'], CONTEXT),
+            file
+        )
+    }
     for (const file of [
         '.github/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
         '.github/workflows/ci-clickhouse-multinode-migrations.yml',
+        '.github/workflows/ci-clickhouse-util-udfs.yml',
         // The backend test-timing pair and the IDOR coverage check run only in
         // ci-backend and its timing workflow.
         '.github/scripts/optimize_test_durations.py',
@@ -819,13 +839,373 @@ test('the agent-skills workflow claims both language families', () => {
     assert.deepEqual(targets, computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT))
 })
 
-test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
+test('the ml-mirror sidecar image and its workflow stay on the node lanes', () => {
     for (const file of [
         '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
         'Dockerfile.ml-mirror-image-scrub',
     ]) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
+        assert.deepEqual(computeTargets([file], CONTEXT), [...NODE_LANES].sort(), file)
     }
+})
+
+const [RASTERIZER_LANE, RASTERIZER_DIR] = NODE_SUB_LANES.find(([lane]) => lane === 'node:recording-rasterizer')
+const [CDP_LANE] = NODE_SUB_LANES.find(([lane]) => lane === 'node:cdp')
+const ALL_NODE_LANES = [...NODE_LANES].sort()
+
+const NODE_CONTEXT = {
+    ...CONTEXT,
+    nodeLaneMap: {
+        fileLanes: new Map([
+            ['nodejs/src/cdp/hog-executor.ts', new Set([CDP_LANE])],
+            ['nodejs/src/cdp/types.ts', new Set([CDP_LANE, 'node:ingestion'])],
+            ['nodejs/src/ingestion/pipelines/step.ts', new Set(['node:ingestion'])],
+            [`${RASTERIZER_DIR}/capture/player.ts`, new Set([RASTERIZER_LANE])],
+        ]),
+        packageLanes: new Map([
+            ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
+            ['@posthog/hogvm', new Set([CDP_LANE, 'node:ingestion'])],
+        ]),
+    },
+    nodeWorkspaceDependencies: new Map([
+        ['common/hogvm/typescript', new Set(['@posthog/hogvm'])],
+        ['common/replay-headless', new Set(['@posthog/replay-headless'])],
+        ['common/replay-shared', new Set(['@posthog/replay-headless'])],
+    ]),
+}
+
+test('a nodejs file claims every node lane whose imports reach it', () => {
+    const cases = [
+        ['nodejs/src/cdp/hog-executor.ts', NODE_CONTEXT, [CDP_LANE]],
+        ['nodejs/src/cdp/types.ts', NODE_CONTEXT, [CDP_LANE, 'node:ingestion'].sort()],
+        ['nodejs/src/ingestion/pipelines/step.ts', NODE_CONTEXT, ['node:ingestion']],
+        [`${RASTERIZER_DIR}/capture/player.ts`, NODE_CONTEXT, [RASTERIZER_LANE]],
+        ['nodejs/src/cdp/not-imported-yet.json', NODE_CONTEXT, [CDP_LANE]],
+        ['nodejs/src/servers/cdp-api-server.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/index.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/types/ambient.d.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/package.json', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/tests/helpers/kafka.ts', NODE_CONTEXT, ALL_NODE_LANES],
+        ['nodejs/src/cdp/hog-executor.ts', CONTEXT, ALL_NODE_LANES],
+    ]
+    for (const [file, context, expected] of cases) {
+        assert.deepEqual(computeTargets([file], context), expected, file)
+    }
+    const deleted = 'nodejs/src/cdp/gone.ts'
+    assert.deepEqual(computeTargets([deleted], { ...NODE_CONTEXT, deletedFiles: new Set([deleted]) }), ALL_NODE_LANES)
+})
+
+test('a workspace package nodejs links claims the node lanes that import it', () => {
+    const nodeLanesOf = (file, context) =>
+        computeTargets([file], context).filter((target) => target.startsWith('node:'))
+    assert.deepEqual(
+        nodeLanesOf('common/hogvm/typescript/src/execute.ts', NODE_CONTEXT),
+        [CDP_LANE, 'node:ingestion'].sort()
+    )
+    assert.equal(computeTargets(['common/hogvm/typescript/src/execute.ts'], NODE_CONTEXT).includes('py:core'), true)
+    assert.deepEqual(nodeLanesOf('common/replay-shared/src/index.ts', NODE_CONTEXT), [RASTERIZER_LANE])
+    assert.deepEqual(nodeLanesOf('common/replay-headless/src/player.ts', NODE_CONTEXT), [RASTERIZER_LANE])
+    assert.deepEqual(nodeLanesOf('common/hogvm/typescript/src/execute.ts', CONTEXT), ALL_NODE_LANES)
+    assert.deepEqual(nodeLanesOf('common/hogvm/typescript/README.md', NODE_CONTEXT), [])
+})
+
+function writeTree(files) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'node-lanes-'))
+    for (const [file, text] of Object.entries(files)) {
+        fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(root, file), text)
+    }
+    return root
+}
+
+test('the node lane map follows imports in both directions and fails closed', () => {
+    const tree = {
+        'nodejs/src/common/config.ts': "import { Kafka } from 'kafka-client'\nimport { brokers } from './kafka'\n",
+        'nodejs/src/common/kafka.ts': 'export const brokers = []\n',
+        'nodejs/src/common/types.ts': "import type { HogFunction } from '../cdp/types'\nexport type T = HogFunction\n",
+        'nodejs/src/cdp/types.ts': 'export type HogFunction = {}\n',
+        'nodejs/src/cdp/executor.ts':
+            "import { config } from '~/common/config'\nimport { exec } from '@posthog/hogvm'\n",
+        'nodejs/src/ingestion/step.ts': "import type { T } from '~/common/types'\nimport fs from 'node:fs'\n",
+        'nodejs/src/cdp/executor.test.ts': "import { seed } from '~/tests/helpers/seed'\n",
+        'nodejs/tests/helpers/seed.ts': "import { rows } from '~/ingestion/rows'\n",
+        'nodejs/src/ingestion/rows.ts': 'export const rows = []\n',
+        [`${RASTERIZER_DIR}/player.ts`]: "import { Player } from '@posthog/replay-headless/protocol'\n",
+        [`${RASTERIZER_DIR}/__tests__/guard.test.ts`]: "const script = `require('./missing-in-child-process')`\n",
+        'nodejs/src/servers/cdp-server.ts':
+            "import { run } from '../cdp/executor'\nimport express from 'ultimate-express'\n",
+        'nodejs/src/ingestion/errors.ts': [
+            "throw new Error(`could not load from '${lib}'`)",
+            "logger.warn('Imported from \\'Cymbal is down.\\'')",
+            "const query = `SELECT * from '${trigger.table_name}'`",
+        ].join('\n'),
+    }
+    const map = loadNodeLaneMap(writeTree(tree))
+    const lanesOf = (file) => [...(map.fileLanes.get(file) || [])].sort()
+    assert.deepEqual(lanesOf('nodejs/src/cdp/executor.ts'), [CDP_LANE])
+    assert.deepEqual(lanesOf('nodejs/src/cdp/types.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/common/config.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/common/kafka.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf('nodejs/src/ingestion/step.ts'), ['node:ingestion'])
+    assert.deepEqual(lanesOf('nodejs/src/ingestion/rows.ts'), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual(lanesOf(`${RASTERIZER_DIR}/player.ts`), [RASTERIZER_LANE])
+    assert.deepEqual(lanesOf('nodejs/src/servers/cdp-server.ts'), [])
+    assert.deepEqual([...map.packageLanes.get('@posthog/replay-headless')], [RASTERIZER_LANE])
+    assert.deepEqual([...map.packageLanes.get('@posthog/hogvm')], [CDP_LANE])
+    assert.deepEqual([...map.packageLanes.get('kafka-client')].sort(), [CDP_LANE, 'node:ingestion'].sort())
+    assert.deepEqual([...map.packageLanes.get('ultimate-express')].sort(), ALL_NODE_LANES)
+    assert.deepEqual([...map.packageLanes.keys()].sort(), [
+        '@posthog/hogvm',
+        '@posthog/replay-headless',
+        'kafka-client',
+        'ultimate-express',
+    ])
+
+    assert.equal(
+        loadNodeLaneMap(writeTree({ ...tree, 'nodejs/src/ingestion/broken.ts': "import { x } from './nowhere'\n" })),
+        null
+    )
+})
+
+function lockfile({ rootDeps, nodeDeps, headlessDeps, snapshots, packages, overrides = '' }) {
+    return [
+        "lockfileVersion: '9.0'",
+        '',
+        'settings:',
+        '  autoInstallPeers: true',
+        '',
+        overrides,
+        'importers:',
+        '',
+        '  .:',
+        '    devDependencies:',
+        rootDeps,
+        '',
+        '  nodejs:',
+        '    dependencies:',
+        "      '@posthog/replay-headless':",
+        '        specifier: workspace:*',
+        '        version: link:../common/replay-headless',
+        '      tiny-lib:',
+        '        specifier: link:../packages/tiny-lib',
+        '        version: link:../packages/tiny-lib',
+        nodeDeps,
+        '',
+        '  common/replay-headless:',
+        '    dependencies:',
+        headlessDeps,
+        '',
+        'packages:',
+        '',
+        packages,
+        '',
+        'snapshots:',
+        '',
+        snapshots,
+        '',
+    ].join('\n')
+}
+
+function lockfileWith({
+    sdk = '1.0.0',
+    shim = '1.0.0',
+    runner = '1.0.0',
+    pad = '1.0.0',
+    tool = '1.0.0',
+    rootKafka = '3.0.0',
+    overrides,
+} = {}) {
+    const entry = (name, version) => [
+        `  ${name}@${version}:`,
+        `    resolution: {integrity: sha512-${name}${version}}`,
+        '',
+    ]
+    return lockfile({
+        overrides,
+        rootDeps: [
+            ['left-pad', pad],
+            ['build-tool', tool],
+            ['kafka-client', rootKafka],
+        ]
+            .flatMap(([name, version]) => [
+                `      ${name}:`,
+                `        specifier: ^${version}`,
+                `        version: ${version}`,
+            ])
+            .join('\n'),
+        nodeDeps: [
+            '      kafka-client:',
+            '        specifier: ^2.0.0',
+            '        version: 2.0.0',
+            '    devDependencies:',
+            '      test-runner:',
+            '        specifier: ^1.0.0',
+            `        version: ${runner}`,
+        ].join('\n'),
+        headlessDeps: ['      browser-sdk:', '        specifier: catalog:', `        version: ${sdk}`].join('\n'),
+        packages: [
+            ...entry('browser-sdk', sdk),
+            ...entry('kafka-client', '2.0.0'),
+            ...entry('kafka-client', rootKafka),
+            ...entry('shim', shim),
+            ...entry('test-runner', runner),
+            ...entry('left-pad', pad),
+            ...entry('build-tool', tool),
+        ].join('\n'),
+        snapshots: [
+            `  browser-sdk@${sdk}: {}`,
+            '',
+            '  kafka-client@2.0.0:',
+            '    dependencies:',
+            `      shim: ${shim}`,
+            '',
+            `  kafka-client@${rootKafka}: {}`,
+            '',
+            `  shim@${shim}: {}`,
+            '',
+            `  test-runner@${runner}: {}`,
+            '',
+            `  left-pad@${pad}: {}`,
+            '',
+            `  build-tool@${tool}: {}`,
+        ].join('\n'),
+    })
+}
+
+const WORKSPACE = [
+    'packages:',
+    '    - nodejs',
+    '    - common/*',
+    '    - packages/*',
+    'catalog:',
+    '    browser-sdk: ^1.0.0',
+].join('\n')
+
+test('a JS lockfile change claims the node lanes whose dependencies it moved', () => {
+    const base = lockfileWith()
+    const nodeLaneMap = {
+        fileLanes: new Map(),
+        packageLanes: new Map([
+            ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
+            ['kafka-client', new Set([CDP_LANE, 'node:ingestion'])],
+            ['left-pad', new Set([CDP_LANE])],
+        ]),
+    }
+    const cases = [
+        [
+            'a root dependency a lane imports without declaring it',
+            lockfileWith({ pad: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [CDP_LANE],
+        ],
+        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        ['a root copy of a package nodejs declares', lockfileWith({ rootKafka: '3.0.1' }), WORKSPACE, nodeLaneMap, []],
+        ['a root dependency with no node lane map', lockfileWith({ pad: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
+        [
+            'a bump only replay-headless resolves',
+            lockfileWith({ sdk: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [RASTERIZER_LANE],
+        ],
+        [
+            'a transitive dependency of a package two lanes import',
+            lockfileWith({ shim: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [CDP_LANE, 'node:ingestion'],
+        ],
+        ['a dependency no lane imports', lockfileWith({ runner: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        ['a bump with no node lane map', lockfileWith({ sdk: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        [
+            'a new override',
+            lockfileWith({ overrides: 'overrides:\n  shim: 1.0.0\n' }),
+            WORKSPACE,
+            nodeLaneMap,
+            ALL_NODE_LANES,
+        ],
+        [
+            'a workspace change outside the catalog',
+            base,
+            WORKSPACE.replace('    - packages/*', '    - packages/*\n    - tools/*'),
+            nodeLaneMap,
+            ALL_NODE_LANES,
+        ],
+        ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), nodeLaneMap, []],
+        ['a snapshot the walk cannot find', base.replace('  shim@1.0.0: {}', ''), WORKSPACE, nodeLaneMap, null],
+    ]
+    for (const [label, headLockfile, headWorkspace, map, expected] of cases) {
+        const reached = jsLockfileNodeLanes({
+            baseLockfile: base,
+            headLockfile,
+            baseWorkspace: WORKSPACE,
+            headWorkspace,
+            nodeLaneMap: map,
+        })
+        assert.deepEqual(reached && [...reached].sort(), expected && [...expected].sort(), label)
+    }
+    assert.equal(
+        jsLockfileNodeLanes({
+            baseLockfile: null,
+            headLockfile: base,
+            baseWorkspace: WORKSPACE,
+            headWorkspace: WORKSPACE,
+            nodeLaneMap,
+        }),
+        null
+    )
+})
+
+test('a JS lockfile lane keeps only the node lanes the lockfile reached', () => {
+    const nodeLanesOf = (files, context) =>
+        computeTargets(files, context).filter((target) => target.startsWith('node:'))
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
+        const narrowed = computeTargets([file], {
+            ...NODE_CONTEXT,
+            jsLockfileNodeLanes: () => new Set([RASTERIZER_LANE]),
+        })
+        assert.deepEqual(
+            narrowed.filter((target) => target.startsWith('node:')),
+            [RASTERIZER_LANE],
+            file
+        )
+        assert.equal(narrowed.includes('fe:core'), true, file)
+        for (const [label, answer] of [
+            ['null', () => null],
+            ['absent', undefined],
+        ]) {
+            assert.deepEqual(
+                nodeLanesOf([file], { ...NODE_CONTEXT, jsLockfileNodeLanes: answer }),
+                ALL_NODE_LANES,
+                `${file} ${label}`
+            )
+        }
+    }
+    assert.deepEqual(
+        nodeLanesOf(['nodejs/src/ingestion/pipelines/step.ts', 'pnpm-lock.yaml'], {
+            ...NODE_CONTEXT,
+            jsLockfileNodeLanes: () => new Set(),
+        }),
+        ['node:ingestion']
+    )
+    assert.deepEqual(
+        nodeLanesOf(['package.json'], { ...NODE_CONTEXT, jsLockfileNodeLanes: () => new Set() }),
+        ALL_NODE_LANES
+    )
+
+    let reads = 0
+    const lazy = {
+        ...NODE_CONTEXT,
+        jsLockfileNodeLanes: () => {
+            reads++
+            return new Set([RASTERIZER_LANE])
+        },
+    }
+    computeTargets(['nodejs/src/ingestion/pipelines/step.ts', 'frontend/src/scenes/App.tsx'], lazy)
+    assert.equal(reads, 0)
+    assert.deepEqual(nodeLanesOf(['pnpm-lock.yaml', 'pnpm-workspace.yaml'], lazy), [RASTERIZER_LANE])
+    assert.equal(reads, 2)
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound
@@ -1630,6 +2010,13 @@ test('an unavailable tach graph widens backend changes instead of narrowing', ()
 test('core changes expand to every leaf target in their own domain', () => {
     const backend = computeTargets(['posthog/models/team.py'], CONTEXT)
     assert.deepEqual(backend, ['py:core', 'py:product:alpha', 'py:product:beta', 'py:product:gamma'])
+    for (const file of [
+        'posthog/user_scripts/json_drop_keys_udf_x86_64',
+        'clickhouse-udfs/util/cmd/json_drop_keys_udf/main.go',
+        'clickhouse-udfs/util/go.mod',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), backend, file)
+    }
 
     const frontend = computeTargets(['frontend/src/lib/components/Foo.tsx'], CONTEXT)
     assert.deepEqual(frontend, ['fe:core', 'fe:product:alpha', 'fe:product:beta', 'fe:product:gamma'])

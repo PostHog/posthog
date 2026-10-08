@@ -829,6 +829,7 @@ def _item_record(item: ScoutSuggestionItem, *, prior: dict[str, Any] | None) -> 
     record["dismissed_at"] = prior.get("dismissed_at")
     record["dismissed_by_id"] = prior.get("dismissed_by_id")
     record["created_config_id"] = prior.get("created_config_id")
+    record["created_skill_name"] = prior.get("created_skill_name")
     return record
 
 
@@ -847,6 +848,7 @@ def _tombstone(record: dict[str, Any]) -> dict[str, Any]:
         "dismissed_at": record.get("dismissed_at"),
         "dismissed_by_id": record.get("dismissed_by_id"),
         "created_config_id": record.get("created_config_id"),
+        "created_skill_name": record.get("created_skill_name"),
     }
 
 
@@ -1031,8 +1033,22 @@ def dismiss_suggestion(team_id: int, suggestion_id: str, *, user_id: int | None)
     )
 
 
-def mark_suggestion_created(team_id: int, suggestion_id: str, *, config_id: str) -> dict[str, Any] | None:
-    return _update_item(team_id, suggestion_id, {"created_config_id": config_id})
+def mark_suggestion_created(
+    team_id: int, suggestion_id: str, *, kind: str, config_id: str, skill_name: str
+) -> dict[str, Any] | None:
+    """Record the scout a suggestion became, or return None when the id names no such pick.
+
+    Only an item of `kind` with no scout yet is marked, so a client cannot move the mark to another
+    pick. A custom draft can be renamed in the form, so it matches by id alone. A canonical scout
+    keeps its name, so its item must also name `skill_name`. The final name is stored next to the
+    config id, which keeps a rename visible.
+    """
+    record = find_suggestion(team_id, suggestion_id)
+    if record is None or record.get("kind") != kind or record.get("created_config_id"):
+        return None
+    if kind == "canonical" and record.get("skill_name") != skill_name:
+        return None
+    return _update_item(team_id, suggestion_id, {"created_config_id": config_id, "created_skill_name": skill_name})
 
 
 def mark_stale_if_fleet_changed(team_id: int) -> None:

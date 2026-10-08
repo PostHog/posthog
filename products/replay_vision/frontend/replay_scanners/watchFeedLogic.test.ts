@@ -41,7 +41,10 @@ describe('watchFeedLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadFeed', 'loadFeedSuccess']).toFinishAllListeners()
         expect(logic.values.feedItems).toHaveLength(2)
         expect(new URL(feedSpy.mock.calls[0][0].request.url).searchParams.get('date_from')).toBe('-7d')
+        // A response without a ranker (an older API) reads as the default arm.
+        expect(logic.values.feedRanker).toBe('weighted-score')
 
+        feedSpy.mockImplementation(() => [200, { results: [item('o1', 'jev_watchable')], ranker: 'jev' }])
         await expectLogic(logic, () => {
             logic.actions.setScannerTypeFilter('monitor')
         })
@@ -49,6 +52,8 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('scanner_type')).toBe('monitor')
+        // The response names the ranker, which picks the card layout.
+        expect(logic.values.feedRanker).toBe('jev')
 
         await expectLogic(logic, () => {
             logic.actions.setDateRange('-30d', null)
@@ -125,6 +130,20 @@ describe('watchFeedLogic', () => {
         })
             .toMatchValues({ scannerIdsFilter: [], tagsFilter: [], search: '', hasFeedFilters: false })
             .toFinishAllListeners()
+    })
+
+    it('defaults to the list view and keeps the chosen view when filters clear', async () => {
+        logic.mount()
+        expect(logic.values.view).toBe('list')
+        logic.actions.setView('grid')
+        await expectLogic(logic, () => {
+            logic.actions.clearFeedFilters()
+        })
+            .toMatchValues({ view: 'grid', displayView: 'grid' })
+            .toFinishAllListeners()
+        // The jev arm's rows only come as a list, so it ignores the saved grid choice.
+        logic.actions.setFeedRanker('jev')
+        expect(logic.values.displayView).toBe('list')
     })
 
     it('names the empty reason only once the fleet and budget have answered', async () => {

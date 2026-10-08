@@ -28,6 +28,7 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
     ReportEmbeddingsFeatureSet,
 )
+from products.signals.backend.ranking.model_contract import head_lifts
 from products.signals.backend.ranking.model_store import LoadedModel, ServingSet, load_serving_set
 from products.signals.backend.ranking.serving_manifest import ServingManifestEntry
 from products.signals.backend.ranking.sinks import persist_scores
@@ -150,6 +151,7 @@ def _result(model_scores: _ModelScores, report_id: str) -> RankingModelResult:
         status="skipped" if skip_reason else "scored",
         skip_reason=skip_reason,
         scores=dict(scores or {}),
+        lifts=head_lifts(scores or {}, model.metadata),
         metadata=_copied_metadata(model.metadata),
     )
 
@@ -226,6 +228,9 @@ def score_reports(
 
     if persist:
         persist_scores(
-            team_id, [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score], capture=capture
+            team_id,
+            [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score],
+            capture=capture,
+            served_override=serving.served_override,
         )
     return outcomes

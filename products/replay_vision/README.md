@@ -16,15 +16,14 @@ A scanner with `emits_signals` also pushes one signal per finding into the Signa
 **Observation** — one application of a scanner to a session, unique per (scanner, session).
 Created in `pending` when triggered (by the scanner's schedule, the `/observe/` and `/bulk_observe/` actions, or a retry of a failed observation), transitions to `running` while `ApplyScannerWorkflow` executes (rasterize the recording to video → upload to Gemini → multi-turn scan), and lands in `succeeded` (result persisted under `scanner_result.model_output`, then a `$recording_observed` event plus embeddings/tags emitted fail-soft), `failed` (with a `kind:message` `error_reason`), or `ineligible` (the session doesn't qualify — too short, too idle, no recording).
 Each observation snapshots the full scanner state (`scanner_snapshot`) that produced it, so subsequent edits to the scanner don't retro-mutate history.
-The snapshot's `verify_positives` mode (default `off`) makes a monitor re-draw its core step over the cached video when the first pass says `yes`. Replay Vision optimizes for precision over recall, so a `yes` stands only when the second draw agrees; a dissent replaces it with the dissenting verdict and reasoning, and no third draw breaks the tie. `shadow` records the draws under `scanner_result.verification` but serves the first pass; `enforce` serves the settled verdict. A draw that fails, or that would run past the activity's timeout, leaves the first pass in place, so verification only ever tightens a scan.
 Rows stranded in `pending`/`running` by a dead workflow are failed as `orphaned` by a reaper on the reconciler tick.
-Teams rate observations thumbs up/down, and those ratings drive the scanner's quality view and its AI prompt suggestions.
+Teams rate observations thumbs up/down, with optional written feedback. A scheduled job (`backend/learned_rules.py`) distills new ratings into hidden learned rules, one set for the project and one per scanner, and later scans include them in their prompt. Users never see or approve the rules.
 A finding can also be turned into a PostHog Task once (the observation remembers the task it minted).
 
 **Backfill** — one historical scan of a scanner over a closed, past time window, walked newest-first. The window is closed, so the candidate query enumerates the exact eligible set at creation: the quoted cost (`total_count` x the model's credit price) is a ceiling, and actual spend only falls below it as already-observed sessions dedup, expired recordings land `ineligible`, and failures write no receipt. The scanner's full config is frozen into `scanner_snapshot` at creation, so later edits change neither the enumerated set nor the price nor what the observations record. A per-backfill Temporal schedule ticks every minute, dispatching the same `ApplyScannerWorkflow` children within the shared in-flight caps plus a per-backfill sub-cap; its `window_end` is clamped to the scanner's sweep watermark so live and backfill never contest a session. Backfill and live observations have equal quota priority: an active backfill's remaining commitment counts toward the projected monthly spend, the per-observation creation check enforces the org limit for both, and exhausting the monthly quota moves the backfill to `paused_quota` until an explicit resume.
 
 **Quota** — succeeded observations write an immutable usage receipt priced in credits (1 credit = $0.01, set by the observation's model).
-Usage (receipts + in-flight rows + in-flight prompt tests) counts against the organization's credit limit for the current billing period, falling back to the calendar month when billing hasn't synced the product.
+Usage (receipts + in-flight rows) counts against the organization's credit limit for the current billing period, falling back to the calendar month when billing hasn't synced the product.
 Per-scanner volume estimates are credit-weighted and summed into a projected-spend prognosis shown at configuration time.
 Scheduled observations over budget are skipped; on-demand ones are rejected.
 A scanner can also carry its own optional `credit_limit` for the same period, so one broad scanner cannot drain the whole organization budget. A scanner that reaches its limit stops scanning until the period resets, stays enabled, and does not go back for the sessions it skipped.
@@ -38,14 +37,13 @@ A scanner can also carry its own optional `credit_limit` for the same period, so
 | Scanners | (none)  | The team's scanner roster plus the team-wide vision metrics.              |
 | Usage    | `usage` | Credit spend over time for the org, bucketed daily/weekly/monthly/yearly. |
 
-**Scanner** (`/replay-vision/<scanner-id>`), six tabs switched through `?tab=`. Overview is the default and writes no param.
+**Scanner** (`/replay-vision/<scanner-id>`), five tabs switched through `?tab=`. Overview is the default and writes no param.
 
 | Tab          | `?tab=`        | What it shows                                                                                                                                             |
 | ------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Overview     | `overview`     | Scanner status, findings (verdict mix, top tags, score distribution), the scout digest, a configuration summary, and self-driving results.                |
 | Observations | `observations` | The scanner's observations, filterable by status, verdict, tags, and date.                                                                                |
 | Run          | `run`          | Scan one recording, a batch of recordings, or backfill a date range. Old `on-demand` and `backfills` links open here, and `configuration` opens Overview. |
-| Calibration  | `calibration`  | Thumbs up/down ratings, accuracy over time, feedback themes, and the AI prompt recommendation with its prompt test.                                       |
 | Scouts       | `scouts`       | The scanner's signals scouts, including its daily digest.                                                                                                 |
 | Alerts       | `alerts`       | The scanner's alerts on the shared alerts platform.                                                                                                       |
 
@@ -63,15 +61,14 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
-- `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, prompt suggestions, quota, stats, live progress over SSE).
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
+- `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
-- `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, prompt evaluation, vision alerts, and the Gemini file cleanup sweep.
+- `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, vision alerts, and the Gemini file cleanup sweep.
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
 - `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
-- `backend/prompt_suggestions.py` + `backend/proposers/` — rating-driven prompt rewrites, one proposer per scanner type. `backend/prompt_evaluation.py` re-runs a suggestion against rated sessions before it's applied, and `backend/feedback_themes.py` clusters written thumbs-down feedback.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
 - `backend/search_suggestions.py` — example searches for the Search tab's empty state, per scanner and per team. A scheduled workflow generates them for every active scanner and team before anyone opens the tab, from an outcome-labeled sample of new observations and each scanner's instructions.
 - `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.

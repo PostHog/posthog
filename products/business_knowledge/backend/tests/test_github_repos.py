@@ -10,6 +10,7 @@ from posthog.models.integration_repository_cache import IntegrationRepositoryCac
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.business_knowledge.backend.github_repos import MAX_GITHUB_REPOS
 from products.business_knowledge.backend.models import TeamBusinessKnowledgeConfig
 
 BILLING = "acme/billing"
@@ -80,7 +81,7 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         assert bad.status_code == 400
         assert "owner/repo" in str(bad.json())
 
-        too_many = self._select([f"acme/repo-{index}" for index in range(21)])
+        too_many = self._select([f"acme/repo-{index}" for index in range(MAX_GITHUB_REPOS + 1)])
         assert too_many.status_code == 400
 
     def test_connect_rejects_another_teams_installation(self, _capture, _flag) -> None:

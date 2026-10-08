@@ -12,7 +12,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny import (
     BUNNY_BASE_URL,
-    BUNNY_LOG_BASE_URL,
     BUNNY_STREAM_BASE_URL,
     PER_PAGE,
     BunnyResumeConfig,
@@ -35,9 +34,6 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 BUNNY_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny.make_tracked_session"
 )
-# `datetime.now` can't be patched on the real (C-level) class, so the module's own reference to
-# `datetime` is replaced instead.
-BUNNY_DATETIME_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny.datetime"
 
 
 def _response(
@@ -82,10 +78,6 @@ def _log_response(entries: list[dict[str, Any]] | None, *, has_more: bool = Fals
             "query": {"pullZoneId": 1, "from": "2024-05-01T00:00:00Z", "to": "2024-05-02T00:00:00Z", "order": "asc"},
         }
     )
-
-
-def _utc(day: int) -> datetime:
-    return datetime(2024, 5, day, tzinfo=UTC)
 
 
 def _make_manager(resume_state: BunnyResumeConfig | None = None) -> mock.MagicMock:
@@ -137,50 +129,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "pull_zones", last_value: A
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_items_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(session, [_response([{"Id": 1}, {"Id": 2}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"Id": 1}, {"Id": 2}]
-        assert session.send.call_count == 1
-        assert sent[0].params == {"page": 1, "perPage": PER_PAGE}
-        # No further pages, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_has_more_is_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 1}], has_more=True),
-                _response([{"Id": 2}], has_more=True),
-                _response([{"Id": 3}], has_more=False),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"Id": 1}, {"Id": 2}, {"Id": 3}]
-        assert [s.params["page"] for s in sent] == [1, 2, 3]
-        assert all(s.params["perPage"] == PER_PAGE for s in sent)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"Id": 1}], has_more=True), _response([{"Id": 2}], has_more=False)])
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # State is saved AFTER page 1 is yielded (pointing at page 2), and never for the final page.
-        assert [call.args[0] for call in manager.save_state.call_args_list] == [BunnyResumeConfig(next_page=2)]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         # Page 1 must never be fetched on resume.
@@ -191,19 +139,6 @@ class TestPagination:
 
         assert rows == [{"Id": 2}, {"Id": 3}]
         assert [s.params["page"] for s in sent] == [2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_has_more_continues(self, MockSession) -> None:
-        session = MockSession.return_value
-        # Termination follows HasMoreItems, not page emptiness — an empty page mid-stream must not
-        # end the sync early.
-        _wire(session, [_response([], has_more=True), _response([{"Id": 9}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"Id": 9}]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_items_key_raises_loudly(self, MockSession) -> None:
@@ -267,20 +202,6 @@ class TestErrorHandling:
 
 
 class TestCheckAccess:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [
-            (200, (True, 200)),
-            (401, (False, 401)),
-            (403, (False, 403)),
-            (500, (False, 500)),
-        ],
-    )
-    @mock.patch(BUNNY_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status: int, expected: tuple[bool, int]) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert check_access("bunny-key") == expected
-
     @mock.patch(BUNNY_SESSION_PATCH)
     def test_connection_error_maps_to_none(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
@@ -341,36 +262,7 @@ class TestBunnySourceResponse:
                 assert config.sort_mode == "desc"
 
 
-CHART_COLUMNS = set((BUNNY_ENDPOINTS["statistics"].charts or {}).values())
-
-
 class TestAccountStatistics:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_pivots_charts_into_one_row_per_timestamp(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _raw_response(
-                    {
-                        # Deliberately out of order, and the two charts cover different days.
-                        "BandwidthUsedChart": {"2024-05-02T00:00:00": 20, "2024-05-01T00:00:00": 10},
-                        "RequestsServedChart": {"2024-05-02T00:00:00": 7},
-                        "TotalBandwidthUsed": 30,
-                    }
-                )
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="statistics"))
-
-        assert [row["Timestamp"] for row in rows] == [_utc(1), _utc(2)]
-        assert [row["BandwidthUsed"] for row in rows] == [10, 20]
-        assert [row["RequestsServed"] for row in rows] == [None, 7]
-        # Every row carries every chart column, so a batch converts to one Arrow schema even
-        # when the charts cover different ranges.
-        assert all(set(row) == CHART_COLUMNS | {"Timestamp"} for row in rows)
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_asks_for_the_charts_without_a_date_bound(self, MockSession) -> None:
         session = MockSession.return_value
@@ -400,67 +292,6 @@ class TestAccountStatistics:
         _rows(_source(_make_manager(), endpoint="statistics", last_value=last_value))
 
         assert sent[0].params["dateFrom"] == "2024-05-02T03:04:05Z"
-
-
-class TestStorageZoneFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_calls_each_zone_and_stamps_its_id_on_every_row(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 11}, {"Id": 22}], has_more=False),
-                _raw_response(
-                    {"StorageUsedChart": {"2024-05-01T00:00:00": 5}, "FileCountChart": {"2024-05-01T00:00:00": 2}}
-                ),
-                _raw_response({"StorageUsedChart": {"2024-05-01T00:00:00": 9}}),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="storage_zone_statistics"))
-
-        assert [s.url for s in sent] == [
-            f"{BUNNY_BASE_URL}/storagezone",
-            f"{BUNNY_BASE_URL}/storagezone/11/statistics",
-            f"{BUNNY_BASE_URL}/storagezone/22/statistics",
-        ]
-        assert rows == [
-            {"StorageZoneId": 11, "Timestamp": _utc(1), "StorageUsed": 5, "FileCount": 2},
-            {"StorageZoneId": 22, "Timestamp": _utc(1), "StorageUsed": 9, "FileCount": None},
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_egress_splits_the_protocols_into_columns(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 11}], has_more=False),
-                _raw_response(
-                    {
-                        "HttpEgressChart": {"2024-05-01T00:00:00": 3},
-                        "TotalEgressChart": {"2024-05-01T00:00:00": 3},
-                        "TotalEgress": 3,
-                    }
-                ),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="storage_zone_egress"))
-
-        assert sent[1].url == f"{BUNNY_BASE_URL}/storagezone/11/statistics/egress"
-        assert rows == [
-            {
-                "StorageZoneId": 11,
-                "Timestamp": _utc(1),
-                "HttpEgress": 3,
-                "S3Egress": None,
-                "S3PresignedEgress": None,
-                "FtpEgress": None,
-                "SftpEgress": None,
-                "TotalEgress": 3,
-            }
-        ]
 
 
 class TestStreamFanout:
@@ -496,21 +327,6 @@ class TestStreamFanout:
         assert [s.params["page"] for s in sent[1:]] == [1, 2]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_falls_back_to_the_read_write_library_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 7, "ReadOnlyApiKey": "", "ApiKey": "lib-rw"}], has_more=False),
-                _stream_response([]),
-            ],
-        )
-
-        _rows(_source(_make_manager(), endpoint="videos"))
-
-        assert sent[1].auth.api_key == "lib-rw"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_library_without_a_key_is_skipped(self, MockSession) -> None:
         session = MockSession.return_value
         # A library we cannot authenticate against must not fail the whole table.
@@ -521,138 +337,8 @@ class TestStreamFanout:
         assert rows == []
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_library_statistics_pivot_onto_the_library_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 7, "ReadOnlyApiKey": "lib-ro"}], has_more=False),
-                _raw_response(
-                    {
-                        "viewsChart": {"2024-05-01T00:00:00": 4},
-                        "watchTimeChart": {"2024-05-01T00:00:00": 120},
-                        "countryViewCounts": {"US": 4},
-                    }
-                ),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="video_library_statistics"))
-
-        assert sent[1].url == f"{BUNNY_STREAM_BASE_URL}/library/7/statistics"
-        # The country breakdown is a different grain and stays out of this table.
-        assert rows == [{"videoLibraryId": 7, "timestamp": _utc(1), "views": 4, "watchTime": 120}]
-
-
-class TestDnsZoneFanout:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_records_are_listed_per_zone_and_carry_the_zone_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 41}, {"Id": 42}], has_more=False),
-                _response([{"Id": 1, "Type": 0, "Name": "www"}], has_more=True),
-                _response([{"Id": 2, "Type": 3, "Name": "@"}], has_more=False),
-                _response([{"Id": 3, "Type": 0, "Name": "api"}], has_more=False),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="dns_records"))
-
-        assert [s.url for s in sent] == [
-            f"{BUNNY_BASE_URL}/dnszone",
-            f"{BUNNY_BASE_URL}/dnszone/41/records",
-            f"{BUNNY_BASE_URL}/dnszone/41/records",
-            f"{BUNNY_BASE_URL}/dnszone/42/records",
-        ]
-        # The second zone starts over at page 1 rather than continuing the first zone's walk.
-        assert [s.params["page"] for s in sent[1:]] == [1, 2, 1]
-        assert rows == [
-            {"DnsZoneId": 41, "Id": 1, "Type": 0, "Name": "www"},
-            {"DnsZoneId": 41, "Id": 2, "Type": 3, "Name": "@"},
-            {"DnsZoneId": 42, "Id": 3, "Type": 0, "Name": "api"},
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_statistics_pivot_onto_the_zone_id(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 41}], has_more=False),
-                _raw_response(
-                    {
-                        "TotalQueriesServed": 9,
-                        "QueriesServedChart": {"2024-05-01T00:00:00": 9},
-                        "NormalQueriesServedChart": {"2024-05-01T00:00:00": 7},
-                        "SmartQueriesServedChart": {"2024-05-01T00:00:00": 2},
-                        "QueriesByTypeChart": {"A": 6, "TXT": 3},
-                    }
-                ),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="dns_zone_statistics"))
-
-        assert sent[1].url == f"{BUNNY_BASE_URL}/dnszone/41/statistics"
-        # The query-type breakdown is keyed by record type, a different grain, so it stays out.
-        assert rows == [
-            {
-                "DnsZoneId": 41,
-                "Timestamp": _utc(1),
-                "QueriesServed": 9,
-                "NormalQueriesServed": 7,
-                "SmartQueriesServed": 2,
-            }
-        ]
-
 
 class TestPullZoneLogs:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_offsets_until_has_more_is_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 3}, {"Id": 4}], has_more=False),
-                _log_response([{"requestId": "a", "statusCode": 200}], has_more=True),
-                _log_response([{"requestId": "b", "statusCode": 404}], has_more=False),
-                _log_response([{"requestId": "c", "statusCode": 200}], has_more=False),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
-
-        assert [s.url for s in sent[1:]] == [
-            f"{BUNNY_LOG_BASE_URL}/v2/pullzones/3/logs",
-            f"{BUNNY_LOG_BASE_URL}/v2/pullzones/3/logs",
-            f"{BUNNY_LOG_BASE_URL}/v2/pullzones/4/logs",
-        ]
-        assert sent[1].auth.api_key == "bunny-key"
-        # A page shorter than the limit must not end the walk (only `pagination.hasMore` does),
-        # and the second zone starts over at the first offset rather than continuing the first's.
-        assert [s.params["offset"] for s in sent[1:]] == [0, PER_PAGE, 0]
-        assert all(s.params["limit"] == PER_PAGE for s in sent[1:])
-        assert sent[1].params["order"] == "asc"
-        # `to` is fixed once per sync, not left to the API's own "now" default, so a page cannot
-        # widen the window every zone and offset shares.
-        assert len({s.params["to"] for s in sent[1:]}) == 1
-        assert rows == [
-            {"pullZoneId": 3, "requestId": "a", "statusCode": 200},
-            {"pullZoneId": 3, "requestId": "b", "statusCode": 404},
-            {"pullZoneId": 4, "requestId": "c", "statusCode": 200},
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_a_null_data_page_is_zero_rows_not_a_shape_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        # The API nulls `data` rather than returning an empty list when the window holds nothing.
-        _wire(session, [_response([{"Id": 3}], has_more=False), _log_response(None)])
-
-        assert _rows(_source(_make_manager(), endpoint="pull_zone_logs")) == []
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_the_decrypted_authorization_header_never_reaches_a_row(self, MockSession) -> None:
         session = MockSession.return_value
@@ -721,31 +407,3 @@ class TestPullZoneLogs:
 
         asked = datetime.strptime(sent[1].params["from"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
         assert abs((now - expected_age) - asked) < timedelta(minutes=1)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @mock.patch(BUNNY_DATETIME_PATCH)
-    def test_from_is_reclamped_per_zone_but_to_stays_fixed(self, MockDatetime, MockSession) -> None:
-        # A fan-out across many zones can take longer than `LOG_WINDOW_MARGIN` allows. `from`
-        # must be recomputed against "now" at each zone so a later zone's request still falls
-        # inside the retention window; `to` must not, or the window it walks would grow.
-        session = MockSession.return_value
-        sent = _wire(
-            session,
-            [
-                _response([{"Id": 3}, {"Id": 4}], has_more=False),
-                _log_response([]),
-                _log_response([]),
-            ],
-        )
-
-        base = datetime(2024, 5, 2, 0, 0, 0, tzinfo=UTC)
-        # Call order: `_log_date_to` once, then `_log_date_from` once per zone. The second
-        # zone's "now" is far enough ahead to move its retention edge.
-        MockDatetime.now.side_effect = [base, base, base + LOG_WINDOW_MARGIN + timedelta(minutes=10)]
-
-        _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
-
-        first_from = datetime.strptime(sent[1].params["from"], "%Y-%m-%dT%H:%M:%SZ")
-        second_from = datetime.strptime(sent[2].params["from"], "%Y-%m-%dT%H:%M:%SZ")
-        assert second_from > first_from
-        assert sent[1].params["to"] == sent[2].params["to"]

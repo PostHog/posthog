@@ -9,7 +9,7 @@ import * as api from '../../generated/api'
 import type { RepositoryConnectionApi } from '../../generated/api.schemas'
 
 // Mirrors MAX_GITHUB_REPOS in products/business_knowledge/backend/github_repos.py.
-export const MAX_GITHUB_REPOS = 20
+export const MAX_GITHUB_REPOS = 100
 
 function teamId(): string {
     return String(ApiConfig.getCurrentTeamId())

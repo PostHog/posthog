@@ -1,6 +1,7 @@
 import { IMAGE_TOOLS_ENV_KEY } from "@posthog/agent-contracts/sandbox-env";
 import { describe, expect, it, vi } from "vitest";
 import {
+  appendRepositoryConventionsForCodex,
   buildAppendedInstructions,
   imageToolsInstruction,
 } from "./instructions";
@@ -28,6 +29,19 @@ describe("buildAppendedInstructions", () => {
     expect(buildAppendedInstructions({ spokenNarration: false })).toContain(
       heading,
     );
+  });
+
+  it("tells each runtime to read the memory file it does not load natively", () => {
+    const claude = buildAppendedInstructions({ spokenNarration: false });
+    const codex = appendRepositoryConventionsForCodex("");
+    expect(claude).toContain("`CLAUDE.md` is loaded for you automatically");
+    expect(codex).toContain("`AGENTS.md` is loaded for you automatically");
+    for (const instructions of [claude, codex]) {
+      expect(instructions).toContain(
+        "before you judge whether existing behavior is intended",
+      );
+      expect(instructions).toContain(".cursor/rules/*.mdc");
+    }
   });
 
   it("includes the context wiki block only when a mount path is given", () => {

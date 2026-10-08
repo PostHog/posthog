@@ -108,8 +108,13 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
-        engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        engineeringAnalyticsWorkflowRun: (
+            repoOwner: string,
+            repoName: string,
+            runId: number | string,
+            ciEngine?: string | null
+        ): string =>
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
         engineeringAnalyticsAuthor: (handle: string): string =>

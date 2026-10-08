@@ -131,7 +131,7 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     if kind == "heartbeat" and agent_active:
         try:
             task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
-            task_run.heartbeat_workflow(agent_active=True)
+            task_run.heartbeat_workflow(agent_active=True, force=data["activity_started"])
             dispatched = True
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})

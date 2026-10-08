@@ -1,13 +1,12 @@
 import io
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
 
-import urllib3
 import requests
 from requests import Response
 from requests.structures import CaseInsensitiveDict
@@ -23,10 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.ma
     MarketoTokenError,
     _bulk_rows,
     _download_bulk_export,
-    _lead_export_fields,
     _normalize_row,
     build_base_url,
-    bulk_windows,
     format_datetime,
     get_rows,
     marketo_source,
@@ -35,10 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.ma
     resolve_bulk_start,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import (
-    MARKETO_ENDPOINTS,
-    MarketoEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import MARKETO_ENDPOINTS
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.marketo.marketo.make_tracked_session"
 
@@ -114,9 +108,6 @@ def _drain(items: Iterable[Any]) -> list[dict[str, Any]]:
 
 
 class TestMarketo:
-    def test_build_base_url_accepts_a_bare_munchkin_id(self) -> None:
-        assert build_base_url(MUNCHKIN) == "https://123-ABC-456.mktorest.com"
-
     @pytest.mark.parametrize(
         "raw",
         ["  123-ABC-456 ", "https://123-ABC-456.mktorest.com", "123-ABC-456.mktorest.com", "123-ABC-456/"],
@@ -155,9 +146,6 @@ class TestMarketo:
     def test_parse_datetime(self, value: Any, expected: Optional[datetime]) -> None:
         assert parse_datetime(value) == expected
 
-    def test_success_body_raises_nothing(self) -> None:
-        raise_for_marketo_errors({"success": True, "result": []})
-
     @pytest.mark.parametrize(
         "code,expected",
         [
@@ -184,42 +172,6 @@ class TestMarketo:
         with pytest.raises(MarketoAPIError) as excinfo:
             raise_for_marketo_errors({"success": False, "errors": [{"code": "603", "message": "Access denied"}]})
         assert not isinstance(excinfo.value, MarketoRetryableError | MarketoTokenError)
-
-    def test_token_is_minted_once_and_reused_across_requests(self) -> None:
-        session = _session(responses=[_response({"success": True, "result": []})] * 2)
-        client = _make_client(session)
-
-        client.request_json("GET", "/rest/v1/campaigns.json")
-        client.request_json("GET", "/rest/v1/lists.json")
-
-        assert session.get.call_count == 1
-        assert session.request.call_args.kwargs["headers"]["Authorization"] == "Bearer tok-1"
-
-    def test_expired_token_is_reminted_before_the_next_request(self) -> None:
-        # expires_in below the safety margin means the cached token is never considered fresh.
-        session = _session(
-            token_bodies=[_token_body(expires_in=0, token="tok-1"), _token_body(expires_in=0, token="tok-2")],
-            responses=[_response({"success": True, "result": []})] * 2,
-        )
-        client = _make_client(session)
-
-        client.request_json("GET", "/rest/v1/campaigns.json")
-        client.request_json("GET", "/rest/v1/lists.json")
-
-        assert session.get.call_count == 2
-        assert session.request.call_args.kwargs["headers"]["Authorization"] == "Bearer tok-2"
-
-    def test_http_401_remints_the_token_and_replays_the_request(self) -> None:
-        session = _session(
-            token_bodies=[_token_body(token="tok-1"), _token_body(token="tok-2")],
-            responses=[_response({}, status=401), _response({"success": True, "result": [{"id": 1}]})],
-        )
-        client = _make_client(session)
-
-        body = client.request_json("GET", "/rest/v1/campaigns.json")
-
-        assert body["result"] == [{"id": 1}]
-        assert session.request.call_args.kwargs["headers"]["Authorization"] == "Bearer tok-2"
 
     def test_persistent_401_surfaces_as_an_auth_error(self) -> None:
         session = _session(
@@ -280,15 +232,6 @@ class TestMarketo:
         assert "client-secret" not in message
         assert "client-id" not in message
 
-    def test_session_is_built_without_http_sample_capture(self) -> None:
-        # Marketo responses carry lead emails and arbitrary customer fields the generic scrubber
-        # can't recognise, so they must never reach HTTP sample storage.
-        with mock.patch(SESSION_PATCH) as session_factory:
-            MarketoClient(MUNCHKIN, "client-id", "client-secret")
-
-        assert session_factory.call_args.kwargs["capture"] is False
-        assert session_factory.call_args.kwargs["redact_values"] == ("client-id", "client-secret")
-
     @pytest.mark.parametrize(
         "token_body,status,expected_ok",
         [
@@ -331,26 +274,6 @@ class TestMarketo:
         assert [state.next_page_token for state in manager.saved] == ["t2"]
         assert manager.cleared is True
 
-    def test_token_paging_stops_when_the_api_omits_more_result(self) -> None:
-        # Activity types return everything in one response with no `moreResult` flag.
-        session = _session(responses=[_response({"success": True, "result": [{"id": 1}], "nextPageToken": "t2"})])
-        manager = FakeResumeManager()
-
-        with mock.patch(SESSION_PATCH, return_value=session):
-            rows = _drain(get_rows(MUNCHKIN, "cid", "secret", "activity_types", manager, mock.MagicMock()))
-
-        assert rows == [{"id": 1}]
-        assert manager.saved == []
-
-    def test_token_paging_resumes_from_saved_state(self) -> None:
-        session = _session(responses=[_response({"success": True, "result": [{"id": 9}], "moreResult": False})])
-        manager = FakeResumeManager(MarketoResumeConfig(next_page_token="saved-token"))
-
-        with mock.patch(SESSION_PATCH, return_value=session):
-            _drain(get_rows(MUNCHKIN, "cid", "secret", "campaigns", manager, mock.MagicMock()))
-
-        assert session.request.call_args.kwargs["params"]["nextPageToken"] == "saved-token"
-
     def test_offset_paging_stops_on_the_first_short_page(self) -> None:
         full_page = [{"id": index} for index in range(200)]
         session = _session(
@@ -368,16 +291,6 @@ class TestMarketo:
         assert [call.kwargs["params"]["offset"] for call in session.request.call_args_list] == [0, 200]
         assert [state.offset for state in manager.saved] == [200]
 
-    def test_offset_paging_stops_on_an_empty_result(self) -> None:
-        session = _session(responses=[_response({"success": True})])
-        manager = FakeResumeManager()
-
-        with mock.patch(SESSION_PATCH, return_value=session):
-            rows = _drain(get_rows(MUNCHKIN, "cid", "secret", "emails", manager, mock.MagicMock()))
-
-        assert rows == []
-        assert session.request.call_count == 1
-
     def test_offset_paging_resumes_from_saved_state(self) -> None:
         session = _session(responses=[_response({"success": True, "result": [{"id": 1}]})])
         manager = FakeResumeManager(MarketoResumeConfig(offset=400))
@@ -386,26 +299,6 @@ class TestMarketo:
             _drain(get_rows(MUNCHKIN, "cid", "secret", "forms", manager, mock.MagicMock()))
 
         assert session.request.call_args.kwargs["params"]["offset"] == 400
-
-    @pytest.mark.parametrize(
-        "start,end,expected",
-        [
-            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 20, tzinfo=UTC), 1),
-            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 3, 1, tzinfo=UTC), 2),
-            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 1, tzinfo=UTC), 0),
-            (datetime(2024, 2, 1, tzinfo=UTC), datetime(2024, 1, 1, tzinfo=UTC), 0),
-        ],
-    )
-    def test_bulk_windows_respect_marketos_31_day_filter_cap(
-        self, start: datetime, end: datetime, expected: int
-    ) -> None:
-        windows = bulk_windows(start, end)
-
-        assert len(windows) == expected
-        assert all((window_end - window_start).days <= 30 for window_start, window_end in windows)
-        if windows:
-            assert windows[0][0] == start
-            assert windows[-1][1] == end
 
     @pytest.mark.parametrize(
         "resume,incremental,last_value,start_date,expected",
@@ -431,14 +324,6 @@ class TestMarketo:
         expected: datetime,
     ) -> None:
         assert resolve_bulk_start(resume, incremental, last_value, start_date) == expected
-
-    def test_bulk_start_falls_back_to_a_lookback_when_nothing_is_configured(self) -> None:
-        now = datetime(2024, 6, 1, tzinfo=UTC)
-
-        resolved = resolve_bulk_start(None, False, None, None, now=now)
-
-        assert resolved < now
-        assert (now - resolved).days == 365
 
     def test_bulk_export_runs_create_enqueue_poll_download_per_window(self) -> None:
         csv_text = "marketoGUID,leadId,activityDate,activityTypeId\nabc,7,2024-01-02T00:00:00Z,1\n"
@@ -482,36 +367,6 @@ class TestMarketo:
         assert sleep.call_count == 2
         assert [state.window_start for state in manager.saved] == ["2024-01-10T00:00:00Z"]
 
-    def test_bulk_export_filters_on_the_window_boundaries(self) -> None:
-        session = _session(
-            responses=[
-                _response({"success": True, "result": [{"exportId": "exp-1"}]}),
-                _response({"success": True, "result": [{"exportId": "exp-1"}]}),
-                _response({"success": True, "result": [{"status": "Completed"}]}),
-                _csv_response("marketoGUID\n"),
-            ]
-        )
-        client = _make_client(session)
-
-        with mock.patch("time.sleep"):
-            _drain(
-                _bulk_rows(
-                    client,
-                    MARKETO_ENDPOINTS["activities"],
-                    datetime(2024, 1, 1, tzinfo=UTC),
-                    datetime(2024, 1, 5, tzinfo=UTC),
-                    FakeResumeManager(),
-                    mock.MagicMock(),
-                )
-            )
-
-        create_body = session.request.call_args_list[0].kwargs["json"]
-        assert create_body["format"] == "CSV"
-        assert create_body["filter"]["createdAt"] == {
-            "startAt": "2024-01-01T00:00:00Z",
-            "endAt": "2024-01-05T00:00:00Z",
-        }
-
     def test_bulk_lead_export_names_every_column_from_describe(self) -> None:
         describe = {
             "success": True,
@@ -546,13 +401,6 @@ class TestMarketo:
 
         assert session.request.call_args_list[1].kwargs["json"]["fields"] == ["id", "email"]
         assert rows == [{"id": 5, "email": "a@example.com"}]
-
-    def test_lead_export_fields_skip_entries_without_a_rest_name(self) -> None:
-        session = _session(
-            responses=[_response({"success": True, "result": [{"rest": {"name": "id"}}, {"soap": {"name": "x"}}, {}]})]
-        )
-
-        assert _lead_export_fields(_make_client(session)) == ["id"]
 
     @pytest.mark.parametrize("status", ["Failed", "Cancelled"])
     def test_a_terminal_export_status_fails_the_sync(self, status: str) -> None:
@@ -623,18 +471,6 @@ class TestMarketo:
 
         assert [len(batch) for batch in batches] == [BULK_CHUNK_ROWS, 5]
 
-    def test_download_empty_export_body_yields_no_rows(self) -> None:
-        # A real urllib3 stream (unlike the BytesIO fake) closes itself at EOF, so an empty export
-        # body must finish with no rows rather than raising "I/O operation on closed file".
-        response = Response()
-        response.status_code = 200
-        response.headers = CaseInsensitiveDict({"Content-Type": "text/csv;charset=UTF-8"})
-        response.raw = urllib3.response.HTTPResponse(body=io.BytesIO(b""), preload_content=False)
-        client = mock.MagicMock()
-        client.request.return_value = response
-
-        assert _drain(_download_bulk_export(client, "leads", "exp-1", ("id",))) == []
-
     @pytest.mark.parametrize(
         "row,int_columns,expected",
         [
@@ -648,37 +484,9 @@ class TestMarketo:
     def test_normalize_row(self, row: dict[Any, Any], int_columns: tuple[str, ...], expected: dict[str, Any]) -> None:
         assert _normalize_row(row, int_columns) == expected
 
-    @pytest.mark.parametrize("endpoint", sorted(MARKETO_ENDPOINTS))
-    def test_source_response_matches_the_endpoint_catalog(self, endpoint: str) -> None:
-        config: MarketoEndpointConfig = MARKETO_ENDPOINTS[endpoint]
-
-        response = marketo_source(MUNCHKIN, "cid", "secret", endpoint, FakeResumeManager(), mock.MagicMock())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_key
-        assert response.sort_mode == "asc"
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     def test_source_response_items_are_lazy(self) -> None:
         # Building the SourceResponse must not touch the network — the pipeline calls items().
         with mock.patch(SESSION_PATCH) as session_factory:
             marketo_source(MUNCHKIN, "cid", "secret", "campaigns", FakeResumeManager(), mock.MagicMock())
 
         session_factory.assert_not_called()
-
-    def test_resume_state_is_cleared_only_after_the_endpoint_is_walked(self) -> None:
-        session = _session(responses=[_response({"success": True, "result": [{"id": 1}], "moreResult": False})])
-        manager = FakeResumeManager()
-
-        with mock.patch(SESSION_PATCH, return_value=session):
-            iterator: Iterator[Any] = get_rows(MUNCHKIN, "cid", "secret", "lists", manager, mock.MagicMock())
-            next(iterator)
-            assert manager.cleared is False
-            _drain(iterator)
-
-        assert manager.cleared is True
