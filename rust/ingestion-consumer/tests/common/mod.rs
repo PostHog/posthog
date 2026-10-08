@@ -16,16 +16,12 @@ use ingestion_consumer::routing::Router;
 use ingestion_consumer::scheduler::SchedulerKind;
 use lifecycle::Handle;
 
-/// The request shape the placement and replay assertions in these suites
-/// expect.
 pub const ONE_KEY_PER_REQUEST: PackTargets = PackTargets {
     events: 1,
     bytes: 0,
     latency_budget: Duration::ZERO,
 };
 
-/// `stall_timeout` is the deferred-flush timeout for pin-stash and the stall
-/// timeout for the state machine; `pack_targets` applies to the state machine.
 pub fn batcher(
     kind: SchedulerKind,
     dispatcher: &Arc<Dispatcher>,

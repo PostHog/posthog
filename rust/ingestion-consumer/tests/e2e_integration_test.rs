@@ -69,8 +69,6 @@ async fn create_topic(name: &str, partitions: i32) {
     tokio::time::sleep(Duration::from_millis(300)).await;
 }
 
-/// The `INGESTION_PACK_*` defaults: requests close at 500 events and nothing
-/// is held for more keys.
 const PRODUCTION_PACK_TARGETS: PackTargets = PackTargets {
     events: 500,
     bytes: 0,
@@ -616,7 +614,6 @@ impl Harness {
         .await
     }
 
-    /// Like `start`, with the key table's pack targets set.
     #[allow(clippy::too_many_arguments)]
     async fn start_with_pack_targets(
         kind: SchedulerKind,
