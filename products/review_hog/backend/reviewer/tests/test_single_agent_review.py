@@ -2,7 +2,12 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
-from products.review_hog.backend.reviewer.constants import FLASH_LENSES, SINGLE_AGENT_SOURCE
+from products.review_hog.backend.reviewer.constants import (
+    FLASH_LENSES,
+    FLASH_MUST_FIX_CAP_MULTIPLIER,
+    SINGLE_AGENT_SOURCE,
+    flash_max_findings,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashDuplicateIssue, FlashIssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import (
@@ -285,6 +290,51 @@ class TestDedupeFlashFindings:
         kept = (await self._dedupe(pr_metadata, issues, _flash_dedup(llm_duplicate))).kept
 
         assert [(issue.id, issue.priority) for issue in kept] == [(survivor_id, IssuePriority.MUST_FIX)]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "survivor_level,duplicate_level,filler_source",
+        [
+            pytest.param(
+                ("P1", IssuePriority.MUST_FIX),
+                ("P0", IssuePriority.MUST_FIX),
+                SINGLE_AGENT_SOURCE,
+                id="lens_p0_into_main_p1_behind_main_p1s",
+            ),
+            pytest.param(
+                ("P3", IssuePriority.CONSIDER),
+                ("P1", IssuePriority.MUST_FIX),
+                _LENS_SOURCE,
+                id="lens_p1_into_main_p3_behind_lens_p1s",
+            ),
+        ],
+    )
+    async def test_a_survivor_ranks_at_the_best_p_level_of_its_duplicates(
+        self,
+        pr_metadata: PRMetadata,
+        survivor_level: tuple[ReportedPriority, IssuePriority],
+        duplicate_level: tuple[ReportedPriority, IssuePriority],
+        filler_source: str,
+    ) -> None:
+        # Storage folds P0 and P1 into must-fix and the order inside it reads the P level, so a survivor
+        # ranked at its own level can be cut by the must-fix ceiling behind findings less severe than
+        # the problem it now carries.
+        ceiling = FLASH_MUST_FIX_CAP_MULTIPLIER * flash_max_findings(1)
+        filler_prefix = "2000-1" if filler_source == SINGLE_AGENT_SOURCE else "2002-1"
+        fillers = [
+            _issue(f"{filler_prefix}-{n}", IssuePriority.MUST_FIX, filler_source, reported="P1")
+            for n in range(1, ceiling + 1)
+        ]
+        survivor = _issue("2000-1-99", survivor_level[1], reported=survivor_level[0])
+        duplicate = _issue("2002-1-99", duplicate_level[1], _LENS_SOURCE, reported=duplicate_level[0])
+
+        selection = await self._dedupe(
+            pr_metadata, [*fillers, survivor, duplicate], _flash_dedup(("2002-1-99", "2000-1-99"))
+        )
+
+        assert (selection.kept[0].id, selection.kept[0].reported_priority) == ("2000-1-99", survivor_level[0])
+        dropped = {drop.issue.id: drop.issue.reported_priority for drop in selection.dropped}
+        assert dropped["2002-1-99"] == duplicate_level[0]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

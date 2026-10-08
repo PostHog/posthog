@@ -13,6 +13,7 @@ import json
 import asyncio
 import logging
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -251,14 +252,23 @@ def _reported_level(issue: Issue) -> int:
     return len(_REPORTED_LEVELS) - _REPORTED_LEVELS.index(reported) if reported is not None else 0
 
 
-def _flash_order(main: list[Issue], lens: list[Issue]) -> list[Issue]:
-    """Highest priority first, P0 before P1, then the main findings before the lens findings, then session order."""
-    return sorted(
-        [*main, *lens], key=lambda issue: (priority_rank(issue.priority), _reported_level(issue)), reverse=True
-    )
+def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str, int] | None = None) -> list[Issue]:
+    """Highest priority first, P0 before P1, then the main findings before the lens findings, then session order.
+
+    `group_levels` gives a dedup survivor the highest P level of its duplicate group, so a survivor that
+    absorbed a P0 ranks as a P0 although its own `reported_priority` stays what its session reported.
+    """
+    levels = group_levels or {}
+
+    def order_key(issue: Issue) -> tuple[int, int]:
+        return priority_rank(issue.priority), levels.get(issue.id, _reported_level(issue))
+
+    return sorted([*main, *lens], key=order_key, reverse=True)
 
 
-def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> FlashSelection:
+def compose_flash_findings(
+    main: list[Issue], lens: list[Issue], *, lens_part_count: int, group_levels: Mapping[str, int] | None = None
+) -> FlashSelection:
     """The findings a Flash turn keeps, highest priority first, P0 before P1, and the main review first on ties.
 
     Every must-fix (P0 or P1) finding is kept outside the cap (`flash_max_findings`), up to
@@ -269,7 +279,7 @@ def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_co
     raised, so every later turn would keep it off the PR too.
     """
     cap = flash_max_findings(lens_part_count)
-    ranked = _flash_order(main, lens)
+    ranked = _flash_order(main, lens, group_levels)
     must_fix = [issue for issue in ranked if issue.priority == IssuePriority.MUST_FIX]
     must_fix = must_fix[: FLASH_MUST_FIX_CAP_MULTIPLIER * cap]
     others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
@@ -441,16 +451,25 @@ def _resolve_duplicates(
     return held
 
 
-def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> None:
+def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str, int]:
     """Give each kept finding the highest priority among the duplicates dedup removed in its favor.
 
     Dedup keeps the most complete statement of a problem, not the most severe one, so a lens P1 that
     repeats a main P3 would otherwise post as the P3, or not at all once the cap cuts it.
+
+    Returns the highest P level of each survivor's duplicate group, for `_flash_order`. The survivor's
+    `reported_priority` keeps its own session's level, which the turn stats count.
     """
     kept_by_id = {issue.id: issue for issue in kept}
+    group_levels: dict[str, int] = {}
     for duplicate in duplicates:
         survivor = kept_by_id.get(duplicate.duplicate_of or "")
-        if survivor is not None and priority_rank(duplicate.issue.priority) > priority_rank(survivor.priority):
+        if survivor is None:
+            continue
+        group_levels[survivor.id] = max(
+            group_levels.get(survivor.id, _reported_level(survivor)), _reported_level(duplicate.issue)
+        )
+        if priority_rank(duplicate.issue.priority) > priority_rank(survivor.priority):
             logger.info(
                 "Raising %s to %s: dedup removed %s as its duplicate",
                 survivor.id,
@@ -458,6 +477,7 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> None:
                 duplicate.issue.id,
             )
             survivor.priority = duplicate.issue.priority
+    return group_levels
 
 
 async def dedupe_flash_findings(
@@ -520,8 +540,8 @@ async def dedupe_flash_findings(
     removed_ids = {removal.duplicate.issue.id for removal in held}
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
-    _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
-    composed = compose_flash_findings(kept_main, kept_lens, lens_part_count=lens_part_count)
+    group_levels = _raise_survivors([*kept_main, *kept_lens], [removal.duplicate for removal in held])
+    composed = compose_flash_findings(kept_main, kept_lens, lens_part_count=lens_part_count, group_levels=group_levels)
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
         _dropped_duplicate(
