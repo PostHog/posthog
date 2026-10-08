@@ -155,33 +155,35 @@ export function NewAccountMenu({
                             >
                                 <Label intent="menu" className="pl-2 relative">
                                     Project
-                                    <ButtonPrimitive
-                                        iconOnly
-                                        tooltip="Create a new project"
-                                        disabledReasons={
-                                            projectCreationForbiddenReason
-                                                ? { [projectCreationForbiddenReason]: true }
-                                                : undefined
-                                        }
-                                        size="xs"
-                                        className="absolute -right-[2px] -top-[2px]"
-                                        data-attr="new-account-menu-create-project-icon-button"
-                                        onClick={() => {
-                                            guardAvailableFeature(
-                                                AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                () => {
-                                                    setAccountMenuOpen(false)
-                                                    showCreateProjectModal()
-                                                },
-                                                {
-                                                    currentUsage: currentOrganization?.teams?.length,
-                                                    guardOnSelfHosted: !isHobby,
-                                                }
-                                            )
-                                        }}
-                                    >
-                                        <IconPlusSmall className="text-tertiary size-4" />
-                                    </ButtonPrimitive>
+                                    {/* Position a wrapper, not the button: a disabled button's tooltip trigger must keep the icon's size */}
+                                    <span className="absolute -right-[2px] -top-[2px] flex">
+                                        <ButtonPrimitive
+                                            iconOnly
+                                            tooltip="Create a new project"
+                                            disabledReasons={
+                                                projectCreationForbiddenReason
+                                                    ? { [projectCreationForbiddenReason]: true }
+                                                    : undefined
+                                            }
+                                            size="xs"
+                                            data-attr="new-account-menu-create-project-icon-button"
+                                            onClick={() => {
+                                                guardAvailableFeature(
+                                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                                    () => {
+                                                        setAccountMenuOpen(false)
+                                                        showCreateProjectModal()
+                                                    },
+                                                    {
+                                                        currentUsage: currentOrganization?.teams?.length,
+                                                        guardOnSelfHosted: !isHobby,
+                                                    }
+                                                )
+                                            }}
+                                        >
+                                            <IconPlusSmall className="text-tertiary size-4" />
+                                        </ButtonPrimitive>
+                                    </span>
                                 </Label>
                                 <DropdownMenuSeparator />
 
