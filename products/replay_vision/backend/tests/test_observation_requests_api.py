@@ -287,6 +287,9 @@ class TestRequestProgress(APIBaseTest):
 class TestCompleteSettledRequests(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        flush = patch("products.replay_vision.backend.observation_requests.flush_internal_events_producer")
+        self.addCleanup(flush.stop)
+        flush.start()
         self.scanner = ReplayScanner.objects.create(
             team=self.team,
             name="checkout",
@@ -341,3 +344,18 @@ class TestCompleteSettledRequests(APIBaseTest):
         complete_settled_requests()
 
         self.assertEqual(produce.call_count, 1)
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_an_undeliverable_request_does_not_block_newer_ones(self, produce: MagicMock) -> None:
+        stuck, fine = MagicMock(), MagicMock()
+        stuck.get.side_effect = RuntimeError("kafka refused")
+        produce.side_effect = [stuck, fine]
+        first = self._request({"s1": "skipped_limit"})
+        second = self._request({"s2": "skipped_limit"})
+
+        complete_settled_requests()
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.completed_at is None, second.completed_at is not None), (True, True))

@@ -107,11 +107,10 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.start_launched_scanners_failed")
 
-        if workflow.patched("complete-observation-requests-2026-10"):
-            try:
-                await self._run_reaper(complete_observation_requests_activity)
-            except Exception:
-                workflow.logger.exception("replay_vision.complete_observation_requests_failed")
+        try:
+            await self._run_reaper(complete_observation_requests_activity)
+        except Exception:
+            workflow.logger.exception("replay_vision.complete_observation_requests_failed")
 
     async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
         """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to

@@ -5,6 +5,7 @@ A request points either a saved scanner or an inline question at named sessions,
 Nothing here checks consent or access; the caller does, as with `scanning`.
 """
 
+import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
@@ -16,8 +17,9 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.dataclasses import frozen
+from posthog.kafka_client.client import ProduceResult
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
@@ -36,9 +38,10 @@ logger = structlog.get_logger(__name__)
 
 COMPLETED_EVENT = "$replay_vision_request_completed"
 
-# Bounds one reconciler tick. Requests settle within the workflow timeout, so the oldest ones never block
-# the queue for longer than that.
-MAX_REQUESTS_PER_TICK = 1000
+_SWEEP_PAGE_SIZE = 500
+
+# Leaves headroom inside the reconciler activity's own start-to-close timeout.
+_SWEEP_BUDGET_SECONDS = 30
 
 _DELIVERY_TIMEOUT_SECONDS = 10
 
@@ -237,33 +240,60 @@ def _session(outcome: dict[str, str], observation: ReplayObservation | None, exp
 def complete_settled_requests(*, now: datetime | None = None) -> int:
     """Mark every open request whose sessions have all settled as completed, announcing each one first.
 
-    The event goes out before the row is stamped, so a crash between the two sends it again on the next tick
-    rather than never; its uuid is derived from the request, so ingestion drops the repeat.
+    The event goes out before the row is stamped, so a crash between the two sends it again on the next
+    tick rather than never; a destination can therefore see a request complete twice. Open requests are
+    walked oldest first in pages, so a request whose event keeps failing never hides the ones behind it.
     """
     now = now or timezone.now()
-    open_requests = (
-        ReplayObservationRequest.objects.unscoped()
-        .filter(completed_at__isnull=True)
-        .order_by("created_at")[:MAX_REQUESTS_PER_TICK]
-    )
+    deadline = time.monotonic() + _SWEEP_BUDGET_SECONDS
+    open_requests = ReplayObservationRequest.objects.unscoped().filter(completed_at__isnull=True)
     completed = 0
-    for request in open_requests:
-        progress = request_progress(request, now=now)
-        if not progress.settled:
+    cursor: tuple[datetime, Any] | None = None
+    while time.monotonic() < deadline:
+        page_qs = open_requests.order_by("created_at", "id")
+        if cursor is not None:
+            page_qs = page_qs.filter(Q(created_at__gt=cursor[0]) | Q(created_at=cursor[0], id__gt=cursor[1]))
+        page = list(page_qs[:_SWEEP_PAGE_SIZE])
+        if not page:
+            break
+        cursor = (page[-1].created_at, page[-1].id)
+        completed += _complete_page(page, now)
+    return completed
+
+
+def _complete_page(page: list[ReplayObservationRequest], now: datetime) -> int:
+    progress = request_progress_many(page, now=now)
+    sent: list[tuple[ReplayObservationRequest, ProduceResult]] = []
+    for request in page:
+        if not progress[request.id].settled:
             continue
         try:
-            produce_internal_event(team_id=request.team_id, event=_completed_event(request, progress, now)).get(
-                timeout=_DELIVERY_TIMEOUT_SECONDS
+            sent.append(
+                (
+                    request,
+                    produce_internal_event(
+                        team_id=request.team_id, event=_completed_event(request, progress[request.id], now)
+                    ),
+                )
             )
         except Exception:
             logger.exception("replay_vision.observation_request.completion_event_failed", request_id=str(request.id))
+    if not sent:
+        return 0
+    flush_internal_events_producer(_DELIVERY_TIMEOUT_SECONDS)
+    delivered: list[Any] = []
+    for request, result in sent:
+        try:
+            result.get(timeout=0)
+        except Exception:
+            logger.warning("replay_vision.observation_request.completion_event_undelivered", request_id=str(request.id))
             continue
-        completed += (
-            ReplayObservationRequest.objects.unscoped()
-            .filter(id=request.id, completed_at__isnull=True)
-            .update(completed_at=now)
-        )
-    return completed
+        delivered.append(request.id)
+    return (
+        ReplayObservationRequest.objects.unscoped()
+        .filter(id__in=delivered, completed_at__isnull=True)
+        .update(completed_at=now)
+    )
 
 
 def _completed_event(request: ReplayObservationRequest, progress: RequestProgress, now: datetime) -> InternalEventEvent:
