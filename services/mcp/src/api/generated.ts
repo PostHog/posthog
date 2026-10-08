@@ -58921,6 +58921,36 @@ export namespace Schemas {
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
 
+    /**
+     * * `visible_error` - Error on screen
+     * * `silent_failure` - Action silently failed
+     * * `unresponsive` - Clicks went nowhere
+     * * `slow_or_stuck` - Slow or stuck
+     * * `blocked` - Blocked
+     * * `cant_find` - Couldn't find it
+     * * `confused` - Confused
+     * * `workaround` - Took a workaround
+     * * `abandoned` - Gave up
+     * * `churn_signal` - Churn signal
+     * * `success` - Worked well
+     */
+    export type JevWatchReasonEnum = typeof JevWatchReasonEnum[keyof typeof JevWatchReasonEnum];
+
+
+    export const JevWatchReasonEnum = {
+      VisibleError: 'visible_error',
+      SilentFailure: 'silent_failure',
+      Unresponsive: 'unresponsive',
+      SlowOrStuck: 'slow_or_stuck',
+      Blocked: 'blocked',
+      CantFind: 'cant_find',
+      Confused: 'confused',
+      Workaround: 'workaround',
+      Abandoned: 'abandoned',
+      ChurnSignal: 'churn_signal',
+      Success: 'success',
+    } as const;
+
     export interface JiraIssueSignalExtra {
       key: string;
       url: string | null;
@@ -109809,6 +109839,20 @@ export namespace Schemas {
          * @nullable
          */
       notability_reason?: string | null;
+      /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
+       *
+       * * `visible_error` - Error on screen
+       * * `silent_failure` - Action silently failed
+       * * `unresponsive` - Clicks went nowhere
+       * * `slow_or_stuck` - Slow or stuck
+       * * `blocked` - Blocked
+       * * `cant_find` - Couldn't find it
+       * * `confused` - Confused
+       * * `workaround` - Took a workaround
+       * * `abandoned` - Gave up
+       * * `churn_signal` - Churn signal
+       * * `success` - Worked well */
+      watch_reason?: JevWatchReasonEnum;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable

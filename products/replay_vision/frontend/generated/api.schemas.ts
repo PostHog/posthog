@@ -2673,6 +2673,35 @@ export interface WatchFeedSignalApi {
 }
 
 /**
+ * * `visible_error` - Error on screen
+ * * `silent_failure` - Action silently failed
+ * * `unresponsive` - Clicks went nowhere
+ * * `slow_or_stuck` - Slow or stuck
+ * * `blocked` - Blocked
+ * * `cant_find` - Couldn't find it
+ * * `confused` - Confused
+ * * `workaround` - Took a workaround
+ * * `abandoned` - Gave up
+ * * `churn_signal` - Churn signal
+ * * `success` - Worked well
+ */
+export type JevWatchReasonEnumApi = (typeof JevWatchReasonEnumApi)[keyof typeof JevWatchReasonEnumApi]
+
+export const JevWatchReasonEnumApi = {
+    VisibleError: 'visible_error',
+    SilentFailure: 'silent_failure',
+    Unresponsive: 'unresponsive',
+    SlowOrStuck: 'slow_or_stuck',
+    Blocked: 'blocked',
+    CantFind: 'cant_find',
+    Confused: 'confused',
+    Workaround: 'workaround',
+    Abandoned: 'abandoned',
+    ChurnSignal: 'churn_signal',
+    Success: 'success',
+} as const
+
+/**
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
@@ -2724,6 +2753,20 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     notability_reason?: string | null
+    /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
+     *
+     * * `visible_error` - Error on screen
+     * * `silent_failure` - Action silently failed
+     * * `unresponsive` - Clicks went nowhere
+     * * `slow_or_stuck` - Slow or stuck
+     * * `blocked` - Blocked
+     * * `cant_find` - Couldn't find it
+     * * `confused` - Confused
+     * * `workaround` - Took a workaround
+     * * `abandoned` - Gave up
+     * * `churn_signal` - Churn signal
+     * * `success` - Worked well */
+    watch_reason?: JevWatchReasonEnumApi
     /**
      * The observation's score, for `outlier_score`.
      * @nullable
