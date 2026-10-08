@@ -299,6 +299,7 @@ export interface biEditorLogicValues {
     availableDataSources: BIDataSource[]
     calculatedMeasureDraft: BICalculatedMeasureDraft | null
     chartFits: Partial<Record<ChartDisplayType, BIChartFit>>
+    chartTypesOpen: boolean
     config: BIConfig
     dataPaneFields: BIDataPaneFields
     dataPaneFieldsError: boolean
@@ -421,6 +422,9 @@ export interface biEditorLogicActions {
     setChartType: (chartType: ChartDisplayType) => {
         chartType: ChartDisplayType
     }
+    setChartTypesOpen: (chartTypesOpen: boolean) => {
+        chartTypesOpen: boolean
+    }
     setCompareFilter: (compareFilter: CompareFilter) => {
         compareFilter: CompareFilter
     }
@@ -497,9 +501,6 @@ export interface biEditorLogicActions {
     setMissingDates: (missingDates: BIConfig['missingDates']) => {
         missingDates: 'gap' | 'zero' | undefined
     }
-    setShowMeOpen: (showMeOpen: boolean) => {
-        showMeOpen: boolean
-    }
     setSort: (sort: BISort | null) => {
         sort: BISort | null
     }
@@ -567,6 +568,7 @@ export interface biEditorLogicActions {
 export interface biEditorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        chartTypesOpen: (showMeOpen: boolean) => boolean
         availableDataSources: (
             allTables: DatabaseSchemaTable[],
             posthogTables: DatabaseSchemaTable[],
@@ -645,7 +647,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         }),
         swapRowsAndColumns: true,
         setAutoUpdate: (autoUpdate: boolean) => ({ autoUpdate }),
-        setShowMeOpen: (showMeOpen: boolean) => ({ showMeOpen }),
+        setChartTypesOpen: (chartTypesOpen: boolean) => ({ chartTypesOpen }),
         setHoveredChartType: (chartType: ChartDisplayType | null) => ({ chartType }),
         setDataPaneSearch: (search: string) => ({ search }),
         runAfterChange: true,
@@ -721,10 +723,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
             },
         ],
         autoUpdate: [false, { persist: true }, { setAutoUpdate: (_, { autoUpdate }) => autoUpdate }],
-        showMeOpen: [true, { persist: true }, { setShowMeOpen: (_, { showMeOpen }) => showMeOpen }],
+        // Pinned storage key: preserve the saved chart picker preference.
+        showMeOpen: [true, { persist: true }, { setChartTypesOpen: (_, { chartTypesOpen }) => chartTypesOpen }],
         hoveredChartType: [
             null as ChartDisplayType | null,
-            { setHoveredChartType: (_, { chartType }) => chartType, setShowMeOpen: () => null },
+            { setHoveredChartType: (_, { chartType }) => chartType, setChartTypesOpen: () => null },
         ],
         activeExpressionEditorTarget: [
             'field' as 'field' | 'aggregation',
@@ -909,6 +912,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         ],
     })),
     selectors({
+        chartTypesOpen: [(s) => [s.showMeOpen], (open: boolean): boolean => open],
         availableDataSources: [
             (selectors) => [selectors.allTables, selectors.posthogTables, selectors.databaseConnectionId],
             (
