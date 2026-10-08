@@ -33994,6 +33994,7 @@ export namespace Schemas {
       ErrorTrackingIssue: 'error_tracking_issue',
       ErrorSpan: 'error_span',
       ErrorLog: 'error_log',
+      MonitorAlert: 'monitor_alert',
     } as const;
 
     export interface DatadogSignalExtra {
@@ -34013,6 +34014,10 @@ export namespace Schemas {
       window_total_count?: string | null;
       window_impacted_users?: string | null;
       occurrences?: string | null;
+      monitor_id?: string | null;
+      monitor_type?: string | null;
+      priority?: string | null;
+      alert_url?: string | null;
     }
 
     /**

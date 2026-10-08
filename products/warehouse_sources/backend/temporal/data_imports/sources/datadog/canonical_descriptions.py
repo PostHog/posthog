@@ -116,6 +116,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "timestamp": "Time at which the log event occurred.",
         },
     },
+    "monitor_alerts": {
+        "description": (
+            "A Datadog monitor alert event that is firing (status error). "
+            "Only events matching source:alert status:error are synced. "
+            "The table is rebuilt on every sync from the last 7 days."
+        ),
+        "docs_url": "https://docs.datadoghq.com/api/latest/events/#get-a-list-of-events",
+        "columns": {
+            "id": "Unique identifier for the event.",
+            "type": "JSON:API resource type of the event.",
+            "timestamp": "Time at which the alert event occurred, as an ISO 8601 UTC string.",
+            "message": "Free-text notification body of the alert.",
+            "tags": "Tags attached to the event.",
+            "attributes": (
+                "Nested object with the alert details: status (error means firing), title, monitor_id, priority, "
+                "service, evt (type of monitor), and monitor (id, name, type, alert cycle key, state transition, "
+                "result links)."
+            ),
+        },
+    },
     "dashboards": {
         "description": "A Datadog dashboard — a configurable set of widgets visualizing metrics and logs.",
         "docs_url": "https://docs.datadoghq.com/api/latest/dashboards/#get-all-dashboards",

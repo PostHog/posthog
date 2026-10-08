@@ -78,8 +78,10 @@ class DatadogEndpointConfig:
     default_lookback_days: Optional[int] = None
     # Set for the Error Tracking issue search, which walks a time window instead of pages.
     search: Optional[DatadogIssueSearchConfig] = None
-    # Stops a page walk after this many pages. Only safe for ascending, incremental endpoints,
-    # because the pipeline checkpoints the highest cursor value and the next sync resumes from it.
+    # Stops a page walk after this many pages. Safe for ascending incremental endpoints, because the
+    # pipeline checkpoints the highest cursor value and the next sync resumes from it. Also safe for a
+    # newest-first full refresh, where the cap drops the oldest rows of the window. An ascending full
+    # refresh would keep the oldest rows and lose the newest.
     max_pages_per_sync: Optional[int] = None
     # Tables that are off until the user opts in, because they are high volume or need extra scopes.
     should_sync_default: bool = True
@@ -268,6 +270,26 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
         max_pages_per_sync=100,
         should_sync_default=False,
     ),
+    # Firing monitor alerts only. Datadog applies the filter, because recoveries and warnings would
+    # triple the rows read on every sync. The desktop toggle creates this table as a full refresh, so
+    # it re-reads a bounded lookback window. The sort is newest first so that the page cap drops the
+    # oldest alerts, which a previous sync has usually already read.
+    "monitor_alerts": DatadogEndpointConfig(
+        name="monitor_alerts",
+        path="/api/v2/events",
+        data_path="data",
+        pagination="cursor",
+        page_size=1000,
+        page_size_param="page[limit]",
+        static_params={"filter[query]": "source:alert status:error"},
+        flatten_attributes=True,
+        partition_key="timestamp",
+        timestamp_filter_param="filter[from]",
+        sort_param="-timestamp",
+        default_lookback_days=7,
+        max_pages_per_sync=20,
+        should_sync_default=False,
+    ),
     # --- Full refresh ---
     "dashboards": DatadogEndpointConfig(
         name="dashboards",
@@ -440,4 +462,4 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 
 # Datadog retains logs / audit logs / events for a limited window, so the first sync can only
 # reach back as far as the account's retention allows.
-LIMITED_RETENTION_ENDPOINTS = {"logs", "audit_logs", "events", "error_spans", "error_logs"}
+LIMITED_RETENTION_ENDPOINTS = {"logs", "audit_logs", "events", "error_spans", "error_logs", "monitor_alerts"}

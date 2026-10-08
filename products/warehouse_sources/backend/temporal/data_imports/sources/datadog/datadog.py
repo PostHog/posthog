@@ -313,8 +313,9 @@ def _walk(
             yield items
 
         if config.max_pages_per_sync is not None and pages >= config.max_pages_per_sync:
-            # Rows arrive oldest first and the pipeline checkpoints the newest cursor value, so the
-            # next sync continues where this one stopped instead of losing the rest.
+            # An incremental walk arrives oldest first and the pipeline checkpoints the newest cursor
+            # value, so the next sync continues where this one stopped instead of losing the rest.
+            # A full refresh walks newest first, so the rows dropped here are the oldest ones.
             logger.warning("datadog.page_cap_reached", endpoint=config.name, pages=pages)
             return
 
@@ -461,7 +462,7 @@ def datadog_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=list(config.primary_keys),
-        sort_mode="asc",
+        sort_mode="desc" if (config.sort_param or "").startswith("-") else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
