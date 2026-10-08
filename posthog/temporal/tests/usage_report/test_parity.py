@@ -200,6 +200,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
     seeded["teams_with_event_count_in_period"].update({demo_team.id: 999, internal_team.id: 999})
+    monkeypatch.setattr("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", 1)
 
     s3 = _install_in_memory_object_storage(monkeypatch)
     sqs_messages = _install_fake_sqs_producer(monkeypatch)

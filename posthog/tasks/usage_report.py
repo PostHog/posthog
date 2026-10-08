@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -84,6 +84,8 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
+
+BILLING_ORGANIZATION_BATCH_SIZE = 1_000
 
 GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE = 20
 GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE = 20
@@ -3230,17 +3232,41 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
     return all_data
 
 
-def _get_teams_for_usage_reports() -> Sequence[Team]:
-    return list(
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only(
-            "id",
-            "name",
-            "organization__id",
-            "organization__name",
-            "organization__created_at",
+def iter_billable_teams(
+    *,
+    team_fields: Sequence[str],
+    organization_fields: Sequence[str],
+    organization_ids: Sequence[str] | None = None,
+) -> Iterator[Team]:
+    # Page organizations to avoid repeating their wide columns on every team or retaining them all.
+    # Keyset pagination bounds the organization query even when PgBouncer disables server-side cursors.
+    organizations = Organization.objects.exclude(for_internal_metrics=True).only(*organization_fields).order_by("id")
+    if organization_ids:
+        organizations = organizations.filter(id__in=organization_ids)
+
+    page = organizations
+    while batch := list(page[:BILLING_ORGANIZATION_BATCH_SIZE]):
+        organizations_by_id = {organization.id: organization for organization in batch}
+        # Streaming reports require all of an organization's teams to be contiguous.
+        teams = (
+            Team.objects.filter(organization_id__in=organizations_by_id)
+            .exclude(is_demo=True)
+            .only(*team_fields, "organization_id")
+            .order_by("organization_id", "id")
         )
+        for team in teams.iterator(chunk_size=2_000):
+            team.organization = organizations_by_id[team.organization_id]
+            yield team
+        if len(batch) < BILLING_ORGANIZATION_BATCH_SIZE:
+            return
+        page = organizations.filter(id__gt=batch[-1].id)
+
+
+def _get_teams_for_usage_reports(*, organization_ids: Sequence[str] | None = None) -> Iterator[Team]:
+    return iter_billable_teams(
+        team_fields=("id", "name"),
+        organization_fields=("id", "name", "created_at"),
+        organization_ids=organization_ids,
     )
 
 
@@ -3514,21 +3540,17 @@ def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
 
     all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
-    logger.info("Querying all teams")
-
-    teams = _get_teams_for_usage_reports()
-
-    logger.info("Querying all teams complete", teams_count=len(teams))
-
     org_reports: dict[str, OrgReport] = {}
+    teams_count = 0
 
     logger.info("Generating org reports")
 
-    for team in teams:
+    for team in _get_teams_for_usage_reports():
+        teams_count += 1
         team_report = _get_team_report(all_data, team)
         _add_team_report_to_org_reports(org_reports, team, team_report, period.start)
 
-    logger.info("Generating org reports complete", org_reports_count=len(org_reports))
+    logger.info("Generating org reports complete", teams_count=teams_count, org_reports_count=len(org_reports))
 
     return org_reports
 

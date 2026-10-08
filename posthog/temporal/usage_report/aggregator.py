@@ -17,7 +17,7 @@ from itertools import chain, groupby, islice
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count, Q
+from django.db.models import Count
 
 from posthog.models import OrganizationMembership, Team
 from posthog.tasks.usage_report import (
@@ -235,19 +235,9 @@ def iter_org_reports(
     ctx: WorkflowContext,
     org_user_counts: dict[str, int],
 ) -> Iterator[OrgReport]:
-    # Match the legacy team selection, but keep only one organization's reports in memory.
-    teams = (
-        Team.objects.select_related("organization")
-        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
-        .order_by("organization_id", "id")
-        .iterator(chunk_size=2_000)
-    )
-    wanted = set(ctx.organization_ids) if ctx.organization_ids else None
+    teams = _get_teams_for_usage_reports(organization_ids=ctx.organization_ids)
     for organization_id, org_teams in groupby(teams, key=lambda team: team.organization_id):
         org_id = str(organization_id)
-        if wanted is not None and org_id not in wanted:
-            continue
         org_reports: dict[str, OrgReport] = {}
         for team in org_teams:
             team_report = _get_team_report(all_data, team)
