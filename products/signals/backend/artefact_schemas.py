@@ -1255,16 +1255,21 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
 )
 
 
-def artefact_type_for(content: BaseModel) -> str:
-    """The artefact type a content model persists as (exact class match).
+def artefact_type_for_model(model: type[BaseModel]) -> str:
+    """The artefact type a content model class persists as (exact class match).
 
     Deriving the row's type from the model class makes a type/content mismatch unrepresentable.
     Raises `ArtefactContentValidationError` for models that aren't artefact content schemas.
     """
-    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(type(content))
+    artefact_type = _ARTEFACT_TYPE_BY_MODEL.get(model)
     if artefact_type is None:
-        raise ArtefactContentValidationError(f"{type(content).__name__} is not an artefact content model")
+        raise ArtefactContentValidationError(f"{model.__name__} is not an artefact content model")
     return artefact_type
+
+
+def artefact_type_for(content: BaseModel) -> str:
+    """The artefact type a content model instance persists as. See `artefact_type_for_model`."""
+    return artefact_type_for_model(type(content))
 
 
 def parse_artefact_content(artefact_type: str, content: str | dict | list) -> ArtefactContent:
