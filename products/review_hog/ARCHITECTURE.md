@@ -416,6 +416,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
     The status comment header of a **flash** turn, in each of its states, names `PostHog Review (flash)` instead of `PostHog Review`.
+    A single-agent turn shows its own three steps (preparing, reviewing, finalizing) on the status comment and the in-app row, not the pipeline's six: the fetch records the design on the turn's `pr_snapshot`, and `progress_payload` reads it from there.
     A clean flash turn shows the plain line "Nothing worth raising." and never the clean-review media; a full turn follows the `celebrate_clean_reviews` setting.
     Flash comments posted before reviewhog-flash-1-1 open with a banner line (`LEGACY_FLASH_MODE_MESSAGE_PREFIX`); the publish-idempotency scan and the outcome comment matcher still recognize it.
     The promo, the review body, and the inline comments carry no flash label, so one review shows the label once.

@@ -731,6 +731,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_metadata=pr_metadata,
         pr_comments=pr_comments,
         pr_files=pr_files,
+        review_design=design_choice.design,
     )
     lens_plan = plan_lens_chunks(pr_files) if design_choice.design == REVIEW_DESIGN_SINGLE_AGENT else None
     if already_published or (

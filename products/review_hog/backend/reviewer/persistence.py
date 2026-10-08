@@ -450,6 +450,7 @@ def persist_pr_snapshot(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -461,7 +462,11 @@ def persist_pr_snapshot(
         team_id=team_id,
         report_id=report_id,
         content=PRSnapshotArtefact(
-            head_sha=head_sha, pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files
+            head_sha=head_sha,
+            pr_metadata=pr_metadata,
+            pr_comments=pr_comments,
+            pr_files=pr_files,
+            review_design=review_design,
         ),
         attribution=ArtefactAttribution.system(),
     )

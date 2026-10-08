@@ -72,6 +72,9 @@ _STAGE_LABELS = {
     "deduplicating": "Step 4/6 · Merging overlapping findings",
     "validating": "Step 5/6 · Validating findings",
     "finalizing": "Step 6/6 · Finalizing the review",
+    "single_agent_preparing": "Step 1/3 · Preparing the diff",
+    "single_agent_reviewing": "Step 2/3 · Reviewing the pull request",
+    "single_agent_finalizing": "Step 3/3 · Finalizing the review",
 }
 
 # The UI's urgency-threshold labels (`URGENCY_STOPS`), for the held-back explanation.
@@ -175,21 +178,21 @@ def render_in_progress_body(
     review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> str:
     """The running-state body: the current step (mirroring the UI), plus a one-line explainer."""
-    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        # Parallel sessions have no stages to count, so the body only says the review is running.
-        return "\n".join(
-            [
-                f"### \U0001f994 {_product_name(review_mode)} is reviewing this pull request",
-                "",
-                "A main reviewer and two focused reviewers read the pull request in parallel. "
-                "The most important findings are published back to it.",
-                "",
-                "<sub>This comment updates when the review finishes.</sub>",
-                "",
-                status_marker(report_id),
-            ]
-        )
-    label = _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS["fetching"]
+    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
+    # The kickoff body has no progress yet. A single-agent turn starts its sessions right after the
+    # kickoff and the next refresh waits for the first session result, so the kickoff shows the
+    # reviewing step instead of the preparing step.
+    kickoff_stage = "single_agent_reviewing" if single_agent else "fetching"
+    label = (
+        _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS[kickoff_stage]
+    )
+    explainer = (
+        "A main reviewer and two focused reviewers read the pull request in parallel. "
+        "The most important findings are published back to it."
+        if single_agent
+        else "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
+        "catches what they missed, and only validated findings are published back to this pull request."
+    )
     done = progress.get("done") if progress else None
     total = progress.get("total") if progress else None
     counter = f" · {done}/{total}" if done is not None and total else ""
@@ -199,8 +202,7 @@ def render_in_progress_body(
             "",
             f"**{label}{counter}**",
             "",
-            "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
-            "catches what they missed, and only validated findings are published back to this pull request.",
+            explainer,
             "",
             "<sub>This comment updates as the review progresses.</sub>",
             "",

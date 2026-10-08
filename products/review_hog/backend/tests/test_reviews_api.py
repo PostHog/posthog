@@ -18,9 +18,14 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ResolutionRunArtefact,
     ReviewIssueFinding,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM
+from products.review_hog.backend.reviewer.constants import (
+    DEFAULT_REVIEW_ARM,
+    REVIEW_DESIGN_SINGLE_AGENT,
+    REVIEW_MODE_FLASH,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -504,6 +509,41 @@ class TestRecentReviewsAPI(APIBaseTest):
             "done": 2,
             "total": 2,
         }
+
+    def test_single_agent_turn_reports_its_own_stages(self) -> None:
+        running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        running_id = str(running.id)
+
+        def stage() -> dict:
+            return self.client.get(self.url).json()["results"][0]["progress"]
+
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1", "in flight"),
+            pr_comments=[],
+            pr_files=[],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+        assert stage() == {"review_stage": "single_agent_preparing", "done": None, "total": None}
+
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=running_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=1,
+                review_mode=REVIEW_MODE_FLASH,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        assert stage() == {"review_stage": "single_agent_reviewing", "done": None, "total": None}
+
+        self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
+        assert stage() == {"review_stage": "single_agent_finalizing", "done": None, "total": None}
 
     @parameterized.expand(
         [

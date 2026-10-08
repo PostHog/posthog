@@ -17,6 +17,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from products.review_hog.backend.reviewer.constants import REVIEW_DESIGN_PIPELINE
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -320,6 +321,10 @@ class PRSnapshotArtefact(BaseModel):
     pr_metadata: PRMetadata = Field(description="The PR's metadata (title/body/branches/labels/…).")
     pr_comments: list[PRComment] = Field(default_factory=list, description="The PR's reviewable inline comments.")
     pr_files: list[PRFile] = Field(default_factory=list, description="The PR's reviewable files with code context.")
+    review_design: str = Field(
+        default=REVIEW_DESIGN_PIPELINE,
+        description="The design the turn runs on (pipeline or single_agent), chosen at fetch.",
+    )
 
 
 class TurnMarkerArtefact(BaseModel):

@@ -9,7 +9,12 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.constants import (
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -46,11 +51,21 @@ _STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
     ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
 ]
 
+_SINGLE_AGENT_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
+    (None, "Step 2/3 · Reviewing the pull request"),
+    ({"review_stage": "single_agent_finalizing", "done": None, "total": None}, "Step 3/3 · Finalizing the review"),
+]
+
 
 class TestRenderInProgressBody:
-    @parameterized.expand(_STAGE_LINE_CASES)
-    def test_renders_the_stage_line_and_marker(self, progress: dict[str, Any] | None, expected_line: str) -> None:
-        body = render_in_progress_body("rid", progress)
+    @parameterized.expand(
+        [(progress, line, REVIEW_DESIGN_PIPELINE) for progress, line in _STAGE_LINE_CASES]
+        + [(progress, line, REVIEW_DESIGN_SINGLE_AGENT) for progress, line in _SINGLE_AGENT_STAGE_LINE_CASES]
+    )
+    def test_renders_the_stage_line_and_marker(
+        self, progress: dict[str, Any] | None, expected_line: str, review_design: str
+    ) -> None:
+        body = render_in_progress_body("rid", progress, review_design=review_design)
         assert f"**{expected_line}**" in body
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
 
