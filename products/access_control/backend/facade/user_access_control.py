@@ -1684,9 +1684,11 @@ class UserAccessControl:
                 f"An ObjectAccessRef cannot resolve `{ref.resource}`, which inherits access from "
                 f"`{parent}`. Check access on the model instance instead."
             )
-        if self._team is not None and ref.team_id != self._team.id:
-            # The rule lookups are scoped to self._team, so a reference to the object of another
-            # team would resolve against the wrong rules.
+        # The rule lookups are scoped to self._team, so a reference checked without a team, or against
+        # another team, would resolve against the wrong rules.
+        if self._team is None:
+            raise ValueError("An ObjectAccessRef needs a team-scoped UserAccessControl.")
+        if ref.team_id != self._team.id:
             raise ValueError(f"ObjectAccessRef for team {ref.team_id} checked against team {self._team.id}.")
         return _ObjectAccessTarget(
             resource=ref.resource,

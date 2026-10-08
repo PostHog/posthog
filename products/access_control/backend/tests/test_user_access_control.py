@@ -2498,8 +2498,14 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
         with pytest.raises(ValueError, match="external_data_source"):
             self.user_access_control.access_level_for_ref(ref)
 
-    def test_ref_for_another_team_raises(self):
+    @parameterized.expand([("another_team", True), ("no_team", False)])
+    def test_ref_outside_the_access_control_team_raises(self, _name, team_scoped):
         ref = ObjectAccessRef(resource="dashboard", id="1", team_id=self.team.id + 1, created_by_id=None)
+        user_access_control = (
+            self.user_access_control
+            if team_scoped
+            else UserAccessControl(self.user, organization_id=str(self.organization.id))
+        )
 
         with pytest.raises(ValueError, match="team"):
-            self.user_access_control.check_access_level_for_ref(ref, "viewer")
+            user_access_control.check_access_level_for_ref(ref, "viewer")
