@@ -50,10 +50,14 @@ export interface PendingShell {
   seen: number;
 }
 
+// The agent's own kind for a call (read, edit, execute…); Claude Code names each call by what it is for, so the kind says what it did.
+export type ToolKind = string;
+
 export interface ToolLine {
   kind: "tool";
   id: string;
   title: string;
+  tool?: ToolKind;
   status: string;
   // What the call worked on, such as a shell command or a file path.
   detail: string;
@@ -272,6 +276,7 @@ function toLine(item: ConversationItem): TranscriptLine[] {
           kind: "tool",
           id: item.id,
           title: update.title,
+          tool: update.kind ?? undefined,
           status: update.status ?? "pending",
           detail: toolDetail(update.rawInput),
           output: toolOutput(update.content, update.rawOutput),
@@ -315,9 +320,24 @@ function toolOutput(content: unknown, rawOutput: unknown): string {
 const plural = (count: number, noun: string): string =>
   `${count} ${noun}${count === 1 ? "" : "s"}`;
 
+const KIND_PHRASES: Record<string, [string, string, string]> = {
+  execute: ["ran", "shell command", "Running"],
+  read: ["read", "file", "Reading"],
+  edit: ["edited", "file", "Editing"],
+  delete: ["edited", "file", "Editing"],
+  move: ["edited", "file", "Editing"],
+  search: ["searched", "time", "Searching"],
+  fetch: ["fetched", "page", "Fetching"],
+  think: ["thought", "time", "Thinking"],
+};
+
 // What each tool's calls count as, a verb and the noun it counts, and what a call in flight is doing.
-function phraseOf(title: string): [string, string, string] {
-  const name = title.toLowerCase();
+function phraseOf(
+  tool: Pick<ToolLine, "title" | "tool">,
+): [string, string, string] {
+  const byKind = tool.tool && KIND_PHRASES[tool.tool];
+  if (byKind) return byKind;
+  const name = tool.title.toLowerCase();
   if (name === "bash") return ["ran", "shell command", "Running"];
   if (name === "read") return ["read", "file", "Reading"];
   if (name === "edit" || name === "write") return ["edited", "file", "Editing"];
@@ -327,13 +347,14 @@ function phraseOf(title: string): [string, string, string] {
   return [`called ${label}`, "time", `Calling ${label}`];
 }
 
-export const activityOf = (title: string): string => phraseOf(title)[2];
+export const activityOf = (tool: Pick<ToolLine, "title" | "tool">): string =>
+  phraseOf(tool)[2];
 
 // How a run of tool calls reads collapsed, like "Ran 5 shell commands · read 2 files".
 export function toolSummary(tools: ToolLine[]): string {
   const counts = new Map<string, { noun: string; count: number }>();
   for (const tool of tools) {
-    const [verb, noun] = phraseOf(tool.title);
+    const [verb, noun] = phraseOf(tool);
     const entry = counts.get(verb) ?? { noun, count: 0 };
     counts.set(verb, { ...entry, count: entry.count + 1 });
   }
