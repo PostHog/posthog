@@ -270,12 +270,14 @@ the clause whose series is evaluated. The window rules differ from logs below th
   window is a BROKEN configuration.
 - The window end is the due time clamped to the ingestion checkpoint read from `posthog.metrics_kafka_metrics`
   (`products/metrics/backend/alert_checkpoint.py`), with the same five-minute staleness cap the logs source uses.
-- The query reads `evaluation_periods` contiguous windows, so prior breach flags come from the same query and no
-  history row is needed.
+- The query reads `max(evaluation_periods, keep_firing_windows + 1)` contiguous windows, so prior breach flags come
+  from the same query and no history row is needed.
 - Each configuration is one query per clause through `run_metric_query`, with `max_execution_time` set to the
   seconds left under `BATCH_QUERY_BUDGET_SECONDS` and `timeout_overflow_mode=throw`. There is no cross-alert cohort:
   metrics queries are per clause, so the module does not pretend to batch.
-- A missing current value is inconclusive: the alert keeps its state and its failure count and announces nothing.
+- A missing value follows the source's `no_data_policy`, for the current window and for prior windows. The default,
+  `inconclusive`, keeps the state and the failure count and announces nothing. A Hog condition gets a missing value
+  as `null` and decides for itself, so the policy does not apply to it.
 - A `group_by` clause gives one `PlatformAlert` row per label set. The grouping key is the canonical JSON of the
   sorted labels, empty for an ungrouped query, so an ungrouped source keeps its single row. Each label set fires,
   resolves and mutes on its own; the configuration keeps the schedule and takes the worst failure count of its
@@ -283,8 +285,8 @@ the clause whose series is evaluated. The window rules differ from logs below th
 - Groups are capped at `MAX_GROUPS_PER_CONFIGURATION` (50, below the query facade's per-clause series cap so an
   overflow is always visible). Past the cap the first 50 label sets by key are
   evaluated and the overflow is recorded as a failed check on the root group, so a cap never reads as "nothing is
-  wrong". A label set the platform remembers and the query no longer returns is inconclusive for its group, not
-  dropped, so a firing group is never stranded. Once such a group is not firing its row is retired, and only live
+  wrong". A label set the platform remembers and the query no longer returns is no data in every window it read, under
+  the source's `no_data_policy`, not dropped, so a firing group is never stranded. Once such a group is not firing its row is retired, and only live
   groups count toward the cap, so churn in label sets cannot fill the cap for good.
 
 Nothing creates a metrics platform configuration yet except `upsert_configuration`, so a production tick finds
@@ -317,7 +319,7 @@ the cost and the failures.
 Three lifecycle inputs serve an on-call rotation, and every one of them defaults to today's behavior.
 
 **Incident edges.** Every outcome carries an `incident` action next to its notification: `open` when the alert enters
-firing, `close` when it leaves firing or snoozed for a clear state (a clear check, disable, a broken configuration, a
+firing, `close` when it leaves firing or snoozed for a clear state (a clear check, disable, unsnooze, a broken configuration, a
 threshold change, the failure that breaks it), and `none` otherwise. A snoozed alert may have been firing when it
 was parked, so leaving SNOOZED closes too; a close for an incident that was never opened is a no-op at a paging
 provider keyed on the alert's fingerprint. A delivery preview carries a transition whenever a notification or an

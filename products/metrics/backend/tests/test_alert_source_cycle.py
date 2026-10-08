@@ -595,11 +595,13 @@ class TestMetricsOnCallLifecycle(MetricsAlertEvaluationTestCase):
 
     def test_a_vanished_group_follows_the_no_data_policy(self) -> None:
         configuration = self._configuration(
+            evaluation_periods=2,
+            datapoints_to_alarm=2,
             source_config={
                 "type": "MetricsAlertSource",
                 "clauses": [{"name": "a", "metric_name": "m1", "aggregation": "sum"}],
                 "no_data_policy": "breach",
-            }
+            },
         )
         first, _ = self._run(configuration, series=self._grouped(api=1.0, web=1.0))
         self._record(first)

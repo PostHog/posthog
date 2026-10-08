@@ -475,7 +475,11 @@ def apply_snooze(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
 
 
 def apply_unsnooze(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
-    return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
+    return ControlPlaneOutcome(
+        new_state=AlertState.NOT_FIRING,
+        consecutive_failures=0,
+        incident=_incident(snapshot.state, AlertState.NOT_FIRING),
+    )
 
 
 def apply_threshold_change(snapshot: StatefulSnapshot, *, preserve_snoozed_state: bool = True) -> ControlPlaneOutcome:

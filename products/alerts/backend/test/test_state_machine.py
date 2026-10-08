@@ -16,6 +16,7 @@ from products.alerts.backend.facade.lifecycle import (
     apply_disable,
     apply_snooze,
     apply_threshold_change,
+    apply_unsnooze,
     evaluate_alert_check,
 )
 
@@ -451,6 +452,8 @@ class TestOnCallLifecycle:
                     policy=LOGS_ALERT_POLICY,
                 ),
             ),
+            ("unsnooze_after_a_snooze", lambda s: apply_unsnooze(snapshot(state=AlertState.SNOOZED))),
+            ("disable_after_a_snooze", lambda s: apply_disable(snapshot(state=AlertState.SNOOZED))),
         ]
     )
     def test_incident_closes_when_the_alert_leaves_firing(self, _name: str, transition) -> None:

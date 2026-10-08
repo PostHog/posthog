@@ -538,6 +538,8 @@ def _evaluate_group(
             threshold={"count": check.threshold_count, "operator": check.threshold_operator},
             window_ends=window_ends,
         )
+        # A window with no value reaches the program as null, and the program decides what it means.
+        # The no-data policy is for the threshold path, so it does not override that answer.
         verdict = evaluate_condition_windows(check.condition_bytecode, contexts, budget)
         safe_record(record_condition_duration, SourceKind.METRICS.value, verdict.duration_ms)
         if verdict.flags is None:
@@ -587,11 +589,14 @@ def _vanished(
 ) -> _GroupDecision:
     """A label set the platform remembers and the query no longer returns: no data, under the
     source's policy, so a group that stopped reporting can page or resolve instead of stranding."""
+    # The query returned nothing for this label set across its whole lookback, so every prior
+    # window it read is missing too. N-of-M and keep-firing must see them as such.
+    missing_prior = (None,) * (_windows_to_read(check, source) - 1)
     outcome = _verdict(
         check,
         group,
         CheckInput(threshold_breached=False, no_data=True, muted=muted),
-        (),
+        _prior_flags(missing_prior, source),
         now=now,
         skip=None,
         source=source,
