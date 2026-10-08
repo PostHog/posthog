@@ -188,7 +188,7 @@ def _team_verdicts(team_id: int, pairings: list[_Pairing]) -> dict[CheckRef, Sou
         if alert is None:
             verdicts[pairing.check.ref] = _unknown("no insight alert with that id in this project")
             continue
-        period = _PERIOD.get(alert.calculation_interval)
+        period = _PERIOD.get(alert.calculation_interval or "")
         if period is None:
             verdicts[pairing.check.ref] = _unknown("the insight alert's interval has no period to pair within")
             continue
