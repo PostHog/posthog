@@ -132,9 +132,7 @@ class TestObservationRequestAPI(APIBaseTest):
             session_id="s1",
             scanner_snapshot=snapshot_for(self.scanner),
             triggered_by=ObservationTrigger.ON_DEMAND,
-            status=ObservationStatus.SUCCEEDED,
-            scanner_result={"model_output": {"verdict": "yes"}},
-            completed_at=timezone.now(),
+            status=ObservationStatus.RUNNING,
         )
         # Clearing the targeting lets the scanner pass its own gate; the row's snapshot must still block it.
         self.scanner.experiment_targeting = None
@@ -155,7 +153,8 @@ class TestObservationRequestAPI(APIBaseTest):
             response = self.client.get(f"{self.url}{request.id}/")
 
         self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(response.json()["sessions"], [])
+        # Neither the row nor whether it is still running may show: `status` reads only the visible rows.
+        self.assertEqual((response.json()["sessions"], response.json()["status"]), ([], "completed"))
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 

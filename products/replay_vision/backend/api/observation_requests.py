@@ -33,6 +33,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.observation_requests import (
     IdempotencyKeyConflict,
     InlineScanSpec,
+    RequestProgress,
     RequestSession,
     RequestSessionState,
     create_observation_request,
@@ -231,8 +232,13 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
 
     def _render(self, request: ReplayObservationRequest) -> dict[str, Any]:
         progress = request_progress(request)
-        completed = request.completed_at is not None or progress.settled
-        sessions = progress.sessions if self._is_service_call else self._readable_sessions(progress.sessions)
+        if self._is_service_call:
+            sessions = progress.sessions
+            completed = request.completed_at is not None or progress.settled
+        else:
+            # Judged on the visible rows alone: a hidden row still in flight would otherwise show through `status`.
+            sessions = self._readable_sessions(progress.sessions)
+            completed = RequestProgress(sessions=sessions).settled
         return ObservationRequestSerializer(
             {
                 "id": request.id,
