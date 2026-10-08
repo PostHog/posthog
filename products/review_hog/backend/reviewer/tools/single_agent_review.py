@@ -38,6 +38,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
     Issue,
     IssuePriority,
     LineRange,
+    ReportedPriority,
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DedupOutcome, Duplicate, deduplicate_issues
@@ -240,6 +241,11 @@ def _reported_level(issue: Issue) -> int:
     """The reviewer's P level as a number that grows with severity, 0 for a finding without one."""
     reported = issue.reported_priority
     return len(REPORTED_LEVELS) - REPORTED_LEVELS.index(reported) if reported is not None else 0
+
+
+def _level_priority(level: int) -> ReportedPriority | None:
+    """The P level that `_reported_level` encodes as `level`, None for 0."""
+    return REPORTED_LEVELS[len(REPORTED_LEVELS) - level] if level else None
 
 
 def _flash_order(main: list[Issue], lens: list[Issue], group_levels: Mapping[str, int] | None = None) -> list[Issue]:
@@ -471,7 +477,7 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
             survivor.priority = duplicate.issue.priority
     for survivor_id, level in group_levels.items():
         survivor = kept_by_id[survivor_id]
-        best = REPORTED_LEVELS[len(REPORTED_LEVELS) - level] if level else None
+        best = _level_priority(level)
         own = survivor.reported_priority
         if (
             best is not None

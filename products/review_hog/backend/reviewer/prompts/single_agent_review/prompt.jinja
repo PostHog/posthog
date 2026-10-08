@@ -53,7 +53,7 @@ For each finding:
 - `title`: at most 80 characters, imperative, without a `[P#]` tag.
 - `priority`: "P0", "P1", "P2", or "P3", with the meanings from the review guidelines.
 - `file`, `line_start`, `line_end`: the file path relative to the repository root, and the shortest line range at the head commit that shows the problem. Keep the range on the diff and under 10 lines. Set `line_end` to null for a single line.
-- `body`: one paragraph of about 300-400 characters. Name the trigger (the input, state, or environment the problem needs), the consequence, and the anchor (the function, call site, or invariant involved). End with one short clause on the fix direction, so a reader can act on the comment alone. Do not add a separate suggestion section.
+- `body`: one paragraph of about 300-400 characters. Name the trigger (the input, state, or environment the problem needs), the consequence, and the anchor (the function, call site, or invariant involved). End with one short clause on the fix direction, so a reader can act on the comment alone. State the problem as a fact without hedging (no "may" or "could potentially"), in active voice, with identifiers in backticks, and no opener or closing summary. Do not add a separate suggestion section.
 - `suggestion_code`: only when the fix is a small replacement you are certain of, the exact new code for lines `line_start` to `line_end`, with the original indentation. Otherwise null. It is stored, not posted, so the body must still state the fix.
 
 Return an empty findings list when nothing qualifies. Reply with only one JSON object that matches this schema. Do not wrap it in code fences and do not add prose.

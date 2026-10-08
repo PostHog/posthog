@@ -26,6 +26,8 @@ class SingleAgentFinding(BaseModel):
             "One paragraph of about 300-400 characters: the trigger (the input, state, or environment the"
             " problem needs), the consequence, and the anchor (the function, call site, or invariant involved)."
             " End with one short clause on the fix direction, so a reader can act on the comment alone."
+            ' State the problem as a fact without hedging (no "may" or "could potentially"), in active voice,'
+            " with identifiers in backticks, and no opener or closing summary."
         )
     )
     suggestion_code: str | None = Field(

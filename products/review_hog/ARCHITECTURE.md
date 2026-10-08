@@ -306,7 +306,7 @@ priority, and the main session first on ties, before anything persists. Every mu
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per
 lens part past the first, up to 10). No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
-finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. Findings publish
+finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. One exception: a dedup survivor takes a more severe duplicate's level when both fold into the same stored priority (a P0 merged into a P1); the `dropped_finding` record keeps the duplicate's own level. Findings publish
 inline. An
 optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
