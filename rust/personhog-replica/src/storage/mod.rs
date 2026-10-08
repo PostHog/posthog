@@ -7,9 +7,10 @@ pub use error::{StorageError, StorageResult};
 
 pub use types::{
     CohortMembership, DeletePersonsOutcome, DistinctIdMapping, DistinctIdWithVersion, Group,
-    GroupIdentifier, GroupKey, GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, Person,
-    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    GroupIdentifier, GroupKey, GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext,
+    PendingPersonTombstone, Person, PersonVersionFloorResult, SplitResult, TombstoneConsumer,
+    TombstoneLogAck, TombstoneLogDistinctId, TombstoneLogRetirement, TombstoneTarget,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 pub use traits::{CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup};

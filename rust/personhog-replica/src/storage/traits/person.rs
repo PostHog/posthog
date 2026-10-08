@@ -3,8 +3,10 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstoneTarget, TombstonedDeleteOutcome, TombstonedPerson,
+    DeletePersonsOutcome, PendingPersonTombstone, Person, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneConsumer, TombstoneLogAck,
+    TombstoneLogDistinctId, TombstoneLogRetirement, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -93,6 +95,39 @@ pub trait PersonLookup: Send + Sync {
         team_id: Option<i64>,
         limit: i64,
     ) -> StorageResult<Vec<PersonTombstoneQueueEntry>>;
+
+    async fn list_pending_person_tombstones(
+        &self,
+        consumer: TombstoneConsumer,
+        after_log_id: i64,
+        team_id: Option<i64>,
+        min_age_ms: i64,
+        limit: i64,
+    ) -> StorageResult<Vec<PendingPersonTombstone>>;
+
+    /// A generation of another team, or a retired one, has no distinct ids.
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        team_id: i64,
+        log_id: i64,
+        after_id: i64,
+        limit: i64,
+    ) -> StorageResult<Vec<TombstoneLogDistinctId>>;
+
+    /// Only marks the generations; `retire_person_tombstone_log` deletes them, so an ack's cost does
+    /// not grow with a generation's distinct ids.
+    async fn ack_person_tombstone_log(
+        &self,
+        team_id: i64,
+        consumer: TombstoneConsumer,
+        log_ids: &[i64],
+    ) -> StorageResult<TombstoneLogAck>;
+
+    /// Deletes a generation only after all of its distinct ids, at most `max_rows` rows per call.
+    async fn retire_person_tombstone_log(
+        &self,
+        max_rows: i64,
+    ) -> StorageResult<TombstoneLogRetirement>;
 
     /// Delete up to `batch_size` persons for a team. Selects person IDs with
     /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and

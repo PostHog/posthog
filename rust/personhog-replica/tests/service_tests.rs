@@ -3,7 +3,7 @@ mod common;
 use common::{TestContext, TestPerson};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
+    AckPersonTombstoneLogRequest, CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
     DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     EnsurePersonVersionFloorsRequest, GetDistinctIdsForPersonRequest,
@@ -12,10 +12,12 @@ use personhog_proto::personhog::types::v1::{
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, PersonVersionFloor,
-    PersonVersionFloorResult, SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest,
-    SplitPersonRequest, TeamDistinctId, UpsertHashKeyOverridesRequest, VersionBoundedPerson,
-    VersionFloorOutcome,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
+    ListPendingPersonTombstonesRequest, ListPersonTombstoneDistinctIdsRequest,
+    PersonTombstoneConsumer, PersonVersionFloor, PersonVersionFloorResult,
+    RetirePersonTombstoneLogRequest, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1768,4 +1770,115 @@ async fn test_ensure_person_version_floors_maps_results_to_proto() {
     );
 
     ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_pages_report_whether_more_follow() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let service = PersonHogReplicaService::new(ctx.storage.clone());
+    let first = ctx.insert_person("svc_log_a", None).await.unwrap();
+    ctx.add_distinct_id_to_person(first.id, "svc_log_b")
+        .await
+        .unwrap();
+    let second = ctx.insert_person("svc_log_c", None).await.unwrap();
+    let deleted = service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![first.uuid.to_string(), second.uuid.to_string()],
+            mode: DeletePersonsMode::Tombstone as i32,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(deleted.tombstones.iter().all(|t| t.log_id.is_some()));
+    let first_log_id = deleted
+        .tombstones
+        .iter()
+        .find(|t| t.person_uuid == first.uuid.to_string())
+        .unwrap()
+        .log_id
+        .unwrap();
+
+    let list = |after_log_id: i64| ListPendingPersonTombstonesRequest {
+        consumer: PersonTombstoneConsumer::CustomerAnalyticsMembership as i32,
+        after_log_id,
+        limit: 1,
+        min_age_ms: 0,
+        team_id: Some(ctx.team_id),
+    };
+    let page = service
+        .list_pending_person_tombstones(Request::new(list(0)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(page.entries.len(), 1);
+    assert!(page.has_more);
+    let last = service
+        .list_pending_person_tombstones(Request::new(list(page.entries[0].log_id)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(last.entries.len(), 1);
+    assert!(!last.has_more);
+
+    let identities = service
+        .list_person_tombstone_distinct_ids(Request::new(ListPersonTombstoneDistinctIdsRequest {
+            team_id: ctx.team_id,
+            log_id: first_log_id,
+            after_id: 0,
+            limit: 1,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(identities.distinct_ids[0].distinct_id, "svc_log_a");
+    assert!(identities.has_more);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::unspecified_consumer(PersonTombstoneConsumer::Unspecified as i32, 10, 1, true, true)]
+#[case::page_over_the_cap(PersonTombstoneConsumer::Publication as i32, 1001, 1, true, false)]
+#[case::ack_over_the_cap(PersonTombstoneConsumer::Publication as i32, 10, 1001, false, true)]
+#[tokio::test]
+async fn test_tombstone_log_rejects_invalid_requests(
+    #[case] consumer: i32,
+    #[case] limit: i64,
+    #[case] ack_size: i64,
+    #[case] list_rejected: bool,
+    #[case] ack_rejected: bool,
+) {
+    let ctx = ServiceTestContext::new().await;
+    let listed = ctx
+        .service
+        .list_pending_person_tombstones(Request::new(ListPendingPersonTombstonesRequest {
+            consumer,
+            after_log_id: 0,
+            limit,
+            min_age_ms: 0,
+            team_id: Some(ctx.team_id),
+        }))
+        .await;
+    let acked = ctx
+        .service
+        .ack_person_tombstone_log(Request::new(AckPersonTombstoneLogRequest {
+            team_id: ctx.team_id,
+            consumer,
+            log_ids: (1..=ack_size).collect(),
+        }))
+        .await;
+    let invalid = |result: Option<tonic::Status>| {
+        result.is_some_and(|status| status.code() == tonic::Code::InvalidArgument)
+    };
+    assert_eq!(invalid(listed.err()), list_rejected);
+    assert_eq!(invalid(acked.err()), ack_rejected);
+
+    let retire = ctx
+        .service
+        .retire_person_tombstone_log(Request::new(RetirePersonTombstoneLogRequest {
+            max_rows: 10_001,
+        }))
+        .await;
+    assert_eq!(retire.unwrap_err().code(), tonic::Code::InvalidArgument);
 }

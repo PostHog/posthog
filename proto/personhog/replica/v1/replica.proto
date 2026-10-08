@@ -68,6 +68,10 @@ service PersonHogReplica {
   rpc GetPersonTombstones(personhog.types.v1.GetPersonTombstonesRequest) returns (personhog.types.v1.GetPersonTombstonesResponse);
   rpc AckPersonTombstones(personhog.types.v1.AckPersonTombstonesRequest) returns (personhog.types.v1.AckPersonTombstonesResponse);
   rpc ListPersonTombstoneQueue(personhog.types.v1.ListPersonTombstoneQueueRequest) returns (personhog.types.v1.ListPersonTombstoneQueueResponse);
+  rpc ListPendingPersonTombstones(personhog.types.v1.ListPendingPersonTombstonesRequest) returns (personhog.types.v1.ListPendingPersonTombstonesResponse);
+  rpc ListPersonTombstoneDistinctIds(personhog.types.v1.ListPersonTombstoneDistinctIdsRequest) returns (personhog.types.v1.ListPersonTombstoneDistinctIdsResponse);
+  rpc AckPersonTombstoneLog(personhog.types.v1.AckPersonTombstoneLogRequest) returns (personhog.types.v1.AckPersonTombstoneLogResponse);
+  rpc RetirePersonTombstoneLog(personhog.types.v1.RetirePersonTombstoneLogRequest) returns (personhog.types.v1.RetirePersonTombstoneLogResponse);
 
   // Person split (temporary: same routing caveat as deletes above)
   rpc SplitPerson(personhog.types.v1.SplitPersonRequest) returns (personhog.types.v1.SplitPersonResponse);

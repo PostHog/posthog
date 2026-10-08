@@ -217,6 +217,10 @@ message TombstonedPerson {
   string person_uuid = 1;
   int64 version = 2;
   repeated TombstonedDistinctId distinct_ids = 3;
+  // The shared tombstone log generation this DeletePersons call captured. Unset when capture is off,
+  // on GetPersonTombstones, and for a person tombstoned before the call: its current rows may differ
+  // from the logged generation, which the log's own reader publishes.
+  optional int64 log_id = 4;
 }
 
 message DeletePersonsResponse {
@@ -270,6 +274,100 @@ message PersonTombstoneQueueEntry {
 
 message ListPersonTombstoneQueueResponse {
   repeated PersonTombstoneQueueEntry entries = 1;
+}
+
+// A reader of the shared tombstone log. A generation retires only after every consumer acks it.
+enum PersonTombstoneConsumer {
+  PERSON_TOMBSTONE_CONSUMER_UNSPECIFIED = 0;
+  // Publishes the generation's ClickHouse tombstones and confirms they landed.
+  PERSON_TOMBSTONE_CONSUMER_PUBLICATION = 1;
+  // Erases the generation's distinct ids from Customer analytics person-account membership.
+  PERSON_TOMBSTONE_CONSUMER_CUSTOMER_ANALYTICS_MEMBERSHIP = 2;
+}
+
+// ListPendingPersonTombstonesRequest pages the generations one consumer has not acked, in log_id order.
+message ListPendingPersonTombstonesRequest {
+  PersonTombstoneConsumer consumer = 1;
+  // Return generations with a log_id above this one. 0 starts from the beginning.
+  int64 after_log_id = 2;
+  // 1 to 1000. 0 means 100.
+  int64 limit = 3;
+  // Skip generations tombstoned less than this many milliseconds ago.
+  int64 min_age_ms = 4;
+  optional int64 team_id = 5;
+}
+
+message PendingPersonTombstone {
+  int64 log_id = 1;
+  int64 team_id = 2;
+  string person_uuid = 3;
+  int64 person_version = 4;
+  // Unix millis.
+  int64 tombstoned_at = 5;
+}
+
+message ListPendingPersonTombstonesResponse {
+  repeated PendingPersonTombstone entries = 1;
+  // True when more pending generations follow the last entry.
+  bool has_more = 2;
+}
+
+// ListPersonTombstoneDistinctIdsRequest pages the distinct ids one generation tombstoned. A generation
+// that belongs to another team, or has retired, returns no distinct ids.
+message ListPersonTombstoneDistinctIdsRequest {
+  int64 team_id = 1;
+  int64 log_id = 2;
+  // Return distinct ids with a payload id above this one. 0 starts from the beginning.
+  int64 after_id = 3;
+  // 1 to 1000. 0 means 250.
+  int64 limit = 4;
+}
+
+message PersonTombstoneLogDistinctId {
+  // Payload cursor, stable for the life of the generation.
+  int64 id = 1;
+  string distinct_id = 2;
+  // The version the tombstone wrote to the distinct id row.
+  int64 version = 3;
+}
+
+message ListPersonTombstoneDistinctIdsResponse {
+  repeated PersonTombstoneLogDistinctId distinct_ids = 1;
+  // True when more distinct ids follow the last entry.
+  bool has_more = 2;
+}
+
+// AckPersonTombstoneLogRequest records that one consumer finished the listed generations of one team.
+// Idempotent. A log_id from another team is ignored. The ack only marks the generations, so its cost
+// does not grow with their distinct ids; RetirePersonTombstoneLog deletes them later.
+message AckPersonTombstoneLogRequest {
+  int64 team_id = 1;
+  PersonTombstoneConsumer consumer = 2;
+  // Max 1000 per request.
+  repeated int64 log_ids = 3;
+}
+
+message AckPersonTombstoneLogResponse {
+  // Generations this call acked for the consumer. A repeated ack counts zero.
+  int64 acked_count = 1;
+  // Generations every consumer has now acked, after this call. They wait for retirement.
+  int64 completed_count = 2;
+}
+
+// RetirePersonTombstoneLogRequest deletes generations every consumer has acked, with their distinct
+// ids, in a bounded amount of work. Send again while has_more is true. Idempotent.
+message RetirePersonTombstoneLogRequest {
+  // Distinct id rows this call may delete. 1 to 10000. 0 means 5000.
+  int64 max_rows = 1;
+}
+
+message RetirePersonTombstoneLogResponse {
+  // Generations deleted, each after all of its distinct ids.
+  int64 retired_count = 1;
+  // Distinct id rows deleted.
+  int64 distinct_ids_deleted = 2;
+  // True when acked generations remain to retire.
+  bool has_more = 3;
 }
 
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.

@@ -4,8 +4,8 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    GroupKey, PersonVersionFloorResult, StorageError, TombstoneTarget, TombstonedDeleteOutcome,
-    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
+    GroupKey, PersonVersionFloorResult, StorageError, TombstoneConsumer, TombstoneTarget,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 use rand::Rng;
 use rstest::rstest;
@@ -734,6 +734,7 @@ async fn test_delete_persons_tombstone_mode_reports_the_versions() {
                     version: 1,
                 },
             ],
+            log_id: None,
         }])
     );
     let (is_deleted, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
@@ -773,6 +774,7 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
             distinct_id: "retry_live".to_string(),
             version: 1,
         }],
+        log_id: None,
     });
     expected.sort_by(|a, b| a.uuid.cmp(&b.uuid));
     assert_eq!(retry.tombstones, Some(expected));
@@ -4791,6 +4793,388 @@ async fn test_get_distinct_ids_for_person_paginated() {
     ];
     expected.sort();
     assert_eq!(all_dids, expected);
+
+    ctx.cleanup().await.ok();
+}
+
+async fn log_generations(ctx: &TestContext) -> Vec<(i64, Uuid, i64)> {
+    sqlx::query_as(
+        "SELECT log_id, person_uuid, person_version FROM person_tombstone_log WHERE team_id = $1 ORDER BY log_id",
+    )
+    .bind(ctx.team_id as i32)
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap()
+}
+
+async fn log_distinct_ids(ctx: &TestContext, log_id: i64) -> Vec<(String, i64)> {
+    let rows = ctx
+        .storage
+        .list_person_tombstone_distinct_ids(ctx.team_id, log_id, 0, 1000)
+        .await
+        .unwrap();
+    rows.into_iter()
+        .map(|row| (row.distinct_id, row.version))
+        .collect()
+}
+
+async fn pending_log_ids(ctx: &TestContext, consumer: TombstoneConsumer) -> Vec<i64> {
+    ctx.storage
+        .list_pending_person_tombstones(consumer, 0, Some(ctx.team_id), 0, 1000)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.log_id)
+        .collect()
+}
+
+#[tokio::test]
+async fn test_tombstone_log_capture_off_writes_no_generation() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("log_off", None).await.unwrap();
+
+    let outcome = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.tombstones.unwrap()[0].log_id, None);
+    assert!(log_generations(&ctx).await.is_empty());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_captures_the_generation_once_and_a_retry_captures_nothing() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let person = ctx.insert_person("log_capture_a", None).await.unwrap();
+    ctx.add_distinct_id_to_person(person.id, "log_capture_b")
+        .await
+        .unwrap();
+
+    let first = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    let retry = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+
+    let generations = log_generations(&ctx).await;
+    assert_eq!(generations.len(), 1);
+    let (log_id, uuid, version) = generations[0];
+    assert_eq!((uuid, version), (person.uuid, 1));
+    assert_eq!(first.tombstones.unwrap()[0].log_id, Some(log_id));
+    assert_eq!(retry.tombstones.unwrap()[0].log_id, None);
+    assert_eq!(
+        log_distinct_ids(&ctx, log_id).await,
+        vec![
+            ("log_capture_a".to_string(), 1),
+            ("log_capture_b".to_string(), 1)
+        ]
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_never_reports_an_earlier_generation_of_a_recreated_person() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let uncaptured = ctx.without_tombstone_log();
+    let person = ctx.insert_person("log_stale_first", None).await.unwrap();
+    let first = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    let first_log_id = first.tombstones.unwrap()[0].log_id.unwrap();
+
+    // The drain removes the rows and the uuid comes back at version 0 with another distinct id.
+    // A replica without capture deletes it again: same uuid, same version, different distinct ids.
+    ctx.storage
+        .delete_tombstoned_persons(ctx.team_id, &[TombstoneTarget::unbounded(person.uuid)], 100)
+        .await
+        .unwrap();
+    ctx.insert_person_with_uuid("log_stale_second", None, person.uuid)
+        .await
+        .unwrap();
+    let second = uncaptured
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap()
+        .tombstones
+        .unwrap();
+    assert_eq!(second[0].version, 1);
+
+    let retried = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap()
+        .tombstones
+        .unwrap();
+    let read = ctx
+        .storage
+        .get_person_tombstones(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+
+    for tombstones in [second, retried, read] {
+        assert_eq!(tombstones[0].log_id, None);
+    }
+    assert_eq!(
+        pending_log_ids(&ctx, TombstoneConsumer::Publication).await,
+        vec![first_log_id]
+    );
+    assert_eq!(
+        log_distinct_ids(&ctx, first_log_id).await,
+        vec![("log_stale_first".to_string(), 1)]
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_consumers_ack_independently_and_retirement_is_bounded() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let person = ctx.insert_person("log_ack_a", None).await.unwrap();
+    for did in ["log_ack_b", "log_ack_c"] {
+        ctx.add_distinct_id_to_person(person.id, did).await.unwrap();
+    }
+    let outcome = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    let log_id = outcome.tombstones.unwrap()[0].log_id.unwrap();
+
+    let published = ctx
+        .storage
+        .ack_person_tombstone_log(ctx.team_id, TombstoneConsumer::Publication, &[log_id])
+        .await
+        .unwrap();
+    let republished = ctx
+        .storage
+        .ack_person_tombstone_log(ctx.team_id, TombstoneConsumer::Publication, &[log_id])
+        .await
+        .unwrap();
+    assert_eq!((published.acked, published.completed), (1, 0));
+    assert_eq!((republished.acked, republished.completed), (0, 0));
+    assert!(pending_log_ids(&ctx, TombstoneConsumer::Publication)
+        .await
+        .is_empty());
+    assert_eq!(
+        pending_log_ids(&ctx, TombstoneConsumer::CustomerAnalyticsMembership).await,
+        vec![log_id]
+    );
+    ctx.storage
+        .retire_person_tombstone_log(10_000)
+        .await
+        .unwrap();
+    assert_eq!(log_distinct_ids(&ctx, log_id).await.len(), 3);
+
+    let membership = ctx
+        .storage
+        .ack_person_tombstone_log(
+            ctx.team_id,
+            TombstoneConsumer::CustomerAnalyticsMembership,
+            &[log_id],
+        )
+        .await
+        .unwrap();
+    assert_eq!((membership.acked, membership.completed), (1, 1));
+
+    // Other tests share the table and retire their own rows, so loop until this generation is gone.
+    for _ in 0..1000 {
+        let pass = ctx.storage.retire_person_tombstone_log(1).await.unwrap();
+        assert!(pass.distinct_ids_deleted <= 1);
+        let remaining = log_distinct_ids(&ctx, log_id).await.len();
+        if log_generations(&ctx).await.is_empty() {
+            assert_eq!(remaining, 0);
+            break;
+        }
+    }
+    assert!(log_generations(&ctx).await.is_empty());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_keeps_a_generation_after_the_person_rows_are_purged() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let drained = ctx.insert_person("log_purge_drained", None).await.unwrap();
+    let torn_down = ctx.insert_person("log_purge_team", None).await.unwrap();
+    ctx.storage
+        .delete_persons(ctx.team_id, &[drained.uuid, torn_down.uuid])
+        .await
+        .unwrap();
+    ctx.storage
+        .ack_person_tombstones(ctx.team_id, &[(drained.uuid, 1), (torn_down.uuid, 1)])
+        .await
+        .unwrap();
+
+    ctx.storage
+        .delete_tombstoned_persons(
+            ctx.team_id,
+            &[TombstoneTarget::unbounded(drained.uuid)],
+            100,
+        )
+        .await
+        .unwrap();
+    while ctx
+        .storage
+        .delete_persons_batch_for_team(ctx.team_id, 100)
+        .await
+        .unwrap()
+        > 0
+    {}
+
+    assert!(ctx
+        .storage
+        .get_person_tombstones(ctx.team_id, &[drained.uuid, torn_down.uuid])
+        .await
+        .unwrap()
+        .is_empty());
+    let pending = pending_log_ids(&ctx, TombstoneConsumer::Publication).await;
+    assert_eq!(pending.len(), 2);
+    let mut distinct_ids: Vec<(String, i64)> = Vec::new();
+    for log_id in pending {
+        distinct_ids.extend(log_distinct_ids(&ctx, log_id).await);
+    }
+    distinct_ids.sort();
+    assert_eq!(
+        distinct_ids,
+        vec![
+            ("log_purge_drained".to_string(), 1),
+            ("log_purge_team".to_string(), 1)
+        ]
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_stale_acks_cannot_complete_a_later_generation() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let person = ctx.insert_person("log_regen", None).await.unwrap();
+    let first = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    let first_log_id = first.tombstones.unwrap()[0].log_id.unwrap();
+
+    // The drain removes the rows, and a later create restarts the same uuid at version 0, so the
+    // second deletion lands on the same uuid and version as the first.
+    ctx.storage
+        .delete_tombstoned_persons(ctx.team_id, &[TombstoneTarget::unbounded(person.uuid)], 100)
+        .await
+        .unwrap();
+    ctx.insert_person_with_uuid("log_regen", None, person.uuid)
+        .await
+        .unwrap();
+    let second = ctx
+        .storage
+        .delete_persons(ctx.team_id, &[person.uuid])
+        .await
+        .unwrap();
+    let second_tombstone = &second.tombstones.unwrap()[0];
+    let second_log_id = second_tombstone.log_id.unwrap();
+    assert_ne!(second_log_id, first_log_id);
+    assert_eq!(second_tombstone.version, 1);
+
+    for consumer in [
+        TombstoneConsumer::Publication,
+        TombstoneConsumer::CustomerAnalyticsMembership,
+    ] {
+        ctx.storage
+            .ack_person_tombstone_log(ctx.team_id, consumer, &[first_log_id])
+            .await
+            .unwrap();
+    }
+    ctx.storage
+        .ack_person_tombstones(ctx.team_id, &[(person.uuid, 1)])
+        .await
+        .unwrap();
+
+    for consumer in [
+        TombstoneConsumer::Publication,
+        TombstoneConsumer::CustomerAnalyticsMembership,
+    ] {
+        assert_eq!(pending_log_ids(&ctx, consumer).await, vec![second_log_id]);
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_tombstone_log_reads_and_acks_stay_inside_the_team() {
+    let ctx = TestContext::with_tombstone_log().await;
+    let other = ctx.other_team();
+    let mut log_ids = Vec::new();
+    for did in ["log_scope_a", "log_scope_b", "log_scope_c"] {
+        let person = ctx.insert_person(did, None).await.unwrap();
+        let outcome = ctx
+            .storage
+            .delete_persons(ctx.team_id, &[person.uuid])
+            .await
+            .unwrap();
+        log_ids.push(outcome.tombstones.unwrap()[0].log_id.unwrap());
+    }
+
+    assert!(other
+        .storage
+        .list_person_tombstone_distinct_ids(other.team_id, log_ids[0], 0, 1000)
+        .await
+        .unwrap()
+        .is_empty());
+    let foreign = other
+        .storage
+        .ack_person_tombstone_log(other.team_id, TombstoneConsumer::Publication, &log_ids)
+        .await
+        .unwrap();
+    assert_eq!(foreign.acked, 0);
+    assert!(other
+        .storage
+        .list_pending_person_tombstones(
+            TombstoneConsumer::Publication,
+            0,
+            Some(other.team_id),
+            0,
+            1000
+        )
+        .await
+        .unwrap()
+        .is_empty());
+
+    let first_page = ctx
+        .storage
+        .list_pending_person_tombstones(TombstoneConsumer::Publication, 0, Some(ctx.team_id), 0, 2)
+        .await
+        .unwrap();
+    let second_page = ctx
+        .storage
+        .list_pending_person_tombstones(
+            TombstoneConsumer::Publication,
+            first_page[1].log_id,
+            Some(ctx.team_id),
+            0,
+            2,
+        )
+        .await
+        .unwrap();
+    let paged: Vec<i64> = first_page
+        .iter()
+        .chain(second_page.iter())
+        .map(|entry| entry.log_id)
+        .collect();
+    assert_eq!(paged, log_ids);
+    assert!(first_page.iter().all(|entry| entry.team_id == ctx.team_id));
 
     ctx.cleanup().await.ok();
 }

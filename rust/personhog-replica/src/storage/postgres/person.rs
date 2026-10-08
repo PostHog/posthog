@@ -13,9 +13,10 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
-    VersionFloorOutcome,
+    DeletePersonsOutcome, PendingPersonTombstone, Person, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneConsumer, TombstoneLogAck,
+    TombstoneLogDistinctId, TombstoneLogRetirement, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -646,6 +647,249 @@ impl PersonLookup for PostgresStorage {
                 tombstoned_at_ms: row.tombstoned_at_ms,
             })
             .collect())
+    }
+
+    async fn list_pending_person_tombstones(
+        &self,
+        consumer: TombstoneConsumer,
+        after_log_id: i64,
+        team_id: Option<i64>,
+        min_age_ms: i64,
+        limit: i64,
+    ) -> StorageResult<Vec<PendingPersonTombstone>> {
+        let labels = [
+            (
+                "operation".to_string(),
+                "list_pending_person_tombstones".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let sql = format!(
+            r#"
+            SELECT log_id, team_id::bigint, person_uuid, person_version,
+                   (EXTRACT(EPOCH FROM tombstoned_at) * 1000)::bigint
+            FROM person_tombstone_log
+            WHERE {column} IS NULL
+              AND log_id > $1
+              AND ($2::int IS NULL OR team_id = $2)
+              AND tombstoned_at <= now() - $3::bigint * interval '1 millisecond'
+            ORDER BY log_id
+            LIMIT $4
+            "#,
+            column = consumer.ack_column()
+        );
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let rows: Vec<(i64, i64, Uuid, i64, i64)> = sqlx::query_as(&sql)
+            .bind(after_log_id)
+            .bind(team_id.map(|t| t as i32))
+            .bind(min_age_ms)
+            .bind(limit)
+            .fetch_all(&mut *conn)
+            .await?;
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows
+            .into_iter()
+            .map(
+                |(log_id, team_id, person_uuid, person_version, tombstoned_at_ms)| {
+                    PendingPersonTombstone {
+                        log_id,
+                        team_id,
+                        person_uuid,
+                        person_version,
+                        tombstoned_at_ms,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        team_id: i64,
+        log_id: i64,
+        after_id: i64,
+        limit: i64,
+    ) -> StorageResult<Vec<TombstoneLogDistinctId>> {
+        let labels = [
+            (
+                "operation".to_string(),
+                "list_person_tombstone_distinct_ids".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let rows: Vec<(i64, String, i64)> = sqlx::query_as(
+            r#"
+            SELECT id, distinct_id, version
+            FROM person_tombstone_log_distinct_id
+            WHERE team_id = $1 AND log_id = $2 AND id > $3
+            ORDER BY id
+            LIMIT $4
+            "#,
+        )
+        .bind(team_id as i32)
+        .bind(log_id)
+        .bind(after_id)
+        .bind(limit)
+        .fetch_all(&mut *conn)
+        .await?;
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows
+            .into_iter()
+            .map(|(id, distinct_id, version)| TombstoneLogDistinctId {
+                id,
+                distinct_id,
+                version,
+            })
+            .collect())
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        team_id: i64,
+        consumer: TombstoneConsumer,
+        log_ids: &[i64],
+    ) -> StorageResult<TombstoneLogAck> {
+        if log_ids.is_empty() {
+            return Ok(TombstoneLogAck::default());
+        }
+        let labels = [
+            (
+                "operation".to_string(),
+                "ack_person_tombstone_log".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
+        // Lock in log_id order, so concurrent acks of overlapping batches by the two consumers
+        // queue rather than deadlock.
+        sqlx::query(
+            r#"
+            SELECT log_id FROM person_tombstone_log
+            WHERE team_id = $1 AND log_id = ANY($2)
+            ORDER BY log_id
+            FOR UPDATE
+            "#,
+        )
+        .bind(team_id as i32)
+        .bind(log_ids)
+        .execute(&mut *tx)
+        .await?;
+        let column = consumer.ack_column();
+        let acked = sqlx::query(&format!(
+            r#"
+            UPDATE person_tombstone_log SET {column} = now()
+            WHERE team_id = $1 AND log_id = ANY($2) AND {column} IS NULL
+            "#
+        ))
+        .bind(team_id as i32)
+        .bind(log_ids)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected() as i64;
+        let completed: i64 = sqlx::query_scalar(
+            r#"
+            SELECT count(*) FROM person_tombstone_log
+            WHERE team_id = $1 AND log_id = ANY($2)
+              AND publication_acked_at IS NOT NULL AND membership_acked_at IS NOT NULL
+            "#,
+        )
+        .bind(team_id as i32)
+        .bind(log_ids)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(TombstoneLogAck { acked, completed })
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        max_rows: i64,
+    ) -> StorageResult<TombstoneLogRetirement> {
+        let labels = [
+            (
+                "operation".to_string(),
+                "retire_person_tombstone_log".to_string(),
+            ),
+            ("pool".to_string(), "bulk_primary".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.bulk_primary_pool.begin().await?;
+        // A generation's distinct ids go first, at most max_rows per call, so one generation with
+        // many aliases is retired over several calls rather than by one unbounded delete. The
+        // batch is materialized: a LIMIT subquery the planner rescans per outer row would delete
+        // past the bound.
+        let distinct_ids_deleted = sqlx::query(
+            r#"
+            WITH batch AS MATERIALIZED (
+                SELECT d.id
+                FROM person_tombstone_log l
+                JOIN person_tombstone_log_distinct_id d
+                  ON d.team_id = l.team_id AND d.log_id = l.log_id
+                WHERE l.publication_acked_at IS NOT NULL AND l.membership_acked_at IS NOT NULL
+                ORDER BY l.log_id, d.id
+                LIMIT $1
+            )
+            DELETE FROM person_tombstone_log_distinct_id
+            WHERE id IN (SELECT id FROM batch)
+            "#,
+        )
+        .bind(max_rows)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected() as i64;
+        let retired = sqlx::query(
+            r#"
+            WITH batch AS MATERIALIZED (
+                SELECT log_id FROM person_tombstone_log
+                WHERE publication_acked_at IS NOT NULL AND membership_acked_at IS NOT NULL
+                ORDER BY log_id
+                LIMIT $1
+            )
+            DELETE FROM person_tombstone_log l
+            WHERE l.log_id IN (SELECT log_id FROM batch)
+              AND NOT EXISTS (
+                SELECT 1 FROM person_tombstone_log_distinct_id d
+                WHERE d.team_id = l.team_id AND d.log_id = l.log_id
+            )
+            "#,
+        )
+        .bind(max_rows)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected() as i64;
+        let has_more: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM person_tombstone_log
+                WHERE publication_acked_at IS NOT NULL AND membership_acked_at IS NOT NULL
+            )
+            "#,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(TombstoneLogRetirement {
+            retired,
+            distinct_ids_deleted,
+            has_more,
+        })
     }
 
     async fn delete_tombstoned_persons(
@@ -1615,6 +1859,12 @@ async fn tombstone_persons_by_uuids(
         .await?;
     }
 
+    if storage.tombstone_log_capture {
+        capture_tombstone_log(&mut tx, team_id, &mut tombstones).await?;
+    }
+    // Persons tombstoned before this call carry no log id. Their distinct ids are read from the
+    // live rows, which can differ from what any logged generation captured, so acking a
+    // generation from them could complete a snapshot that was never published.
     tombstones.extend(with_tombstoned_distinct_ids(&mut tx, team_id, already).await?);
 
     if let Some(op_id) = mark_op_id {
@@ -1870,6 +2120,65 @@ async fn with_tombstoned_distinct_ids(
     ))
 }
 
+/// Runs in the tombstone's transaction, so a generation exists exactly when its tombstone committed.
+async fn capture_tombstone_log(
+    conn: &mut sqlx::PgConnection,
+    team_id: i64,
+    tombstones: &mut [TombstonedPerson],
+) -> StorageResult<()> {
+    if tombstones.is_empty() {
+        return Ok(());
+    }
+    let uuids: Vec<Uuid> = tombstones.iter().map(|t| t.uuid).collect();
+    let versions: Vec<i64> = tombstones.iter().map(|t| t.version).collect();
+    let rows: Vec<(i64, Uuid)> = sqlx::query_as(
+        r#"
+        INSERT INTO person_tombstone_log (team_id, person_uuid, person_version)
+        SELECT $1, t.person_uuid, t.person_version
+        FROM UNNEST($2::uuid[], $3::bigint[]) AS t(person_uuid, person_version)
+        RETURNING log_id, person_uuid
+        "#,
+    )
+    .bind(team_id as i32)
+    .bind(&uuids)
+    .bind(&versions)
+    .fetch_all(&mut *conn)
+    .await?;
+    let log_ids: HashMap<Uuid, i64> = rows.into_iter().map(|(id, uuid)| (uuid, id)).collect();
+
+    let mut payload_log_ids: Vec<i64> = Vec::new();
+    let mut payload_distinct_ids: Vec<String> = Vec::new();
+    let mut payload_versions: Vec<i64> = Vec::new();
+    for tombstone in tombstones.iter_mut() {
+        tombstone.log_id = log_ids.get(&tombstone.uuid).copied();
+        if let Some(log_id) = tombstone.log_id {
+            for did in &tombstone.distinct_ids {
+                payload_log_ids.push(log_id);
+                payload_distinct_ids.push(did.distinct_id.clone());
+                payload_versions.push(did.version);
+            }
+        }
+    }
+    if !payload_log_ids.is_empty() {
+        sqlx::query(
+            r#"
+            INSERT INTO person_tombstone_log_distinct_id (team_id, log_id, distinct_id, version)
+            SELECT $1, t.log_id, t.distinct_id, t.version
+            FROM UNNEST($2::bigint[], $3::text[], $4::bigint[])
+                WITH ORDINALITY AS t(log_id, distinct_id, version, ord)
+            ORDER BY t.ord
+            "#,
+        )
+        .bind(team_id as i32)
+        .bind(&payload_log_ids)
+        .bind(&payload_distinct_ids)
+        .bind(&payload_versions)
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Distinct ids are sorted by name so a retry reports the same list as the original call.
 fn build_tombstones(
     persons: Vec<(i64, Uuid, i64)>,
@@ -1894,6 +2203,7 @@ fn build_tombstones(
                 uuid,
                 version,
                 distinct_ids,
+                log_id: None,
             }
         })
         .collect()

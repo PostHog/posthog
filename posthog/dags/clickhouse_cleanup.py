@@ -50,7 +50,12 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dags.deletes import deletes_job
-from posthog.dags.person_tombstone_queue import publish_queue_gauges, resolve_person_tombstone_queue
+from posthog.dags.person_tombstone_queue import (
+    load_publication_log_cursor,
+    publish_queue_gauges,
+    resolve_person_tombstone_queue,
+    store_publication_log_cursor,
+)
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
@@ -660,6 +665,7 @@ def resolve_tombstone_queue(
     run: CleanupRun,
 ) -> CleanupRun:
     try:
+        log_after = load_publication_log_cursor(context.instance, run.min_team_id, run.max_team_id)
         result = resolve_person_tombstone_queue(
             dry_run=run.dry_run,
             min_team_id=run.min_team_id,
@@ -667,8 +673,10 @@ def resolve_tombstone_queue(
             visibility_timeout_seconds=config.visibility_timeout_seconds,
             poll_interval_seconds=config.poll_interval_seconds,
             log=context.log.warning,
+            log_after=log_after,
         )
         if not run.dry_run:
+            store_publication_log_cursor(context.instance, run.min_team_id, run.max_team_id, result.log_next_after)
             publish_queue_gauges(result, time.time())
     except Exception:
         context.log.exception("resolving the person tombstone queue failed, continuing with the sweep")

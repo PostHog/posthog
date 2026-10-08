@@ -18,6 +18,8 @@ from posthog.personhog_client.interceptor import (
     RetryInterceptor,
 )
 from posthog.personhog_client.proto import (
+    AckPersonTombstoneLogRequest,
+    AckPersonTombstoneLogResponse,
     AckPersonTombstonesRequest,
     AckPersonTombstonesResponse,
     CheckCohortMembershipRequest,
@@ -81,11 +83,17 @@ from posthog.personhog_client.proto import (
     ListCohortMemberIdsResponse,
     ListGroupsRequest,
     ListGroupsResponse,
+    ListPendingPersonTombstonesRequest,
+    ListPendingPersonTombstonesResponse,
+    ListPersonTombstoneDistinctIdsRequest,
+    ListPersonTombstoneDistinctIdsResponse,
     ListPersonTombstoneQueueRequest,
     ListPersonTombstoneQueueResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    RetirePersonTombstoneLogRequest,
+    RetirePersonTombstoneLogResponse,
     SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest,
@@ -245,6 +253,26 @@ class PersonHogClient:
         self, request: ListPersonTombstoneQueueRequest, timeout: float | None = None
     ) -> ListPersonTombstoneQueueResponse:
         return self._stub.ListPersonTombstoneQueue(request, timeout=timeout or self._timeout)
+
+    def list_pending_person_tombstones(
+        self, request: ListPendingPersonTombstonesRequest, timeout: float | None = None
+    ) -> ListPendingPersonTombstonesResponse:
+        return self._stub.ListPendingPersonTombstones(request, timeout=timeout or self._timeout)
+
+    def list_person_tombstone_distinct_ids(
+        self, request: ListPersonTombstoneDistinctIdsRequest, timeout: float | None = None
+    ) -> ListPersonTombstoneDistinctIdsResponse:
+        return self._stub.ListPersonTombstoneDistinctIds(request, timeout=timeout or self._timeout)
+
+    def ack_person_tombstone_log(
+        self, request: AckPersonTombstoneLogRequest, timeout: float | None = None
+    ) -> AckPersonTombstoneLogResponse:
+        return self._stub.AckPersonTombstoneLog(request, timeout=timeout or self._timeout)
+
+    def retire_person_tombstone_log(
+        self, request: RetirePersonTombstoneLogRequest, timeout: float | None = None
+    ) -> RetirePersonTombstoneLogResponse:
+        return self._stub.RetirePersonTombstoneLog(request, timeout=timeout or self._timeout)
 
     # -- Person split --
 

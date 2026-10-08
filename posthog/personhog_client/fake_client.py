@@ -52,6 +52,29 @@ DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
 # The replica's cap on keys per version floor request.
 VERSION_RPC_MAX_KEYS = 250
 
+TOMBSTONE_LOG_MAX_PAGE = 1000
+TOMBSTONE_LOG_DEFAULT_PENDING_PAGE = 100
+TOMBSTONE_LOG_DEFAULT_DISTINCT_ID_PAGE = 250
+TOMBSTONE_LOG_MAX_ACK = 1000
+
+
+@dataclass(frozen=False)
+class _FakeTombstoneLogEntry:
+    log_id: int
+    team_id: int
+    person_uuid: str
+    person_version: int
+    tombstoned_at_ms: int
+    # (payload id, distinct_id, version), in payload id order
+    distinct_ids: list[tuple[int, str, int]]
+    publication_acked: bool = False
+    membership_acked: bool = False
+
+    def acked_by(self, consumer: int) -> bool:
+        if consumer == person_pb2.PERSON_TOMBSTONE_CONSUMER_PUBLICATION:
+            return self.publication_acked
+        return self.membership_acked
+
 
 class FakePersonHogClient:
     """In-memory fake that implements the same interface as PersonHogClient.
@@ -78,6 +101,10 @@ class FakePersonHogClient:
         # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
         # only, so the row budget counts them alone.
         self.tombstoned_delete_max_rows = 5000
+        self.tombstone_log_capture = False
+        self.tombstone_log: dict[int, _FakeTombstoneLogEntry] = {}
+        self._next_tombstone_log_id = 1
+        self._next_tombstone_log_distinct_id = 1
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -665,11 +692,19 @@ class FakePersonHogClient:
                 ):
                     if (request.team_id, did.distinct_id) in self._tombstoned_distinct_ids:
                         tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
+                # Mirrors the replica: only a generation this call captured carries a log id.
                 continue
             response.deleted_count += 1
             tombstoned.version = self._tombstone_person(request.team_id, person, tombstoned)
             self.tombstone_queue[(request.team_id, str(person.uuid))] = tombstoned.version
             self.tombstone_queued_at_ms.setdefault((request.team_id, str(person.uuid)), int(time.time() * 1000))
+            if self.tombstone_log_capture:
+                tombstoned.log_id = self.add_tombstone_log_entry(
+                    team_id=request.team_id,
+                    person_uuid=person.uuid,
+                    person_version=tombstoned.version,
+                    distinct_ids=[(did.distinct_id, did.version) for did in tombstoned.distinct_ids],
+                )
         response.tombstones.sort(key=lambda t: t.person_uuid)
         return response
 
@@ -721,6 +756,138 @@ class FakePersonHogClient:
                 tombstoned_at=self.tombstone_queued_at_ms.get((team_id, person_uuid), 0),
             )
         return response
+
+    def add_tombstone_log_entry(
+        self,
+        *,
+        team_id: int,
+        person_uuid: str,
+        person_version: int,
+        distinct_ids: list[tuple[str, int]],
+        tombstoned_at_ms: int | None = None,
+    ) -> int:
+        log_id = self._next_tombstone_log_id
+        self._next_tombstone_log_id += 1
+        payload: list[tuple[int, str, int]] = []
+        for distinct_id, version in distinct_ids:
+            payload.append((self._next_tombstone_log_distinct_id, distinct_id, version))
+            self._next_tombstone_log_distinct_id += 1
+        self.tombstone_log[log_id] = _FakeTombstoneLogEntry(
+            log_id=log_id,
+            team_id=team_id,
+            person_uuid=str(person_uuid),
+            person_version=person_version,
+            tombstoned_at_ms=int(time.time() * 1000) if tombstoned_at_ms is None else tombstoned_at_ms,
+            distinct_ids=payload,
+        )
+        return log_id
+
+    @staticmethod
+    def _require_tombstone_consumer(consumer: int) -> None:
+        if consumer not in (
+            person_pb2.PERSON_TOMBSTONE_CONSUMER_PUBLICATION,
+            person_pb2.PERSON_TOMBSTONE_CONSUMER_CUSTOMER_ANALYTICS_MEMBERSHIP,
+        ):
+            raise ValueError(f"Unknown PersonTombstoneConsumer {consumer}")
+
+    @staticmethod
+    def _tombstone_log_limit(limit: int, default: int) -> int:
+        if limit == 0:
+            return default
+        if not 1 <= limit <= TOMBSTONE_LOG_MAX_PAGE:
+            raise ValueError(f"limit must be between 0 and {TOMBSTONE_LOG_MAX_PAGE}")
+        return limit
+
+    def list_pending_person_tombstones(
+        self, request: person_pb2.ListPendingPersonTombstonesRequest, timeout: float | None = None
+    ) -> person_pb2.ListPendingPersonTombstonesResponse:
+        self.calls.append(_Call("list_pending_person_tombstones", request))
+        self._require_tombstone_consumer(request.consumer)
+        limit = self._tombstone_log_limit(request.limit, TOMBSTONE_LOG_DEFAULT_PENDING_PAGE)
+        if request.after_log_id < 0 or request.min_age_ms < 0:
+            raise ValueError("after_log_id and min_age_ms must not be negative")
+        cutoff_ms = int(time.time() * 1000) - request.min_age_ms
+        pending = [
+            entry
+            for log_id, entry in sorted(self.tombstone_log.items())
+            if log_id > request.after_log_id
+            and not entry.acked_by(request.consumer)
+            and entry.tombstoned_at_ms <= cutoff_ms
+            and (not request.HasField("team_id") or entry.team_id == request.team_id)
+        ]
+        response = person_pb2.ListPendingPersonTombstonesResponse(has_more=len(pending) > limit)
+        for entry in pending[:limit]:
+            response.entries.add(
+                log_id=entry.log_id,
+                team_id=entry.team_id,
+                person_uuid=entry.person_uuid,
+                person_version=entry.person_version,
+                tombstoned_at=entry.tombstoned_at_ms,
+            )
+        return response
+
+    def list_person_tombstone_distinct_ids(
+        self, request: person_pb2.ListPersonTombstoneDistinctIdsRequest, timeout: float | None = None
+    ) -> person_pb2.ListPersonTombstoneDistinctIdsResponse:
+        self.calls.append(_Call("list_person_tombstone_distinct_ids", request))
+        limit = self._tombstone_log_limit(request.limit, TOMBSTONE_LOG_DEFAULT_DISTINCT_ID_PAGE)
+        if request.after_id < 0:
+            raise ValueError("after_id must not be negative")
+        entry = self.tombstone_log.get(request.log_id)
+        rows = (
+            [row for row in entry.distinct_ids if row[0] > request.after_id]
+            if entry is not None and entry.team_id == request.team_id
+            else []
+        )
+        response = person_pb2.ListPersonTombstoneDistinctIdsResponse(has_more=len(rows) > limit)
+        for payload_id, distinct_id, version in rows[:limit]:
+            response.distinct_ids.add(id=payload_id, distinct_id=distinct_id, version=version)
+        return response
+
+    def ack_person_tombstone_log(
+        self, request: person_pb2.AckPersonTombstoneLogRequest, timeout: float | None = None
+    ) -> person_pb2.AckPersonTombstoneLogResponse:
+        self.calls.append(_Call("ack_person_tombstone_log", request))
+        self._require_tombstone_consumer(request.consumer)
+        if len(request.log_ids) > TOMBSTONE_LOG_MAX_ACK:
+            raise ValueError(f"Maximum {TOMBSTONE_LOG_MAX_ACK} log ids per request")
+        acked = completed = 0
+        for log_id in set(request.log_ids):
+            entry = self.tombstone_log.get(log_id)
+            if entry is None or entry.team_id != request.team_id:
+                continue
+            if not entry.acked_by(request.consumer):
+                acked += 1
+                if request.consumer == person_pb2.PERSON_TOMBSTONE_CONSUMER_PUBLICATION:
+                    entry.publication_acked = True
+                else:
+                    entry.membership_acked = True
+            if entry.publication_acked and entry.membership_acked:
+                completed += 1
+        return person_pb2.AckPersonTombstoneLogResponse(acked_count=acked, completed_count=completed)
+
+    def retire_person_tombstone_log(
+        self, request: person_pb2.RetirePersonTombstoneLogRequest, timeout: float | None = None
+    ) -> person_pb2.RetirePersonTombstoneLogResponse:
+        self.calls.append(_Call("retire_person_tombstone_log", request))
+        budget = request.max_rows or 5000
+        retired = deleted = 0
+        for log_id in sorted(self.tombstone_log):
+            entry = self.tombstone_log[log_id]
+            if not (entry.publication_acked and entry.membership_acked):
+                continue
+            take = min(budget - deleted, len(entry.distinct_ids))
+            entry.distinct_ids = entry.distinct_ids[take:]
+            deleted += take
+            if not entry.distinct_ids:
+                del self.tombstone_log[log_id]
+                retired += 1
+            if deleted >= budget:
+                break
+        has_more = any(entry.publication_acked and entry.membership_acked for entry in self.tombstone_log.values())
+        return person_pb2.RetirePersonTombstoneLogResponse(
+            retired_count=retired, distinct_ids_deleted=deleted, has_more=has_more
+        )
 
     def get_person_tombstones(
         self, request: person_pb2.GetPersonTombstonesRequest, timeout: float | None = None

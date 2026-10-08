@@ -514,6 +514,59 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(ListPersonTombstoneQueueResponse::default()))
     }
 
+    async fn list_pending_person_tombstones(
+        &self,
+        _request: Request<
+            personhog_proto::personhog::types::v1::ListPendingPersonTombstonesRequest,
+        >,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::ListPendingPersonTombstonesResponse>,
+        Status,
+    > {
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::ListPendingPersonTombstonesResponse::default(),
+        ))
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        _request: Request<
+            personhog_proto::personhog::types::v1::ListPersonTombstoneDistinctIdsRequest,
+        >,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::ListPersonTombstoneDistinctIdsResponse>,
+        Status,
+    > {
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::ListPersonTombstoneDistinctIdsResponse::default(
+            ),
+        ))
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        _request: Request<personhog_proto::personhog::types::v1::AckPersonTombstoneLogRequest>,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::AckPersonTombstoneLogResponse>,
+        Status,
+    > {
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::AckPersonTombstoneLogResponse::default(),
+        ))
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        _request: Request<personhog_proto::personhog::types::v1::RetirePersonTombstoneLogRequest>,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::RetirePersonTombstoneLogResponse>,
+        Status,
+    > {
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::RetirePersonTombstoneLogResponse::default(),
+        ))
+    }
+
     async fn split_person(
         &self,
         _request: Request<SplitPersonRequest>,

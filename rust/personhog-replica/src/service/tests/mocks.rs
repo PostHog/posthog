@@ -139,6 +139,43 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn list_pending_person_tombstones(
+        &self,
+        _consumer: storage::TombstoneConsumer,
+        _after_log_id: i64,
+        _team_id: Option<i64>,
+        _min_age_ms: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::PendingPersonTombstone>> {
+        Err(self.error.clone())
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _log_id: i64,
+        _after_id: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::TombstoneLogDistinctId>> {
+        Err(self.error.clone())
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        _team_id: i64,
+        _consumer: storage::TombstoneConsumer,
+        _log_ids: &[i64],
+    ) -> storage::StorageResult<storage::TombstoneLogAck> {
+        Err(self.error.clone())
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstoneLogRetirement> {
+        Err(self.error.clone())
+    }
+
     async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
@@ -558,6 +595,43 @@ impl storage::PersonLookup for SuccessStorage {
         _limit: i64,
     ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
         Ok(Vec::new())
+    }
+
+    async fn list_pending_person_tombstones(
+        &self,
+        _consumer: storage::TombstoneConsumer,
+        _after_log_id: i64,
+        _team_id: Option<i64>,
+        _min_age_ms: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::PendingPersonTombstone>> {
+        Ok(Vec::new())
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _log_id: i64,
+        _after_id: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::TombstoneLogDistinctId>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        _team_id: i64,
+        _consumer: storage::TombstoneConsumer,
+        _log_ids: &[i64],
+    ) -> storage::StorageResult<storage::TombstoneLogAck> {
+        Ok(storage::TombstoneLogAck::default())
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstoneLogRetirement> {
+        Ok(storage::TombstoneLogRetirement::default())
     }
 
     async fn delete_persons_batch_for_team(
@@ -1040,6 +1114,43 @@ impl storage::PersonLookup for PopulatedStorage {
         Ok(Vec::new())
     }
 
+    async fn list_pending_person_tombstones(
+        &self,
+        _consumer: storage::TombstoneConsumer,
+        _after_log_id: i64,
+        _team_id: Option<i64>,
+        _min_age_ms: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::PendingPersonTombstone>> {
+        Ok(Vec::new())
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _log_id: i64,
+        _after_id: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::TombstoneLogDistinctId>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        _team_id: i64,
+        _consumer: storage::TombstoneConsumer,
+        _log_ids: &[i64],
+    ) -> storage::StorageResult<storage::TombstoneLogAck> {
+        Ok(storage::TombstoneLogAck::default())
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstoneLogRetirement> {
+        Ok(storage::TombstoneLogRetirement::default())
+    }
+
     async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
@@ -1494,6 +1605,43 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _limit: i64,
     ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
         Ok(Vec::new())
+    }
+
+    async fn list_pending_person_tombstones(
+        &self,
+        _consumer: storage::TombstoneConsumer,
+        _after_log_id: i64,
+        _team_id: Option<i64>,
+        _min_age_ms: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::PendingPersonTombstone>> {
+        Ok(Vec::new())
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        _team_id: i64,
+        _log_id: i64,
+        _after_id: i64,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::TombstoneLogDistinctId>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        _team_id: i64,
+        _consumer: storage::TombstoneConsumer,
+        _log_ids: &[i64],
+    ) -> storage::StorageResult<storage::TombstoneLogAck> {
+        Ok(storage::TombstoneLogAck::default())
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstoneLogRetirement> {
+        Ok(storage::TombstoneLogRetirement::default())
     }
 
     async fn delete_persons_batch_for_team(

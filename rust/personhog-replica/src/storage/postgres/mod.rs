@@ -42,6 +42,9 @@ pub struct PostgresStorage {
     pub(crate) bulk_chunk_size: usize,
     pub(crate) bulk_max_concurrent_chunks: usize,
     pub(crate) tombstoned_delete_max_rows: usize,
+    /// Whether DeletePersons captures each tombstone generation in the shared tombstone log. Off
+    /// until the log tables exist and every replica runs a build that honors the log.
+    pub(crate) tombstone_log_capture: bool,
 }
 
 impl PostgresStorage {
@@ -63,7 +66,13 @@ impl PostgresStorage {
             bulk_chunk_size,
             bulk_max_concurrent_chunks,
             tombstoned_delete_max_rows,
+            tombstone_log_capture: false,
         }
+    }
+
+    pub fn with_tombstone_log_capture(mut self, enabled: bool) -> Self {
+        self.tombstone_log_capture = enabled;
+        self
     }
 
     /// Get the appropriate pool based on consistency level.

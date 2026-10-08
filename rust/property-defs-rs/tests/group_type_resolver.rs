@@ -377,6 +377,42 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<ListPersonTombstoneQueueResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn list_pending_person_tombstones(
+        &self,
+        _: Request<personhog_proto::personhog::types::v1::ListPendingPersonTombstonesRequest>,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::ListPendingPersonTombstonesResponse>,
+        Status,
+    > {
+        Err(Status::unimplemented(""))
+    }
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        _: Request<personhog_proto::personhog::types::v1::ListPersonTombstoneDistinctIdsRequest>,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::ListPersonTombstoneDistinctIdsResponse>,
+        Status,
+    > {
+        Err(Status::unimplemented(""))
+    }
+    async fn ack_person_tombstone_log(
+        &self,
+        _: Request<personhog_proto::personhog::types::v1::AckPersonTombstoneLogRequest>,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::AckPersonTombstoneLogResponse>,
+        Status,
+    > {
+        Err(Status::unimplemented(""))
+    }
+    async fn retire_person_tombstone_log(
+        &self,
+        _: Request<personhog_proto::personhog::types::v1::RetirePersonTombstoneLogRequest>,
+    ) -> Result<
+        Response<personhog_proto::personhog::types::v1::RetirePersonTombstoneLogResponse>,
+        Status,
+    > {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,

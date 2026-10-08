@@ -20,16 +20,23 @@ fn database_url() -> String {
 }
 
 fn storage_over(pool: PgPool) -> Arc<dyn FullStorage> {
+    storage_with_capture(pool, false)
+}
+
+fn storage_with_capture(pool: PgPool, tombstone_log_capture: bool) -> Arc<dyn FullStorage> {
     // In tests, use the same pool for everything
-    Arc::new(PostgresStorage::new(
-        pool.clone(),
-        pool.clone(),
-        pool.clone(),
-        pool,
-        50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
-        5,  // bulk_max_concurrent_chunks
-        12, // tombstoned_delete_max_rows, small enough that the clamp is observable
-    ))
+    Arc::new(
+        PostgresStorage::new(
+            pool.clone(),
+            pool.clone(),
+            pool.clone(),
+            pool,
+            50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
+            5,  // bulk_max_concurrent_chunks
+            12, // tombstoned_delete_max_rows, small enough that the clamp is observable
+        )
+        .with_tombstone_log_capture(tombstone_log_capture),
+    )
 }
 
 /// Test context that manages database connections and provides test data helpers.
@@ -51,6 +58,30 @@ impl TestContext {
             pool,
             storage,
             team_id,
+        }
+    }
+
+    pub async fn with_tombstone_log() -> Self {
+        let mut ctx = Self::new().await;
+        ctx.storage = storage_with_capture(ctx.pool.clone(), true);
+        ctx
+    }
+
+    /// The same database and team behind a storage that does not capture, like a replica with
+    /// TOMBSTONE_LOG_CAPTURE_ENABLED unset.
+    pub fn without_tombstone_log(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            storage: storage_with_capture(self.pool.clone(), false),
+            team_id: self.team_id,
+        }
+    }
+
+    pub fn other_team(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            storage: self.storage.clone(),
+            team_id: random_team_id(),
         }
     }
 
@@ -346,6 +377,16 @@ impl TestContext {
             .await?;
 
         sqlx::query("DELETE FROM person_tombstone_publish_queue WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("DELETE FROM person_tombstone_log_distinct_id WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("DELETE FROM person_tombstone_log WHERE team_id = $1")
             .bind(self.team_id)
             .execute(&self.pool)
             .await?;

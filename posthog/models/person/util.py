@@ -33,6 +33,7 @@ from posthog.models.person.sql import (
     INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_SQL,
 )
+from posthog.models.person.tombstone_log import TombstoneConsumer, ack_person_tombstones_for_consumer
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
@@ -719,6 +720,7 @@ class PersonTombstone:
     uuid: UUID
     version: int
     distinct_ids: list[DistinctIdForPerson]
+    log_id: int | None = None
 
 
 def _to_tombstone(t: person_pb2.TombstonedPerson) -> PersonTombstone:
@@ -726,6 +728,7 @@ def _to_tombstone(t: person_pb2.TombstonedPerson) -> PersonTombstone:
         uuid=UUID(t.person_uuid),
         version=int(t.version),
         distinct_ids=[DistinctIdForPerson(id=d.distinct_id, version=int(d.version)) for d in t.distinct_ids],
+        log_id=int(t.log_id) if t.HasField("log_id") else None,
     )
 
 
@@ -862,6 +865,14 @@ PERSON_TOMBSTONE_ACKS_COUNTER = Counter(
     labelnames=["outcome"],
 )
 
+# "acked" counts shared log entries this ack completed for publication. "ack_failed" counts entries in a
+# call that raised; they stay pending for the weekly sweep, which publishes them from the log.
+PERSON_TOMBSTONE_LOG_ACKS_COUNTER = Counter(
+    "posthog_person_tombstone_log_publication_acks_total",
+    "Shared tombstone log entries acked for publication after Kafka delivery, or left pending because the ack call failed.",
+    labelnames=["outcome"],
+)
+
 
 @frozen
 class PersonTombstonePublishFailure:
@@ -907,6 +918,7 @@ class PersonTombstonePublication:
         PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS.labels(source=self.source).observe(time.monotonic() - started)
 
         delivered: list[tuple[UUID, int]] = []
+        delivered_log_ids: list[int] = []
         for tombstone, results in pending:
             try:
                 for result in results:
@@ -915,6 +927,8 @@ class PersonTombstonePublication:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
             delivered.append((tombstone.uuid, tombstone.version))
+            if tombstone.log_id is not None:
+                delivered_log_ids.append(tombstone.log_id)
         for i in range(0, len(delivered), 1000):
             chunk = delivered[i : i + 1000]
             try:
@@ -926,6 +940,23 @@ class PersonTombstonePublication:
                 )
                 continue
             PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="acked").inc(cleared)
+        self._ack_log_publication(delivered_log_ids)
+
+    def _ack_log_publication(self, log_ids: list[int]) -> None:
+        if not log_ids:
+            return
+        try:
+            acked = ack_person_tombstones_for_consumer(TombstoneConsumer.PUBLICATION, self.team_id, log_ids)
+        except Exception as exc:
+            PERSON_TOMBSTONE_LOG_ACKS_COUNTER.labels(outcome="ack_failed").inc(len(log_ids))
+            logger.warning(
+                "person_tombstones.log_ack_failed",
+                team_id=self.team_id,
+                entry_count=len(log_ids),
+                error_type=type(exc).__name__,
+            )
+            return
+        PERSON_TOMBSTONE_LOG_ACKS_COUNTER.labels(outcome="acked").inc(acked)
 
 
 def _flush_person_producers(timeout: float) -> None:

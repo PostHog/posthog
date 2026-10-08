@@ -68,6 +68,12 @@ pub struct Config {
     /// measured tail cost on the persons tables is up to 5 ms per row.
     #[envconfig(default = "5000")]
     pub tombstoned_delete_max_rows: usize,
+
+    /// Capture each DeletePersons tombstone generation, with its distinct ids, in the shared
+    /// tombstone log. Turn on only after the person_tombstone_log migration has run and every
+    /// replica in the fleet runs a build that serves the log RPCs.
+    #[envconfig(default = "false")]
+    pub tombstone_log_capture_enabled: bool,
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.

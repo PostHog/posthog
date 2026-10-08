@@ -29,6 +29,9 @@ pub struct TombstonedPerson {
     pub uuid: Uuid,
     pub version: i64,
     pub distinct_ids: Vec<TombstonedDistinctId>,
+    /// The shared tombstone log generation this call captured. None for a person tombstoned
+    /// before the call, whose current rows may not match any logged generation.
+    pub log_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +40,52 @@ pub struct PersonTombstoneQueueEntry {
     pub person_uuid: Uuid,
     pub person_version: i64,
     pub tombstoned_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TombstoneConsumer {
+    Publication,
+    CustomerAnalyticsMembership,
+}
+
+impl TombstoneConsumer {
+    /// A closed set of static names, so it is safe to format into SQL.
+    pub(crate) fn ack_column(self) -> &'static str {
+        match self {
+            TombstoneConsumer::Publication => "publication_acked_at",
+            TombstoneConsumer::CustomerAnalyticsMembership => "membership_acked_at",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingPersonTombstone {
+    pub log_id: i64,
+    pub team_id: i64,
+    pub person_uuid: Uuid,
+    pub person_version: i64,
+    pub tombstoned_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TombstoneLogDistinctId {
+    pub id: i64,
+    pub distinct_id: String,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TombstoneLogAck {
+    pub acked: i64,
+    /// Requested generations every consumer has acked once this call commits.
+    pub completed: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TombstoneLogRetirement {
+    pub retired: i64,
+    pub distinct_ids_deleted: i64,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

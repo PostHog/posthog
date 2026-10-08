@@ -4,8 +4,8 @@ Which ClickHouse tables a data deletion reaches, which rely on their TTL instead
 
 Deleting a person's data is not a property of the events table.
 It is a property of every table that stores rows attributable to a person.
-`posthog/models/deletion_targets.py` lists event-shaped targets and tables that need custom reconciliation.
-This document explains each choice.
+`posthog/models/deletion_targets.py` is the one list of the tables the deletion jobs sweep; this document is the reasoning behind it.
+[Person-account membership](#person-account-membership) has its own cleanup, described below.
 
 ## The sweeps
 
@@ -105,85 +105,96 @@ The gate runs before shard processing and again during verification, with the sa
 
 ## Person-account membership
 
-`sharded_person_group_membership` records historical relationships and has no age-based TTL.
-`CUSTOM_RECONCILIATION_TABLES` identifies its coverage outside the event-shaped target list.
-The storage and eligibility config live on AUX.
-Customer analytics owns recovery records in the application database and cleanup workflows under `products/customer_analytics/backend/temporal/membership_deletion.py`.
-No recovery table belongs to persons DB.
+`sharded_person_group_membership` stores which distinct IDs appeared with which account, with first and last seen times.
+Its config table, `person_group_membership_config`, selects the teams it stores rows for.
+Both tables live on the AUX cluster and have no TTL.
+They are not in `deletion_targets.py`, because a membership row has no event UUID, timestamp, or person ID for the event sweeps to match.
+Customer analytics erases them as a consumer of the person tombstone log.
 
-### Registration and rollout
+### What is covered
 
-A producer must call `register_membership_team(team_id)` before its first membership write.
-The registration survives team deletion and routes only participating teams into receipt capture.
-`CUSTOMER_ANALYTICS_MEMBERSHIP_DELETION_ENABLED` defaults to false.
-The coordinator schedule starts paused.
-Neither registration nor this person/team implementation permits production membership ingestion or backfill.
-Event/property coverage and write/cleanup concurrency validation remain required before writes start.
+- **Person deletion.** With tombstone log capture on, cleanup targets the distinct IDs tombstoned with the person, except IDs that a live person holds when cleanup runs.
+  The API, bulk deletion, deletion requests, and by-ID person purges are all covered, because they tombstone through personhog's `DeletePersons`.
+- **Project deletion.** All membership and config rows are erased for a team that has no Team row and has an `AsyncDeletion(Team)` entry.
+  Project, environment, and organization deletion produce both.
+- **Whole-team person purge.** The purge may run for a team whose Team row is gone or that has an `AsyncDeletion(Team)` entry, so a queued project qualifies before its Team row is removed.
+  The purge does not write tombstone log entries. Its persons' membership is erased with the rest of the project, once the Team row is gone and the deletion entry exists.
 
-### Identity and person deletion
+### What is not covered
 
-Membership stores `distinct_id`, not event-time person identity.
-The read query resolves current identity, follows merges and splits, deduplicates aliases, and excludes deleted mappings.
-That read behavior does not physically erase stored membership.
+1. **Deletions the log did not capture.** Capture is off by default, and replicas that predate the log do not write it.
+   Other source paths that tombstone persons, such as the identity service's delete saga, are not confirmed to write it.
+2. **Identity changes the stored rows cannot separate.** A membership row aggregates every event for its distinct ID.
+   - When a live person holds the distinct ID at cleanup time, the row is skipped, and the deleted person's share of its history stays.
+   - The owner check is not fenced, so a reassignment that commits between the check and the delete is not seen.
+   - A distinct ID that moved off the person through a merge or split before deletion is not in the tombstone.
+3. **Rows written after cleanup.** An event in flight, or ingestion, backfill, or replay, can write a row back after its distinct ID was erased.
+4. **Event deletion, property deletion, and retention.** Deleting events or `$group_N` properties does not repair first and last seen times.
+   Nothing expires membership by age, and `cleanup_old_events_by_partition` does not touch it.
+5. **A project without both deletion signals.** Project-wide erasure waits while the Team row still exists, or while no `AsyncDeletion(Team)` entry exists.
+   A team without the entry is reported as unconfirmed. Its person tombstones still erase only those persons' distinct IDs.
 
-For participating teams, profile deletion prepares Customer analytics-owned intents before the existing Postgres tombstone.
-Committed tombstone results supply the actual erased distinct IDs and versions.
-Receipt capture does not query membership or wait for cleanup.
-The original ClickHouse tombstone publication stays separate.
-If recording the committed result fails, the prepared intent survives for independent recovery from a positive personhog tombstone.
-Physical Postgres cleanup must retain that evidence in Customer analytics before erasing the identity rows.
+### How it works
 
-By-ID deletion saves person UUID references before invoking the existing tombstone-and-publication path.
-A retry uses the saved UUIDs even when live-person lookup no longer returns those persons.
-The version-bounded Postgres drain retains the committed identity manifest before physical purge.
-Persons DB schema and personhog storage remain unchanged.
+```mermaid
+flowchart TD
+    delete[Person deletion] --> tx["Tombstone transaction:<br/>person and distinct IDs tombstoned,<br/>log entry and its distinct ID payload written"]
+    tx --> pub[Publication consumer:<br/>publishes ClickHouse person tombstones]
+    tx --> mem[Membership consumer:<br/>erases and verifies membership rows]
+    pub -- acknowledges log ID --> entry[(Tombstone log entry)]
+    mem -- acknowledges log ID --> entry
+    entry -- both acknowledged --> retire[Entry and payload retired]
+    tx --> cleanup[Physical Postgres cleanup:<br/>own queue, never reads or deletes the log]
+```
 
-Receipt preparation is additional local database bookkeeping.
-A preparation failure retains source profiles for retry.
-It is not an atomic transaction spanning Customer analytics and persons DB.
-A membership-cluster outage delays the independent worker, not the source deletion.
+The person tombstone transaction writes one log entry per deletion generation.
+The entry has a stable log ID and an unchangeable payload: the distinct IDs and versions the transaction tombstoned.
+Publication and membership each acknowledge entries by log ID on their own, and the entry and its payload are retired only after both have.
+Deleting the same person again creates a new entry with a new log ID, so an old acknowledgement cannot complete it.
+Physical cleanup of tombstoned Postgres rows runs from its own queue and never removes the log.
 
-### Team deletion
+The membership consumer runs on the `customer-analytics-membership-deletion-coordinator-schedule` Temporal schedule.
+Each run first scans part of the stored team IDs and erases projects that have both deletion signals.
+It then continues its pass over unacknowledged log entries where the last run stopped.
+For each entry it erases the membership rows of the entry's distinct IDs, except IDs a live person holds, and checks that none remain.
+Only then does it acknowledge the entry.
 
-Actual team teardown records a confirmed receipt in the existing application-database transaction that removes Team metadata.
-The receipt has no Team foreign key and survives the deletion.
-The coordinator also observes the existing `AsyncDeletion(Team)` ledger, including already-verified entries.
-Cleanup removes membership and eligibility config after positive team-deletion evidence.
+### When something fails
 
-Whole-team person purges retain eligibility config.
-Their receipt confirms only when a source batch reports exhaustion.
-A batch-limited or interrupted run must not be represented as completed full-team erasure.
-Its unconfirmed intent remains pending; partial-purge coverage requires further validation before production writes.
+- If the AUX cluster is unreachable, a delete leaves rows behind, or the owner lookup fails, that team's entries stay unacknowledged.
+  The rest of the pass skips that team, so later teams still get processed. The next pass tries it again.
+- If the membership tables do not exist on any cluster, entries are acknowledged, because there is nothing to erase.
+  If the tables exist but cannot be reached, entries stay unacknowledged.
+- If a run stops partway through a large entry, the next attempt or run continues after the last verified chunk.
+  If a run dies before it returns, the next run continues from the position the last completed run returned, so some chunks run again.
+  No distinct ID is skipped, and a partly erased entry is never acknowledged.
+- A membership outage does not block publication or physical cleanup.
+  The payload waits in the persons database until membership acknowledges it, so the log grows during an outage.
+- The membership consumer's failure logs and activity errors carry the error type, team ID, and counts, not distinct IDs.
 
-### Independent cleanup and verification
+### Deployment prerequisites
 
-The coordinator starts independent per-receipt Temporal workflows.
-Workflow payloads contain team and receipt references, not identifier lists.
-Identifiers remain in Customer analytics storage and enter worker memory in bounded pages.
-The worker preserves identities with a currently active owner, removes the targeted membership rows, and verifies through distributed read tables before acknowledging the receipt.
-Completion removes redundant identifier payloads from recovery storage.
+1. Run the persons database migration that creates the tombstone log.
+2. Deploy personhog router and replica builds that serve the log, with capture still off.
+3. After every replica runs that build, turn on the replica setting `TOMBSTONE_LOG_CAPTURE_ENABLED`, which is off by default.
+4. Unpause the schedule. It is created paused, and worker restarts keep an operator's pause or unpause.
+5. Only then let anything write membership rows, including backfills.
+   Before that, confirm that every source path that tombstones persons writes the log.
 
-The worker bounds network/query waits, mutation-capacity polling, dispatch concurrency, and retries.
-A failed receipt retains its evidence without failing existing deletion execution.
-Retries repeat idempotent erasure.
-Missing optional tables are rollout no-ops; unreachable populated tables retain pending work.
-The current owner check does not fence reassignment between lookup and mutation.
-Concurrent identity changes, live ingestion, backfill, and replay still require validation and write-side coordination before activation.
+To roll back, stop membership writes first.
+Stopping writes does not remove stored rows, so keep capture on and the schedule running until stored membership is erased or its tables are dropped.
 
-### Event/property and retention coverage
+### Implementation notes
 
-Event and `$group_N` property cleanup is a follow-up, not part of this implementation.
-Deleting the last supporting event must clear its association.
-Deleting other contributions repairs only affected first/last activity boundaries.
-Batch deletions and equal timestamps require explicit handling.
-The repair strategy needs durable event evidence, safe aggregate replacement, and bounded query-cost validation.
-No membership reconciliation or staging enters the existing event/property deletion jobs here.
-
-A plan's query window does not automatically expire historical membership.
-`cleanup_old_events_by_partition` still does not repair it.
-Physical source purges and event/property erasure remain coverage gaps until the follow-up defines and validates them.
-Stop membership writes before disabling capture or cleanup during rollback.
-Retain recovery evidence and cleanup until stored membership is erased or its tables are removed.
+- Code: `products/customer_analytics/backend/logic/membership_deletion.py` holds the ClickHouse deletes and checks, `membership_deletion_consumer.py` the log consumer, and `temporal/membership_deletion.py` the schedule.
+  The log API is `posthog/models/person/tombstone_log.py`.
+- The schedule fires every 15 minutes, and a run stops after 10 minutes or 30 log pages.
+  A run's result carries the log cursor, the resume position, the team scan cursor, and up to 100 team IDs skipped in the current pass, and the schedule hands that result to the next run.
+- A delete carries at most 250 distinct IDs. A distinct ID can hold 400 characters and the driver inlines parameters, so this keeps the query under ClickHouse's default `max_query_size`.
+  A delete waits up to 120 seconds for mutation capacity on the table before it fails.
+- Verification counts surviving rows through the Distributed read table with `surviving_rows_sql`, which excludes rows a lightweight delete already hid.
+- An activity stops by itself after 6 minutes. It returns, or records in its heartbeat, only a team ID, a log ID, and a payload cursor, so Temporal history holds no distinct IDs.
+  A retried attempt starts by heartbeating the cursor it resumes from, so a retry that dies early does not erase it.
 
 ## Tables on TTL alone
 
@@ -338,8 +349,8 @@ When one of those runs starts during a copy, the shard stops, and its error name
 `cleanup_old_events_by_partition` stays events-only.
 It enforces a multi-year retention floor for the teams and partitions each manual run names.
 Every other personal-data table except person-account membership already expires sooner under its own TTL.
-Membership has no TTL, and this job does not reconcile it.
-[Person-account membership](#person-account-membership) records that open gap.
+Membership has no TTL, and this job does not touch it.
+[Person-account membership](#person-account-membership) lists that gap.
 
 ## Adding a table
 

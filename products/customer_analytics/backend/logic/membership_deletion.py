@@ -1,11 +1,9 @@
 import time
-from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import field
-from uuid import UUID
+from typing import cast
 
 from django.conf import settings
-from django.db.models import Exists, OuterRef
 
 import structlog
 from clickhouse_driver import Client
@@ -16,29 +14,15 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import TOO_MANY_MUTATIONS, ClickhouseCluster, RetryPolicy, get_cluster
 from posthog.dataclasses import frozen
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import DeletionTarget, UnsweptRowsError, resolve_placements
-from posthog.models.person.util import get_person_tombstones
+from posthog.models.deletion_targets import DeletionTarget, UnsweptRowsError, resolve_placements, surviving_rows_sql
 from posthog.models.person_group_membership.sql import (
     DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
     PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
     PERSON_GROUP_MEMBERSHIP_TABLE,
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
 )
-from posthog.models.team import Team
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetPersonsByDistinctIdsInTeamRequest, ReadOptions
-
-from products.customer_analytics.backend.facade.membership_deletion_contracts import (
-    MembershipDeletionCursor,
-    MembershipDeletionDetails,
-    MembershipDeletionKind,
-)
-from products.customer_analytics.backend.logic import membership_deletion_receipts as receipts
-from products.customer_analytics.backend.models.membership_deletion import (
-    MembershipDeletionReceipt,
-    MembershipDeletionTeam,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -58,8 +42,10 @@ CONFIG_TARGET = DeletionTarget(
     optional=True,
     stores_person_properties=False,
 )
-# GetPersonsByDistinctIdsInTeamRequest accepts at most 250 distinct IDs.
-PAGE_SIZE = 250
+# GetPersonsByDistinctIdsInTeamRequest accepts at most 250 distinct IDs. A distinct ID can hold 400 characters
+# and the driver inlines parameters into the query text, so 250 IDs also stay below ClickHouse's default
+# max_query_size of 256 KiB.
+DISTINCT_ID_CHUNK_SIZE = 250
 QUERY_SETTINGS: Mapping[str, str] = {"max_execution_time": "60"}
 DELETE_SETTINGS: Mapping[str, str] = {**QUERY_SETTINGS, "lightweight_deletes_sync": "2", "mutations_sync": "2"}
 CAPACITY_WAIT_SECONDS = 120.0
@@ -77,14 +63,6 @@ class MembershipClickHouseError(Exception):
 
 
 class MembershipCapacityError(Exception):
-    pass
-
-
-class MembershipDeletionPending(Exception):
-    pass
-
-
-class MembershipDeletionInterrupted(Exception):
     pass
 
 
@@ -169,7 +147,7 @@ def _sweep(
         placement.cluster.map_one_host_per_shard(delete).result()
         verify = _Statement(
             operation="verification",
-            sql=f"SELECT count() FROM {_name(placement.target.read_table)} WHERE {predicate}",
+            sql=surviving_rows_sql(_name(placement.target.read_table), predicate),
             parameters=parameters,
         )
         survivors = cluster.any_host_by_role(verify, NodeRole.DATA).result()[0][0]
@@ -179,174 +157,68 @@ def _sweep(
 
 def delete_distinct_ids(cluster: ClickhouseCluster, team_id: int, distinct_ids: Sequence[str]) -> None:
     unique = sorted(set(distinct_ids))
-    for start in range(0, len(unique), PAGE_SIZE):
+    for start in range(0, len(unique), DISTINCT_ID_CHUNK_SIZE):
         _sweep(
             cluster,
             (MEMBERSHIP_TARGET,),
             "team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s",
-            {"team_id": team_id, "distinct_ids": unique[start : start + PAGE_SIZE]},
+            {"team_id": team_id, "distinct_ids": unique[start : start + DISTINCT_ID_CHUNK_SIZE]},
         )
 
 
-def delete_teams(cluster: ClickhouseCluster, team_ids: Sequence[int], *, include_config: bool = True) -> None:
+def delete_teams(cluster: ClickhouseCluster, team_ids: Sequence[int]) -> None:
     if team_ids:
-        targets = (MEMBERSHIP_TARGET, CONFIG_TARGET) if include_config else (MEMBERSHIP_TARGET,)
-        _sweep(cluster, targets, "team_id IN %(team_ids)s", {"team_ids": sorted(set(team_ids))})
+        _sweep(
+            cluster, (MEMBERSHIP_TARGET, CONFIG_TARGET), "team_id IN %(team_ids)s", {"team_ids": sorted(set(team_ids))}
+        )
 
 
-def _team_distinct_id_pages(cluster: ClickhouseCluster, team_id: int) -> Iterator[list[str]]:
+def team_has_membership(cluster: ClickhouseCluster, team_id: int) -> bool:
+    """Missing optional tables return False, so their work completes. An unreachable populated table raises."""
     if not resolve_placements(cluster, (MEMBERSHIP_TARGET,)):
-        return
-    # Paging in sort key order reads each page from a primary key range instead of rescanning the team.
-    after: tuple[object, ...] | None = None
-    while True:
-        parameters: dict[str, object] = {"team_id": team_id, "limit": PAGE_SIZE}
-        resume = ""
-        if after is not None:
-            resume = " AND (group_type_index, group_key, distinct_id) > %(after)s"
-            parameters["after"] = after
-        page = _Statement(
-            operation="page",
-            sql=f"SELECT group_type_index, group_key, distinct_id FROM {_name(MEMBERSHIP_TARGET.read_table)} "
-            f"WHERE team_id = %(team_id)s{resume} ORDER BY group_type_index, group_key, distinct_id LIMIT %(limit)s",
-            parameters=parameters,
-        )
-        rows = cluster.any_host_by_role(page, NodeRole.DATA).result()
-        if rows:
-            yield sorted({str(row[2]) for row in rows})
-        if len(rows) < PAGE_SIZE:
-            return
-        after = rows[-1]
-
-
-def _actively_owned(team_id: int, distinct_ids: Sequence[str]) -> set[str]:
-    def lookup() -> set[str]:
-        response = require_personhog_client().get_persons_by_distinct_ids_in_team(
-            GetPersonsByDistinctIdsInTeamRequest(
-                team_id=team_id, distinct_ids=list(distinct_ids), read_options=_OWNER_READ_OPTIONS
-            )
-        )
-        return {
-            result.distinct_id
-            for result in response.results
-            if result.HasField("person") and result.person.id and result.person.team_id == team_id
-        }
-
-    return personhog_call("membership_deletion_active_owners", lookup)
-
-
-def _delete_unowned(cluster: ClickhouseCluster, team_id: int, distinct_ids: Sequence[str]) -> None:
-    # A live owner holds the distinct ID again, so its membership rows are no longer the deleted person's.
-    if distinct_ids:
-        owned = _actively_owned(team_id, distinct_ids)
-        delete_distinct_ids(cluster, team_id, [distinct_id for distinct_id in distinct_ids if distinct_id not in owned])
-
-
-def team_deletion_verified(team_id: int) -> bool:
-    if Team.objects.filter(id=team_id).exists():
         return False
-    if AsyncDeletion.objects.filter(deletion_type=DeletionType.Team, team_id=team_id).exists():
-        return True
-    return (
-        MembershipDeletionReceipt.objects.for_team(team_id)
-        .filter(
-            kind=MembershipDeletionKind.TEAM,
-            source_key=f"team_record:{team_id}",
-            confirmed_at__isnull=False,
+    probe = _Statement(
+        operation="probe",
+        sql=f"SELECT 1 FROM {_name(MEMBERSHIP_TARGET.read_table)} WHERE team_id = %(team_id)s LIMIT 1",
+        parameters={"team_id": team_id},
+    )
+    return bool(cluster.any_host_by_role(probe, NodeRole.DATA).result())
+
+
+def stored_team_ids(cluster: ClickhouseCluster, *, after: int, limit: int) -> tuple[list[int], int | None]:
+    pages: list[list[int]] = []
+    for placement in resolve_placements(cluster, (MEMBERSHIP_TARGET, CONFIG_TARGET)):
+        page = _Statement(
+            operation="team scan",
+            sql=f"SELECT DISTINCT team_id FROM {_name(placement.target.read_table)} "
+            "WHERE team_id > %(after)s ORDER BY team_id LIMIT %(limit)s",
+            parameters={"after": after, "limit": limit},
         )
-        .exists()
-    )
+        pages.append([cast(int, row[0]) for row in cluster.any_host_by_role(page, NodeRole.DATA).result()])
+    # Every source page holds all its IDs up to its own last one, so the merged first `limit` IDs miss none.
+    merged = sorted({team_id for page in pages for team_id in page})
+    if len(merged) < limit:
+        return merged, None
+    return merged[:limit], merged[limit - 1]
 
 
-def process_membership_deletion(
-    cluster: ClickhouseCluster,
-    team_id: int,
-    receipt_id: UUID,
-    *,
-    after_id: int = 0,
-    on_page: Callable[[int], None] = lambda _cursor: None,
-    should_stop: Callable[[], bool] = lambda: False,
-) -> None:
-    details = receipts.get_membership_deletion(team_id, receipt_id)
-    if details.completed:
-        return
-    if not details.confirmed:
-        raise MembershipDeletionPending("Membership deletion is not confirmed")
-    if details.kind == MembershipDeletionKind.TEAM:
-        if not team_deletion_verified(team_id):
-            raise MembershipDeletionPending("Team deletion is not verified")
-        delete_teams(cluster, [team_id], include_config=True)
-    elif details.kind == MembershipDeletionKind.TEAM_PERSONS:
-        for distinct_ids in _team_distinct_id_pages(cluster, team_id):
-            if should_stop():
-                raise MembershipDeletionInterrupted()
-            _delete_unowned(cluster, team_id, distinct_ids)
-    else:
-        cursor: int | None = after_id
-        while cursor is not None:
-            if should_stop():
-                raise MembershipDeletionInterrupted()
-            page = receipts.list_membership_deletion_identities(team_id, receipt_id, after_id=cursor, limit=PAGE_SIZE)
-            _delete_unowned(cluster, team_id, [row.identity.distinct_id for row in page.identities])
-            cursor = page.next_cursor
-            if cursor is not None:
-                on_page(cursor)
-    receipts.complete_membership_deletion(team_id, receipt_id)
+def actively_owned(team_id: int, distinct_ids: Sequence[str]) -> set[str]:
+    """The lookup is not fenced against a reassignment that commits before the delete runs."""
+    owned: set[str] = set()
+    for start in range(0, len(distinct_ids), DISTINCT_ID_CHUNK_SIZE):
+        chunk = list(distinct_ids[start : start + DISTINCT_ID_CHUNK_SIZE])
 
-
-def discover_team_deletions(after_id: int) -> int | None:
-    registered = MembershipDeletionTeam.objects.unscoped().filter(team_id=OuterRef("team_id"))
-    prepared = MembershipDeletionReceipt.objects.unscoped().filter(
-        team_id=OuterRef("team_id"), kind=MembershipDeletionKind.TEAM.value
-    )
-    rows = list(
-        AsyncDeletion.objects.filter(deletion_type=DeletionType.Team, id__gt=after_id)
-        .filter(Exists(registered))
-        .exclude(Exists(prepared))
-        .exclude(Exists(Team.objects.filter(id=OuterRef("team_id"))))
-        .order_by("id")
-        .values_list("id", "team_id")[:PAGE_SIZE]
-    )
-    for deletion_id, team_id in rows:
-        try:
-            receipt_id = receipts.prepare_membership_deletion(
-                team_id, MembershipDeletionKind.TEAM, f"async_deletion:{deletion_id}"
-            )
-            receipts.confirm_membership_deletion(team_id, receipt_id)
-        except Exception as error:
-            logger.warning("membership_team_discovery_failed", team_id=team_id, error_type=type(error).__name__)
-    return rows[-1][0] if len(rows) == PAGE_SIZE else None
-
-
-def _record_tombstones(team_id: int, prepared: Sequence[MembershipDeletionDetails]) -> None:
-    uuids = [details.person_uuid for details in prepared if details.person_uuid is not None]
-    tombstones = {tombstone.uuid: tombstone for tombstone in get_person_tombstones(team_id, uuids)}
-    for details in prepared:
-        # Only a committed tombstone proves erasure. A missing person can still be in the middle of its deletion.
-        tombstone = tombstones.get(details.person_uuid) if details.person_uuid is not None else None
-        if tombstone is not None:
-            try:
-                receipts.record_person_membership_deletion(team_id, details.source_key, tombstone)
-            except Exception as error:
-                logger.warning(
-                    "membership_tombstone_record_failed", receipt_id=str(details.id), error_type=type(error).__name__
+        def lookup(chunk: list[str] = chunk) -> set[str]:
+            response = require_personhog_client().get_persons_by_distinct_ids_in_team(
+                GetPersonsByDistinctIdsInTeamRequest(
+                    team_id=team_id, distinct_ids=chunk, read_options=_OWNER_READ_OPTIONS
                 )
+            )
+            return {
+                result.distinct_id
+                for result in response.results
+                if result.HasField("person") and result.person.id and result.person.team_id == team_id
+            }
 
-
-def recover_prepared_deletions(after: MembershipDeletionCursor | None) -> MembershipDeletionCursor | None:
-    page = receipts.list_pending_preparations(after=after, limit=PAGE_SIZE)
-    people: dict[int, list[MembershipDeletionDetails]] = defaultdict(list)
-    for reference in page.receipts:
-        try:
-            if reference.kind == MembershipDeletionKind.PERSON:
-                people[reference.team_id].append(receipts.get_membership_deletion(reference.team_id, reference.id))
-            elif reference.kind == MembershipDeletionKind.TEAM and team_deletion_verified(reference.team_id):
-                receipts.confirm_membership_deletion(reference.team_id, reference.id)
-        except Exception as error:
-            logger.warning("membership_recovery_failed", receipt_id=str(reference.id), error_type=type(error).__name__)
-    for team_id, prepared in people.items():
-        try:
-            _record_tombstones(team_id, prepared)
-        except Exception as error:
-            logger.warning("membership_tombstone_lookup_failed", team_id=team_id, error_type=type(error).__name__)
-    return page.next_cursor
+        owned |= personhog_call("membership_deletion_active_owners", lookup)
+    return owned

@@ -11,10 +11,11 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
-    CohortMembership, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
-    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    AckPersonTombstoneLogRequest, AckPersonTombstoneLogResponse, AckPersonTombstonesRequest,
+    AckPersonTombstonesResponse, CheckCohortMembershipRequest, CohortMembership,
+    CohortMembershipResponse, CountCohortMembersRequest, CountCohortMembersResponse,
+    CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse, CreateGroupRequest,
+    CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
     DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
@@ -39,14 +40,18 @@ use personhog_proto::personhog::types::v1::{
     HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
-    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse, PersonDistinctIds,
+    ListPendingPersonTombstonesRequest, ListPendingPersonTombstonesResponse,
+    ListPersonTombstoneDistinctIdsRequest, ListPersonTombstoneDistinctIdsResponse,
+    ListPersonTombstoneQueueRequest, ListPersonTombstoneQueueResponse,
+    PendingPersonTombstone as ProtoPendingPersonTombstone, PersonDistinctIds,
+    PersonTombstoneConsumer as ProtoPersonTombstoneConsumer, PersonTombstoneLogDistinctId,
     PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonDistinctIdVersionFloorResponse, SetPersonVersionFloorRequest,
-    SetPersonVersionFloorResponse, SplitPersonRequest, SplitPersonResponse,
-    SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId, TombstonedPerson,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    PersonsResponse, RetirePersonTombstoneLogRequest, RetirePersonTombstoneLogResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, SplitResult as ProtoSplitResult, TeamDistinctId, TombstonedDistinctId,
+    TombstonedPerson, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
     VersionFloorOutcome as ProtoVersionFloorOutcome,
 };
@@ -76,6 +81,13 @@ use field_mask::{
 
 /// Dependent rows one DeleteTombstonedPersons call deletes when the request leaves max_rows at 0.
 const DELETE_TOMBSTONED_DEFAULT_ROWS: i64 = 1000;
+
+const TOMBSTONE_LOG_MAX_PAGE: i64 = 1000;
+const TOMBSTONE_LOG_DEFAULT_PENDING_PAGE: i64 = 100;
+const TOMBSTONE_LOG_DEFAULT_DISTINCT_ID_PAGE: i64 = 250;
+const TOMBSTONE_LOG_MAX_ACK: usize = 1000;
+const TOMBSTONE_LOG_DEFAULT_RETIRE_ROWS: i64 = 5000;
+const TOMBSTONE_LOG_MAX_RETIRE_ROWS: i64 = 10_000;
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
@@ -578,6 +590,132 @@ impl PersonHogReplica for PersonHogReplicaService {
                     tombstoned_at: entry.tombstoned_at_ms,
                 })
                 .collect(),
+        }))
+    }
+
+    async fn list_pending_person_tombstones(
+        &self,
+        request: Request<ListPendingPersonTombstonesRequest>,
+    ) -> Result<Response<ListPendingPersonTombstonesResponse>, Status> {
+        let req = request.into_inner();
+        let consumer = tombstone_consumer(req.consumer)?;
+        let limit = tombstone_log_limit(req.limit, TOMBSTONE_LOG_DEFAULT_PENDING_PAGE)?;
+        if req.after_log_id < 0 || req.min_age_ms < 0 {
+            return Err(Status::invalid_argument(
+                "after_log_id and min_age_ms must not be negative",
+            ));
+        }
+
+        // One extra row says whether another page follows.
+        let mut entries = self
+            .storage
+            .list_pending_person_tombstones(
+                consumer,
+                req.after_log_id,
+                req.team_id,
+                req.min_age_ms,
+                limit + 1,
+            )
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_pending_person_tombstones"))?;
+        let has_more = entries.len() as i64 > limit;
+        entries.truncate(limit as usize);
+
+        Ok(Response::new(ListPendingPersonTombstonesResponse {
+            entries: entries
+                .into_iter()
+                .map(|entry| ProtoPendingPersonTombstone {
+                    log_id: entry.log_id,
+                    team_id: entry.team_id,
+                    person_uuid: entry.person_uuid.to_string(),
+                    person_version: entry.person_version,
+                    tombstoned_at: entry.tombstoned_at_ms,
+                })
+                .collect(),
+            has_more,
+        }))
+    }
+
+    async fn list_person_tombstone_distinct_ids(
+        &self,
+        request: Request<ListPersonTombstoneDistinctIdsRequest>,
+    ) -> Result<Response<ListPersonTombstoneDistinctIdsResponse>, Status> {
+        let req = request.into_inner();
+        let limit = tombstone_log_limit(req.limit, TOMBSTONE_LOG_DEFAULT_DISTINCT_ID_PAGE)?;
+        if req.after_id < 0 {
+            return Err(Status::invalid_argument("after_id must not be negative"));
+        }
+
+        let mut rows = self
+            .storage
+            .list_person_tombstone_distinct_ids(req.team_id, req.log_id, req.after_id, limit + 1)
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_person_tombstone_distinct_ids"))?;
+        let has_more = rows.len() as i64 > limit;
+        rows.truncate(limit as usize);
+
+        Ok(Response::new(ListPersonTombstoneDistinctIdsResponse {
+            distinct_ids: rows
+                .into_iter()
+                .map(|row| PersonTombstoneLogDistinctId {
+                    id: row.id,
+                    distinct_id: row.distinct_id,
+                    version: row.version,
+                })
+                .collect(),
+            has_more,
+        }))
+    }
+
+    async fn ack_person_tombstone_log(
+        &self,
+        request: Request<AckPersonTombstoneLogRequest>,
+    ) -> Result<Response<AckPersonTombstoneLogResponse>, Status> {
+        let req = request.into_inner();
+        let consumer = tombstone_consumer(req.consumer)?;
+        if req.log_ids.len() > TOMBSTONE_LOG_MAX_ACK {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {TOMBSTONE_LOG_MAX_ACK} log ids per request"
+            )));
+        }
+
+        let ack = self
+            .storage
+            .ack_person_tombstone_log(req.team_id, consumer, &req.log_ids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "ack_person_tombstone_log"))?;
+
+        Ok(Response::new(AckPersonTombstoneLogResponse {
+            acked_count: ack.acked,
+            completed_count: ack.completed,
+        }))
+    }
+
+    async fn retire_person_tombstone_log(
+        &self,
+        request: Request<RetirePersonTombstoneLogRequest>,
+    ) -> Result<Response<RetirePersonTombstoneLogResponse>, Status> {
+        let req = request.into_inner();
+        let max_rows = match req.max_rows {
+            0 => TOMBSTONE_LOG_DEFAULT_RETIRE_ROWS,
+            1..=TOMBSTONE_LOG_MAX_RETIRE_ROWS => req.max_rows,
+            _ => {
+                return Err(Status::invalid_argument(format!(
+                    "max_rows must be between 0 and {TOMBSTONE_LOG_MAX_RETIRE_ROWS}"
+                )))
+            }
+        };
+
+        let outcome = self
+            .storage
+            .retire_person_tombstone_log(max_rows)
+            .await
+            .map_err(|e| log_and_convert_error(e, "retire_person_tombstone_log"))?;
+
+        Ok(Response::new(RetirePersonTombstoneLogResponse {
+            retired_count: outcome.retired,
+            distinct_ids_deleted: outcome.distinct_ids_deleted,
+            has_more: outcome.has_more,
         }))
     }
 
@@ -1645,10 +1783,37 @@ fn floor_outcome_to_proto(outcome: storage::VersionFloorOutcome) -> ProtoVersion
     }
 }
 
+#[allow(clippy::result_large_err)]
+fn tombstone_consumer(value: i32) -> Result<storage::TombstoneConsumer, Status> {
+    match ProtoPersonTombstoneConsumer::try_from(value) {
+        Ok(ProtoPersonTombstoneConsumer::Publication) => {
+            Ok(storage::TombstoneConsumer::Publication)
+        }
+        Ok(ProtoPersonTombstoneConsumer::CustomerAnalyticsMembership) => {
+            Ok(storage::TombstoneConsumer::CustomerAnalyticsMembership)
+        }
+        Ok(ProtoPersonTombstoneConsumer::Unspecified) | Err(_) => Err(Status::invalid_argument(
+            format!("Unknown PersonTombstoneConsumer {value}"),
+        )),
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn tombstone_log_limit(limit: i64, default: i64) -> Result<i64, Status> {
+    match limit {
+        0 => Ok(default),
+        1..=TOMBSTONE_LOG_MAX_PAGE => Ok(limit),
+        _ => Err(Status::invalid_argument(format!(
+            "limit must be between 0 and {TOMBSTONE_LOG_MAX_PAGE}"
+        ))),
+    }
+}
+
 fn tombstone_to_proto(person: storage::types::TombstonedPerson) -> TombstonedPerson {
     TombstonedPerson {
         person_uuid: person.uuid.to_string(),
         version: person.version,
+        log_id: person.log_id,
         distinct_ids: person
             .distinct_ids
             .into_iter()

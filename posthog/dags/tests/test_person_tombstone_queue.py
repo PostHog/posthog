@@ -10,7 +10,7 @@ from parameterized import parameterized
 from prometheus_client import CollectorRegistry
 
 from posthog.clickhouse.client import sync_execute
-from posthog.dags import clickhouse_cleanup
+from posthog.dags import clickhouse_cleanup, person_tombstone_queue
 from posthog.dags.person_tombstone_queue import (
     TEAM_ATTEMPTS,
     QueueResolution,
@@ -19,14 +19,18 @@ from posthog.dags.person_tombstone_queue import (
     resolve_person_tombstone_queue,
 )
 from posthog.models import Team
+from posthog.models.person.tombstone_log import TombstoneConsumer, list_pending_person_tombstones
 from posthog.models.person.util import (
     PersonTombstone,
+    PersonTombstonePublication,
     QueuedPersonTombstone,
     create_person as create_person_in_ch,
+    get_person_tombstones,
     publish_person_tombstone,
     tombstone_persons_in_postgres,
 )
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest
 from posthog.test.persons import create_person
 
 
@@ -219,6 +223,200 @@ class TestResolvePersonTombstoneQueue(ClickhouseTestMixin, BaseTest):
         assert sorted((row.team_id, row.person_uuid) for row in result.remaining) == sorted(
             [(self.team.pk, shared), (other.pk, shared)]
         )
+
+    def _logged(self, *distinct_ids: str) -> PersonTombstone:
+        get_active_fake().tombstone_log_capture = True
+        person = create_person(team_id=self.team.pk, distinct_ids=list(distinct_ids))
+        [tombstone] = tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        assert tombstone.log_id is not None
+        return tombstone
+
+    def _log_pending(self, consumer: TombstoneConsumer) -> list[int]:
+        page = list_pending_person_tombstones(consumer, team_id=self.team.pk, limit=1000)
+        return [entry.log_id for entry in page.entries]
+
+    def test_republishes_a_logged_deletion_after_its_person_rows_and_queue_row_are_gone(self) -> None:
+        tombstone = self._logged("log-purged")
+        fake = get_active_fake()
+        fake.tombstone_queue.clear()
+        fake.delete_tombstoned_persons(
+            DeleteTombstonedPersonsRequest(team_id=self.team.pk, person_uuids=[str(tombstone.uuid)])
+        )
+        assert get_person_tombstones(self.team.pk, [tombstone.uuid]) == []
+
+        result = self._resolve()
+
+        assert (result.log_listed, result.log_republished, result.log_confirmed) == (1, 1, 1)
+        assert result.log_remaining == []
+        assert self._ch_person_deleted(tombstone.uuid)
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == []
+        assert self._log_pending(TombstoneConsumer.CUSTOMER_ANALYTICS_MEMBERSHIP) == [tombstone.log_id]
+
+    def test_a_delivered_publication_acks_its_log_entry_for_publication_only(self) -> None:
+        tombstone = self._logged("log-delivered")
+
+        publication = PersonTombstonePublication(team_id=self.team.pk)
+        publication.publish([(tombstone, None)])
+        publication.await_and_ack()
+
+        assert publication.failures == []
+        assert self._queued() == set()
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == []
+        assert self._log_pending(TombstoneConsumer.CUSTOMER_ANALYTICS_MEMBERSHIP) == [tombstone.log_id]
+
+    def test_a_log_run_interrupted_after_publishing_leaves_the_entry_for_the_next_run(self) -> None:
+        tombstone = self._logged("log-interrupted")
+        get_active_fake().tombstone_queue.clear()
+        checks = 0
+
+        def confirm_then_fail(team_id: int, tombstones: list[PersonTombstone]) -> set[UUID]:
+            # The first check and the publish pass see nothing; the check after publishing fails.
+            nonlocal checks
+            checks += 1
+            if checks > 2:
+                raise RuntimeError("ClickHouse went away")
+            return set()
+
+        with (
+            patch("posthog.dags.person_tombstone_queue.clickhouse_confirmed", side_effect=confirm_then_fail),
+            patch("posthog.dags.person_tombstone_queue.RETRY_BACKOFF_SECONDS", 0),
+        ):
+            interrupted = self._resolve()
+
+        assert [entry.log_id for entry in interrupted.log_remaining] == [tombstone.log_id]
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == [tombstone.log_id]
+
+        resumed = self._resolve()
+
+        assert (resumed.log_confirmed, resumed.log_republished) == (1, 0)
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == []
+        assert self._log_pending(TombstoneConsumer.CUSTOMER_ANALYTICS_MEMBERSHIP) == [tombstone.log_id]
+
+    def test_a_retried_delete_leaves_its_logged_generation_for_snapshot_repair(self) -> None:
+        tombstone = self._logged("log-retried")
+        [retried] = tombstone_persons_in_postgres(self.team.pk, [tombstone.uuid])
+        assert retried.log_id is None
+
+        publication = PersonTombstonePublication(team_id=self.team.pk)
+        publication.publish([(retried, None)])
+        publication.await_and_ack()
+
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == [tombstone.log_id]
+        self._resolve()
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == []
+
+    def test_log_repair_stops_at_its_per_run_cap_and_the_next_run_continues(self) -> None:
+        logged = [self._logged(f"log-cap-{i}", f"log-cap-{i}-alias") for i in range(3)]
+        get_active_fake().tombstone_queue.clear()
+
+        with (
+            patch("posthog.dags.person_tombstone_queue.MAX_LOG_ENTRIES_PER_RUN", 2),
+            patch("posthog.dags.person_tombstone_queue.LOG_HEADER_PAGE_SIZE", 1),
+            patch("posthog.dags.person_tombstone_queue.LOG_IDENTITY_PAGE_SIZE", 1),
+        ):
+            first = self._resolve()
+            assert (first.log_listed, first.log_more_pending) == (2, True)
+            assert self._log_pending(TombstoneConsumer.PUBLICATION) == [logged[2].log_id]
+
+            second = self._resolve()
+
+        assert (second.log_listed, second.log_more_pending) == (1, False)
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == []
+        assert all(self._ch_person_deleted(tombstone.uuid) for tombstone in logged)
+
+    def test_a_failed_later_identity_page_leaves_publication_pending_and_logs_no_distinct_ids(self) -> None:
+        tombstone = self._logged("log-page-a", "log-page-b")
+        get_active_fake().tombstone_queue.clear()
+        real_page = person_tombstone_queue.list_person_tombstone_distinct_ids
+
+        def first_page_only(team_id: int, log_id: int, *, after_id: int = 0, limit: int = 250):
+            if after_id:
+                raise RuntimeError("could not read log-page-b")
+            return real_page(team_id, log_id, after_id=after_id, limit=limit)
+
+        messages: list[str] = []
+        with (
+            patch("posthog.dags.person_tombstone_queue.LOG_IDENTITY_PAGE_SIZE", 1),
+            patch("posthog.dags.person_tombstone_queue.RETRY_BACKOFF_SECONDS", 0),
+            patch("posthog.dags.person_tombstone_queue.list_person_tombstone_distinct_ids", first_page_only),
+        ):
+            failed = resolve_person_tombstone_queue(
+                dry_run=False,
+                min_team_id=0,
+                max_team_id=0,
+                visibility_timeout_seconds=0,
+                poll_interval_seconds=0,
+                log=messages.append,
+            )
+
+        assert failed.log_failed_entries == 1
+        assert [entry.log_id for entry in failed.log_remaining] == [tombstone.log_id]
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == [tombstone.log_id]
+        assert messages
+        assert not any("log-page" in message for message in messages)
+
+        self._resolve()
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == []
+
+    def test_entries_that_keep_failing_at_the_front_do_not_starve_later_generations(self) -> None:
+        failing = [self._logged(f"log-stuck-{i}") for i in range(3)]
+        healthy = self._logged("log-healthy")
+        get_active_fake().tombstone_queue.clear()
+        stuck = {tombstone.uuid for tombstone in failing}
+        real_confirmed = person_tombstone_queue.clickhouse_confirmed
+
+        def broken_for_stuck(team_id: int, tombstones: list[PersonTombstone]) -> set[UUID]:
+            if any(tombstone.uuid in stuck for tombstone in tombstones):
+                raise RuntimeError("ClickHouse rejects this person")
+            return real_confirmed(team_id, tombstones)
+
+        cursors: list[int | None] = []
+        after: int | None = None
+        with (
+            patch("posthog.dags.person_tombstone_queue.MAX_LOG_ENTRIES_PER_RUN", 2),
+            patch("posthog.dags.person_tombstone_queue.LOG_HEADER_PAGE_SIZE", 1),
+            patch("posthog.dags.person_tombstone_queue.RETRY_BACKOFF_SECONDS", 0),
+            patch("posthog.dags.person_tombstone_queue.clickhouse_confirmed", side_effect=broken_for_stuck),
+        ):
+            for _ in range(3):
+                result = resolve_person_tombstone_queue(
+                    dry_run=False,
+                    min_team_id=0,
+                    max_team_id=0,
+                    visibility_timeout_seconds=0,
+                    poll_interval_seconds=0,
+                    log=lambda _: None,
+                    log_after=after,
+                )
+                after = result.log_next_after
+                cursors.append(after)
+
+        assert cursors == [failing[1].log_id, None, failing[1].log_id]
+        assert self._ch_person_deleted(healthy.uuid)
+        assert self._log_pending(TombstoneConsumer.PUBLICATION) == [tombstone.log_id for tombstone in failing]
+
+    def test_the_publication_log_cursor_is_kept_per_team_range(self) -> None:
+        with dagster.DagsterInstance.ephemeral() as instance:
+            person_tombstone_queue.store_publication_log_cursor(instance, 0, 0, 42)
+            person_tombstone_queue.store_publication_log_cursor(instance, 5, 9, 7)
+            person_tombstone_queue.store_publication_log_cursor(instance, 5, 9, None)
+
+            assert person_tombstone_queue.load_publication_log_cursor(instance, 0, 0) == 42
+            assert person_tombstone_queue.load_publication_log_cursor(instance, 5, 9) is None
+            assert person_tombstone_queue.load_publication_log_cursor(instance, 1, 2) is None
+
+    def test_an_unreadable_log_leaves_the_legacy_queue_resolution_intact(self) -> None:
+        self._tombstoned("queue-log-down", published=True)
+
+        with patch(
+            "posthog.dags.person_tombstone_queue.list_pending_person_tombstones",
+            side_effect=RuntimeError("log unavailable"),
+        ):
+            result = self._resolve()
+
+        assert result.log_unavailable
+        assert result.confirmed == 1
+        assert self._queued() == set()
 
 
 def _queued_row(team_id: int, tombstoned_at_ms: int) -> QueuedPersonTombstone:
