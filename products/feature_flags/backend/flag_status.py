@@ -114,7 +114,7 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     classify the same flags, so change them together. `STALE_ACTIVE_PARAM_DESCRIPTION` states
     these branches in prose for the published API schemas, so change it with them too.
 
-    They do not agree on two shapes. First, the checker calls a flag with no release conditions
+    They do not agree on three shapes. First, the checker calls a flag with no release conditions
     fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker
     and not stale here, because the config branch below matches an empty `filters` only as `NULL`
     or `{}`. Matching the model default would make every unconfigured flag in a project stale.
@@ -122,11 +122,16 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     Second, a multivariate flag is stale here as soon as a variant sits at 100% under an
     untargeted 100% condition, or that condition carries a variant override, while the checker
     requires every reachable path to serve the same variant. A flag that serves two variants is
-    therefore stale to the SQL and not to the checker. The SQL does not read aggregation either,
-    so it also admits a flag that mixes person and group aggregation and declares the
-    group-aggregated condition first. The SQL stays as it is on purpose: it backs
-    the public `active=STALE` filter, and reading declaration order and cumulative variant slices
-    in raw SQL would cost more than the filter is worth.
+    therefore stale to the SQL and not to the checker.
+
+    Third, the SQL does not read aggregation. In a flag of either type that mixes person and
+    group aggregation, it counts a group-aggregated condition at 100% with no property filters,
+    which the checker does not, because the matcher skips that condition for a request without
+    the group key.
+
+    The SQL stays as it is on purpose: it backs the public `active=STALE` filter, and reading
+    declaration order, cumulative variant slices and aggregation in raw SQL would cost more than
+    the filter is worth.
 
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
@@ -246,8 +251,10 @@ STALE_ACTIVE_PARAM_DESCRIPTION = (
     "match, even when its `status` reads STALE. The reverse also happens: a multivariate flag "
     "matches when a variant is at 100% under a release condition at 100% with no property "
     "filters, or when that condition names a variant. Its `status` can still read ACTIVE, "
-    "because an earlier variant in the list, an earlier targeted condition, or a "
-    "group-aggregated condition declared first can serve a different result. An SDK that sends no "
+    "because an earlier variant in the list or an earlier targeted condition can serve a "
+    "different result. In a flag of either type that mixes person and group aggregation, the "
+    "filter also counts a group-aggregated condition at 100% with no property filters, which "
+    "`status` does not. An SDK that sends no "
     "`$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
 )
 

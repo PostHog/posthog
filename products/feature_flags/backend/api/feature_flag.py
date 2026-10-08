@@ -3191,8 +3191,9 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
             "For boolean flags this means at least one release condition targets 100% with no property "
             "filters, or there are no release conditions. For multivariate flags it means every release "
             "condition a user can reach, up to the first one at 100% with no property filters, serves the "
-            "same variant. In a flag that mixes person and group aggregation, only a person-level "
-            "condition ends that walk. This is the signal for 'fully rolled out' / GA, unlike `status`, "
+            "same variant. In a flag of either type that mixes person and group aggregation, only a "
+            "person-level condition counts as that 100% condition. This is the signal for "
+            "'fully rolled out' / GA, unlike `status`, "
             "which only reflects recent evaluation."
         )
     )

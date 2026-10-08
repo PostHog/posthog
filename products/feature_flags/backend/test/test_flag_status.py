@@ -303,6 +303,30 @@ class TestFilterFlagsByActiveParam(BaseTest):
                     ],
                 },
             ),
+            (
+                "mixed_aggregation_group_condition_second",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                    ],
+                },
+            ),
+            (
+                "boolean_mixed_aggregation_only_group_condition_is_full",
+                {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                    ]
+                },
+            ),
         ]
     )
     def test_stale_filter_is_looser_than_the_checker(self, key: str, filters: dict[str, Any]) -> None:
