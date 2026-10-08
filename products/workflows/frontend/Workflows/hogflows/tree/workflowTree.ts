@@ -230,21 +230,31 @@ function findBranchJoinActionId(
     )
 }
 
+// Walk the edges and not the tree, because a path can end with a link to a step that renders under another
+// path but still reaches the join.
 function collectBranchJoinEdges(
-    sequence: WorkflowTreeSequence,
+    branchingActionId: string,
     joinActionId: string,
-    joinEdges: Map<string, HogFlowEdge>
-): void {
-    if (sequence.trailingEdge?.to === joinActionId) {
-        const edge = sequence.trailingEdge
-        joinEdges.set(`${edge.from}:${edge.to}:${edge.type}:${edge.index ?? ''}`, edge)
-    }
+    outgoingEdgesByActionId: Map<string, HogFlowEdge[]>
+): HogFlowEdge[] {
+    const joinEdges: HogFlowEdge[] = []
+    const visited = new Set([branchingActionId])
+    const stack: { actionId: string; nextEdge: number }[] = [{ actionId: branchingActionId, nextEdge: 0 }]
 
-    for (const node of sequence.nodes) {
-        for (const branch of node.branches) {
-            collectBranchJoinEdges(branch.sequence, joinActionId, joinEdges)
+    while (stack.length) {
+        const frame = stack[stack.length - 1]
+        const edge = (outgoingEdgesByActionId.get(frame.actionId) ?? [])[frame.nextEdge++]
+        if (!edge) {
+            stack.pop()
+        } else if (edge.to === joinActionId) {
+            joinEdges.push(edge)
+        } else if (!visited.has(edge.to)) {
+            visited.add(edge.to)
+            stack.push({ actionId: edge.to, nextEdge: 0 })
         }
     }
+
+    return joinEdges
 }
 
 export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>): WorkflowTreeSequence {
@@ -323,11 +333,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
                 sequence: buildSequence(edge.to, joinActionId, edge),
             }))
             if (joinActionId) {
-                const joinEdges = new Map<string, HogFlowEdge>()
-                for (const branch of node.branches) {
-                    collectBranchJoinEdges(branch.sequence, joinActionId, joinEdges)
-                }
-                node.joinEdges = [...joinEdges.values()]
+                node.joinEdges = collectBranchJoinEdges(actionId, joinActionId, outgoingEdgesByActionId)
             }
             nodes.push(node)
 

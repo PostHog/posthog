@@ -180,6 +180,36 @@ describe('buildWorkflowTree', () => {
         ).toEqual([])
     })
 
+    it('joins a nested path that links to a step another route shows', () => {
+        const tree = buildWorkflowTree(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('outer', 'conditional_branch'),
+                    action('inner', 'conditional_branch'),
+                    action('shared'),
+                    action('other'),
+                    action('join'),
+                    action('exit', 'exit'),
+                ],
+                [
+                    edge('trigger', 'outer'),
+                    edge('outer', 'shared', 'branch', 0),
+                    edge('outer', 'inner'),
+                    edge('inner', 'shared', 'branch', 0),
+                    edge('inner', 'other'),
+                    edge('shared', 'join'),
+                    edge('other', 'join'),
+                    edge('join', 'exit'),
+                ]
+            )
+        )
+
+        const inner = tree.nodes[1].branches[1].sequence.nodes[0]
+        expect(inner.branches[0].sequence.continueTo?.id).toBe('shared')
+        expect(inner.joinEdges).toEqual([edge('shared', 'join'), edge('other', 'join')])
+    })
+
     it('collects branching steps nested inside a path so collapsing covers them', () => {
         const tree = buildWorkflowTree(
             workflow(
