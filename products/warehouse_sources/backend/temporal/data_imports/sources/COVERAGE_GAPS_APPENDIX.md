@@ -4921,14 +4921,14 @@ Note: Kustomer's ReadMe-hosted reference blocks machine-readable spec fetches (s
 
 ## Lacework — gaps
 
-Today (10): `agent_info`, `alerts`, `audit_logs`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_machines`, `vulnerabilities_containers`, `vulnerabilities_hosts`
+Today (17): `agent_info`, `alerts`, `audit_logs`, `cloud_accounts`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_containers`, `entities_images`, `entities_machines`, `inventory_aws`, `inventory_azure`, `inventory_gcp`, `policies`, `vulnerabilities_containers`, `vulnerabilities_hosts`
 
 Diffed against: <https://api.lacework.net/api/v2/docs/lacework-api-v2.0.yaml>
 
-- [ ] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
-- [ ] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
-- [ ] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
-- [ ] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
+- [x] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
+- [x] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
+- [x] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
+- [x] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
 - [ ] `POST /api/v2/CloudActivities/search` — cloud control-plane activity trail, the main behavioral dataset alongside alerts (medium)
 - [ ] `POST /api/v2/Entities/Packages/search` — installed package inventory that vulnerability findings reference (medium)
 - [ ] `POST /api/v2/Activities/UserLogins/search` — login activity for identity-risk analysis (medium)
@@ -5006,15 +5006,15 @@ Note: The spec has 365 paths. PostHog's `projects` table maps to /api/v1/session
 
 ## Lattice — gaps
 
-Today (6): `departments`, `feedbacks`, `goals`, `review_cycles`, `updates`, `users`
+Today (10): `departments`, `feedbacks`, `goal_updates`, `goals`, `review_cycles`, `reviewees`, `reviews`, `tags`, `updates`, `users`
 
 Diffed against: <https://developers.lattice.com/reference>
 
-- [ ] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
-- [ ] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
-- [ ] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
+- [x] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
+- [x] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
+- [x] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
 - [ ] `GET /v1/user/{id}/tasks` — task records tied to goals and users, commonly wanted for follow-through analysis (medium)
-- [ ] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
+- [x] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
 - [ ] `GET /v1/user/{id}/customAttributes (+ /v1/customAttribute/{id}, /v1/customAttributeValue/{id})` — custom HR attributes per user plus the lookup that decodes their ids - the main segmentation dimension (medium)
 - [ ] `GET /v1/question/{id} and /v1/questionRevision/{id}` — lookup resolving question ids carried on reviews and feedback (fetch-by-id only, no list endpoint) (low)
 - [ ] `GET /v1/competency/{id}` — competency lookup referenced by review questions and ratings (low)
@@ -9544,6 +9544,7 @@ Diffed against: <https://developers.wrike.com/sitemap.xml>
 - [ ] `comments (GET /comments, GET /tasks/{id}/comments)` — collaboration volume per task and folder (medium)
 - [ ] `approvals (GET /approvals, GET /tasks/{id}/approvals)` — approval state and turnaround per task/folder (medium)
 - [ ] `dependencies (GET /tasks/{id}/dependencies)` — the task graph edges needed for critical-path and blocker analysis (medium)
+- [x] `project_dependencies (GET /folders/{folderId}/dependencies)` — project-to-project dependency edges for portfolio scheduling (medium)
 - [ ] `bookings (GET /bookings)` — resource allocations to compare planned vs logged effort (medium)
 - [ ] `timesheets (GET /timesheets)` — submitted timesheet periods and their approval state (medium)
 - [ ] `audit_log (GET /audit_log)` — account-level change events across all entities (medium)
@@ -9791,7 +9792,7 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (12): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
+Today (14): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
@@ -9807,5 +9808,7 @@ Diffed against: <https://developer.zylo.com/sitemap.xml>
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)
 - [ ] `/v2/workflows and /v2/workflows/{workflowId}/responses` — app-request and review workflow responses - per-response rows for governance reporting (low)
 - [ ] `/v2/companyDocuments` — document metadata (MSAs, DPAs) linked to suppliers and contracts already synced (low)
+- [x] `/v2/automations` — automation configurations and their latest run status; needs a token with the automation role (`automations`)
+- [x] `/v2/automations/{automationId}/executions` — execution history per automation, fanned out over `/v2/automations`
 
-Note: Tables are static in products/warehouse_sources/backend/temporal/data_imports/sources/zylo/settings.py (ZYLO_ENDPOINTS), no dynamic discovery. Zylo does not publish a downloadable OpenAPI file - the docs are a ReadMe.io site - so I enumerated every operation from https://developer.zylo.com/sitemap.xml and confirmed each reported path by pulling the embedded operation JSON from the individual reference pages (e.g. https://developer.zylo.com/reference/userscontroller\_getusers yields "path":"/v2/users"). Deliberately excluded as config/plumbing: /v2/alerts, /v2/integrations, /v2/automations (+executions), /v2/company, payment upload jobs, and the reporting/query job endpoints. Note /v2/purchaseOrders is already flagged in-repo as scope-gated, so some of these may 403 for keys lacking spend:read.
+Note: Tables are static in products/warehouse_sources/backend/temporal/data_imports/sources/zylo/settings.py (ZYLO_ENDPOINTS), no dynamic discovery. Zylo does not publish a downloadable OpenAPI file - the docs are a ReadMe.io site - so I enumerated every operation from https://developer.zylo.com/sitemap.xml and confirmed each reported path by pulling the embedded operation JSON from the individual reference pages (e.g. https://developer.zylo.com/reference/userscontroller\_getusers yields "path":"/v2/users"). Deliberately excluded as config/plumbing: /v2/alerts, /v2/integrations, /v2/company, payment upload jobs, and the reporting/query job endpoints. Note /v2/purchaseOrders is already flagged in-repo as scope-gated, so some of these may 403 for keys lacking spend:read.
