@@ -141,6 +141,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_signals_scout_coordinator_schedule,
 )
 from products.today.backend.facade.temporal import create_today_briefing_schedule
+from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -989,6 +990,7 @@ schedules = [
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
+    create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
 ]
 
