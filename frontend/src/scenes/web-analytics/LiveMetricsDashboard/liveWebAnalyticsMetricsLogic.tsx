@@ -73,6 +73,7 @@ const LIVE_QUERY_SCENE = 'web-analytics-live'
 const LIVE_QUERY_CONCURRENCY = 4
 const RELOAD_DEBOUNCE_MS = 300
 const HOGQL_RELOAD_INTERVAL_MS = 30000
+const MAX_RECOVERY_RELOAD_DELAY_MS = 300000
 const PAUSE_GRACE_MS = 2000
 
 type BotQueryStatus = 'idle' | 'loading' | 'loaded' | 'error'
@@ -836,6 +837,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 if (!signal.aborted) {
                     actions.setIsLoading(false)
                     actions.setIsRefreshing(false)
+                    cache.recoveryReloadDelay = hasTransientQueryError
+                        ? Math.min(
+                              (cache.recoveryReloadDelay || HOGQL_RELOAD_INTERVAL_MS / 2) * 2,
+                              MAX_RECOVERY_RELOAD_DELAY_MS
+                          )
+                        : 0
                 }
                 cache.hasInitialized = true
                 // A filter change that arrived mid-load was queued rather than dropped:
@@ -850,7 +857,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL] || hasTransientQueryError)
                 ) {
                     cache.disposables.add(() => {
-                        const delay = Math.max(HOGQL_RELOAD_INTERVAL_MS, retryAfterTimestamp - Date.now())
+                        const delay = Math.max(
+                            HOGQL_RELOAD_INTERVAL_MS,
+                            cache.recoveryReloadDelay,
+                            retryAfterTimestamp - Date.now()
+                        )
                         const timeoutId = setTimeout(() => actions.loadInitialData(true), delay)
                         return () => clearTimeout(timeoutId)
                     }, 'hogqlReload')

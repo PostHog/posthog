@@ -168,6 +168,46 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         expect(deviceAttempts).toBe(recovers ? 2 : 1)
     })
 
+    it.each([true, false])('backs off repeated live failures and resets after recovery (HogQL=%s)', async (hogql) => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LIVESTREAM_HOGQL]: hogql })
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+        let failing = true
+        let deviceAttempts = 0
+        ;(api.query as jest.Mock).mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+            if (query.tags?.name === 'live_device_breakdown') {
+                deviceAttempts++
+                if (failing) {
+                    throw new ApiError('', 504)
+                }
+            }
+            return { results: [] }
+        })
+        logic.actions.loadInitialData(true)
+        await jest.advanceTimersByTimeAsync(0)
+
+        for (const delay of [30_000, 60_000, 120_000, 240_000, 300_000, 300_000]) {
+            const attempts = deviceAttempts
+            await jest.advanceTimersByTimeAsync(delay - 1)
+            expect(deviceAttempts).toBe(attempts)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(deviceAttempts).toBe(attempts + 1)
+        }
+
+        failing = false
+        await jest.advanceTimersByTimeAsync(300_000)
+        failing = true
+        logic.actions.loadInitialData(true)
+        await jest.advanceTimersByTimeAsync(0)
+        const attempts = deviceAttempts
+        await jest.advanceTimersByTimeAsync(29_999)
+        expect(deviceAttempts).toBe(attempts)
+        await jest.advanceTimersByTimeAsync(1)
+        expect(deviceAttempts).toBe(attempts + 1)
+    })
+
     it.each(['reload', 'unmount'])('cancels pending SSE recovery on %s', async (action) => {
         await expectLogic(logic).toFinishAllListeners()
         jest.useFakeTimers()
