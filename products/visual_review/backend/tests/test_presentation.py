@@ -1020,6 +1020,13 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         other_state = self.client.get(self._runs_url(review_state="processing", search="feature"))
         self.assertEqual(self._branches(other_state.json()), set())
 
+    @parameterized.expand([("repo_runs", "_runs_url"), ("team_runs", "_team_runs_url")])
+    def test_unknown_review_state_is_rejected(self, _name: str, url_builder: str):
+        response = self.client.get(getattr(self, url_builder)(review_state="approved"))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("needs_review", str(response.json()))
+
     def test_team_wide_endpoint_supports_search(self):
         # The project-wide endpoint (exposed as the MCP tool) shares the same search path.
         response = self.client.get(self._team_runs_url(search="feature"))

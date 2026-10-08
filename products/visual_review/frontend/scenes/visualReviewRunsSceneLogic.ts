@@ -6,10 +6,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Breadcrumb } from '~/types'
 
 import { visualReviewReposRunsCountsRetrieve, visualReviewReposRunsList } from '../generated/api'
-import type { PaginatedRunListApi, RepoApi, ReviewStateCountsApi } from '../generated/api.schemas'
+import type {
+    PaginatedRunListApi,
+    RepoApi,
+    ReviewStateCountsApi,
+    VisualReviewReposRunsListReviewState,
+} from '../generated/api.schemas'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
-export type ReviewState = 'needs_review' | 'clean' | 'processing' | 'stale'
+export type ReviewState = VisualReviewReposRunsListReviewState
 
 const RUNS_PAGE_SIZE = 20
 
