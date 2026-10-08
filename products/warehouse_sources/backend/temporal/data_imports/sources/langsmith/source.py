@@ -151,6 +151,8 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
                 )
             if endpoint == "projects":
                 return "Tracing projects (called sessions in the LangSmith API)"
+            if endpoint == "threads":
+                return "Conversation threads in each tracing project, with stats over the last 365 days"
             return None
 
         def _schema_metadata(endpoint: str) -> dict[str, Any] | None:
