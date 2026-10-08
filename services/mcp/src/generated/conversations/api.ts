@@ -75,6 +75,12 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Sort order. Prefix with `-` for descending. Defaults to `-updated_at`.'),
+    person_uuid: zod
+        .string()
+        .optional()
+        .describe(
+            "UUID of a person. Matches tickets whose `distinct_id` is one of the person's distinct IDs (max 1000). Combines with `distinct_ids` and `emails` (OR)."
+        ),
     priority: zod
         .string()
         .optional()

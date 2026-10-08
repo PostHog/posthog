@@ -40,6 +40,7 @@ const conversationsTicketsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
+                person_uuid: params.person_uuid,
                 priority: params.priority,
                 search: params.search,
                 sla: params.sla,

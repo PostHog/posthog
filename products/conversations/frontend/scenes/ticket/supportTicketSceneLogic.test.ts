@@ -60,6 +60,7 @@ jest.mock('~/lib/api', () => {
 jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsAiHumanOutcomeCreate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsList: jest.fn().mockResolvedValue({ results: [] }),
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
@@ -71,6 +72,7 @@ import api from '~/lib/api'
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsList,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
@@ -826,7 +828,7 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     const personsListMock = api.persons.list as jest.Mock
-    const ticketsListMock = api.conversationsTickets.list as jest.Mock
+    const ticketsListMock = conversationsTicketsList as jest.Mock
     const ticketGetMock = api.conversationsTickets.get as jest.Mock
 
     beforeEach(() => {
@@ -834,7 +836,14 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         // Person carries a customer-controlled properties.email distinct from the ticket's email_from,
         // so the assertions prove the match uses email_from (when verified) and never properties.email.
         personsListMock.mockReset().mockResolvedValue({
-            results: [{ id: 'p1', distinct_ids: ['user-1'], properties: { email: 'analytics@example.com' } }],
+            results: [
+                {
+                    id: 'p1',
+                    uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+                    distinct_ids: ['user-1'],
+                    properties: { email: 'analytics@example.com' },
+                },
+            ],
         })
         ticketsListMock.mockReset().mockResolvedValue({ results: [] })
         ticketGetMock.mockReset()
@@ -852,10 +861,10 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
         [
             'verified email ticket matches by email_from',
             true,
-            { distinct_ids: 'user-1', emails: 'verified@example.com' },
+            { person_uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b', emails: 'verified@example.com' },
         ],
-        ['unverified ticket omits emails', false, { distinct_ids: 'user-1' }],
-        ['unknown identity omits emails', null, { distinct_ids: 'user-1' }],
+        ['unverified ticket omits emails', false, { person_uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }],
+        ['unknown identity omits emails', null, { person_uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }],
     ])('%s', async (_name, identity_verified, expectedParams) => {
         ticketGetMock.mockResolvedValue({
             ...makeTicket(),
@@ -871,7 +880,25 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
             logic.mount()
         }).toDispatchActions(['loadPreviousTicketsSuccess'])
 
-        expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+        expect(ticketsListMock).toHaveBeenLastCalledWith(expect.any(String), expectedParams)
+    })
+
+    it('marks previous tickets as failed instead of showing an empty history', async () => {
+        ticketGetMock.mockResolvedValue({ ...makeTicket(), distinct_id: 'user-1' })
+        ticketsListMock.mockRejectedValue(new Error('Request-URI Too Large'))
+
+        logic = supportTicketSceneLogic({ id: 42 })
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadPreviousTicketsFailure'])
+        expect(logic.values.previousTicketsFailed).toBe(true)
+
+        ticketsListMock.mockResolvedValue({ results: [] })
+        await expectLogic(logic, () => {
+            logic.actions.loadPreviousTickets()
+        }).toDispatchActions(['loadPreviousTicketsSuccess'])
+        expect(logic.values.previousTicketsFailed).toBe(false)
     })
 })
 

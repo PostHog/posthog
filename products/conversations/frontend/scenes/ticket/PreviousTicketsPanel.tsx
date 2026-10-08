@@ -1,15 +1,17 @@
 import { IconWarning } from '@posthog/icons'
-import { LemonCollapse, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
-import { Ticket } from '../../types'
+import type { TicketApi } from '../../generated/api.schemas'
 
 interface PreviousTicketsPanelProps {
-    previousTickets: Ticket[]
+    previousTickets: TicketApi[]
     previousTicketsLoading?: boolean
+    previousTicketsFailed?: boolean
+    onRetry?: () => void
     // Merged distinct_ids of the current ticket's person. Tickets whose distinct_id
     // is not in this set were matched by email alone, so they may be a different person.
     personDistinctIds?: string[]
@@ -18,6 +20,8 @@ interface PreviousTicketsPanelProps {
 export function PreviousTicketsPanel({
     previousTickets,
     previousTicketsLoading,
+    previousTicketsFailed,
+    onRetry,
     personDistinctIds,
 }: PreviousTicketsPanelProps): JSX.Element {
     return (
@@ -38,6 +42,20 @@ export function PreviousTicketsPanel({
                         <div className="space-y-2">
                             {previousTicketsLoading ? (
                                 <div className="text-muted-alt text-xs">Loading previous tickets...</div>
+                            ) : previousTicketsFailed ? (
+                                <div className="flex items-center gap-2 text-xs text-danger">
+                                    Couldn't load previous tickets.
+                                    {onRetry && (
+                                        <LemonButton
+                                            data-attr="previous-tickets-retry"
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={onRetry}
+                                        >
+                                            Try again
+                                        </LemonButton>
+                                    )}
+                                </div>
                             ) : previousTickets.length === 0 ? (
                                 <div className="text-muted-alt text-xs">No previous tickets found</div>
                             ) : (

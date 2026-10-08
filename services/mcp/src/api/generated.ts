@@ -116726,6 +116726,10 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * UUID of a person. Matches tickets whose `distinct_id` is one of the person's distinct IDs (max 1000). Combines with `distinct_ids` and `emails` (OR).
+     */
+    person_uuid?: string;
+    /**
      * Filter by priority. Accepts a single value or a comma-separated list (e.g. `medium,high`). Valid values: `low`, `medium`, `high`, `critical`.
      */
     priority?: string;
