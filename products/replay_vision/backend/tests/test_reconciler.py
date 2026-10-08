@@ -30,10 +30,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
+from products.replay_vision.backend.scout_wind_down import WIND_DOWN_GIVE_UP_AFTER
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
+    pause_disabled_scanner_scouts_activity,
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
@@ -65,6 +67,7 @@ from products.replay_vision.backend.temporal.schedule import (
     load_enabled_scanner_fingerprints,
 )
 from products.replay_vision.backend.tests.helpers import create_experiment
+from products.signals.backend.facade.api import SourceScout
 
 
 def _live_activity_env() -> ActivityEnvironment:
@@ -241,6 +244,7 @@ class _ReconcileMocks:
     async def execute_activity(self, activity_fn: Any, activity_input: Any = None, **_: Any) -> Any:
         self.calls.append(activity_fn)
         if activity_fn in (
+            pause_disabled_scanner_scouts_activity,
             reap_childless_inline_scanners_activity,
             reap_backfill_schedules_activity,
             start_launched_scanners_activity,
@@ -278,6 +282,7 @@ async def _run_reconcile(mocks: _ReconcileMocks):
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
@@ -675,3 +680,64 @@ async def test_start_launched_scanners_activity(org_team) -> None:
     assert "start_on_launch" not in missed.scanner_config
     assert still_waiting.enabled is False
     assert await _live_activity_env().run(start_launched_scanners_activity) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pause_disabled_scanner_scouts_activity(org_team) -> None:
+    # A turned-off scanner's scouts kept reporting on it for good. Each one now gets a single run
+    # after the scanner stops, so the last observations still get a report, and is then paused.
+    _, team = org_team
+    now = timezone.now()
+
+    def _setup() -> dict[str, ReplayScanner]:
+        rows = {name: _make_scanner(team, name=name) for name in ("ran_since", "not_run_since", "given_up", "on")}
+        for name in ("ran_since", "not_run_since", "given_up"):
+            rows[name].enabled = False
+            rows[name].save()
+        ReplayScanner.objects.filter(pk=rows["given_up"].pk).update(
+            scout_wind_down_since=now - WIND_DOWN_GIVE_UP_AFTER - dt.timedelta(days=1)
+        )
+        return rows
+
+    def _markers() -> dict[str, dt.datetime | None]:
+        return dict(ReplayScanner.objects.values_list("name", "scout_wind_down_since"))
+
+    rows = await sync_to_async(_setup)()
+    before = await sync_to_async(_markers)()
+    ran_since_at, not_run_since_at = before["ran_since"], before["not_run_since"]
+    assert ran_since_at is not None and not_run_since_at is not None
+    assert before["on"] is None
+
+    def scout(config_id: str, *, enabled: bool = True, last_run: dt.datetime | None = None) -> SourceScout:
+        return SourceScout(
+            config_id=config_id, skill_name=config_id, enabled=enabled, created_at=now, last_run_started_at=last_run
+        )
+
+    scouts = {
+        str(rows["ran_since"].id): [
+            scout("final-run-done", last_run=ran_since_at + dt.timedelta(minutes=5)),
+            scout("already-off", enabled=False, last_run=ran_since_at + dt.timedelta(minutes=5)),
+        ],
+        str(rows["not_run_since"].id): [
+            scout("still-waiting", last_run=not_run_since_at - dt.timedelta(hours=1)),
+        ],
+        str(rows["given_up"].id): [scout("never-ran")],
+    }
+    paused_ids: list[str] = []
+
+    def update_scout(_team_id: int, _source: str, config_id: str, *, enabled: bool) -> bool:
+        assert enabled is False
+        paused_ids.append(config_id)
+        return True
+
+    facade = "products.replay_vision.backend.scout_wind_down.signals_facade"
+    with (
+        patch(f"{facade}.scouts_for_source", side_effect=lambda _t, _s, source_id: scouts.get(source_id, [])),
+        patch(f"{facade}.update_scout_for_source", side_effect=update_scout),
+    ):
+        paused = await _live_activity_env().run(pause_disabled_scanner_scouts_activity)
+
+    assert paused == 1
+    assert paused_ids == ["final-run-done"]
+    assert await sync_to_async(_markers)() == {**before, "ran_since": None, "given_up": None}

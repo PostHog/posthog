@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 
 import pydantic
 import structlog
@@ -1341,6 +1342,8 @@ class SourceScout:
     skill_name: str
     enabled: bool
     created_at: datetime
+    # When the scout's newest run started, or None when it never ran.
+    last_run_started_at: datetime | None = None
 
 
 @frozen
@@ -1372,10 +1375,18 @@ def scouts_for_source(
     if tag is not None:
         configs = configs.filter(tags__contains=[tag])
     return [
-        SourceScout(config_id=str(config_id), skill_name=skill_name, enabled=enabled, created_at=created_at)
-        for config_id, skill_name, enabled, created_at in configs.order_by("created_at").values_list(
-            "id", "skill_name", "enabled", "created_at"
+        SourceScout(
+            config_id=str(config_id),
+            skill_name=skill_name,
+            enabled=enabled,
+            created_at=created_at,
+            last_run_started_at=last_run_started_at,
         )
+        for config_id, skill_name, enabled, created_at, last_run_started_at in configs.annotate(
+            last_run_started_at=Max("runs__created_at")
+        )
+        .order_by("created_at")
+        .values_list("id", "skill_name", "enabled", "created_at", "last_run_started_at")
     ]
 
 

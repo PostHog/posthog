@@ -47,6 +47,7 @@ with workflow.unsafe.imports_passed_through():
         delete_scanner_schedule_activity,
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
+        pause_disabled_scanner_scouts_activity,
         reap_backfill_schedules_activity,
         reap_childless_inline_scanners_activity,
         reap_orphaned_observations_activity,
@@ -105,6 +106,12 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             await self._run_reaper(start_launched_scanners_activity)
         except Exception:
             workflow.logger.exception("replay_vision.start_launched_scanners_failed")
+
+        if workflow.patched("rv-pause-disabled-scanner-scouts-2026-10"):
+            try:
+                await self._run_reaper(pause_disabled_scanner_scouts_activity)
+            except Exception:
+                workflow.logger.exception("replay_vision.pause_disabled_scanner_scouts_failed")
 
     async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
         """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to

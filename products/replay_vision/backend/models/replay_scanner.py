@@ -182,6 +182,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
     )
     emits_signals = models.BooleanField(default=False)
+    scout_wind_down_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the scanner was turned off. Each of its scouts runs once more after this, so the last observations still get a report, and then the reconciler pauses it. Null when no scout waits for that last run.",
+    )
 
     origin = models.CharField(
         max_length=16,
@@ -449,6 +454,7 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         "search_suggestions_watermark",
         "search_suggestions_generated_at",
         "search_last_viewed_at",
+        "scout_wind_down_since",
     )
 
     def save(self, *args, **kwargs) -> None:
@@ -506,6 +512,9 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         extra_fields.extend(
                             ["last_swept_at", "last_seen_session_id", "deep_swept_through", "deep_seen_session_id"]
                         )
+                    if track_enabled and old.enabled != self.enabled:
+                        self.scout_wind_down_since = None if self.enabled else timezone.now()
+                        extra_fields.append("scout_wind_down_since")
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)
