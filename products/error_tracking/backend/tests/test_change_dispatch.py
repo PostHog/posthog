@@ -3,16 +3,18 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from confluent_kafka import KafkaError
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.logic.change_dispatch import dispatch_pending_changes
+from products.error_tracking.backend.logic.change_subscriptions import Subscription, WorkflowSink
 from products.error_tracking.backend.logic.issue_mutations import (
     assign_issue,
     bulk_update_issues,
@@ -28,8 +30,9 @@ from products.error_tracking.backend.models import (
 
 FLAG = "products.error_tracking.backend.logic.issue_changes.issue_change_log_enabled"
 OLD_PRODUCER = "products.error_tracking.backend.logic.lifecycle_events.produce_internal_event"
-DISPATCHER_PRODUCER = "products.error_tracking.backend.logic.change_dispatch.produce_internal_event"
-FLUSH = "products.error_tracking.backend.logic.change_dispatch.flush_internal_events_producer"
+DISPATCHER_PRODUCER = "products.error_tracking.backend.logic.change_events.produce_internal_event"
+FLUSH = "products.error_tracking.backend.logic.change_events.flush_internal_events_producer"
+CONNECT = "products.error_tracking.backend.logic.change_subscriptions.async_connect"
 # The old producer stamps the issue's created_at, the snapshot the earliest fingerprint first_seen.
 # Issue id lists name different issues in the two teams; their length is compared instead.
 NOT_COMPARED = {"first_seen", "merged_issue_ids", "split_issue_ids"}
@@ -138,7 +141,7 @@ class TestChangeDispatch(BaseTest):
             outcome = dispatch_pending_changes(time_budget=timedelta(seconds=30))
 
         producer.assert_not_called()
-        assert (outcome.dispatched, outcome.emitted) == (1, 0)
+        assert (outcome.dispatched, outcome.delivered) == (1, 0)
 
     @patch(FLAG, return_value=True)
     def test_undelivered_event_stays_in_the_outbox(self, _flag: MagicMock) -> None:
@@ -148,7 +151,7 @@ class TestChangeDispatch(BaseTest):
         with patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _failed()), patch(FLUSH):
             outcome = dispatch_pending_changes(time_budget=timedelta(seconds=30))
 
-        assert (outcome.dispatched, outcome.failed) == (0, 1)
+        assert (outcome.dispatched, outcome.undelivered) == (0, 1)
         [change] = ErrorTrackingIssueChange.objects.for_team(self.team.id)
         assert change.dispatched_at is None
 
@@ -158,7 +161,7 @@ class TestChangeDispatch(BaseTest):
         ErrorTrackingIssueChange.objects.for_team(broken_team.id).create(
             team_id=broken_team.id,
             issue_id=uuid7(),
-            kind=ErrorTrackingIssueChange.Kind.STATUS_CHANGED,
+            kind=ErrorTrackingIssueChange.Kind.ASSIGNEE_CHANGED,
             data={},
             snapshot={},
             operation_id=uuid7(),
@@ -170,6 +173,39 @@ class TestChangeDispatch(BaseTest):
         with patch(DISPATCHER_PRODUCER, side_effect=lambda **_: _delivered()) as producer, patch(FLUSH):
             outcome = dispatch_pending_changes(time_budget=timedelta(seconds=30))
 
-        assert (outcome.dispatched, outcome.emitted, outcome.dropped) == (2, 1, 1)
-        assert producer.call_args.kwargs["event"].event == "$error_tracking_issue_resolved"
+        assert outcome.dispatched == 2
+        assert [call.kwargs["event"].event for call in producer.call_args_list] == ["$error_tracking_issue_resolved"]
         assert not ErrorTrackingIssueChange.objects.unscoped().filter(dispatched_at__isnull=True).exists()
+
+    @parameterized.expand(
+        [
+            ("accepted", None, 0),
+            ("already_started", WorkflowAlreadyStartedError("wf", "type"), 0),
+            ("rejected", RuntimeError("temporal unavailable"), 1),
+        ]
+    )
+    @patch(FLAG, return_value=True)
+    def test_workflow_subscription_starts_one_delayed_workflow_per_change(
+        self, _name: str, start_error: Exception | None, expected_undelivered: int, _flag: MagicMock
+    ) -> None:
+        issue = self._issue(self.team, ["fp"])
+        update_issue(self.team.id, issue.id, fields={"status": "resolved"}, user=self.user, was_impersonated=False)
+        [change] = ErrorTrackingIssueChange.objects.for_team(self.team.id)
+        subscription = Subscription(
+            key="impact-summary",
+            kinds=frozenset({ErrorTrackingIssueChange.Kind.STATUS_CHANGED}),
+            sink=WorkflowSink(workflow="impact-summary", task_queue="analysis", start_delay=timedelta(hours=1)),
+        )
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=start_error)
+
+        with patch(CONNECT, AsyncMock(return_value=client)):
+            outcome = dispatch_pending_changes(time_budget=timedelta(seconds=30), subscriptions=[subscription])
+
+        assert outcome.undelivered == expected_undelivered
+        start = client.start_workflow.call_args
+        assert start.kwargs["id"] == f"error-tracking-change-impact-summary-{change.id}"
+        assert timedelta(minutes=59) < start.kwargs["start_delay"] <= timedelta(hours=1)
+        assert start.args[1].change_id == str(change.id)
+        change.refresh_from_db()
+        assert (change.dispatched_at is None) == bool(expected_undelivered)
