@@ -48,6 +48,7 @@ import {
 import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
+    createPersonProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
@@ -544,23 +545,24 @@ export class IngestionApiServer implements NodeServer {
                 // new batches land mid-teardown.
                 await this.grpcServer?.stop()
                 // No Kafka offsets in this server — drain buffered writes before
-                // shutdown so shutdown() can assert a clean cache.
-                if (this.personsStore) {
-                    await this.personsStore.flushAndProduceMessages()
-                }
-                if (this.pipelinePersonsStore) {
-                    await this.pipelinePersonsStore.shutdown()
-                } else if (this.personsStore) {
-                    await this.personsStore.shutdown()
+                // shutdown so shutdown() can assert a clean cache, through the
+                // pipeline's store: in shadow mode that is the router, whose flush
+                // seals and writes the shadow segments; the raw store writes Postgres only.
+                const personsStore = this.pipelinePersonsStore ?? this.personsStore
+                if (personsStore) {
+                    const personsFlushResults = await personsStore.flush()
+                    if (this.ingestionOutputs) {
+                        await Promise.all(createPersonProducePromises(personsFlushResults, this.ingestionOutputs))
+                    }
+                    await personsStore.shutdown()
                 }
                 this.personhogClientClosers.forEach((close) => close())
                 if (this.groupStore) {
                     const groupFlushResults = await this.groupStore.flush()
                     // flush() returns messages for the caller to produce (it no
-                    // longer awaits ClickHouse delivery inline) — mirror
-                    // personsStore.flushAndProduceMessages() so a drain at
-                    // shutdown doesn't write Postgres but silently drop the
-                    // corresponding ClickHouse row.
+                    // longer awaits ClickHouse delivery inline) — produce them here,
+                    // as for persons above, so a drain at shutdown doesn't write
+                    // Postgres but silently drop the corresponding ClickHouse row.
                     if (groupFlushResults.length > 0 && this.ingestionOutputs) {
                         await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
                     }
