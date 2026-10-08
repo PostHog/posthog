@@ -3,11 +3,14 @@ import { combineUrl } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
-import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { BaseMathType, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { CohortFiltersApi, PersonFilterApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+
+import type { AutoresearchPipelineApi } from './generated/api.schemas'
 
 /**
  * Probability cut points between the segments. Both sit on a histogram decile boundary,
@@ -74,14 +77,18 @@ export function predictionSegmentCohortFilters(key: PredictionSegmentKey, proper
     return { properties: { type: 'OR', values: [{ type: 'AND', values }] } }
 }
 
-/** The persons list, filtered with the same conditions as the segment's cohort. */
-export function predictionSegmentPeopleUrl(key: PredictionSegmentKey, property: string): string {
-    const properties: PersonPropertyFilter[] = segmentBounds(key).map(({ operator, value }) => ({
+function segmentPropertyFilters(key: PredictionSegmentKey, property: string): PersonPropertyFilter[] {
+    return segmentBounds(key).map(({ operator, value }) => ({
         type: PropertyFilterType.Person,
         key: property,
         operator,
         value,
     }))
+}
+
+/** The persons list, filtered with the same conditions as the segment's cohort. */
+export function predictionSegmentPeopleUrl(key: PredictionSegmentKey, property: string): string {
+    const properties = segmentPropertyFilters(key, property)
     const query: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
@@ -96,4 +103,43 @@ export function predictionSegmentPeopleUrl(key: PredictionSegmentKey, property: 
         propertiesViaUrl: true,
     }
     return combineUrl(urls.persons(), {}, { q: query }).url
+}
+
+export type PredictionLinkDestination = 'feature_flag' | 'workflow' | 'insight'
+
+/** A new feature flag released to the likely segment. */
+export function likelySegmentFeatureFlagUrl(property: string): string {
+    return urls.featureFlagNew({ properties: segmentPropertyFilters('likely', property) })
+}
+
+/** A new batch workflow whose audience is the likely segment. */
+export function likelySegmentWorkflowUrl(property: string): string {
+    return urlForNewWorkflowWithTrigger({
+        type: 'batch',
+        filters: { properties: segmentPropertyFilters('likely', property) },
+    })
+}
+
+/** A new trends insight of the people who did the target, broken down by their predicted probability. */
+export function predictionBreakdownInsightUrl(
+    { target_definition: target, target_event: event }: AutoresearchPipelineApi,
+    property: string
+): string {
+    const query: InsightVizNode = {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                target.type === 'action'
+                    ? { kind: NodeKind.ActionsNode, id: target.action_id, math: BaseMathType.UniqueUsers }
+                    : { kind: NodeKind.EventsNode, event, name: event, math: BaseMathType.UniqueUsers },
+            ],
+            breakdownFilter: {
+                breakdown: property,
+                breakdown_type: 'person',
+                breakdown_histogram_bin_count: 10,
+            },
+        },
+    }
+    return urls.insightNew({ query })
 }
