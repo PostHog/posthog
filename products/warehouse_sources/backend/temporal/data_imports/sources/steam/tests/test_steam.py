@@ -8,7 +8,11 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests import HTTPError, Response
+from requests import (
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
+    Response,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.steam import SteamSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.source import SteamSource
@@ -116,6 +120,17 @@ class TestSteam:
             _rows("players", session, [ADA])
 
         assert any(pattern in str(error.value) for pattern in SteamSource().get_non_retryable_errors())
+        assert "secret-key" not in str(error.value)
+
+    def test_a_connection_failure_keeps_the_key_out_of_the_error(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = RequestsConnectionError("Max retries exceeded with url: /?key=secret-key&steamids=1")
+
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            response = steam_source("secret-key", TEAM_ID, [ADA], "players", MagicMock())
+            with pytest.raises(RequestsConnectionError) as error:
+                list(cast(Iterable[Any], response.items()))
+
         assert "secret-key" not in str(error.value)
 
     @parameterized.expand(

@@ -7,10 +7,11 @@ from typing import Any
 
 from django.conf import settings
 
-from requests import HTTPError, Session
+from requests import HTTPError, RequestException, Session
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import redact_literal_values
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.settings import (
@@ -62,9 +63,14 @@ def probe_api_key(api_key: str) -> int:
 
 
 def _get(session: Session, api_key: str, path: str, params: dict[str, Any]) -> dict[str, Any]:
-    response = session.get(f"{STEAM_API_URL}{path}", params={"key": api_key, **params}, timeout=REQUEST_TIMEOUT_SECONDS)
+    # The request URL carries the API key, and `requests` puts the URL in its error messages.
+    try:
+        response = session.get(
+            f"{STEAM_API_URL}{path}", params={"key": api_key, **params}, timeout=REQUEST_TIMEOUT_SECONDS
+        )
+    except RequestException as error:
+        raise type(error)(redact_literal_values(str(error), (api_key,))) from None
     if not response.ok:
-        # `raise_for_status` puts the request URL in the message, and the URL carries the API key.
         kind = "Client" if response.status_code < 500 else "Server"
         raise HTTPError(f"{response.status_code} {kind} Error: {response.reason}", response=response)
     return response.json().get("response") or {}
