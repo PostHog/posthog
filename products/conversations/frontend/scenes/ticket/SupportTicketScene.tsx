@@ -9,8 +9,10 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,11 +30,18 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import type { SimplifiedRepliesProps } from '../../components/Chat/ReplySendMenu'
 import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import {
+    type Ticket,
+    type TicketPriority,
+    type TicketStatus,
+    priorityOptions,
+    statusOptionsWithoutAll,
+} from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -74,6 +83,21 @@ const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[
     { value: 'on_hold', statusLabel: 'on hold' },
     { value: 'resolved', statusLabel: 'resolved' },
 ]
+
+// The composer header's recipient: the addresses an email goes to, otherwise the customer's name.
+function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): SimplifiedRepliesProps {
+    return {
+        recipient:
+            ticket.channel_source === 'email'
+                ? emailRecipients
+                : ticket.person?.properties?.name ||
+                  ticket.person?.properties?.email ||
+                  ticket.anonymous_traits?.name ||
+                  ticket.anonymous_traits?.email ||
+                  null,
+        statusLabel: statusOptionsWithoutAll.find((option) => option.value === ticket.status)?.label,
+    }
+}
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
@@ -144,6 +168,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -287,6 +313,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftModeChange={setDraftModeEnabled}
                         sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
+                        simplifiedReplies={
+                            simplifiedReplies && ticket
+                                ? simplifiedRepliesFor(ticket, replyRecipientDescription)
+                                : undefined
+                        }
                         unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}

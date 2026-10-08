@@ -159,6 +159,8 @@ export type SupportEditorProps = {
     minRows?: number
     className?: string
     autoFocus?: boolean
+    /** Rendered inside the editor's frame, above the text */
+    header?: React.ReactNode
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -479,6 +481,7 @@ export function SupportEditor({
     minRows,
     className,
     autoFocus = false,
+    header,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -615,6 +618,7 @@ export function SupportEditor({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
+            {header}
             <EditorContent
                 editor={editor}
                 className="SupportEditor__content p-2"

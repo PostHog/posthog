@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -19,11 +19,13 @@ jest.mock('../Editor', () => {
             onPressCmdEnter,
             disabled,
             autoFocus,
+            header,
         }: {
             onCreate: (editor: unknown) => void
             onPressCmdEnter: () => void
             disabled?: boolean
             autoFocus?: boolean
+            header?: React.ReactNode
         }) => {
             React.useEffect(() => {
                 const el = document.querySelector('[data-attr="support-editor"]') as HTMLElement | null
@@ -41,9 +43,14 @@ jest.mock('../Editor', () => {
                 // eslint-disable-next-line react-hooks/exhaustive-deps
             }, [])
             return React.createElement(
-                'button',
-                { 'data-attr': 'support-editor', 'data-disabled': disabled, onClick: onPressCmdEnter },
-                'Editor shortcut'
+                React.Fragment,
+                null,
+                header,
+                React.createElement(
+                    'button',
+                    { 'data-attr': 'support-editor', 'data-disabled': disabled, onClick: onPressCmdEnter },
+                    'Editor shortcut'
+                )
             )
         },
         serializeToMarkdown: (): string => 'hello',
@@ -223,5 +230,84 @@ describe('MessageInput editing mode', () => {
 
         const checkbox = screen.getByRole('checkbox')
         expect(checkbox).toBeDisabled()
+    })
+})
+
+describe('MessageInput simplified replies', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    function renderSimplified(onSendMessage = jest.fn()): jest.Mock {
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={onSendMessage}
+                    messageSending={false}
+                    channel="slack"
+                    showPrivateOption
+                    draftMode
+                    onDraftModeChange={jest.fn()}
+                    draftContent={{ type: 'doc', content: [] }}
+                    sendConfirmationMessage="This will send to the linked Slack thread"
+                    sendAndSetStatusOptions={SEND_AND_SET_STATUS_OPTIONS}
+                    simplifiedReplies={{ recipient: 'Ada Example', statusLabel: 'Open' }}
+                />
+            </Provider>
+        )
+        return onSendMessage
+    }
+
+    it('names the destination, recipient and status above the editor, and drops draft mode', () => {
+        renderSimplified()
+
+        const header = screen.getByTestId('composer-header')
+        expect(header).toHaveTextContent('Reply in Slack')
+        expect(header).toHaveTextContent('Ada Example')
+        expect(header).toHaveTextContent('Ticket status: Open')
+        expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+    })
+
+    // Send only opens the menu: sending straight from the button would skip the confirm step this replaces.
+    it('sends nothing until a row is picked, then sends with that status', async () => {
+        const onSendMessage = renderSimplified()
+
+        await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
+        expect(onSendMessage).not.toHaveBeenCalled()
+        expect(await screen.findByText('This will send to the linked Slack thread')).toBeInTheDocument()
+
+        await userEvent.click(screen.getByText('Send and set resolved'))
+        expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, false, expect.any(Function), 'resolved')
+    })
+
+    test.each<[string, string, TicketStatus | undefined]>([
+        ['Enter keeps the status', '{Enter}', undefined],
+        ['a digit sets the numbered status', '2', 'on_hold'],
+    ])('%s', async (_name, keys, status) => {
+        const onSendMessage = renderSimplified()
+
+        // The editor's Cmd+Enter shortcut opens the menu instead of sending.
+        await userEvent.click(screen.getByTestId('support-editor'))
+        expect(onSendMessage).not.toHaveBeenCalled()
+        expect(await screen.findByTestId('send-menu')).toBeInTheDocument()
+
+        await userEvent.keyboard(keys)
+        expect(onSendMessage).toHaveBeenCalledTimes(1)
+        expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, false, expect.any(Function), status)
+    })
+
+    it('goes back to the draft on Escape', async () => {
+        const onSendMessage = renderSimplified()
+
+        await userEvent.click(screen.getByTestId('support-editor'))
+        expect(await screen.findByTestId('send-menu')).toBeInTheDocument()
+
+        await userEvent.keyboard('{Escape}')
+        expect(onSendMessage).not.toHaveBeenCalled()
+        await waitFor(() => expect(screen.queryByTestId('send-menu')).not.toBeInTheDocument())
     })
 })
