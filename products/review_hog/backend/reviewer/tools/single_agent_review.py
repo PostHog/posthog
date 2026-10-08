@@ -16,10 +16,10 @@ from pathlib import Path
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
-    FLASH_MAX_FINDINGS,
     FLASH_POSTED_PRIORITIES,
     FLASH_PROMPT_DIFF_MAX_CHARS,
     SINGLE_AGENT_SOURCE,
+    flash_max_findings,
     priority_rank,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
@@ -201,15 +201,17 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
     return issues
 
 
-def compose_flash_findings(main: list[Issue], lens: list[Issue]) -> list[Issue]:
+def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> list[Issue]:
     """The findings a Flash turn keeps: posted priorities only, highest first, main review first on ties.
+
+    The cut grows with the lens part count (`flash_max_findings`).
 
     The caller persists only these. A persisted finding that never posts counts as already raised, so
     every later turn would keep it off the PR too.
     """
     posted = [issue for issue in [*main, *lens] if issue.priority in FLASH_POSTED_PRIORITIES]
     ranked = sorted(posted, key=lambda issue: priority_rank(issue.priority), reverse=True)
-    return ranked[:FLASH_MAX_FINDINGS]
+    return ranked[: flash_max_findings(lens_part_count)]
 
 
 async def dedupe_flash_findings(
@@ -222,6 +224,7 @@ async def dedupe_flash_findings(
     prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
     branch: str,
     repository: str,
+    lens_part_count: int,
     workflow_id_prefix: str | None = None,
 ) -> list[Issue]:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
@@ -259,7 +262,7 @@ async def dedupe_flash_findings(
             for_flash=True,
         ),
     )
-    kept = compose_flash_findings(main_kept, lens_kept)
+    kept = compose_flash_findings(main_kept, lens_kept, lens_part_count=lens_part_count)
     logger.info(
         "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
         len(kept),

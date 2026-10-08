@@ -80,11 +80,12 @@ class TestSingleAgentPrompt:
 
 class TestComposeFlashFindings:
     @pytest.mark.parametrize(
-        "main,lens,expected_ids",
+        "main,lens,lens_part_count,expected_ids",
         [
             pytest.param(
                 [_issue("m-p3", IssuePriority.CONSIDER), _issue("m-p2", IssuePriority.SHOULD_FIX)],
                 [_issue("l-p1", IssuePriority.MUST_FIX, _LENS_SOURCE)],
+                1,
                 ["l-p1", "m-p2"],
                 id="p3_dropped_and_a_lens_must_fix_ranks_first",
             ),
@@ -99,17 +100,26 @@ class TestComposeFlashFindings:
                     _issue("l2", IssuePriority.MUST_FIX, _LENS_SOURCE),
                     _issue("l3", IssuePriority.SHOULD_FIX, _LENS_SOURCE),
                 ],
+                1,
                 ["m1", "l1", "l2", "m2"],
-                id="at_most_four_and_main_first_on_ties",
+                id="one_part_keeps_four_and_main_first_on_ties",
+            ),
+            pytest.param(
+                [_issue(f"m{n}", IssuePriority.SHOULD_FIX) for n in range(1, 7)],
+                [_issue(f"l{n}", IssuePriority.SHOULD_FIX, _LENS_SOURCE) for n in range(1, 7)],
+                4,
+                ["m1", "m2", "m3", "m4", "m5", "m6", "l1", "l2", "l3", "l4"],
+                id="four_parts_keep_ten",
             ),
         ],
     )
     def test_keeps_the_highest_priority_findings_main_first_on_ties(
-        self, main: list[Issue], lens: list[Issue], expected_ids: list[str]
+        self, main: list[Issue], lens: list[Issue], lens_part_count: int, expected_ids: list[str]
     ) -> None:
-        # A turn posts only what this keeps, so a P3 finding that outranks a P1, or a fifth comment,
-        # reaches the PR as noise.
-        assert [issue.id for issue in compose_flash_findings(main, lens)] == expected_ids
+        # A turn posts only what this keeps, so a P3 finding that outranks a P1, or a comment past the
+        # cap, reaches the PR as noise, and a large PR held to the one-part cap loses real findings.
+        kept = compose_flash_findings(main, lens, lens_part_count=lens_part_count)
+        assert [issue.id for issue in kept] == expected_ids
 
 
 class TestDedupeFlashFindings:
@@ -142,6 +152,7 @@ class TestDedupeFlashFindings:
                 prior_findings=[],
                 branch="feat",
                 repository="o/r",
+                lens_part_count=1,
             )
 
         assert [issue.id for issue in kept] == expected_ids

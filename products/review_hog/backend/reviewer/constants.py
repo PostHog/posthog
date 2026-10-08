@@ -150,8 +150,17 @@ SINGLE_AGENT_SOURCE = "flash-single-agent"
 
 # A Flash turn posts P0-P2 findings only. Add `IssuePriority.CONSIDER` to post P3 findings too.
 FLASH_POSTED_PRIORITIES = frozenset({IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX})
-# The main and lens findings merge into one list by priority, cut here so a turn's comments stay few.
-FLASH_MAX_FINDINGS = 4
+# The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
+# PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
+FLASH_MAX_FINDINGS_BASE = 4
+FLASH_MAX_FINDINGS_PER_EXTRA_PART = 2
+FLASH_MAX_FINDINGS_CEILING = 10
+
+
+def flash_max_findings(lens_part_count: int) -> int:
+    extra_parts = max(lens_part_count - 1, 0)
+    return min(FLASH_MAX_FINDINGS_BASE + FLASH_MAX_FINDINGS_PER_EXTRA_PART * extra_parts, FLASH_MAX_FINDINGS_CEILING)
+
 
 # Above FLASH_LENS_MAX_CHUNKS parts, the parts grow instead, so one turn never opens more sessions.
 FLASH_LENS_CHUNK_MAX_LINES = 600

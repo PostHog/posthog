@@ -287,7 +287,8 @@ and 2002) and its part. Step 7 then runs as two dedup calls in parallel (`dedupe
 `run_oneshot_openai_review`): the main findings against PR comments and earlier turns, and the lens findings against
 the same plus the main findings as anchors, so a lens finding can lose to a main finding but never the reverse.
 `compose_flash_findings` keeps `FLASH_POSTED_PRIORITIES` (P0-P2) only, highest priority first, the main session first
-on ties, at most `FLASH_MAX_FINDINGS` (4), before anything persists. No validator runs, so dedup writes an
+on ties, at most `flash_max_findings(parts)` (4 plus 2 per lens part past the first, up to 10), before anything
+persists. No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`. Findings publish inline; an
 optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
 range. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts

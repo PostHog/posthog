@@ -1370,6 +1370,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 prior_findings=prior_findings,
                 branch=input.branch,
                 repository=input.repository,
+                lens_part_count=len(plan_lens_chunks(snapshot.pr_files).chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
         else:

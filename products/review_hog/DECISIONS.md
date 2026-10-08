@@ -198,7 +198,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
-### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one prioritized list of at most four, any PR size
+### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one short prioritized list, any PR size
 
 - **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts
   and security) in parallel, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` at medium effort). Parallel lens sessions
@@ -223,7 +223,9 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
   The lens findings also dedup against the main findings as anchors: an anchor makes a colliding lens finding a
   candidate, and only candidates can drop, so a main finding never loses to a lens finding. `compose_flash_findings`
-  then keeps P0-P2 (`FLASH_POSTED_PRIORITIES`), highest first, main first on ties, at most `FLASH_MAX_FINDINGS` (4).
+  then keeps P0-P2 (`FLASH_POSTED_PRIORITIES`), highest first, main first on ties, at most
+  `flash_max_findings(parts)`: 4, plus 2 for each lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A
+  larger PR gets a few more comments because each extra part covers more code.
   It runs before anything persists, because a persisted finding that never posts counts as already raised and would
   stay off the PR on every later turn.
 - **Publishing.** Every kept finding posts inline. With P3 gone, `review_priorities_for` and the status comment's
@@ -238,7 +240,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
   the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits.
 - **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
-  finding wins; within one session P0 still ranks first. "At most four" holds per turn, so a later push can post more.
+  finding wins; within one session P0 still ranks first. The cap holds per turn, so a later push can post more.
   The contracts skill has no severity guide, so `lens_priority.md`'s mapping only shapes the performance lens, as
   measured. The Python LLM gateway's `review_hog` product does not list `gpt-6-luna`, so check that the gateway
   serving ReviewHog allows it before rollout.
