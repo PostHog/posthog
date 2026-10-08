@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -14,11 +14,13 @@ describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
 
     test.each([
-        ['Hobby', false, true],
-        ['Cloud', true, false],
-    ])('%s project creation follows the server type', (_name, cloud, blocked) => {
+        ['Hobby with a project', false, MOCK_DEFAULT_ORGANIZATION.teams, true],
+        ['Hobby with only a demo project', false, [{ ...MOCK_DEFAULT_TEAM, is_demo: true }], false],
+        ['Hobby with no projects', false, [], false],
+        ['Cloud', true, MOCK_DEFAULT_ORGANIZATION.teams, false],
+    ])('%s project creation follows the server type', (_name, cloud, teams, blocked) => {
         window.POSTHOG_APP_CONTEXT = {
-            current_user: { organization: MOCK_DEFAULT_ORGANIZATION },
+            current_user: { organization: { ...MOCK_DEFAULT_ORGANIZATION, teams } },
         } as unknown as AppContext
         initKeaTests()
         preflightLogic.actions.loadPreflightSuccess({ cloud, is_debug: false, is_test: false } as PreflightStatus)

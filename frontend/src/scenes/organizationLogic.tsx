@@ -331,7 +331,8 @@ export const organizationLogic = kea<organizationLogicType>([
                 isHobby: boolean,
                 preflight: PreflightStatus | null
             ): string | null => {
-                if (preflight && isHobby) {
+                // Mirror PremiumMultiProjectPermission: Hobby allows one non-demo project, so an org without one can still create it.
+                if (preflight && isHobby && currentOrganization?.teams?.some((team) => !team.is_demo)) {
                     return 'Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.'
                 }
                 const isAdminOrAbove =
