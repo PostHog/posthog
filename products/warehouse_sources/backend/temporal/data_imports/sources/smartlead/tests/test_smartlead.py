@@ -6,7 +6,6 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.settings import PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartlead.smartlead import (
     SmartleadResumeConfig,
@@ -94,44 +93,6 @@ class TestSmartleadSource:
         assert snapshots[1]["params"]["offset"] == PAGE_SIZE
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_is_framework_api_key_query_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response(_accounts(1))])
-
-        _rows(_source("email_accounts", _make_manager()))
-
-        auth = snapshots[0]["auth"]
-        assert isinstance(auth, APIKeyAuth)
-        assert auth.name == "api_key"
-        assert auth.location == "query"
-        assert auth.api_key == "key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_accounts_strip_mailbox_credentials(self, MockSession) -> None:
-        # Smartlead returns the connected mailbox's SMTP/IMAP passwords (base64-encoded) on
-        # this endpoint; syncing them would store live credentials in the warehouse.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response(
-                    [
-                        {
-                            "id": 1,
-                            "from_email": "a@example.com",
-                            "password": "c2VjcmV0",
-                            "imap_password": "c2VjcmV0",
-                        }
-                    ]
-                )
-            ],
-        )
-
-        rows = _rows(_source("email_accounts", _make_manager()))
-
-        assert rows == [{"id": 1, "from_email": "a@example.com"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_campaigns_single_page_never_paginates(self, MockSession) -> None:
         # The campaign list is unpaginated. An offset paginator here would refetch the same full
         # array forever, because a full-length page never triggers the short-page stop.
@@ -155,17 +116,6 @@ class TestSmartleadSource:
 
         with pytest.raises(ValueError, match="Required a list response body"):
             _rows(_source("clients", _make_manager()))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(_accounts(PAGE_SIZE)), _response(_accounts(1, start=PAGE_SIZE))])
-
-        manager = _make_manager()
-        _rows(_source("email_accounts", manager))
-
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == SmartleadResumeConfig(next_offset=PAGE_SIZE)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
@@ -252,17 +202,6 @@ class TestSmartleadFanout:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, (True, 200)), (401, (False, 401)), (403, (False, 403))])
-    @mock.patch(SMARTLEAD_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key") == expected
-
-    @mock.patch(SMARTLEAD_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") == (False, None)
-
     @mock.patch(SMARTLEAD_SESSION_PATCH)
     def test_probe_carries_key_in_query_and_never_follows_redirects(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)

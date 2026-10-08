@@ -3,32 +3,40 @@
 Reference for the `omnisend` warehouse source. Verify against the live API before
 changing endpoint behavior — see the `implementing-warehouse-sources` skill.
 
-- **API version:** v3 (`https://api.omnisend.com/v3`). v3 is the stable resource-based
-  REST surface for contacts/orders/products/carts/categories/campaigns. (v5 / v2026-03-15
-  reshape several of these into event-centric endpoints; v3 is the right fit for a
-  list-and-sync warehouse source.)
-- **Auth:** API key in the `X-API-KEY` header.
-- **Pagination:** offset/limit with a fully-formed next-page URL at `paging.next`
-  (`null` when exhausted). We follow `paging.next` directly, which makes pagination
-  resumable. `limit` default 100, max 250.
+Two API versions are supported. New sources default to `2026-03-15`; `v3` is deprecated by
+Omnisend (no sunset date announced) and existing `v3` pins keep working unchanged.
+
+|                 | `v3` (deprecated)             | `2026-03-15` (default)                                                                                        |
+| --------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Base URL        | `https://api.omnisend.com/v3` | `https://api.omnisend.com/api`                                                                                |
+| Auth            | `X-API-KEY: {key}`            | `Authorization: Omnisend-API-Key {key}`                                                                       |
+| Version header  | none                          | `Omnisend-Version: 2026-03-15` (required)                                                                     |
+| Pagination      | `paging.next` full URL        | contacts, campaigns: cursor (`paging.cursors.after`, `?after=`); products, categories: `paging.next` full URL |
+| Retired version | —                             | `410 Gone`                                                                                                    |
+
+The same API key works for both versions; only the header changes. `limit` default 100, max 250.
+
 - **Rate limits:** 400 req/min general; 100 req/min segment reads; 15 req/min segment
   writes. We only read general list endpoints. 429s carry `Retry-After`.
 
 ## List endpoints
 
-| Schema     | Path          | Response array key | Primary key  | Partition (stable) |
-| ---------- | ------------- | ------------------ | ------------ | ------------------ |
-| contacts   | `/contacts`   | `contacts`         | `contactID`  | `createdAt`        |
-| campaigns  | `/campaigns`  | `campaign`         | `campaignID` | `createdAt`        |
-| carts      | `/carts`      | `carts`            | `cartID`     | `createdAt`        |
-| orders     | `/orders`     | `orders`           | `orderID`    | `createdAt`        |
-| products   | `/products`   | `products`         | `productID`  | `createdAt`        |
-| categories | `/categories` | `categories`       | `categoryID` | —                  |
+| Schema     | v3 path / key / PK                          | 2026-03-15 path / key / PK                          | Partition (stable) |
+| ---------- | ------------------------------------------- | --------------------------------------------------- | ------------------ |
+| contacts   | `/contacts` / `contacts` / `contactID`      | `/contacts` / `contacts` / `id`                     | `createdAt`        |
+| campaigns  | `/campaigns` / `campaign` / `campaignID`    | `/campaigns` / `campaigns` / `id`                   | `createdAt`        |
+| carts      | `/carts` / `carts` / `cartID`               | — (write-only events)                               | `createdAt`        |
+| orders     | `/orders` / `orders` / `orderID`            | — (write-only events)                               | `createdAt`        |
+| products   | `/products` / `products` / `productID`      | `/products` / `products` / `id`                     | `createdAt`        |
+| categories | `/categories` / `categories` / `categoryID` | `/product-categories` / `categories` / `categoryID` | —                  |
 
-Endpoint existence confirmed against the live API (all return non-404 without a key).
-Primary keys follow Omnisend's `<resource>ID` v3 convention. Response array keys follow
-the plural `<resource>` convention **except `/campaigns`, which nests rows under the
-singular `campaign`** — confirmed against the live response body.
+v3 endpoint existence was confirmed against the live API (all return non-404 without a key).
+v3 response array keys follow the plural `<resource>` convention **except `/campaigns`, which
+nests rows under the singular `campaign`** (confirmed against the live response body).
+2026-03-15 shapes come from Omnisend's reference and its "Migrate from v3 to v2026-03-15" guide.
+Other 2026-03-15 changes visible in synced rows: product and variant prices are floats in the
+store currency (v3: integer cents), product `images` are URL strings, and campaign statistics
+moved off the campaign object into the Analytics API.
 
 ## Sync mode
 
@@ -43,6 +51,6 @@ key is available, `/contacts` is the candidate to flip to incremental on `update
 
 ## Caveats
 
-- `/orders`: orders that Omnisend auto-syncs from e-commerce platforms (Shopify,
+- `/orders` (v3 only): orders that Omnisend auto-syncs from e-commerce platforms (Shopify,
   BigCommerce, WooCommerce) are **not** exposed through v3 — only orders pushed via the
   API are returned.

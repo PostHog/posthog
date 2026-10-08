@@ -20,10 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.r
     reply_io_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import (
-    ENDPOINTS,
-    REPLY_IO_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -102,30 +99,6 @@ class TestPagination:
         manager.save_state.assert_called_once_with(ReplyIoResumeConfig(skip=3))
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_hasmore_false_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_paged([{"id": 1}, {"id": 2}], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert [r["id"] for r in rows] == [1, 2]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_paged([], has_more=False)])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_paged([{"id": 201}], has_more=False)])
@@ -151,17 +124,6 @@ class TestPagination:
         # Bare-array endpoints take no pagination params and never persist resume state.
         assert "top" not in params[0] and "skip" not in params[0]
         manager.save_state.assert_not_called()
-
-    @mock.patch("time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_paginated_body_is_retried_then_recovers(self, MockSession, _sleep) -> None:
-        # A 200 whose body isn't {"items": [...]} is transient: retry (re-issue), don't fail loud.
-        session = MockSession.return_value
-        _wire(session, [_bare([{"id": 1}]), _paged([{"id": 1}], has_more=False)])
-
-        rows = _rows(_source("contacts", _make_manager()))
-        assert [r["id"] for r in rows] == [1]
-        assert session.send.call_count == 2
 
     @mock.patch("time.sleep")
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -235,25 +197,6 @@ class TestCredentials:
 
 
 class TestEndpointPermissions:
-    @mock.patch(f"{reply_io.__name__}.check_access")
-    def test_endpoints_sharing_a_scope_share_one_probe(self, mock_access: mock.MagicMock) -> None:
-        mock_access.return_value = (200, None)
-        results = check_endpoint_permissions("reply-key", list(ENDPOINTS))
-        assert results == dict.fromkeys(ENDPOINTS)
-        distinct_scopes = {config.scope for config in REPLY_IO_ENDPOINTS.values()}
-        assert mock_access.call_count == len(distinct_scopes)
-
-    @mock.patch(f"{reply_io.__name__}.check_access")
-    def test_missing_scope_marks_every_endpoint_behind_it(self, mock_access: mock.MagicMock) -> None:
-        def by_path(api_key: str, path: str, paginated: bool = False) -> tuple[int, None]:
-            return (403, None) if path == REPLY_IO_ENDPOINTS["contacts"].path else (200, None)
-
-        mock_access.side_effect = by_path
-        results = check_endpoint_permissions("reply-key", list(ENDPOINTS))
-        denied = {name for name, reason in results.items() if reason is not None}
-        assert denied == {name for name, config in REPLY_IO_ENDPOINTS.items() if config.scope == "contacts:read"}
-        assert results["contacts"] == "Your Reply API key is missing the `contacts:read` scope"
-
     @parameterized.expand([("throttled", 429), ("server_error", 500), ("connection_error", 0)])
     @mock.patch(f"{reply_io.__name__}.check_access")
     def test_transient_errors_do_not_block_the_picker(

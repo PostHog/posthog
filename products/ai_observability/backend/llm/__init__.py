@@ -1,4 +1,4 @@
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.errors import LLMError, ProviderMismatchError, UnsupportedProviderError
@@ -18,6 +18,7 @@ class ModelInfo(TypedDict):
     provider: str
     description: str
     is_recommended: bool
+    supports_decisions: NotRequired[bool]
 
 
 # Single registry of providers. Add new providers here and everything else

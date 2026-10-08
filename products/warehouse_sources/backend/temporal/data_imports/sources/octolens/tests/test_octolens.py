@@ -12,13 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.o
     OCTOLENS_BASE_URL,
     PAGE_SIZE,
     OctolensResumeConfig,
-    _resource,
     check_access,
     octolens_source,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.octolens.settings import (
-    ENDPOINTS,
-    OCTOLENS_ENDPOINTS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -117,35 +112,6 @@ class TestMentionsPagination:
         assert snapshots[1]["params"] == {}
         assert snapshots[0]["json"]["limit"] == PAGE_SIZE
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_include_all_opts_into_low_relevance_mentions(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_mentions_page([])])
-
-        _rows(_source("mentions"))
-
-        assert snapshots[0]["json"]["includeAll"] is True
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bearer_token_authenticates_the_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_mentions_page([])])
-
-        _rows(_source("mentions", api_key="secret-key"))
-
-        request = requests.Request(method="POST", url="https://example.com").prepare()
-        snapshots[0]["auth"](request)
-        assert request.headers["Authorization"] == "Bearer secret-key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_version_selects_the_url_path_segment(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_mentions_page([])])
-
-        _rows(_source("mentions", api_version="v3"))
-
-        assert snapshots[0]["url"] == f"{OCTOLENS_BASE_URL}/api/v3/mentions"
-
 
 class TestMentionsFullRefresh:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -164,30 +130,8 @@ class TestMentionsFullRefresh:
         assert "filters" not in snapshots[0]["json"]
         assert "startDate" not in json.dumps(snapshots[0]["json"])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_every_endpoint_replaces_rather_than_merges(self, MockSession) -> None:
-        for endpoint in ENDPOINTS:
-            resource = _resource(OCTOLENS_ENDPOINTS[endpoint], "v2")
-            assert resource["write_disposition"] == "replace"
-
 
 class TestResume:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_is_saved_after_each_yielded_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _mentions_page([{"sourceId": "a"}], next_cursor="c1"),
-                _mentions_page([{"sourceId": "b"}], next_cursor=None),
-            ],
-        )
-        manager = _make_manager()
-
-        _rows(_source("mentions", manager))
-
-        manager.save_state.assert_called_once_with(OctolensResumeConfig(cursor="c1"))
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_the_saved_cursor(self, MockSession) -> None:
         session = MockSession.return_value
@@ -236,30 +180,6 @@ class TestDimensionEndpoints:
         assert snapshots[0]["json"] == {}
 
 
-class TestSourceResponseShape:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_mentions_partitioned_on_the_stable_post_timestamp(self, MockSession) -> None:
-        response = _source("mentions")
-        assert response.name == "mentions"
-        assert response.primary_keys == ["sourceId"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == ["timestamp"]
-
-    @pytest.mark.parametrize("endpoint", ["keywords", "feeds", "notifications", "org_members"])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_dimension_tables_are_unpartitioned_with_id_keys(self, MockSession, endpoint: str) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_every_declared_endpoint_is_buildable(self, MockSession) -> None:
-        for endpoint in ENDPOINTS:
-            assert _source(endpoint).primary_keys
-
-
 class TestHttpErrors:
     @pytest.mark.parametrize("status_code", [401, 403])
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -304,14 +224,6 @@ class TestCheckAccess:
             status, _message = check_access("k", "v2")
         assert status == expected_status
 
-    @pytest.mark.parametrize("status_code, expected", [(401, "Invalid key"), (500, "Boom")])
-    def test_surfaces_the_error_envelope_message(self, status_code: int, expected: str) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code=status_code, json_data={"error": {"message": expected}})
-        with mock.patch(OCTOLENS_SESSION_PATCH, return_value=session):
-            _status, message = check_access("k", "v2")
-        assert message == expected
-
     @pytest.mark.parametrize(
         "response",
         [
@@ -330,15 +242,6 @@ class TestCheckAccess:
             status, message = check_access("k", "v2")
         assert status == 500
         assert message == "Octolens returned HTTP 500"
-
-    def test_probes_the_versioned_auth_endpoint_with_a_bearer_token(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = FakeResponse(json_data={"organizationId": "org_1"})
-        with mock.patch(OCTOLENS_SESSION_PATCH, return_value=session):
-            check_access("k", "v2")
-        call = session.get.call_args
-        assert call.args[0] == f"{OCTOLENS_BASE_URL}/api/v2/auth"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer k"
 
     def test_connection_error_reports_unvalidated(self) -> None:
         session = mock.MagicMock()

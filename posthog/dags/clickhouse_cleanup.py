@@ -1273,10 +1273,17 @@ PG_QUEUE_RETRY_BACKOFF_SECONDS = 1.0
 PERSIST_RETRY_POLICY = dagster.RetryPolicy(max_retries=3, delay=60, backoff=dagster.Backoff.EXPONENTIAL)
 
 
+@frozen
+class _QueuedPerson:
+    team_id: int
+    person_id: str
+    max_version: int
+
+
 def _write_queue_page(
     connection: psycopg2.extensions.connection,
     cursor: psycopg2.extensions.cursor,
-    page: list[tuple[int, str]],
+    page: list[_QueuedPerson],
     deleted_at: datetime | None,
 ) -> int:
     """Upsert one page, retrying a lock or deadlock conflict. Returns the retries it took."""
@@ -1284,16 +1291,23 @@ def _write_queue_page(
     deadline = time.monotonic() + PG_QUEUE_RETRY_WINDOW_SECONDS
     while True:
         try:
+            # deleted_at and max_version only move forward. A run re-executed from a later op gets a new
+            # deleted_at but keeps its old snapshot, so its bound must never replace a newer run's higher one.
             execute_values(
                 cursor,
                 f"""
-                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
+                INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at, max_version)
                 VALUES %s
                 ON CONFLICT (team_id, person_uuid) DO UPDATE
-                SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
-                WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                SET deleted_at = EXCLUDED.deleted_at,
+                    max_version = GREATEST({PG_CLEANUP_QUEUE_TABLE}.max_version, EXCLUDED.max_version),
+                    blocked_at = NULL
+                WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at < EXCLUDED.deleted_at
+                   OR ({PG_CLEANUP_QUEUE_TABLE}.deleted_at = EXCLUDED.deleted_at
+                       AND ({PG_CLEANUP_QUEUE_TABLE}.max_version IS NULL
+                            OR {PG_CLEANUP_QUEUE_TABLE}.max_version < EXCLUDED.max_version))
                 """,
-                [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
+                [(person.team_id, person.person_id, deleted_at, person.max_version) for person in page],
                 page_size=1000,
             )
             return retries
@@ -1341,18 +1355,21 @@ def persist_deleted_persons(
     # keeps a dry run from dialing Postgres at all.
     persons_database = psycopg2.connect(persons_database_url, connect_timeout=10)
 
-    def read_page(client: Client, after: tuple[int, str] | None) -> list[tuple[int, str]]:
+    def read_page(client: Client, after: tuple[int, str] | None) -> list[_QueuedPerson]:
         # Reads the snapshot directly rather than the dictionary's query, so adding attributes to
         # the dictionary cannot silently change the shape of what gets queued. Keyset pagination
-        # over (team_id, person_id) follows the table's sort key, and DISTINCT collapses the
+        # over (team_id, person_id) follows the table's sort key, and GROUP BY collapses the
         # duplicate versions a retried snapshot insert can leave in the ReplacingMergeTree.
+        # max(max_version) is the bound the dictionary hands delete_persons, so the drain deletes
+        # in Postgres only the versions this run deletes in ClickHouse.
         page_filter = "AND (team_id, person_id) > (%(after_team)s, toUUID(%(after_person)s))" if after else ""
-        return client.execute(
+        rows = client.execute(
             f"""
-            SELECT DISTINCT team_id, person_id FROM {run.persons.qualified_name}
+            SELECT team_id, person_id, max(max_version) FROM {run.persons.qualified_name}
             WHERE run_id = %(run_id)s
               AND (team_id, person_id) NOT IN ({run.revived.run_keys_query})
               {page_filter}
+            GROUP BY team_id, person_id
             ORDER BY team_id, person_id
             LIMIT %(limit)s
             """,
@@ -1364,6 +1381,10 @@ def persist_deleted_persons(
             },
             settings=run.query_settings,
         )
+        return [
+            _QueuedPerson(team_id=team_id, person_id=str(person_id), max_version=max_version)
+            for team_id, person_id, max_version in rows
+        ]
 
     deleted_at = run.distinct_ids_deleted_at
     written = 0
@@ -1389,7 +1410,8 @@ def persist_deleted_persons(
                 # The WHERE keeps a retried op from rewriting rows that already hold this run's
                 # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
                 # over millions of rows would leave that many dead tuples for the persons writer to
-                # vacuum.
+                # vacuum. The max_version clause lets a retry of this run fill in a row an older build
+                # queued without one.
                 conflict_retries += _write_queue_page(persons_database, cursor, page, deleted_at)
                 # The conflict guard makes rowcount "rows changed", not "rows queued"; the metric is
                 # the queued set, which is the page.
@@ -1399,8 +1421,8 @@ def persist_deleted_persons(
                 persons_database.commit()
                 if len(page) < PERSIST_PAGE_SIZE:
                     break
-                last_team, last_person = page[-1]
-                after = (last_team, str(last_person))
+                last = page[-1]
+                after = (last.team_id, last.person_id)
     finally:
         persons_database.close()
 

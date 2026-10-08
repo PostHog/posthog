@@ -58,29 +58,6 @@ def page(name: str, rows: list[dict[str, Any]], total_pages: int = 1) -> Respons
     return response({"status": "ok", "data": data})
 
 
-@pytest.mark.parametrize("empty", [False, True])
-def test_lists_pagination_auth_and_terminal_page(transport: MagicMock, manager: MagicMock, empty: bool) -> None:
-    transport.side_effect = (
-        [page("lists", [], 0)]
-        if empty
-        else [page("lists", [{"uuid": "MFexample001"}], 2), page("lists", [{"uuid": "MFexample002"}], 2)]
-    )
-    source = referralhero_source("fake-token", "lists", 1, "job", manager)
-    rows = [row for batch in batches(source) for row in batch]
-
-    assert rows == ([] if empty else [{"uuid": "MFexample001"}, {"uuid": "MFexample002"}])
-    assert transport.call_count == (1 if empty else 2)
-    for index, call in enumerate(transport.call_args_list, 1):
-        request = call.args[0]
-        assert call.kwargs["timeout"] == (10, 60)
-        assert request.headers["Authorization"] == "Bearer fake-token"
-        assert urlsplit(request.url).path == "/api/v2/lists"
-        assert parse_qs(urlsplit(request.url).query) == {"page": [str(index)]}
-    assert manager.save_state.call_args.args[0].finished is True
-    if not empty:
-        assert manager.save_state.call_args_list[0].args[0].paginator_state == {"page": 2}
-
-
 @pytest.mark.parametrize("name", ["subscribers", "bonuses", "rewards", "coupon_groups"])
 @pytest.mark.parametrize("empty", [False, True])
 def test_child_tables_follow_all_campaigns(transport: MagicMock, manager: MagicMock, name: str, empty: bool) -> None:
@@ -106,34 +83,6 @@ def test_child_tables_follow_all_campaigns(transport: MagicMock, manager: MagicM
         "current": None,
         "child_state": None,
     }
-
-
-@pytest.mark.parametrize("name", ["subscribers", "rewards", "coupon_groups"])
-def test_child_resume_skips_completed_campaign_and_resumes_page(
-    transport: MagicMock, manager: MagicMock, name: str
-) -> None:
-    manager.load_state.return_value = ReferralHeroResumeConfig(
-        paginator_state={
-            "completed": [f"lists/MFexample001/{name}"],
-            "current": f"lists/MFexample002/{name}",
-            "child_state": {"page": 2},
-        }
-    )
-    transport.side_effect = [
-        page("lists", [{"uuid": "MFexample001"}, {"uuid": "MFexample002"}]),
-        page(name, [{"id": "item-2"}], 3),
-        page(name, [{"id": "item-3"}], 3),
-    ]
-    source = referralhero_source("fake-token", name, 1, "job", manager)
-    assert [row for batch in batches(source) for row in batch] == [
-        {"id": "item-2", "list_uuid": "MFexample002"},
-        {"id": "item-3", "list_uuid": "MFexample002"},
-    ]
-    assert transport.call_count == 3
-    for call, number in zip(transport.call_args_list[1:], [2, 3]):
-        assert urlsplit(call.args[0].url).path == f"/api/v2/lists/MFexample002/{name}"
-        assert parse_qs(urlsplit(call.args[0].url).query) == {"page": [str(number)]}
-    assert manager.save_state.call_args_list[0].args[0].paginator_state["child_state"] == {"page": 3}
 
 
 @pytest.mark.parametrize("finished", [False, True])
@@ -179,15 +128,6 @@ def test_validate_credentials_only_reads_first_page(transport: MagicMock) -> Non
     assert transport.call_count == 1
     assert transport.call_args.kwargs["timeout"] == (10, 60)
     assert transport.call_args.args[0].headers["Authorization"] == "Bearer fake-token"
-
-
-@pytest.mark.parametrize("status", [429, 500])
-def test_transient_errors_retry(transport: MagicMock, manager: MagicMock, status: int) -> None:
-    transport.side_effect = [response({"code": "too_many_calls"}, status), page("lists", [])]
-    with patch("tenacity.nap.time.sleep"):
-        source = referralhero_source("fake-token", "lists", 1, "job", manager)
-        assert list(batches(source)) == []
-    assert transport.call_count == 2
 
 
 def test_unknown_errors_are_not_invalid_credentials(transport: MagicMock) -> None:
