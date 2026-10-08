@@ -170,7 +170,7 @@ export class ToolExecutor {
         if (state.useSingleExec) {
             const entryTool =
                 state.requestContext.mode === 'code'
-                    ? this.instructionsBuilder.buildRunCodeToolEntry()
+                    ? this.instructionsBuilder.buildRunCodeToolEntry(state)
                     : this.instructionsBuilder.buildExecToolEntry(state)
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
             return [entryTool, ...(renderUiEntry ? [renderUiEntry] : [])]
@@ -196,7 +196,7 @@ export class ToolExecutor {
                 return this.instructionsBuilder.buildExecToolEntry(state)
             }
             if (toolName === RUN_CODE_TOOL_NAME && state.requestContext.mode === 'code') {
-                return this.instructionsBuilder.buildRunCodeToolEntry()
+                return this.instructionsBuilder.buildRunCodeToolEntry(state)
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
                 return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
@@ -836,8 +836,6 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
-                // A script cannot pass `--confirm`, so code mode refuses destructive tools outright.
-                requireDestructiveConfirmation: state.requestContext.mode === 'code',
                 builtInSkillHint: this.builtInSkillHint(state),
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
@@ -898,6 +896,7 @@ export class ToolExecutor {
             search: (query) => exec(`search ${query}`),
             schema: (toolName) => exec(`info --json ${execToolToken(toolName)}`),
             call: (toolName, args) => exec(`call --json ${execToolToken(toolName)} ${JSON.stringify(args)}`),
+            exec,
         })
         const status = outcome.ok ? 'success' : 'error'
         toolCallsTotal.inc({ tool: RUN_CODE_TOOL_NAME, status })

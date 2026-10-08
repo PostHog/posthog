@@ -24,9 +24,10 @@ export const RUN_CODE_TOOL_DESCRIPTION = `Run a JavaScript script that orchestra
 - await posthog.search(query): find tools by keywords, ranked by relevance.
 - await posthog.schema(toolName): a tool's description and input schema.
 - await posthog.call(toolName, args): run a tool and get its parsed result. Throws if the tool fails.
+- await posthog.exec(command): run any exec command (for example \`learn -s "funnel conversion"\`) and get its output. The exec guidance below applies inside scripts through this function and the helpers above.
 - console.log(...values): add a note to the output.
 
-The script has no network, filesystem or timers. Each run is limited to ${CODE_RUN_LIMITS.timeoutMs / 1000} seconds, ${CODE_RUN_LIMITS.maxCalls} posthog.call invocations and ${CODE_RUN_LIMITS.maxConcurrentHostCalls} concurrent calls. Destructive tools are refused.
+The script has no network, filesystem or timers. Each run is limited to ${CODE_RUN_LIMITS.timeoutMs / 1000} seconds, ${CODE_RUN_LIMITS.maxCalls} posthog.call or posthog.exec invocations and ${CODE_RUN_LIMITS.maxConcurrentHostCalls} concurrent calls.
 
 Example:
 const flags = await posthog.call('feature-flag-get-all', { active: 'STALE' })
@@ -43,6 +44,7 @@ export interface CodeRunHost {
     search(query: string): Promise<unknown>
     schema(toolName: string): Promise<unknown>
     call(toolName: string, args: unknown): Promise<unknown>
+    exec(command: string): Promise<unknown>
 }
 
 /** A guest-facing result: JSON text on success, a message on failure. */
@@ -66,6 +68,7 @@ const GUEST_PRELUDE = `(() => {
         search: async (query) => JSON.parse(await host.search(String(query))),
         schema: async (toolName) => JSON.parse(await host.schema(String(toolName))),
         call: async (toolName, args) => JSON.parse(await host.call(String(toolName), JSON.stringify(args ?? {}))),
+        exec: async (command) => JSON.parse(await host.exec(String(command))),
     })
 })()`
 
@@ -191,6 +194,16 @@ export async function runCode(
             return deferred.handle
         })
 
+    const counted = (run: () => Promise<unknown>): Promise<unknown> => {
+        if (calls === limits.maxCalls) {
+            const message = `Call limit reached: a run may make at most ${limits.maxCalls} posthog.call or posthog.exec invocations.`
+            abort(message)
+            return Promise.reject(new Error(message))
+        }
+        calls++
+        return run()
+    }
+
     const hostObject = vm.newObject()
     const hostFunctions: [string, QuickJSHandle][] = [
         [
@@ -207,16 +220,9 @@ export async function runCode(
         ['schema', asyncHostFunction('schema', (toolName) => host.schema(toolName))],
         [
             'call',
-            asyncHostFunction('call', (toolName, argsJson) => {
-                if (calls === limits.maxCalls) {
-                    const message = `Call limit reached: a run may make at most ${limits.maxCalls} posthog.call invocations.`
-                    abort(message)
-                    return Promise.reject(new Error(message))
-                }
-                calls++
-                return host.call(toolName, JSON.parse(argsJson))
-            }),
+            asyncHostFunction('call', (toolName, argsJson) => counted(() => host.call(toolName, JSON.parse(argsJson)))),
         ],
+        ['exec', asyncHostFunction('exec', (command) => counted(() => host.exec(command)))],
     ]
     for (const [name, handle] of hostFunctions) {
         vm.setProp(hostObject, name, handle)

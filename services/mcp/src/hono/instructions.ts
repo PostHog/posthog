@@ -111,11 +111,11 @@ export class InstructionsBuilder {
         }
     }
 
-    buildRunCodeToolEntry(): McpTool {
+    buildRunCodeToolEntry(state: ResolvedState): McpTool {
         return {
             name: RUN_CODE_TOOL_NAME,
             title: 'Run a PostHog script',
-            description: RUN_CODE_TOOL_DESCRIPTION,
+            description: `${RUN_CODE_TOOL_DESCRIPTION}\n\n# exec guidance\n\n${this.buildExecToolDescription(state)}`,
             inputSchema: toMcpInputSchema(runCodeSchema),
             annotations: { ...EXEC_TOOL_ANNOTATIONS },
         }

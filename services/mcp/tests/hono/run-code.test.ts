@@ -107,16 +107,18 @@ describe('run_code', () => {
             dispatched: { flags: [], dashboards: [{}], deleteDashboard: [] },
         },
         {
-            label: 'refuses a destructive tool',
-            code: `
-                try {
-                    await posthog.call('dashboard-delete', { id: 7 })
-                } catch (error) {
-                    return error.message.includes('is destructive')
-                }`,
+            label: 'runs a destructive tool the way hosted exec does',
+            code: `return await posthog.call('dashboard-delete', { id: 7 })`,
             isError: false,
-            body: { result: true, logs: [], calls: 1 },
-            dispatched: { flags: [], dashboards: [], deleteDashboard: [] },
+            body: { result: { deleted: true }, logs: [], calls: 1 },
+            dispatched: { flags: [], dashboards: [], deleteDashboard: [{ id: 7 }] },
+        },
+        {
+            label: 'runs any exec command through posthog.exec',
+            code: `return await posthog.exec('call --json dashboards-get-all {}')`,
+            isError: false,
+            body: { result: { results: [{ id: 1 }, { id: 2 }] }, logs: [], calls: 1 },
+            dispatched: { flags: [], dashboards: [{}], deleteDashboard: [] },
         },
         {
             label: 'refuses a tool name that smuggles the confirm flag',
@@ -134,7 +136,7 @@ describe('run_code', () => {
                 return 'finished'`,
             isError: true,
             body: {
-                error: `Call limit reached: a run may make at most ${CODE_RUN_LIMITS.maxCalls} posthog.call invocations.`,
+                error: `Call limit reached: a run may make at most ${CODE_RUN_LIMITS.maxCalls} posthog.call or posthog.exec invocations.`,
                 logs: [],
                 calls: CODE_RUN_LIMITS.maxCalls,
             },
@@ -156,7 +158,12 @@ describe('run_code', () => {
             callsHost: true,
         },
     ])('times out $label', async ({ code, callsHost }) => {
-        const host = { search: vi.fn(), schema: vi.fn(), call: vi.fn(() => new Promise<never>(() => {})) }
+        const host = {
+            search: vi.fn(),
+            schema: vi.fn(),
+            exec: vi.fn(),
+            call: vi.fn(() => new Promise<never>(() => {})),
+        }
 
         const outcome = await runCode(code, host, { ...CODE_RUN_LIMITS, timeoutMs: 200 })
 
