@@ -2679,6 +2679,23 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             team=self.team, property_definition=restricted, access_level=PropertyAccessLevel.NONE.value
         )
 
+    @mock.patch(f"{posthog.models.person.divergence.__name__}.capture_internal")
+    def test_reset_does_not_copy_a_restricted_property_into_an_event(self, capture: mock.MagicMock) -> None:
+        person = create_person(team=self.team, properties={"email": "pg@example.com"}, version=5, uuid=str(uuid4()))
+        add_distinct_id(person=person, distinct_id="target", version=0)
+        create_person_in_ch(
+            uuid=str(person.uuid), team_id=self.team.pk, version=10, properties={"email": "ch@example.com", "ssn": "1"}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "target"}
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        capture.assert_not_called()
+        person_after = get_person_by_uuid(self.team.pk, str(person.uuid))
+        assert person_after is not None and person_after.version == 5
+
     @parameterized.expand(["batch_by_distinct_ids", "batch_by_uuids"])
     def test_batch_endpoint_strips_restricted_person_properties(self, action: str) -> None:
         person = _create_person(

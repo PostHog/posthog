@@ -956,12 +956,13 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("capture_fails", 256 * 1024, "skipped_stale_merge_failed", True),
-            ("merge_too_large", 10, "skipped_stale_merge_too_large", False),
+            ("capture_fails", 256 * 1024, frozenset(), "skipped_stale_merge_failed", True),
+            ("merge_too_large", 10, frozenset(), "skipped_stale_merge_too_large", False),
+            ("property_restricted", 256 * 1024, frozenset({"plan"}), "skipped_stale_merge_restricted", False),
         ]
     )
     def test_reset_leaves_a_stale_person_alone_when_its_merge_cannot_be_sent(
-        self, _name: str, max_bytes: int, person_outcome: str, capture_called: bool
+        self, _name: str, max_bytes: int, restricted: frozenset[str], person_outcome: str, capture_called: bool
     ) -> None:
         person = self._stale_person_with_target({**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
         failing = MagicMock()
@@ -971,7 +972,9 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             patch("posthog.models.person.divergence._STALE_MERGE_MAX_BYTES", max_bytes),
             patch("posthog.models.person.divergence.capture_internal", return_value=failing) as capture,
         ):
-            summary = repair_distinct_id(self.team.pk, "target", delivery_timeout_seconds=1)
+            summary = repair_distinct_id(
+                self.team.pk, "target", delivery_timeout_seconds=1, restricted_properties=restricted
+            )
 
         assert summary is not None
         assert (summary.person_outcomes, summary.mapping_outcomes) == ({person_outcome: 1}, {"skipped_stale": 1})

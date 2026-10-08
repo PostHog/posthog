@@ -69,6 +69,7 @@ RepairOutcome = Literal[
     "skipped_stale",
     "skipped_stale_merge_failed",
     "skipped_stale_merge_too_large",
+    "skipped_stale_merge_restricted",
     "merge_queued",
     "skipped_too_many_distinct_ids",
 ]
@@ -939,9 +940,15 @@ def _clickhouse_only_properties(plan: _PersonPlan) -> dict[str, Any]:
     return {key: value for key, value in ch_properties.items() if key not in pg_properties}
 
 
-def _queue_stale_merge(plan: _PersonPlan, distinct_id: str, missing: dict[str, Any]) -> RepairOutcome | None:
+def _queue_stale_merge(
+    plan: _PersonPlan, distinct_id: str, missing: dict[str, Any], restricted_properties: frozenset[str]
+) -> RepairOutcome | None:
     """Send the ClickHouse-only properties to ingestion as $set_once, or return why they were not sent."""
     assert plan.person is not None
+    # Event reads apply event property restrictions, so the $set event would expose a person property the
+    # requester cannot read.
+    if restricted_properties.intersection(missing):
+        return "skipped_stale_merge_restricted"
     if len(json.dumps({**missing, **(plan.person.properties or {})})) > _STALE_MERGE_MAX_BYTES:
         return "skipped_stale_merge_too_large"
     try:
@@ -991,6 +998,7 @@ def _execute_plan(
     before_write: Callable[[], None],
     published: Callable[[ProduceResult], None],
     stale_merge_distinct_id: str | None = None,
+    restricted_properties: frozenset[str] = frozenset(),
 ) -> list[RepairAction]:
     person = plan.person
     if person is None:
@@ -1002,7 +1010,9 @@ def _execute_plan(
             missing = _clickhouse_only_properties(plan)
             # The merge goes out before the raise, so a send that fails leaves Postgres below ClickHouse and
             # the next ingestion update cannot overwrite the ClickHouse-only properties.
-            refusal = _queue_stale_merge(plan, stale_merge_distinct_id, missing) if missing else None
+            refusal = (
+                _queue_stale_merge(plan, stale_merge_distinct_id, missing, restricted_properties) if missing else None
+            )
             if refusal is None and missing:
                 stale_merge_keys = set(missing)
         if refusal is not None:
@@ -1250,25 +1260,37 @@ def repair_persons(
     return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
 
 
-def repair_distinct_id(team_id: int, distinct_id: str, *, delivery_timeout_seconds: float) -> RepairSummary | None:
+def repair_distinct_id(
+    team_id: int,
+    distinct_id: str,
+    *,
+    delivery_timeout_seconds: float,
+    restricted_properties: frozenset[str] = frozenset(),
+) -> RepairSummary | None:
     """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
 
     It always applies. For a stale person it sends the ClickHouse winner's properties that Postgres lacks to
-    ingestion as $set_once, so newer Postgres values win, and then raises Postgres above ClickHouse.
+    ingestion as $set_once, so newer Postgres values win, and then raises Postgres above ClickHouse. It leaves
+    the person stale when any of those properties is in ``restricted_properties``.
     """
     owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
     if owner is None:
         return None
     outcomes = _OutcomeCounts()
     deliveries = _Deliveries()
-    for plan in _plan_chunk(team_id, [str(owner.uuid)], only_distinct_id=distinct_id):
-        for action in _execute_plan(
-            plan,
-            apply=True,
-            include_stale=False,
-            before_write=lambda: None,
-            published=deliveries.track,
-            stale_merge_distinct_id=distinct_id,
-        ):
-            outcomes.add(action)
-    return outcomes.summary(applied=True, persons=1, undelivered=deliveries.undelivered(delivery_timeout_seconds))
+    undelivered = 0
+    try:
+        for plan in _plan_chunk(team_id, [str(owner.uuid)], only_distinct_id=distinct_id):
+            for action in _execute_plan(
+                plan,
+                apply=True,
+                include_stale=False,
+                before_write=lambda: None,
+                published=deliveries.track,
+                stale_merge_distinct_id=distinct_id,
+                restricted_properties=restricted_properties,
+            ):
+                outcomes.add(action)
+    finally:
+        undelivered = deliveries.undelivered(delivery_timeout_seconds)
+    return outcomes.summary(applied=True, persons=1, undelivered=undelivered)

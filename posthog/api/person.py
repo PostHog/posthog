@@ -1728,8 +1728,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_id or not isinstance(distinct_id, str):
             raise ValidationError(detail="distinct_id is required")
 
+        restricted_person_properties = self.get_serializer_context().get("restricted_person_properties") or set()
         summary = repair_distinct_id(
-            self.team_id, distinct_id, delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS
+            self.team_id,
+            distinct_id,
+            delivery_timeout_seconds=RESET_DISTINCT_ID_DELIVERY_TIMEOUT_SECONDS,
+            restricted_properties=frozenset(restricted_person_properties),
         )
         if summary is not None:
             logger.info(
