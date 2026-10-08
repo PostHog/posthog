@@ -9,11 +9,10 @@ Use them when you build a dashboard from a blueprint.
 Open the description with the question the dashboard answers. Then say who is counted and who is excluded. Then say how to read it.
 Example: "Is the product growing, and do new signups become regular users? Counts accounts, with internal and test users excluded, in complete weeks over the last 90 days. The headline numbers show the last complete week."
 
-## Order the page: summary first, evidence last
+## Order the page
 
 1. A headline row of numbers.
 2. Sections, each on one theme. Inside a section, show the trend first, then the breakdown that explains it.
-3. Raw rows a person reads (recent failures, top accounts) at the end of the section they support.
 
 Every headline number needs a section below that explains it.
 A section with no headline number is fine when it answers part of the dashboard's question.
@@ -68,6 +67,14 @@ y=4   two charts          x=0,6      w=6  h=5
 y=9   one chart           x=0        w=12 h=5
 y=14  next heading        x=0        w=12 h=1
 ```
+
+## Charts and numbers, not tables
+
+A reader has to read every cell of a table to learn anything from it. A chart shows the same thing at a glance.
+
+- Every tile is a number or a chart. Do not use a table as a tile.
+- A SQL insight shows as a table unless you set `display`. Set it to a chart, such as `ActionsLineGraph` for values over time or `ActionsBar` for values per category, and map the columns in `chartSettings`.
+- If a result only makes sense as rows, such as a list of accounts, leave it off the dashboard and offer it as a separate insight.
 
 ## Show complete periods only
 
@@ -129,6 +136,7 @@ Dashboards are often built right after the events were added to the code.
 - The description opens with the question and states the scope.
 - The first row is 3-4 exact numbers with short names, and every pill in it means the same thing.
 - Every section has a heading, and every row fills 12 columns with no overlap.
+- No tile is a table.
 - No chart ends in a period that is still in progress.
 - Every tile has a plain name, a short description that is hidden on the tile, labeled series, and a formatted axis.
 - `posthog:dashboard-insights-run` returned data, or the description says why a tile is empty.

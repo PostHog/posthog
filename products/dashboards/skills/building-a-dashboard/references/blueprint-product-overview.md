@@ -86,7 +86,7 @@ Headline tile names are about 20 characters at most. A longer name is cut off at
 **The headline row holds counts, not rates.** Activation, conversion, and retention rates belong to a cohort: the people who signed up in a period and what they did later. A trends formula cannot follow a cohort. It divides this week's activations by this week's signups, which can read twice the true rate.
 
 **Activation rate.** When the team already has an activation insight, add that insight to the dashboard as it is.
-Otherwise build it from the definition. A habit definition, such as the core action in 3 of the first 4 weeks, cannot be a funnel. Build a SQL insight that shows, for each signup week, the share of new users who met it, and leave out signup weeks whose window is still open.
+Otherwise build it from the definition. A habit definition, such as the core action in 3 of the first 4 weeks, cannot be a funnel. Build a SQL insight that shows, for each signup week, the share of new users who met it, and leave out signup weeks whose window is still open. Show it as a line chart, not a table.
 
 For "What people do", choose the actions from the core action's own events or from the most-used custom events, one per product area. Leave out pageviews, autocapture, and system events.
 
@@ -112,6 +112,7 @@ Tell the user what is missing and which event or definition would fill it.
 
 ## Avoid
 
+- A table as a tile.
 - An estimated rate in the headline row.
 - Pageviews or sessions as the measure of an active user.
 - A first action counted as activation.
