@@ -139,8 +139,11 @@ describe('watchFeedLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.clearFeedFilters()
         })
-            .toMatchValues({ view: 'grid' })
+            .toMatchValues({ view: 'grid', displayView: 'grid' })
             .toFinishAllListeners()
+        // The jev arm's rows only come as a list, so it ignores the saved grid choice.
+        logic.actions.setFeedRanker('jev')
+        expect(logic.values.displayView).toBe('list')
     })
 
     it('names the empty reason only once the fleet and budget have answered', async () => {

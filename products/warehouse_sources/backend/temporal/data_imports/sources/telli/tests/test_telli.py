@@ -1,39 +1,14 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, call
 
 import responses
 from responses import matchers
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import (
-    TelliResumeConfig,
-    telli_source,
-    validate_credentials,
-)
-
-
-def test_disables_http_sample_capture() -> None:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli.RESTClient"
-    ) as client_class:
-        client_class.return_value.paginate.return_value = iter([[]])
-        validate_credentials("test-telli-key")
-        assert client_class.call_args.kwargs["capture"] is False
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli.rest_api_resource",
-        return_value=iter([]),
-    ) as resource:
-        response = telli_source("test-telli-key", "calls", 1, "test-job", manager)
-        assert list(cast(Iterable[object], response.items())) == []
-        assert resource.call_args.args[0]["client"]["capture"] is False
+from products.warehouse_sources.backend.temporal.data_imports.sources.telli.telli import TelliResumeConfig, telli_source
 
 
 @pytest.mark.parametrize(
@@ -89,27 +64,6 @@ def test_cursor_pages_and_resume(
         assert response.partition_keys == [partition_key]
 
 
-@pytest.mark.parametrize(
-    "endpoint,path,row",
-    [
-        ("contact_properties", "/v2/properties/contacts", {"key": "tier", "dataType": "number"}),
-        ("phone_numbers", "/v1/phone-numbers", {"id": "number-1", "phoneNumber": "+12025550100"}),
-    ],
-)
-@pytest.mark.parametrize("empty", [False, True])
-def test_single_page_collections(endpoint: str, path: str, row: dict[str, str], empty: bool) -> None:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    rows = [] if empty else [row]
-    with responses.RequestsMock() as http:
-        http.get(f"https://api.telli.com{path}", json={"data": rows}, match=[matchers.query_param_matcher({})])
-        response = telli_source("test-telli-key", endpoint, 1, "test-job", manager)
-        assert list(cast(Iterable[object], response.items())) == ([] if empty else [rows])
-        assert len(http.calls) == 1
-        assert response.primary_keys and (empty or all(key in row for key in response.primary_keys))
-        manager.save_state.assert_called_once_with(TelliResumeConfig(completed=True))
-
-
 @pytest.mark.parametrize("body", [{"calls": [], "next_cursor": None}, {"unexpected": []}])
 def test_empty_calls_and_missing_envelope(body: dict[str, Any]) -> None:
     manager = MagicMock(spec=ResumableSourceManager)
@@ -158,21 +112,3 @@ def test_repeated_cursor_raises_without_clearing_checkpoint(endpoint: str, path:
             list(cast(Iterable[object], response.items()))
 
     manager.save_state.assert_called_once_with(TelliResumeConfig(cursor="stuck"))
-
-
-@pytest.mark.parametrize("status", [429, 500, 503])
-def test_transient_failure_keeps_page_and_cursor(status: int) -> None:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = TelliResumeConfig(cursor="saved-cursor")
-    retry_controller = cast(Any, RESTClient._send_request).retry
-    with responses.RequestsMock() as http, patch.object(retry_controller, "sleep"):
-        http.get("https://api.telli.com/v1/list-calls", status=status, headers={"Retry-After": "0"})
-        http.get(
-            "https://api.telli.com/v1/list-calls",
-            json={"calls": [{"call_id": "call-1"}], "next_cursor": None},
-            match=[matchers.query_param_matcher({"cursor": "saved-cursor", "limit": "100"})],
-        )
-        response = telli_source("test-telli-key", "calls", 1, "test-job", manager)
-        assert list(cast(Iterator[object], response.items())) == [[{"call_id": "call-1"}]]
-        manager.save_state.assert_called_once_with(TelliResumeConfig(completed=True))

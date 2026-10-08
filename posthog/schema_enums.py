@@ -286,6 +286,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     SESSION = "session"
     HOGQL = "hogql"
     COHORT = "cohort"
@@ -630,6 +631,16 @@ class BIAggregation(StrEnum):
     CUSTOM = "custom"
 
 
+class Operator1(StrEnum):
+    AND_ = "AND"
+    OR_ = "OR"
+
+
+class MissingDates(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+
+
 class BIDateBucket(StrEnum):
     MINUTE = "minute"
     HOUR = "hour"
@@ -662,9 +673,30 @@ class BIQueryLimit(float, Enum):
     NUMBER_50000 = 50000
 
 
+class Operator2(StrEnum):
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
+    LESS_THAN_OR_EQUAL = "less_than_or_equal"
+    BETWEEN = "between"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
 class BISortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
+
+
+class BITableCalculationType(StrEnum):
+    PERCENT_OF_TOTAL = "percent_of_total"
+    RUNNING_TOTAL = "running_total"
+    DIFFERENCE = "difference"
+    PERCENT_CHANGE = "percent_change"
+    MOVING_AVERAGE = "moving_average"
+    RANK = "rank"
 
 
 class BaseMathType(StrEnum):
@@ -713,6 +745,7 @@ class BreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -1810,6 +1843,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     APNS = "apns"
+    APPLE_ADS = "apple-ads"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     AWS_REDSHIFT = "aws-redshift"
@@ -2166,6 +2200,7 @@ class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"

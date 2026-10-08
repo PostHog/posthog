@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -7,12 +8,13 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { DatabaseSchemaQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaQuery, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 
+import { BI_EDITOR_EVENTS } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -33,6 +35,7 @@ const timestampField: BIField = {
 }
 const config: BIConfig = {
     source: { table: 'events' },
+    dateRange: { date_from: 'all' },
     chartType: ChartDisplayType.ActionsBar,
     rows: [eventField],
     columns: [timestampField],
@@ -102,19 +105,96 @@ describe('biSceneLogic', () => {
                     ]
                 },
                 '/api/projects/:team_id/insights/': save,
+                '/api/projects/:team_id/insights/viewed/': [201],
                 '/api/projects/:team_id/warehouse_saved_queries/': exportView,
             },
             patch: { '/api/projects/:team_id/insights/:id/': save },
             delete: { '/api/environments/:team_id/query/:id/': [204] },
         })
         initKeaTests()
-        router.actions.push(urls.businessIntelligence(), {}, { q: '' })
+        router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         editor = biEditorLogic({ tabId: 'bi-test' })
-        editor.actions.setAutoUpdate(false)
     })
     afterEach(() => logic.unmount())
+
+    it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+        try {
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+            if (saved) {
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceWorksheet(stored.short_id))
+                ).toFinishAllListeners()
+            }
+            logic.actions.setName('Edited worksheet')
+            editor.actions.setDataSource({ table: 'events' })
+            await expectLogic(logic).toFinishAllListeners()
+            const editorPath = router.values.location.pathname
+            expect(confirm).not.toHaveBeenCalled()
+
+            router.actions.push(urls.businessIntelligence())
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toBe(editorPath)
+            expect(logic.values.name).toBe('Edited worksheet')
+
+            confirm.mockReturnValue(true)
+            router.actions.push(urls.businessIntelligence())
+            expect(router.values.location.pathname).toBe('/project/997/bi')
+            logic.unmount()
+            router.actions.push(
+                saved ? urls.businessIntelligenceWorksheet(stored.short_id) : urls.businessIntelligenceNew()
+            )
+            logic = biSceneLogic({ tabId: 'bi-test' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.name).toBe(saved ? stored.name : 'Untitled worksheet')
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        } finally {
+            confirm.mockRestore()
+        }
+    })
+
+    it('waits for Run after selecting a table unless auto update is enabled', async () => {
+        editor.actions.setDataSource({ table: 'events' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.lastRunQuery).toBeNull()
+        logic.actions.runQuery()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+        logic.actions.setLastRunQuery(null)
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.source.query).toContain('count(*) AS count')
+    })
+
+    it('tracks the first successful chart once, without counting empty results or reruns', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.restoreWorksheet(worksheet())
+        const data = dataNodeLogic({
+            key: logic.values.dataNodeKey,
+            query: logic.values.worksheet.source,
+            autoLoad: false,
+        })
+        data.mount()
+        try {
+            data.actions.loadDataSuccess({ results: [], columns: ['count'], types: ['Int64'] })
+            expect(capture).not.toHaveBeenCalledWith(
+                BI_EDITOR_EVENTS.WORKSHEET_ACTION,
+                expect.objectContaining({ action: 'first_chart' })
+            )
+            data.actions.loadDataSuccess({ results: [[3]], columns: ['count'], types: ['Int64'] })
+            data.actions.loadDataSuccess({ results: [[4]], columns: ['count'], types: ['Int64'] })
+            expect(
+                capture.mock.calls.filter(
+                    ([event, properties]) =>
+                        event === BI_EDITOR_EVENTS.WORKSHEET_ACTION && properties?.action === 'first_chart'
+                )
+            ).toHaveLength(1)
+        } finally {
+            capture.mockRestore()
+            data.unmount()
+        }
+    })
 
     it.each([false, true])('releases its connection scope without disrupting another owner: %s', async (shared) => {
         const database = databaseTableListLogic()
@@ -144,6 +224,7 @@ describe('biSceneLogic', () => {
         logic.actions.setName('Revenue worksheet')
         await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
         expect(save).toHaveBeenCalledTimes(1)
+        expect(router.values.location.pathname).toBe('/project/997/bi/bi-test')
         expect(stored.query).toMatchObject({ kind: NodeKind.BIVisualizationNode, config })
         expect(stored.query.source).not.toHaveProperty('biConfig')
         logic.unmount()
@@ -164,6 +245,8 @@ describe('biSceneLogic', () => {
         editor.actions.setChartType(ChartDisplayType.ActionsStackedBar)
         expect(logic.values.hasUnsavedChanges).toBe(true)
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
+        editor.actions.setDateRange({ date_from: '-30d' })
+        expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
         logic.actions.discardChanges()
         expect(logic.values.worksheet.config).toEqual(config)
         expect(logic.values.hasUnsavedChanges).toBe(false)
@@ -180,6 +263,119 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.exportView()).toFinishAllListeners()
         expect(exportedPayload).toEqual({ name: 'revenue_view', query: JSON.parse(JSON.stringify(worksheet().source)) })
         expect(save).not.toHaveBeenCalled()
+    })
+
+    it('undoes shelves, filters, calculations and formatting without running a query, and branches after undo', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        const snapshots = [JSON.parse(JSON.stringify(logic.values.worksheet))]
+        const edits = [
+            () => editor.actions.addFieldToShelf(eventField, 'filters'),
+            () => editor.actions.setFilterValue(0, '$pageview'),
+            () => editor.actions.addFieldToShelf(eventField, 'values'),
+            () => editor.actions.setTableCalculation(0, { type: 'running_total' }),
+            () => editor.actions.updateMeasureSettings(0, { formatting: { prefix: '€' } }),
+            () => editor.actions.addResultFilter(),
+            () => editor.actions.updateResultFilter(editor.values.config.resultFilters![0].id, { value: '100' }),
+            () => editor.actions.setFilterGroup('row', { operator: 'OR', filters: ['event'], groups: [] }),
+            () => editor.actions.removeFieldFromShelf('columns', 0),
+            () => logic.actions.setVisualization({ ...logic.values.worksheet, chartSettings: { showLegend: false } }),
+        ]
+        for (const edit of edits) {
+            edit()
+            snapshots.push(JSON.parse(JSON.stringify(logic.values.worksheet)))
+        }
+        const lastRun = logic.values.lastRunQuery
+        for (let index = snapshots.length - 2; index >= 0; index--) {
+            logic.actions.undo()
+            expect(JSON.parse(JSON.stringify(logic.values.worksheet))).toEqual(snapshots[index])
+            expect(logic.values.lastRunQuery).toEqual(lastRun)
+        }
+        expect(logic.values.canUndo).toBe(false)
+        for (const snapshot of snapshots.slice(1)) {
+            logic.actions.redo()
+            expect(JSON.parse(JSON.stringify(logic.values.worksheet))).toEqual(snapshot)
+        }
+        expect(logic.values.canRedo).toBe(false)
+        logic.actions.undo()
+        editor.actions.setLimit(100)
+        expect(logic.values.canRedo).toBe(false)
+        logic.actions.discardChanges()
+        expect(logic.values.canUndo).toBe(false)
+        expect(logic.values.hasUnsavedChanges).toBe(false)
+    })
+
+    it('runs the restored worksheet when auto update is enabled', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        await expectLogic(editor, () => editor.actions.setAutoUpdate(true)).toFinishAllListeners()
+        await expectLogic(editor, () => editor.actions.setLimit(100)).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.config.limit).toBe(100)
+        await expectLogic(logic, () => logic.actions.undo()).toFinishAllListeners()
+        expect(logic.values.lastRunQuery?.config.limit).toBe(config.limit)
+    })
+
+    it('creates a separate worksheet copy and preserves the original, including after a failed copy', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        const original = JSON.parse(JSON.stringify(stored))
+        let fail = true
+        let copy: unknown
+        const createCopy = jest.fn(async ({ request }: { request: Request }) => {
+            const payload = await request.json()
+            copy = { ...payload, id: 456, short_id: 'copy' }
+            return fail ? [500, { detail: 'Could not save copy' }] : [201, copy]
+        })
+        useMocks({
+            post: { '/api/projects/:team_id/insights/': createCopy },
+            get: { '/api/projects/:team_id/insights/': () => [200, { results: [copy] }] },
+        })
+        editor.actions.setLimit(100)
+        await expectLogic(logic, () => logic.actions.saveInsight({ asCopy: true })).toFinishAllListeners()
+        expect(logic.values.insight?.id).toBe(original.id)
+        expect(logic.values.insightLoading).toBe(false)
+        expect(logic.values.worksheet.config.limit).toBe(100)
+        fail = false
+        await expectLogic(logic, () => logic.actions.saveInsight({ asCopy: true })).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+        expect(stored).toEqual(original)
+        expect(createCopy).toHaveBeenCalledTimes(2)
+        expect(router.values.location.pathname).toBe('/project/997/bi/copy')
+        expect(logic.values.insight?.name).toBe('Saved worksheet (copy)')
+    })
+
+    it('preserves an unfinished calculated measure when chart settings update', () => {
+        logic.actions.restoreWorksheet(worksheet())
+        editor.actions.setCalculatedMeasureDraft({
+            index: null,
+            name: 'Revenue per user',
+            expression: 'sum(revenue) /',
+        })
+        const draft = editor.values.calculatedMeasureDraft
+        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting: [] } })
+        expect(editor.values.calculatedMeasureDraft).toEqual(draft)
+    })
+
+    it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {
+        const properties: HogQLFilters['properties'] = [
+            { type: PropertyFilterType.Event, key: 'plan', value: 'pro', operator: PropertyOperator.Exact },
+        ]
+        const node = worksheet()
+        node.source.filters = { dateRange: { date_from: '-7d' }, properties }
+        logic.actions.restoreWorksheet(node)
+        expect(editor.values.config.dateRange).toEqual({ date_from: '-7d' })
+        const sql = logic.values.worksheet.source.query
+        const data = dataNodeLogic({ key: logic.values.dataNodeKey, query: node.source, autoLoad: false })
+        data.mount()
+        data.actions.setResponse({ results: [[1]], columns: ['count'], types: [['count', 'Int64']] })
+        jest.useFakeTimers()
+        try {
+            editor.actions.setAutoUpdate(true)
+            editor.actions.setDateRange({ date_from: '-30d' })
+            await jest.advanceTimersByTimeAsync(500)
+            expect(logic.values.lastRunQuery?.source.query).toBe(sql)
+            expect(logic.values.lastRunQuery?.source.filters).toEqual({ dateRange: { date_from: '-30d' }, properties })
+        } finally {
+            jest.useRealTimers()
+            data.unmount()
+        }
     })
 
     it('restores legacy BI links and persists edits as a wrapper', async () => {

@@ -1,7 +1,7 @@
 """Eval: agent diagnoses empty / 0-exposure experiments across three carrier shapes.
 
 Carrier scenarios for diagnostic group B from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Three cases:
 

@@ -165,7 +165,21 @@ class WooCommerceSource(
                 "and have Read permission for this store."
             )
 
-        return False, "Could not connect to your WooCommerce store. Please check the store URL."
+        if status is None:
+            return False, (
+                "Couldn't reach your WooCommerce store. Check that the store URL is your public site address "
+                "and try again."
+            )
+
+        # The host answered but `/wp-json/wc/v3` didn't exist: usually a URL that isn't the WordPress
+        # site root, or a site on Plain permalinks, which serves the REST API under `?rest_route=` only.
+        if status == 404:
+            return False, (
+                "Your store answered, but its WooCommerce REST API wasn't found. Check the store URL and that "
+                "WordPress permalinks aren't set to Plain, then try again."
+            )
+
+        return False, "Your WooCommerce store returned an error. Check that the store is online and try again."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[WooCommerceResumeConfig]:
         return ResumableSourceManager[WooCommerceResumeConfig](inputs, WooCommerceResumeConfig)

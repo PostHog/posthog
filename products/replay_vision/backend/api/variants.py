@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
@@ -130,6 +131,13 @@ class ExperimentVariantsReadoutSerializer(serializers.Serializer):
     )
 
 
+class _ReadoutSchema(PostHogAutoSchema):
+    """Keeps drf-spectacular from wrapping the ``list`` response in an array: the readout is one object."""
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
+
+
 class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """What users in each variant of an experiment scanner's experiment do, side by side."""
 
@@ -137,10 +145,14 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # against that team and not just the environment in the URL.
     # Appended to the standard stack by `TeamAndOrgViewSetMixin.get_permissions`.
     permission_classes = [ScoutCanonicalTeamAccessPermission]
+    schema = _ReadoutSchema()
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
 
     @extend_schema(
+        # Pinned: the schema override renames the operation to `_retrieve`, and the MCP tool and its
+        # callers use the `_list` name.
+        operation_id="vision_scanners_variants_list",
         responses={
             200: ExperimentVariantsReadoutSerializer,
             400: OpenApiResponse(description="The scanner is not an experiment scanner."),

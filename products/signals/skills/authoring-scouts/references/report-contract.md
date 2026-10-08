@@ -1,9 +1,10 @@
 # The report channel: `emit_report` / `edit_report`
 
-A scout's output is the **report channel**: it does its research, then authors (or edits) a full inbox `SignalReport` directly, 1:1.
+A report-producing scout's output is the **report channel**: it does its research, then authors (or edits) a full inbox `SignalReport` directly, 1:1.
 This reference is the contract for that channel: the tools, their fields, when to author vs. edit, and the two behaviors to design around (it isn't idempotent, and the pipeline may later rewrite what you authored).
 
-The channel is granted via the skill's frontmatter `allowed_tools` — **every scout should list `emit_report` / `edit_report` there**; see [Granting the tools](#granting-the-tools).
+The channel is granted via the skill's frontmatter `allowed_tools`: **every report-producing scout lists both `emit_report` and `edit_report` there**; see [Granting the tools](#granting-the-tools).
+A scout with a product-specific output omits both tools. See [Scouts with a product-specific output](#scouts-with-a-product-specific-output).
 
 > **Tool names vs. opt-in strings.** The callable MCP tools are
 > **`scout-emit-report`** and **`scout-edit-report`** — those are the names you
@@ -35,6 +36,7 @@ The channel is granted via the skill's frontmatter `allowed_tools` — **every s
 - [Dedup: the retry is covered, the near-duplicate is not](#dedup-the-retry-is-covered-the-near-duplicate-is-not)
 - [The pipeline may rewrite what you authored (accepted)](#the-pipeline-may-rewrite-what-you-authored-accepted)
 - [Granting the tools](#granting-the-tools)
+  - [Scouts with a product-specific output](#scouts-with-a-product-specific-output)
 
 ## Author vs. edit
 
@@ -509,8 +511,8 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, and/or replace `metrics` / `charts` / `suggested_prompts` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `metrics`, `charts`, `suggested_prompts`.
+Rewrite `title`/`summary`, append evidence or a note, set `suggested_reviewers`, correct the `repository`, change the work decisions (`actionability`, `priority`), and/or replace `metrics` / `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `append_evidence`, `suggested_reviewers`, `repository`, `actionability`, `priority`, `metrics`, `charts`, `suggested_prompts`.
 An edit that supplies content (`title`, `summary`, `metrics`, `charts`, `suggested_prompts`, `append_note`, `append_evidence`, or a reviewer `reason`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
@@ -530,6 +532,29 @@ Rules of good behavior:
 - **Take the questions down when you replace the prose they answer.** Rewriting `summary` leaves the report's `suggested_prompts` in place, and they were written against the summary you just replaced — send a fresh set in the same call, or `[]` to clear them.
 - **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later, and a now-actionable report with a repo + priority can open a draft PR.
   An empty list is a no-op (it never clears existing reviewers).
+- **Use `repository` to fix a report that points at the wrong codebase.** Pass `owner/repo` to replace the target, or the `NO_REPO` sentinel when nothing under version control can change. Omit the field to keep the current target.
+  Correct the report in place instead of filing a duplicate. The change re-runs autostart, so a report that had no repository can now open a draft PR.
+
+### Changing the work decisions
+
+`edit_report` can replace the two decisions that control autostart.
+Each decision is a set of paired fields, and you send the full set together:
+
+| Decision      | Fields to send together                                               |
+| ------------- | --------------------------------------------------------------------- |
+| Actionability | `actionability`, `actionability_explanation`, and `already_addressed` |
+| Priority      | `priority` (`P0`–`P4`) and `priority_explanation`                     |
+
+- An explanation is 2–3 sentences of evidence. The edit fails when you set a decision without its explanation.
+- `already_addressed` is part of the actionability decision, so it needs `actionability` and `actionability_explanation` in the same call. When you omit it, the decision records `false`.
+- A decision change re-runs autostart. It does not change the report's inbox status.
+  `immediately_actionable` with a priority can open a draft PR. `requires_human_input` and `not_actionable` stop autostart from opening one.
+- `decision_fields_set` in the response names the decisions the edit replaced. It is empty when you re-send the decisions the report already holds.
+
+**Mark in-flight work so that autostart does not compete with it.**
+When a fix has landed, or a PR for the issue is already open, set `already_addressed: true` with the current `actionability` and an explanation that names the fix.
+Autostart then does not open a second, competing implementation.
+Do this instead of a note alone: a note records the fix for a reader, but autostart does not read it.
 
 ### Replacing the report's pull request
 
@@ -598,8 +623,8 @@ allowed_tools:
   - edit_report
 ```
 
-**Every scout needs this** — a scout that omits it falls back to a deprecated legacy channel (weak `emit-signal` findings a pipeline consolidated) and can't write reports at all.
-Don't author new scouts without the opt-in; if you find an existing scout missing it, add it and rework the scout's Decide section onto this contract.
+**Every report-producing scout needs this.** A report-producing scout that omits it falls back to a deprecated legacy channel (weak `emit-signal` findings a pipeline consolidated) and can't write reports at all.
+Don't author a new report-producing scout without the opt-in. If you find an existing report-producing scout missing it, add it and rework the scout's Decide section onto this contract.
 The canonical fleet runs on this channel; `signals-scout-anomaly-detection`'s `references/report-contract.md` keeps a worked, surface-specific shape (its notebook write-up + embedded-chart recipe).
 Add a short body section telling the scout what's report-shaped for its surface.
 Keep it lean — the field-level detail lives here (and in the harness prompt), not in the body.
@@ -607,3 +632,16 @@ Keep it lean — the field-level detail lives here (and in the harness prompt), 
 **Rollout posture:** for a chatty or high-stakes new scout, start in **dry-run** (`emit=false` on its `SignalScoutConfig`) so it runs and logs what it _would_ author without writing to the inbox.
 Inspect via `scout-runs-retrieve`, calibrate, then flip `emit=true`.
 The channel files a full inbox item on the first hit, so the cautious loop is worth it when in doubt.
+
+### Scouts with a product-specific output
+
+Some scouts write their output to a product surface, not to the inbox.
+Such a scout omits both `emit_report` and `edit_report`, and it does not call `emit_signal`.
+
+`signals-scout-workflows` is the example.
+It files suggestions through the workflows suggestions API, and the suggestion on the workflow page is its output.
+Its frontmatter description and its "Why this scout files no reports" section state that this is deliberate.
+A report on a workflow change could autostart a code PR for a change that is only PostHog configuration.
+
+Before you add the report tools to a scout that does not have them, read its description and output section.
+If the scout states a product-specific output, keep it off the report channel.

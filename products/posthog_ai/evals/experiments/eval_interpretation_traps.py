@@ -1,7 +1,7 @@
 """Eval: agent handles four interpretation-trap shapes from diagnostic group C.
 
 Carrier scenarios for diagnostic group C from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Four cases:
 

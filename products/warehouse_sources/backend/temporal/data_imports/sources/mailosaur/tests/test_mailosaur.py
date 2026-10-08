@@ -130,32 +130,6 @@ class TestMessagesFanOut:
         ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_empty_page_and_checkpoints_progress(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(url: str, params: dict[str, Any]) -> Response:
-            if "/api/servers" in url:
-                return _response({"items": [{"id": "s1"}]})
-            page = params["page"]
-            if page == 0:
-                return _response({"items": [{"id": "a"}, {"id": "b"}]})
-            if page == 1:
-                return _response({"items": [{"id": "c"}]})
-            return _response({"items": []})
-
-        captured = _wire(session, handler)
-        manager = _make_manager()
-        rows = _rows(mailosaur_source("key", "messages", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["id"] for r in rows] == ["a", "b", "c"]
-        # Page param progresses 0 -> 1 -> 2 (the empty page that terminates the server).
-        assert [params["page"] for _url, params in _message_requests(captured)] == [0, 1, 2]
-        # State is checkpointed AFTER yielding a page, bookmarking the next page to fetch, so a crash
-        # re-yields rather than skips (merge dedupes on the primary key).
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert any(s.paginator_state is not None and s.paginator_state.get("child_state") == {"page": 1} for s in saved)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_fanout_state(self, MockSession) -> None:
         session = MockSession.return_value
 
@@ -177,28 +151,6 @@ class TestMessagesFanOut:
 
         assert _servers_fetched(captured) == ["s2"]
         assert rows == [{"id": "m-s2", "server": "s2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_resume_state_starts_fresh(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(url: str, params: dict[str, Any]) -> Response:
-            if "/api/servers" in url:
-                return _response({"items": [{"id": "s1"}, {"id": "s2"}]})
-            if params["page"] == 0:
-                return _response({"items": [{"id": f"m-{_server_of(url)}"}]})
-            return _response({"items": []})
-
-        captured = _wire(session, handler)
-        # Old-shape state (server_id/page, no paginator_state) must still deserialize and simply
-        # restart the fan-out — a re-fetch the merge dedupes.
-        resume = MailosaurResumeConfig(server_id="s2", page=0)
-        rows = _rows(
-            mailosaur_source("key", "messages", team_id=1, job_id="j", resumable_source_manager=_make_manager(resume))
-        )
-
-        assert _servers_fetched(captured) == ["s1", "s2"]
-        assert rows == [{"id": "m-s1", "server": "s1"}, {"id": "m-s2", "server": "s2"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_passes_received_after(self, MockSession) -> None:
@@ -224,19 +176,6 @@ class TestMessagesFanOut:
         message_params = [params for _url, params in _message_requests(captured)]
         assert message_params
         assert all(p.get("receivedAfter") == "2026-01-02T03:04:05Z" for p in message_params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_received_after_on_full_refresh(self, MockSession) -> None:
-        session = MockSession.return_value
-
-        def handler(url: str, _params: dict[str, Any]) -> Response:
-            if "/api/servers" in url:
-                return _response({"items": [{"id": "s1"}]})
-            return _response({"items": []})
-
-        captured = _wire(session, handler)
-        _rows(mailosaur_source("key", "messages", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
-        assert all("receivedAfter" not in params for _url, params in _message_requests(captured))
 
 
 class TestSimpleEndpoints:

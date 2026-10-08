@@ -117,8 +117,7 @@ class FlakinessState(StrEnum):
     BROKEN = "broken"  # Fails nearly every run: the baseline is wrong, not the story
     UNSTABLE = "unstable"  # Fails some runs and not others: the classic flake
     AT_RISK = "at_risk"  # Never fails, but its diff is already touching the threshold
-    NOISY = "noisy"  # Renders variants, absorbed with room to spare
-    CLEAN = "clean"  # Matched its baseline on every run in the window
+    CLEAN = "clean"  # No gate failure in the window, and any absorbed diff is far below the threshold
 
 
 class ActorType(StrEnum):

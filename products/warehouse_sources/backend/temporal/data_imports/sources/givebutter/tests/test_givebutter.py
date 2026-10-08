@@ -71,8 +71,10 @@ def test_pagination_and_resume_after_yield(
 
     iterator = pages(givebutter_source("test-api-key", inputs, manager))
     assert next(iterator) == [first]
+    manager.confirm()
     assert not manager.has_staged_state()
     assert next(iterator) == last
+    manager.confirm()
     manager.commit()
     saved = manager.load_state()
     assert saved is not None
@@ -80,6 +82,7 @@ def test_pagination_and_resume_after_yield(
     iterator.close()
 
     assert list(pages(givebutter_source("test-api-key", inputs, manager))) == [last]
+    manager.confirm()
     manager.commit()
     assert list(pages(givebutter_source("test-api-key", inputs, manager))) == []
     assert len(requests_mock.request_history) == 3
@@ -119,6 +122,7 @@ def test_household_array_pagination_resumes_by_page_number(
     iterator = pages(givebutter_source("test-api-key", inputs, manager))
     assert next(iterator) == [{"id": 101}]
     assert next(iterator) == [{"id": 102}]
+    manager.confirm()
     manager.commit()
     iterator.close()
     requests_mock.reset_mock()
@@ -169,6 +173,7 @@ def test_child_rows_have_unique_parent_keys_and_resume_within_parent(
     assert response.primary_keys is not None
     assert len({tuple(row[key] for key in response.primary_keys) for row in rows}) == 2
     assert next(iterator) == [{"id": "last-id", parent_column: "parent-two"}]
+    manager.confirm()
     manager.commit()
     iterator.close()
     requests_mock.reset_mock()

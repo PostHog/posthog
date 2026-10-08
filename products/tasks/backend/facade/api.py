@@ -90,6 +90,7 @@ from products.tasks.backend.constants import (
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
     TASK_SESSION_MAX_SIZE_BYTES,
+    TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
     get_required_model_flag,
     is_blocked_sandbox_env_key,
     is_same_run_resume_state,
@@ -267,6 +268,7 @@ __all__ = [
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
+    "TIMED_OUT_INACTIVITY_STATE_KEY",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
     "ensure_personal_channel_id",
@@ -5871,7 +5873,7 @@ def _resolve_cloud_pr_authorship_mode(
             task.save(update_fields=["github_user_integration", "updated_at"])
         return PrAuthorshipMode.USER, None
 
-    if _ensure_task_team_github_integration(task):
+    if _ensure_task_team_github_integration(task) or task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return PrAuthorshipMode.BOT, None
 
     return None, contracts.TaskRunValidationError(
