@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -94,7 +96,7 @@ class TestSingleAgentPrompt:
                 pr_file.filename in not_shown
             )
         assert ("Review the changes in these files: `a.py`." in prompt) is (scope_files is not None)
-        assert (f"git diff {_MERGE_BASE} HEAD -- <path>" in prompt) is bool(not_shown)
+        assert (f"git diff {_MERGE_BASE} HEAD > /tmp/pr.diff" in prompt) is bool(not_shown)
 
     @pytest.mark.parametrize(
         "merge_base_sha,expected_command",
@@ -107,8 +109,8 @@ class TestSingleAgentPrompt:
     def test_git_command_for_a_left_out_diff_holds_only_a_commit_sha(
         self, pr_metadata: PRMetadata, merge_base_sha: str | None, expected_command: bool
     ) -> None:
-        # The session runs this command in a shell, so text from the repository, such as a branch
-        # name, must never reach it.
+        # The session runs these commands in a shell, so text from the repository, such as a branch
+        # name or a file name, must never reach them.
         metadata = pr_metadata.model_copy(update={"base_branch": "main$(id)"})
         with patch(f"{_MODULE}.FLASH_PROMPT_DIFF_MAX_CHARS", 10):
             prompt = SingleAgentPrompt(
@@ -121,6 +123,8 @@ class TestSingleAgentPrompt:
 
         assert ("git fetch" in prompt) is expected_command
         assert "$(" not in prompt
+        diff_commands = re.findall(r"`(git (?:fetch|diff) [^`]*)`", prompt)
+        assert all("<" not in command and "a.py" not in command for command in diff_commands)
 
 
 class TestComposeFlashFindings:
