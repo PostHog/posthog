@@ -16,8 +16,10 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 
@@ -34,6 +36,7 @@ import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullReq
 
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
+import { TodayReportFocusButtons } from './TodayReportFocusButtons'
 import { isSampleReportId } from './todaySampleReports'
 
 // The charts load on the first hover: the card sits in the app shell, and the query and chart code
@@ -58,6 +61,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
     const { card } = preview
     const { reportStateOverrides } = useValues(todayLogic)
     const { reportPreviewed, requestReportVerdict } = useActions(todayLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
@@ -82,6 +86,9 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
         }
     }
     const isSample = !!reportId && isSampleReportId(reportId)
+    // Only briefing items: a person who sees the team's reports instead gets no briefing to steer.
+    const steerableTopic =
+        featureFlags[FEATURE_FLAGS.TODAY_BRIEFING_FOCUS] && card.reason && !isSample ? card.sourceProduct : null
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -255,6 +262,12 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             Dismiss
                         </Button>
                     </div>
+                </>
+            )}
+            {steerableTopic && (
+                <>
+                    <ItemSeparator className="my-0" />
+                    <TodayReportFocusButtons topic={steerableTopic} label={card.sourceLabel} />
                 </>
             )}
         </div>

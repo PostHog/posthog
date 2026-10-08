@@ -3,14 +3,17 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import { TodayAskBox } from './TodayAskBox'
 import { WALK_THROUGH_QUESTION } from './todayAskPrompt'
+import { TodayBriefingFocusLine } from './TodayBriefingFocusLine'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
@@ -130,6 +133,8 @@ export function TodayBriefing(): JSX.Element {
         briefingWaiting,
     } = useValues(todayLogic)
     const { loadTopReports, refreshBriefing } = useActions(todayLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showFocus = showPersonalBriefing && !!featureFlags[FEATURE_FLAGS.TODAY_BRIEFING_FOCUS]
 
     return (
         <div className="TodayHome Today__page">
@@ -153,6 +158,7 @@ export function TodayBriefing(): JSX.Element {
                         />
                     ) : null}
                 </div>
+                {showFocus && <TodayBriefingFocusLine />}
                 {showPersonalBriefing ? (
                     <TodayPersonalBriefing />
                 ) : topReports === null && reportsFailed ? (

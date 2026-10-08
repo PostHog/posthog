@@ -81,6 +81,8 @@ export interface TodayReportCard {
     /** Charts from the report body. The card draws one when no metric has a chart. */
     charts: ReportChartApi[]
     sourceLabel: string
+    /** The product the report's first signal came from, the topic its "more like this" and "less like this" steer. */
+    sourceProduct: string | null
 }
 
 /** A report's hover card. The card text comes with the page, so it opens without a request. */

@@ -110,6 +110,7 @@ export function teamReportCard(report: SignalReport): TodayReportCard {
         metrics: report.metrics ?? [],
         charts: report.charts ?? [],
         sourceLabel: reportSource(report).label,
+        sourceProduct: report.source_products?.[0] ?? null,
     }
 }
 

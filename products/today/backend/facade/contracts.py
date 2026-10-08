@@ -11,6 +11,7 @@ from .enums import (
     CitedSource,
     FigureSourceKind,
     FigureText,
+    FocusDirection,
     ImpactNumberKey,
     ItemGroup,
     ItemReason,
@@ -18,6 +19,19 @@ from .enums import (
     ItemState,
     KeyClauseRole,
 )
+
+
+@dataclass(frozen=True)
+class FocusTopic:
+    topic: str
+    direction: FocusDirection
+
+
+@dataclass(frozen=True)
+class BriefingFocus:
+    """What a person asked their briefing to show more or less of, by source product."""
+
+    topics: list[FocusTopic]
 
 
 @dataclass(frozen=True)

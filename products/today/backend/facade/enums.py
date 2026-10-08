@@ -22,6 +22,11 @@ class BriefingWriter(StrEnum):
     AGENT = "agent"
 
 
+class FocusDirection(StrEnum):
+    MORE = "more"
+    LESS = "less"
+
+
 class ItemGroup(StrEnum):
     REPORT = "report"
     DASHBOARD = "dashboard"

@@ -322,6 +322,17 @@
     }
 }
 
+.TodayHome__focus {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: -4px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: var(--today-faint);
+}
+
 .TodayHome__progress {
     font-size: 13px;
     font-variant-numeric: tabular-nums;

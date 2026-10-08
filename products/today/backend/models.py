@@ -51,3 +51,21 @@ class DailyBriefing(ProductTeamModel):
 
     def __str__(self) -> str:
         return f"{self.user_id} {self.local_day} {self.status}"
+
+
+class BriefingFocus(ProductTeamModel):
+    """What one person asked their Today briefing to show more or less of, in one project."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    user_id = models.BigIntegerField()
+    # A list of `{"topic": <source product>, "direction": "more" | "less"}`, in the order the person set them.
+    topics = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "user_id"], name="today_focus_one_per_person"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} focus"

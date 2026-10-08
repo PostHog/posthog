@@ -31,3 +31,28 @@ export const TodayExcerptChoiceCreateBody = /* @__PURE__ */ zod.object({
         .max(todayExcerptChoiceCreateBodyExcerptsMax)
         .describe('Candidate code excerpts, best scored first.'),
 })
+
+/**
+ * Replace what the person asked their briefing to show more or less of. Send an empty list to clear it. 404 when the person gets no briefing.
+ * @summary Set the briefing focus
+ */
+export const todayFocusUpdateBodyTopicsItemTopicMax = 64
+
+export const TodayFocusUpdateBody = /* @__PURE__ */ zod.object({
+    topics: zod
+        .array(
+            zod.object({
+                topic: zod
+                    .string()
+                    .max(todayFocusUpdateBodyTopicsItemTopicMax)
+                    .describe('The source product the focus is about, for example error_tracking.'),
+                direction: zod
+                    .enum(['more', 'less'])
+                    .describe('\* `more` - more\n\* `less` - less')
+                    .describe(
+                        '`more` to show more reports from the product, `less` to show fewer.\n\n\* `more` - more\n\* `less` - less'
+                    ),
+            })
+        )
+        .describe('The topics the person set, in the order they set them, at most 30. Empty when they set none.'),
+})

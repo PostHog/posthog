@@ -18749,6 +18749,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `more` - more
+     * * `less` - less
+     */
+    export type FocusTopicDirectionEnum = typeof FocusTopicDirectionEnum[keyof typeof FocusTopicDirectionEnum];
+
+
+    export const FocusTopicDirectionEnum = {
+      More: 'more',
+      Less: 'less',
+    } as const;
+
+    export interface FocusTopic {
+      /**
+         * The source product the focus is about, for example error_tracking.
+         * @maxLength 64
+         */
+      topic: string;
+      /** `more` to show more reports from the product, `less` to show fewer.
+       *
+       * * `more` - more
+       * * `less` - less */
+      direction: FocusTopicDirectionEnum;
+    }
+
+    export interface BriefingFocus {
+      /** The topics the person set, in the order they set them, at most 30. Empty when they set none. */
+      topics: FocusTopic[];
+    }
+
+    /**
      * * `github_actions` - GitHub Actions
      * * `depot_ci` - Depot CI
      */
