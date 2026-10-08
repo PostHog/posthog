@@ -46,6 +46,10 @@ RESPONSE_CHUNK_BYTES = 1024 * 1024
 # allows 2.5M rows per run on page endpoints and 50M observations, far above a normal sync.
 MAX_PAGES_PER_RUN = 50_000
 
+# Parent ids are all held in memory before the first child row is yielded, so cap what a hostile host
+# can make a worker retain. Real queue ids are short cuids; this allows far more than any real project.
+MAX_PARENT_ID_BYTES = 16 * 1024 * 1024
+
 DEFAULT_HOST = "https://cloud.langfuse.com"
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Langfuse host must use HTTPS"
@@ -81,7 +85,7 @@ class LangfusePaginationError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LangfuseResumeConfig:
     # Next page number ("page" endpoints) or opaque cursor ("cursor" endpoints) to fetch.
     page: int | None = None
@@ -330,11 +334,20 @@ def _list_parent_ids(
 ) -> list[str]:
     """Every parent row id, sorted so a saved parent_id marks a stable resume position."""
     ids: set[str] = set()
+    retained_bytes = 0
     page = 1
     while True:
         data = fetch_page(url, {"limit": config.page_size, "page": page})
         items = data.get("data") or []
-        ids.update(str(item["id"]) for item in items if item.get("id"))
+        for item in items:
+            parent_id = str(item["id"]) if item.get("id") else None
+            if parent_id is not None and parent_id not in ids:
+                retained_bytes += len(parent_id.encode())
+                if retained_bytes > MAX_PARENT_ID_BYTES:
+                    raise LangfuseResponseTooLargeError(
+                        f"{RESPONSE_LIMIT_ERROR}: {config.name} ids exceeded {MAX_PARENT_ID_BYTES} bytes"
+                    )
+                ids.add(parent_id)
         total_pages = (data.get("meta") or {}).get("totalPages")
         if not items or total_pages is None or page >= total_pages:
             return sorted(ids)

@@ -424,6 +424,21 @@ class TestGetRows:
         assert langfuse_module.PAGE_LIMIT_ERROR in str(exc.value)
         assert manager.save_state.call_args.args[0].page == 3
 
+    def test_parent_id_listing_over_byte_budget_raises_non_retryable(self):
+        # Parent ids are all buffered before the first child row is yielded, so a hostile host
+        # streaming unique large ids must be cut off at the budget rather than grow worker memory.
+        manager = self._manager()
+        with (
+            mock.patch.object(langfuse_module, "MAX_PARENT_ID_BYTES", 10),
+            pytest.raises(langfuse_module.LangfuseResponseTooLargeError) as exc,
+        ):
+            self._run(
+                manager,
+                [_page([{"id": "q-aaaaaa"}, {"id": "q-bbbbbb"}], page=1, total_pages=1)],
+                endpoint="annotation_queue_items",
+            )
+        assert langfuse_module.RESPONSE_LIMIT_ERROR in str(exc.value)
+
     def test_fan_out_walks_every_parent_and_checkpoints_the_next_one(self):
         manager = self._manager()
         rows, session = self._run(
