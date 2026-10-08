@@ -213,22 +213,29 @@ class TestApplyRun(BaseTest):
 
     @parameterized.expand(
         [
-            ("materialized_and_read", True, True, WarehouseSuggestionAssetOutcome.LIVE),
-            ("materialized_and_never_read", True, False, WarehouseSuggestionAssetOutcome.UNUSED),
-            ("materialization_turned_off", False, True, WarehouseSuggestionAssetOutcome.DELETED),
+            ("read_after_acceptance", True, NOW - timedelta(days=1), WarehouseSuggestionAssetOutcome.LIVE),
+            ("read_only_before_acceptance", True, NOW - timedelta(days=3), WarehouseSuggestionAssetOutcome.UNUSED),
+            ("never_read", True, None, WarehouseSuggestionAssetOutcome.UNUSED),
+            ("materialization_turned_off", False, NOW - timedelta(days=1), WarehouseSuggestionAssetOutcome.DELETED),
         ]
     )
     def test_records_what_became_of_an_accepted_materialization(
-        self, _name: str, materialized: bool, read: bool, expected: WarehouseSuggestionAssetOutcome
+        self,
+        _name: str,
+        materialized: bool,
+        last_read_at: datetime | None,
+        expected: WarehouseSuggestionAssetOutcome,
     ) -> None:
         view_id = uuid4()
         ctx = self._context(view_id)
         apply_run(
             ctx, self.team, [self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)], NOW, surface=False
         )
-        WarehouseSuggestion.objects.for_team(self.team.pk).update(status=WarehouseSuggestionStatus.ACCEPTED)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=2)
+        )
         later = context(
-            team_reads({view_subject(view_id): busy_reads()} if read else {}),
+            team_reads({view_subject(view_id): busy_reads(last_read_at=last_read_at)} if last_read_at else {}),
             views=[view(view_id, is_materialized=materialized)],
             team_id=self.team.pk,
         )

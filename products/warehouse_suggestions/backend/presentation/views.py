@@ -29,6 +29,7 @@ from ..facade.contracts import (
     AcceptFailedError,
     CatalogEditAccessRequiredError,
     RefreshIntervalRefusedError,
+    SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     Suggestion,
     SuggestionAlreadyDecidedError,
@@ -55,6 +56,10 @@ EDIT_ACCESS_REQUIRED = {
 SUBJECT_GONE = {
     WarehouseSuggestionSubjectKind.SAVED_QUERY: "This view no longer exists.",
     WarehouseSuggestionSubjectKind.TABLE: "This table no longer exists.",
+}
+ALREADY_CERTIFIED = {
+    WarehouseSuggestionSubjectKind.SAVED_QUERY: "This view already has a certification.",
+    WarehouseSuggestionSubjectKind.TABLE: "This table already has a certification.",
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
 ACCEPT_SCOPES = ["warehouse_objects:write", "data_catalog_approval:write"]
@@ -175,6 +180,8 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise PermissionDenied(CATALOG_EDIT_ACCESS_REQUIRED)
         except SuggestionAlreadyDecidedError as error:
             raise Conflict(str(error))
+        except SubjectAlreadyCertifiedError as error:
+            raise Conflict(ALREADY_CERTIFIED[error.subject_kind])
         except SuggestionSubjectGoneError as error:
             raise ValidationError({"subject_id": SUBJECT_GONE[error.subject_kind]})
         except RefreshIntervalRefusedError as error:

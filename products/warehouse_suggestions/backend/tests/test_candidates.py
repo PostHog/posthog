@@ -8,7 +8,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
+from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionAssetOutcome
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
 from products.warehouse_suggestions.backend.logic.candidates.materialize import (
@@ -57,7 +59,11 @@ class TestCertifyCandidate(SimpleTestCase):
         reads = team_reads({subject: busy_reads(**{**AT_CERTIFY_FLOORS, **overrides})}, days_with_data=days_with_data)
 
         result = CertifyCandidate().evaluate(
-            context(reads, views=[view(VIEW_ID)], certifications={subject: "proposed"} if certified else {})
+            context(
+                reads,
+                views=[view(VIEW_ID)],
+                certifications={subject: CertificationStatus.PROPOSED} if certified else {},
+            )
         )
 
         assert [draft.subject_id for draft in result.drafts] == ([VIEW_ID] if expect_draft else [])
@@ -82,6 +88,21 @@ class TestCertifyCandidate(SimpleTestCase):
         result = CertifyCandidate().evaluate(context(reads, views=[view(VIEW_ID)]))
 
         assert [draft.subject_id for draft in result.drafts] == ([VIEW_ID] if expect_draft else [])
+
+    @parameterized.expand(
+        [
+            ("still_certified", CertificationStatus.CERTIFIED, WarehouseSuggestionAssetOutcome.LIVE),
+            ("changed_to_deprecated", CertificationStatus.DEPRECATED, WarehouseSuggestionAssetOutcome.UNUSED),
+            ("removed", None, WarehouseSuggestionAssetOutcome.DELETED),
+        ]
+    )
+    def test_records_what_became_of_an_accepted_certification(
+        self, _name: str, current: CertificationStatus | None, expected: WarehouseSuggestionAssetOutcome
+    ) -> None:
+        subject = view_subject(VIEW_ID)
+        ctx = context(team_reads({}), views=[view(VIEW_ID)], certifications={subject: current} if current else {})
+
+        assert CertifyCandidate().asset_outcome(ctx, subject, accepted_at=None) == expected
 
     def test_only_the_top_share_by_requests_times_people_is_proposed(self) -> None:
         views = [view(uuid4(), name=f"view_{position}") for position in range(10)]

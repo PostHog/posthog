@@ -9,6 +9,7 @@ from prometheus_client import Counter
 
 from posthog.event_usage import report_user_or_team_action
 
+from ..facade.enums import WarehouseSuggestionKind
 from ..models import WarehouseSuggestion
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ class SuggestionOutcome(StrEnum):
     AUTO_RESOLVED = "auto resolved"
 
 
-def report_candidates(kind: str, count: int) -> None:
+def report_candidates(kind: WarehouseSuggestionKind, count: int) -> None:
     CANDIDATES_FOUND.labels(kind=kind).inc(count)
 
 

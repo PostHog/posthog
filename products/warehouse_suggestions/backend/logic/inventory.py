@@ -5,6 +5,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.data_catalog.backend.facade.api import certifications_for_team
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import backing_table_ids_by_saved_query, saved_query_definitions
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.warehouse_sources.backend.facade.api import all_queryable_table_names, direct_access_table_ids
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 class TeamInventory:
     saved_queries: Mapping[UUID, SavedQueryDefinition]
     table_names: Mapping[UUID, str]
-    certifications: Mapping[Subject, str]
+    certifications: Mapping[Subject, CertificationStatus]
     direct_table_ids: frozenset[UUID]
 
     def name_of(self, subject: Subject) -> str | None:
@@ -41,13 +42,17 @@ def load_inventory(team: "Team") -> TeamInventory:
     )
 
 
-def _certifications(team: "Team") -> dict[Subject, str]:
+def _certifications(team: "Team") -> dict[Subject, CertificationStatus]:
     certifications = {}
     for saved_query_id, table_id, status in certifications_for_team(team).values_list(
         "saved_query_id", "table_id", "status"
     ):
         if saved_query_id is not None:
-            certifications[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query_id)] = status
+            certifications[Subject(kind=WarehouseSuggestionSubjectKind.SAVED_QUERY, id=saved_query_id)] = (
+                CertificationStatus(status)
+            )
         if table_id is not None:
-            certifications[Subject(kind=WarehouseSuggestionSubjectKind.TABLE, id=table_id)] = status
+            certifications[Subject(kind=WarehouseSuggestionSubjectKind.TABLE, id=table_id)] = CertificationStatus(
+                status
+            )
     return certifications

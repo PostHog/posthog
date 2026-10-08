@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -20,8 +20,12 @@ from products.warehouse_sources.backend.facade.api import get_queryable_table
 
 from ..facade.contracts import (
     AcceptFailedError,
+    CertificationAsset,
+    CreatedAsset,
+    MaterializationAsset,
     MaterializePayload,
     RefreshIntervalRefusedError,
+    SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SuggestionAlreadyDecidedError,
     SuggestionPayload,
@@ -49,42 +53,50 @@ class AcceptRequest:
 
 
 class Acceptor(ABC):
-    kind: ClassVar[WarehouseSuggestionKind]
-
     @abstractmethod
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
-    ) -> dict[str, Any]: ...
+    ) -> CreatedAsset: ...
 
 
-class CertifyAcceptor(Acceptor):
-    kind = WarehouseSuggestionKind.CERTIFY
-
-    def accept(
-        self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
-    ) -> dict[str, Any]:
-        certification = _certification(suggestion, request, CertificationStatus.CERTIFIED)
-        certify(certification, request.user)
-        return {"certification_id": str(certification.id)}
-
-
-class DeprecateAcceptor(Acceptor):
-    kind = WarehouseSuggestionKind.DEPRECATE
+@frozen
+class CertificationAcceptor(Acceptor):
+    status: CertificationStatus
+    apply: "Callable[[TableCertification, User], TableCertification]"
+    reuses_existing: bool
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
-    ) -> dict[str, Any]:
-        certification = _certification(suggestion, request, CertificationStatus.DEPRECATED)
-        deprecate(certification, request.user)
-        return {"certification_id": str(certification.id)}
+    ) -> CreatedAsset:
+        certification = self._certification(suggestion, request)
+        self.apply(certification, request.user)
+        return CertificationAsset(certification_id=str(certification.id))
+
+    def _certification(self, suggestion: WarehouseSuggestion, request: AcceptRequest) -> "TableCertification":
+        subject_kind = WarehouseSuggestionSubjectKind(suggestion.subject_kind)
+        is_table = subject_kind == WarehouseSuggestionSubjectKind.TABLE
+        table_id = suggestion.subject_id if is_table else None
+        saved_query_id = None if is_table else suggestion.subject_id
+        existing = (
+            certifications_for_team(request.team).filter(table_id=table_id, saved_query_id=saved_query_id).first()
+        )
+        if existing is None:
+            return propose_certification(
+                team=request.team,
+                user=request.user,
+                table_id=table_id,
+                saved_query_id=saved_query_id,
+                proposed_status=self.status,
+            )
+        if not self.reuses_existing:
+            raise SubjectAlreadyCertifiedError(subject_kind)
+        return existing
 
 
 class MaterializeAcceptor(Acceptor):
-    kind = WarehouseSuggestionKind.MATERIALIZE
-
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
-    ) -> dict[str, Any]:
+    ) -> CreatedAsset:
         if not isinstance(payload, MaterializePayload):
             raise AcceptFailedError("This suggestion has no refresh interval to apply.")
         interval = request.refresh_interval or timedelta(seconds=payload.refresh_interval_seconds)
@@ -105,12 +117,18 @@ class MaterializeAcceptor(Acceptor):
             raise RefreshIntervalRefusedError(str(error))
         except MaterializationFailedError as error:
             raise AcceptFailedError(str(error))
-        return {"saved_query_id": str(suggestion.subject_id), "refresh_interval_seconds": int(interval.total_seconds())}
+        return MaterializationAsset(
+            saved_query_id=str(suggestion.subject_id), refresh_interval_seconds=int(interval.total_seconds())
+        )
 
 
 ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
-    WarehouseSuggestionKind.CERTIFY: CertifyAcceptor(),
-    WarehouseSuggestionKind.DEPRECATE: DeprecateAcceptor(),
+    WarehouseSuggestionKind.CERTIFY: CertificationAcceptor(
+        status=CertificationStatus.CERTIFIED, apply=certify, reuses_existing=False
+    ),
+    WarehouseSuggestionKind.DEPRECATE: CertificationAcceptor(
+        status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True
+    ),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeAcceptor(),
 }
 
@@ -124,7 +142,7 @@ class AcceptOutcome:
 def accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
     try:
         return _accept(team_id, suggestion_id, request)
-    except SuggestionSubjectGoneError:
+    except (SuggestionSubjectGoneError, SubjectAlreadyCertifiedError):
         resolved = _resolve_quietly(team_id, suggestion_id)
         if resolved is not None:
             report_outcomes(SuggestionOutcome.AUTO_RESOLVED, [resolved], team=request.team)
@@ -171,21 +189,6 @@ def _subject_exists(suggestion: WarehouseSuggestion) -> bool:
     if suggestion.subject_kind == WarehouseSuggestionSubjectKind.TABLE:
         return get_queryable_table(suggestion.subject_id, suggestion.team_id) is not None
     return get_saved_query_summary(suggestion.team_id, suggestion.subject_id) is not None
-
-
-def _certification(
-    suggestion: WarehouseSuggestion, request: AcceptRequest, status: CertificationStatus
-) -> "TableCertification":
-    certifications = certifications_for_team(request.team)
-    if suggestion.subject_kind == WarehouseSuggestionSubjectKind.TABLE:
-        existing = certifications.filter(table_id=suggestion.subject_id).first()
-        return existing or propose_certification(
-            team=request.team, user=request.user, table_id=suggestion.subject_id, proposed_status=status
-        )
-    existing = certifications.filter(saved_query_id=suggestion.subject_id).first()
-    return existing or propose_certification(
-        team=request.team, user=request.user, saved_query_id=suggestion.subject_id, proposed_status=status
-    )
 
 
 def _no_blocker_names(bounds: "SavedQueryFrequencyBounds") -> dict[str, str]:

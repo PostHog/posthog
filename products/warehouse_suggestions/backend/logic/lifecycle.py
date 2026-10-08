@@ -221,9 +221,11 @@ def _reconcile_assets(context: CandidateContext) -> int:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     changed = 0
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
-        "id", "kind", "subject_kind", "subject_id", "asset_outcome"
+        "id", "kind", "subject_kind", "subject_id", "reviewed_at", "asset_outcome"
     ):
-        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(context, _subject(row))
+        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(
+            context, _subject(row), accepted_at=row.reviewed_at
+        )
         if outcome != row.asset_outcome:
             changed += suggestions.filter(id=row.id).update(asset_outcome=outcome)
     return changed

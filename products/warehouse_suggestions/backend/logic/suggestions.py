@@ -1,5 +1,5 @@
 from collections.abc import Mapping, Sequence
-from dataclasses import fields
+from dataclasses import asdict, fields
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
+from ..facade.contracts import CreatedAsset, SuggestionAlreadyDecidedError, SuggestionDraft
 from ..facade.enums import WarehouseSuggestionDismissalReason, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion
 from .payloads import payload_to_json
@@ -60,7 +60,7 @@ def transition_to(
     user_id: int | None,
     reason: WarehouseSuggestionDismissalReason | None = None,
     note: str | None = None,
-    created_asset: Mapping[str, Any] | None = None,
+    created_asset: CreatedAsset | None = None,
     transitions: Transitions = ALLOWED_TRANSITIONS,
 ) -> WarehouseSuggestion:
     with transaction.atomic():
@@ -76,7 +76,7 @@ def transition_to(
         if new_status == WarehouseSuggestionStatus.DISMISSED:
             _record_dismissal(suggestion, reason, note)
         if created_asset is not None:
-            suggestion.created_asset = dict(created_asset)
+            suggestion.created_asset = asdict(created_asset)
         suggestion.save()
     return suggestion
 

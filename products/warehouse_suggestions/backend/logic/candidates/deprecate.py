@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
@@ -64,7 +65,9 @@ class DeprecateCandidate(Candidate):
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
 
-    def asset_outcome(self, context: CandidateContext, subject: Subject) -> WarehouseSuggestionAssetOutcome:
+    def asset_outcome(
+        self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
+    ) -> WarehouseSuggestionAssetOutcome:
         return certification_outcome(context, subject, CertificationStatus.DEPRECATED)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:

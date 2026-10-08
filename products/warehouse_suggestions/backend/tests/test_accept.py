@@ -117,14 +117,45 @@ class TestAcceptSuggestion(APIBaseTest):
 
         assert [call.args[0] for call in report.call_args_list] == ["warehouse suggestion accepted"]
 
-    def test_deprecating_a_certified_view_reuses_its_certification(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "deprecate_reuses_it",
+                WarehouseSuggestionKind.DEPRECATE,
+                status.HTTP_200_OK,
+                WarehouseSuggestionStatus.ACCEPTED,
+                CertificationStatus.DEPRECATED,
+            ),
+            (
+                "certify_leaves_it_alone",
+                WarehouseSuggestionKind.CERTIFY,
+                status.HTTP_409_CONFLICT,
+                WarehouseSuggestionStatus.AUTO_RESOLVED,
+                CertificationStatus.PROPOSED,
+            ),
+        ]
+    )
+    def test_accepting_over_an_existing_certification(
+        self,
+        _name: str,
+        kind: WarehouseSuggestionKind,
+        expected_http_status: int,
+        expected_suggestion_status: WarehouseSuggestionStatus,
+        expected_certification_status: CertificationStatus,
+    ) -> None:
         certification = propose_certification(team=self.team, user=self.user, saved_query_id=self.view.id)
-        suggestion = self._suggest(WarehouseSuggestionKind.DEPRECATE)
+        suggestion = self._suggest(kind)
 
         accepted = self._accept(suggestion.id)
 
-        assert accepted["created_asset"] == {"certification_id": str(certification.id)}
-        assert self._certification_status() == CertificationStatus.DEPRECATED
+        suggestion.refresh_from_db()
+        reused_asset = {"certification_id": str(certification.id)}
+        assert accepted["http_status"] == expected_http_status, accepted
+        assert (suggestion.status, suggestion.created_asset, self._certification_status()) == (
+            expected_suggestion_status,
+            reused_asset if expected_suggestion_status == WarehouseSuggestionStatus.ACCEPTED else None,
+            expected_certification_status,
+        )
 
     def test_accepting_a_materialize_suggestion_materializes_the_view_on_the_chosen_interval(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)

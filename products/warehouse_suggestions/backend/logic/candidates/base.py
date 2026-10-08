@@ -1,11 +1,13 @@
 import hashlib
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from datetime import datetime
 from math import ceil
 from typing import Any, ClassVar
 
 from posthog.dataclasses import frozen
 
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
 from ...facade.contracts import PAYLOAD_VERSION, SuggestionDraft, SuggestionPayload
@@ -68,7 +70,9 @@ class Candidate(ABC):
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool: ...
 
     @abstractmethod
-    def asset_outcome(self, context: CandidateContext, subject: Subject) -> WarehouseSuggestionAssetOutcome: ...
+    def asset_outcome(
+        self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
+    ) -> WarehouseSuggestionAssetOutcome: ...
 
     def draft(
         self,
@@ -116,8 +120,11 @@ def evidence_of(context: CandidateContext, subject: Subject) -> dict[str, Any]:
 
 
 def certification_outcome(
-    context: CandidateContext, subject: Subject, expected_status: str
+    context: CandidateContext, subject: Subject, expected_status: CertificationStatus
 ) -> WarehouseSuggestionAssetOutcome:
-    if context.inventory.certifications.get(subject) == expected_status:
+    status = context.inventory.certifications.get(subject)
+    if status is None:
+        return WarehouseSuggestionAssetOutcome.DELETED
+    if status == expected_status:
         return WarehouseSuggestionAssetOutcome.LIVE
-    return WarehouseSuggestionAssetOutcome.DELETED
+    return WarehouseSuggestionAssetOutcome.UNUSED

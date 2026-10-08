@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from products.data_catalog.backend.facade.enums import CertificationStatus
 
 from ...facade.contracts import CertifyPayload
@@ -38,7 +40,9 @@ class CertifyCandidate(Candidate):
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
 
-    def asset_outcome(self, context: CandidateContext, subject: Subject) -> WarehouseSuggestionAssetOutcome:
+    def asset_outcome(
+        self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
+    ) -> WarehouseSuggestionAssetOutcome:
         return certification_outcome(context, subject, CertificationStatus.CERTIFIED)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:

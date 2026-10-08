@@ -124,6 +124,20 @@ class Suggestion:
 
 
 @frozen
+class CertificationAsset:
+    certification_id: str
+
+
+@frozen
+class MaterializationAsset:
+    saved_query_id: str
+    refresh_interval_seconds: int
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset
+
+
+@frozen
 class SuggestionStatus:
     enabled: bool
     eligible: bool
@@ -164,6 +178,12 @@ class UnsupportedPayloadVersionError(Exception):
 
 
 class SuggestionSubjectGoneError(Exception):
+    def __init__(self, subject_kind: WarehouseSuggestionSubjectKind) -> None:
+        super().__init__(subject_kind)
+        self.subject_kind = subject_kind
+
+
+class SubjectAlreadyCertifiedError(Exception):
     def __init__(self, subject_kind: WarehouseSuggestionSubjectKind) -> None:
         super().__init__(subject_kind)
         self.subject_kind = subject_kind
