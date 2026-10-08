@@ -18,6 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
+from posthog.models import Team
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
@@ -27,9 +28,17 @@ from posthog.models.person.divergence import (
     RepairAction,
     RepairOutcome,
     RepairSummary,
+    SampleBucket,
+    SampledPerson,
+    SampleSummary,
+    ScanSummary,
+    TeamCheck,
+    _team_check_modulus,
     _WritePacer,
+    check_team,
     repair_persons,
     scan_hidden_persons,
+    scan_sample,
     scan_stale_persons,
     scan_swept_persons,
 )
@@ -39,7 +48,6 @@ from posthog.models.person.util import (
     tombstone_persons_in_postgres,
 )
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.test.persons import add_distinct_id, create_person
@@ -323,7 +331,86 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         ]
         assert (summary.candidates, summary.divergent) == (2, 1)
 
-    # ── Repair ───────────────────────────────────────────────────────
+    def test_sample_classifies_live_clickhouse_persons_against_postgres(self) -> None:
+        gone_team = Team.objects.create(organization=self.organization, name="deleted team")
+        gone_team_id = gone_team.pk
+        gone_team.delete()
+        equal = self._pg_person(version=3)
+        self._ch_person_row(equal.uuid, 3, hours_ago=48)
+        below = self._pg_person(version=3)
+        self._ch_person_row(below.uuid, 5)
+        above = self._pg_person(version=6)
+        self._ch_person_row(above.uuid, 5)
+        tombstoned = self._pg_person(version=3)
+        tombstone_persons_in_postgres(self.team.pk, [tombstoned.uuid])
+        self._ch_person_row(tombstoned.uuid, 3)
+        absent = uuid4()
+        self._ch_person_row(absent, 3)
+        team_gone = uuid4()
+        self._ch_person_row(team_gone, 1, team_id=gone_team_id)
+        # Postgres can still hold a deleted team's persons until the team purge reaches them.
+        team_gone_in_postgres = uuid4()
+        self._ch_person_row(team_gone_in_postgres, 1, team_id=gone_team_id)
+        get_active_fake().add_person(team_id=gone_team_id, person_id=987655, uuid=str(team_gone_in_postgres), version=1)
+        deleted_winner = self._pg_person(version=3)
+        self._ch_person_row(deleted_winner.uuid, 4, deleted=True)
+        written_long_ago = self._pg_person(version=3)
+        self._ch_person_row(written_long_ago.uuid, 3, hours_ago=24 * 10)
+
+        sampled: list[SampledPerson] = []
+        summary = scan_sample(
+            modulus=1,
+            residue=0,
+            written_within_days=5,
+            cutoff=now() - timedelta(days=1),
+            min_team_id=self.team.pk,
+            max_team_id=gone_team_id + 1,
+            team_step=1,
+            on_sampled=sampled.append,
+            log=lambda _: None,
+        )
+
+        assert {s.person_uuid: (s.classification, s.era, s.pg_version) for s in sampled} == {
+            str(equal.uuid): ("equal", "before_cutoff", 3),
+            str(below.uuid): ("pg_below_ch", "since_cutoff", 3),
+            str(above.uuid): ("pg_above_ch", "since_cutoff", 6),
+            str(tombstoned.uuid): ("pg_tombstone", "since_cutoff", None),
+            str(absent): ("pg_absent", "since_cutoff", None),
+            str(team_gone): ("team_gone", "since_cutoff", None),
+            str(team_gone_in_postgres): ("team_gone", "since_cutoff", None),
+        }
+        assert summary.sampled == 7
+        assert summary.skipped_team_ids == []
+        assert all(
+            call.request.team_id != gone_team_id
+            for call in get_active_fake().calls
+            if call.method == "get_persons_by_uuids"
+        )
+        assert summary.counts[SampleBucket(classification="equal", era="before_cutoff")] == 1
+
+    def test_team_check_counts_old_live_clickhouse_rows_that_postgres_still_holds(self) -> None:
+        kept = self._pg_person(version=1, distinct_ids={"kept": 0})
+        self._ch_person_row(kept.uuid, 1, hours_ago=48)
+        self._ch_mapping_row("kept", kept.uuid, 0, hours_ago=48)
+        lost = uuid4()
+        self._ch_person_row(lost, 1, hours_ago=48)
+        self._ch_mapping_row("lost", lost, 0, hours_ago=48)
+        recent = self._pg_person(version=1, distinct_ids={"recent": 0})
+        self._ch_person_row(recent.uuid, 1)
+        self._ch_mapping_row("recent", recent.uuid, 0)
+        deleted = uuid4()
+        self._ch_person_row(deleted, 1, deleted=True, hours_ago=48)
+        self._ch_mapping_row("deleted", deleted, 1, deleted=True, hours_ago=48)
+
+        result = check_team(team_id=self.team.pk, sample_size=10, before=now() - timedelta(days=1))
+
+        assert result == TeamCheck(
+            team_id=self.team.pk,
+            persons_sampled=2,
+            persons_live_in_postgres=1,
+            distinct_ids_sampled=2,
+            distinct_ids_live_in_postgres=1,
+        )
 
     def _divergent_person(self, case: str) -> Person:
         if case == "hidden":
@@ -819,6 +906,19 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert self._ch_mapping("gone") == (str(person.uuid), 1, 100)
 
 
+class TestTeamCheckModulus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_team", 0, 200, 1),
+            ("small_team_reads_everything", 3_999, 200, 1),
+            ("filter_keeps_ten_times_the_sample", 4_000, 200, 2),
+            ("largest_teams", 50_000_000, 200, 25_000),
+        ]
+    )
+    def test_modulus_keeps_ten_times_the_sample(self, _name: str, rows: int, sample_size: int, expected: int) -> None:
+        assert _team_check_modulus(rows, sample_size) == expected
+
+
 class TestWritePacer(SimpleTestCase):
     def test_idle_time_before_the_writes_buys_no_burst(self) -> None:
         clock = [0.0]
@@ -840,9 +940,18 @@ class TestWritePacer(SimpleTestCase):
 
 
 class TestScanTeamRanges(SimpleTestCase):
-    @parameterized.expand([("out_of_memory", ClickHouseQueryMemoryLimitExceeded), ("timeout", ClickHouseQueryTimeOut)])
+    @parameterized.expand(
+        [
+            (f"{scan}_{name}", scan, error)
+            for scan in ("stale", "sample")
+            for name, error in (
+                ("out_of_memory", ClickHouseQueryMemoryLimitExceeded),
+                ("timeout", ClickHouseQueryTimeOut),
+            )
+        ]
+    )
     def test_a_team_that_fails_alone_is_skipped_and_every_other_team_is_scanned(
-        self, _name: str, error: type[Exception]
+        self, _name: str, scan: str, error: type[Exception]
     ) -> None:
         scanned: list[int] = []
 
@@ -854,9 +963,25 @@ class TestScanTeamRanges(SimpleTestCase):
             return []
 
         with patch("posthog.models.person.divergence.sync_execute", side_effect=query):
-            summary = scan_stale_persons(
-                window_days=60, min_team_id=0, max_team_id=16, team_step=8, on_found=lambda _: None, log=lambda _: None
-            )
+            if scan == "stale":
+                summary: ScanSummary | SampleSummary = scan_stale_persons(
+                    window_days=60,
+                    min_team_id=0,
+                    max_team_id=16,
+                    team_step=8,
+                    on_found=lambda _: None,
+                    log=lambda _: None,
+                )
+            else:
+                summary = scan_sample(
+                    modulus=1,
+                    residue=0,
+                    min_team_id=0,
+                    max_team_id=16,
+                    team_step=8,
+                    on_sampled=lambda _: None,
+                    log=lambda _: None,
+                )
 
         assert summary.skipped_team_ids == [7]
         assert sorted(scanned) == [team for team in range(16) if team != 7]
