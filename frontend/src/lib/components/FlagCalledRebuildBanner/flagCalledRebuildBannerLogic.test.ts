@@ -54,7 +54,7 @@ describe('flagCalledRebuildBannerLogic', () => {
         ['a null url', { url: null }, null],
         ['text that is not a URL', { url: 'the announcement' }, null],
         ['a javascript URL', { url: 'javascript:alert(1)' }, null],
-        ['an http URL', { url: 'http://posthog.com/blog/flag-calls' }, 'http://posthog.com/blog/flag-calls'],
+        ['an http URL', { url: 'http://posthog.com/blog/flag-calls' }, null],
         ['an https URL', { url: 'https://posthog.com/blog/flag-calls' }, 'https://posthog.com/blog/flag-calls'],
     ])('a payload with %s links to %s', (_label, payload, expected) => {
         expect(announcementUrlFromPayload(payload)).toBe(expected)

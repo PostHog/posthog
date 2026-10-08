@@ -60,17 +60,17 @@ export function FlagCalledRebuildBanner({
         return null
     }
     const announcementAction: LemonBannerAction | undefined = announcementUrl
-        ? { children: 'Read the announcement', to: announcementUrl, targetBlank: true }
+        ? { children: 'Learn more', to: announcementUrl, targetBlank: true }
         : undefined
     return (
         <LemonBanner type="warning" action={action ?? announcementAction} className={className}>
             {typeof children === 'function' ? children(dependsOn) : children}
-            {/* A banner that already has a button shows the announcement as a link at the end of its text. */}
+            {/* A banner that already has a button links the announcement at the end of its text instead. */}
             {action && announcementUrl && (
                 <>
                     {' '}
                     <Link to={announcementUrl} target="_blank">
-                        Read the announcement
+                        Learn more
                     </Link>
                 </>
             )}

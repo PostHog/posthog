@@ -13,15 +13,15 @@ import type { ActionApi } from 'products/actions/frontend/generated/api.schemas'
 
 export type FlagCalledArtifactType = 'insight' | 'dashboard' | 'action' | 'cohort' | 'experiment'
 
-/** The announcement link from the flag's `{ "url": … }` payload, or null until the payload holds an http or https URL. */
+/** The announcement link from the flag's `{ "url": … }` payload, or null until the payload holds an https URL with a host. */
 export function announcementUrlFromPayload(payload: unknown): string | null {
     const url = (payload as { url?: unknown } | null | undefined)?.url
     if (typeof url !== 'string') {
         return null
     }
     try {
-        const { protocol } = new URL(url)
-        return protocol === 'https:' || protocol === 'http:' ? url : null
+        const { protocol, host } = new URL(url)
+        return protocol === 'https:' && host ? url : null
     } catch {
         return null
     }
