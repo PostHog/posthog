@@ -32,6 +32,7 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
     "EZOfficeInventory",
     "Giphy",
     "GoogleSearchConsole",
+    "Langfuse",
     "Lovable",
     "Omnisend",
     "OpenWeather",

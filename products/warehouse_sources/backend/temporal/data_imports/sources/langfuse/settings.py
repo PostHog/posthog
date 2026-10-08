@@ -1,20 +1,21 @@
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Source-level vendor API version labels. Distinct from the per-endpoint URL versions baked into
-# LANGFUSE_ENDPOINTS below (Langfuse versions each resource route independently). The source already
-# reads Langfuse's current route for every resource that has one (`/v2/observations`, `/v3/scores`,
-# `/v2/prompts`, `/v2/datasets`), so both labels resolve to the same wire — the bump is a declaration
-# plus deprecation with no request-layer branching. v1 keeps the pre-versioning UNVERSIONED default
-# so already-pinned rows resolve unchanged.
+# LANGFUSE_ENDPOINTS below (Langfuse versions each resource route independently). v1 and v2 resolve
+# to the same wire: v1 keeps the pre-versioning UNVERSIONED default so already-pinned rows resolve
+# unchanged. Both read the `/traces` and `/sessions` routes Langfuse Cloud stops serving on
+# 2026-11-16; v3 drops those tables, as `observations` already carries traceId and sessionId.
 LANGFUSE_API_VERSION_V1 = UNVERSIONED_API_VERSION
 LANGFUSE_API_VERSION_V2 = "v2"
-SUPPORTED_VERSIONS = (LANGFUSE_API_VERSION_V1, LANGFUSE_API_VERSION_V2)
-DEFAULT_VERSION = LANGFUSE_API_VERSION_V2
+LANGFUSE_API_VERSION_V3 = "v3"
+SUPPORTED_VERSIONS = (LANGFUSE_API_VERSION_V1, LANGFUSE_API_VERSION_V2, LANGFUSE_API_VERSION_V3)
+DEFAULT_VERSION = LANGFUSE_API_VERSION_V3
+LANGFUSE_LEGACY_SUNSET = date(2026, 11, 16)
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -172,6 +173,22 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(LANGFUSE_ENDPOINTS.keys())
+
+LEGACY_ONLY_ENDPOINTS = frozenset({"traces", "sessions"})
+
+ENDPOINTS_BY_VERSION: dict[str, tuple[str, ...]] = {
+    LANGFUSE_API_VERSION_V1: ENDPOINTS,
+    LANGFUSE_API_VERSION_V2: ENDPOINTS,
+    LANGFUSE_API_VERSION_V3: tuple(name for name in ENDPOINTS if name not in LEGACY_ONLY_ENDPOINTS),
+}
+
+
+def endpoints_for_version(api_version: str) -> tuple[str, ...]:
+    try:
+        return ENDPOINTS_BY_VERSION[api_version]
+    except KeyError as e:
+        raise ValueError(f"Unsupported Langfuse API version: {api_version!r}") from e
+
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in LANGFUSE_ENDPOINTS.items()
