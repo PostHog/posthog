@@ -465,6 +465,9 @@ impl ActiveState {
     }
 
     fn finish(&mut self, now: Instant, effects: &mut Effects) -> Result<(), String> {
+        // A stalled action and a revoke skip `take_ready`, so without this a due
+        // retry would set the next wakeup at or before `now`.
+        self.keys.promote_due(now);
         let pending = self.pending_messages();
         let in_flight = self.in_flight.len();
         if pending == 0 && in_flight == 0 {
@@ -484,9 +487,7 @@ impl ActiveState {
         ]
         .into_iter()
         .flatten()
-        .min()
-        // A revoke skips `take_ready`, so a retry time can have passed.
-        .map(|at| at.max(now));
+        .min();
         Ok(())
     }
 
@@ -858,6 +859,32 @@ mod tests {
         let (batcher, effects) = batcher.on_wakeup(late, &workers);
         assert!(matches!(batcher, BatcherStateMachine::Running(_)));
         assert!(effects.next_wakeup.is_some_and(|at| at > late));
+    }
+
+    #[test]
+    fn a_retry_due_past_the_stall_deadline_waits_the_no_worker_delay() {
+        let now = Instant::now();
+        let workers = pool(&["w1", "w2"]);
+        let (batcher, effects) =
+            batcher(1, now).on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let a = effects
+            .sends
+            .iter()
+            .find(|send| &*send.runs[0].routing_key == "a")
+            .expect("a was sent")
+            .request;
+        let (batcher, _) = batcher.on_request_failed(
+            now + STALL - BUSY_DELAY / 2,
+            &workers,
+            a,
+            FailureCause::Busy,
+            vec![message("a", 0, 1)],
+        );
+
+        let late = now + STALL + BUSY_DELAY;
+        let (batcher, effects) = batcher.on_wakeup(late, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+        assert_eq!(effects.next_wakeup, Some(late + NO_WORKER_DELAY));
     }
 
     #[test]

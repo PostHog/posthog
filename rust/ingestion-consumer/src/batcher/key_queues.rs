@@ -177,7 +177,7 @@ impl KeyQueues {
         }
     }
 
-    pub fn take_ready(&mut self, now: Instant, limit: usize) -> Vec<ReadyRun> {
+    pub fn promote_due(&mut self, now: Instant) {
         while let Some((at, _)) = self.waiting.first() {
             if *at > now {
                 break;
@@ -190,6 +190,10 @@ impl KeyQueues {
                 }
             }
         }
+    }
+
+    pub fn take_ready(&mut self, now: Instant, limit: usize) -> Vec<ReadyRun> {
+        self.promote_due(now);
 
         let mut runs = Vec::with_capacity(limit.min(self.ready.len()));
         while runs.len() < limit {
