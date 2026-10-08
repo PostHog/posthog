@@ -7511,7 +7511,7 @@ SQL
   }
 
   table "metrics4_names" {
-    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name"]
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name", "metric_type"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -7533,6 +7533,9 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime64(6))"
     }
     column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
       type = "LowCardinality(String)"
     }
     engine "replicated_aggregating_merge_tree" {
@@ -17945,6 +17948,9 @@ SQL
     column "service_name" {
       type = "LowCardinality(String)"
     }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -22355,11 +22361,12 @@ SELECT
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
   maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-  service_name
+  service_name,
+  metric_type
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name, metric_type
 SQL
 
     column "team_id" {
@@ -22378,6 +22385,9 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime64(6))"
     }
     column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
       type = "LowCardinality(String)"
     }
   }

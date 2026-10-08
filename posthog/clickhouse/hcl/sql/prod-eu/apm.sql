@@ -71,7 +71,8 @@ CREATE TABLE posthog.writable_metrics4_names (
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
   original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
-  service_name LowCardinality(String)
+  service_name LowCardinality(String),
+  metric_type LowCardinality(String)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_names');
 CREATE TABLE posthog.writable_metrics4_samples (
   team_id Int32,
@@ -227,17 +228,18 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String), metric_type LowCardinality(String)) AS SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
   maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-  service_name
+  service_name,
+  metric_type
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name;
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name, metric_type;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_resource_attributes TO posthog.writable_metrics4_attributes (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   metric_name,

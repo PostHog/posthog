@@ -171,7 +171,8 @@ def WRITABLE_METRICS4_NAMES_TABLE_SQL() -> str:
     `time_bucket` DateTime64(0),
     `original_expiry_time_bucket` DateTime64(0),
     `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-    `service_name` LowCardinality(String)""",
+    `service_name` LowCardinality(String),
+    `metric_type` LowCardinality(String)""",
     )
 
 
@@ -296,11 +297,12 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS4_NAMES_TABLE_NAME}
     `time_bucket` DateTime64(0),
     `original_expiry_time_bucket` DateTime64(0),
     `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-    `service_name` LowCardinality(String)
+    `service_name` LowCardinality(String),
+    `metric_type` LowCardinality(String)
 )
 ENGINE = {AggregatingMergeTree(METRICS4_NAMES_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_time_bucket)
-ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)
+ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name, metric_type)
 TTL original_expiry_timestamp
 SETTINGS index_granularity = 8192
 """
@@ -403,7 +405,8 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METR
     `time_bucket` DateTime64(0),
     `original_expiry_time_bucket` DateTime64(0),
     `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-    `service_name` LowCardinality(String)
+    `service_name` LowCardinality(String),
+    `metric_type` LowCardinality(String)
 )
 AS SELECT
     team_id,
@@ -411,10 +414,11 @@ AS SELECT
     toStartOfHour(timestamp) AS time_bucket,
     toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
     maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-    service_name
+    service_name,
+    metric_type
 FROM {db}.{METRICS4_INPUT_TABLE_NAME} AS input
 WHERE has_labels
-GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
+GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name, metric_type
 """
 
 
