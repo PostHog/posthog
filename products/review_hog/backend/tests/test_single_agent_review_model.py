@@ -3,7 +3,7 @@ import pytest
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding
+from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 
 
 def _finding(priority: object) -> SingleAgentFinding:
@@ -19,3 +19,20 @@ def test_priority_accepts_common_spellings(_name: str, value: object, expected: 
 def test_priority_rejects_values_that_only_contain_a_digit(_name: str, value: str) -> None:
     with pytest.raises(ValidationError):
         _finding(value)
+
+
+@parameterized.expand(
+    [
+        ("findings_missing", {"overall_correctness": "patch is correct"}, None),
+        ("findings_empty", {"findings": []}, 0),
+    ]
+)
+def test_a_reply_without_findings_fails_instead_of_reading_as_clean(
+    _name: str, reply: dict[str, object], expected_count: int | None
+) -> None:
+    # A malformed reply that reads as "no findings" posts a clean review for a PR nobody reviewed.
+    if expected_count is None:
+        with pytest.raises(ValidationError):
+            SingleAgentReview.model_validate(reply)
+    else:
+        assert len(SingleAgentReview.model_validate(reply).findings) == expected_count

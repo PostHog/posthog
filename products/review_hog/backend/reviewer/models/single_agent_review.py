@@ -47,9 +47,8 @@ class SingleAgentFinding(BaseModel):
 class SingleAgentReview(BaseModel):
     """The single-agent Flash review's whole answer for one PR."""
 
-    findings: list[SingleAgentFinding] = Field(
-        default_factory=list, description="Every qualifying finding. Empty when nothing qualifies."
-    )
+    # Required, so a reply without the list fails validation and retries instead of reading as a clean review.
+    findings: list[SingleAgentFinding] = Field(description="Every qualifying finding. Empty when nothing qualifies.")
     overall_correctness: Literal["patch is correct", "patch is incorrect"] | None = Field(
         default=None, description="Whether the patch is free of bugs and other blocking issues."
     )
