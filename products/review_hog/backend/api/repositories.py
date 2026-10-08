@@ -250,8 +250,8 @@ class ReviewRepositoryViewSet(
             400: OpenApiResponse(description="Invalid name, or the repository is already added."),
         },
         summary="Add a repository",
-        description="Add a GitHub repository, so pull requests there can get automatic reviews. By default only "
-        "listed people get Flash reviews, and nobody is listed.",
+        description="Add a GitHub repository, so pull requests there can get automatic reviews. By default everyone "
+        "gets Flash reviews there, except bots and excepted people. A person's own choice always wins.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = self.get_serializer(data=request.data)

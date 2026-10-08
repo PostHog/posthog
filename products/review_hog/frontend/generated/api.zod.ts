@@ -34,7 +34,7 @@ export const ReviewHogPerspectivesPartialUpdateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Add a GitHub repository, so pull requests there can get automatic reviews. By default only listed people get Flash reviews, and nobody is listed.
+ * Add a GitHub repository, so pull requests there can get automatic reviews. By default everyone gets Flash reviews there, except bots and excepted people. A person's own choice always wins.
  * @summary Add a repository
  */
 export const reviewHogRepositoriesCreateBodyFullNameMax = 200

@@ -78,7 +78,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert disabled.status_code == 200
         disabled_row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert disabled_row.review_authored_prs is False
-        assert disabled_row.default_review_mode == "follow"
+        assert disabled_row.default_review_mode == "off"
         assert disabled_row.flash_reasoning_effort == "xhigh"
 
         by_mode = self.client.patch(self.url, {"default_review_mode": "flash"}, format="json")
