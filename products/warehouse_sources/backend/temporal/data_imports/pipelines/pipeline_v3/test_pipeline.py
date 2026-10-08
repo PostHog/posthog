@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+_TABLE_REBUILD = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild"
 _SAFE_POINT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
 _CONSUMER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
@@ -230,6 +231,73 @@ class TestAttemptScopedRunUuid:
             await pipeline.run()
 
         mock_reset.assert_not_called()
+
+
+class TestTableRebuildAcrossAttempts:
+    @pytest.mark.parametrize(
+        "attempt, table_was_deleted, recorded, continues, is_webhook, expected_first_sync, expected_record",
+        [
+            pytest.param(1, True, None, False, False, True, "run-abc-a1", id="the_attempt_that_deletes_the_table"),
+            pytest.param(
+                2, False, "run-abc-a1", False, False, True, "run-abc-a2", id="a_retry_that_reads_from_the_start"
+            ),
+            pytest.param(2, False, "run-abc-a1", True, False, False, "run-abc-a1", id="a_retry_that_continues"),
+            pytest.param(
+                2, False, "run-old-a1", False, False, False, "run-old-a1", id="a_retry_of_a_run_without_a_rebuild"
+            ),
+            pytest.param(2, False, None, False, False, False, None, id="a_retry_with_no_record"),
+            pytest.param(
+                1, False, "run-abc-a1", False, False, False, "run-abc-a1", id="a_first_attempt_that_keeps_the_table"
+            ),
+            pytest.param(1, True, None, False, True, True, None, id="a_webhook_schema_keeps_no_record"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_each_attempt_of_a_rebuild_tells_the_loader_to_load_from_empty(
+        self,
+        attempt: int,
+        table_was_deleted: bool,
+        recorded: str | None,
+        continues: bool,
+        is_webhook: bool,
+        expected_first_sync: bool,
+        expected_record: str | None,
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._attempt = attempt
+        pipeline._run_uuid = f"run-abc-a{attempt}"
+        pipeline._reset_pipeline = True
+        pipeline._is_incremental = True
+        pipeline._schema.table = MagicMock()
+        cast(Any, pipeline._schema).is_webhook = is_webhook
+        pipeline._schema.sync_type_config = {"table_rebuild_run_uuid": recorded} if recorded else {}
+        pipeline._delta_table_ref = MagicMock(is_first_sync=table_was_deleted)
+        producer = MagicMock(sync_type="incremental", is_first_ever_sync=False)
+        pipeline._pg_producer = producer
+        schema = pipeline._schema
+        pipeline._continues_incremental_handoff = continues
+        pipeline._resumed_incremental_run_uuid = "run-abc-a1" if continues else None
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.validate_incremental_sync"))
+            stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance")).return_value.run_scheduled = AsyncMock()
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            stack.enter_context(patch(f"{_TABLE_REBUILD}.update_sync_type_config_keys"))
+            pipeline._resource.items = MagicMock(return_value=iter([]))
+            pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+            await pipeline.run()
+
+        assert producer.is_first_ever_sync is expected_first_sync
+        assert schema.sync_type_config.get("table_rebuild_run_uuid") == expected_record
 
 
 class TestExtractionFailureDoesNotCleanupS3:
