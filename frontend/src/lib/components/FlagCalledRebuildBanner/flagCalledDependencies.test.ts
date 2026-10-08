@@ -15,7 +15,6 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     EventsNode,
-    ExperimentTrendsQuery,
     FunnelExclusion,
     FunnelsQuery,
     GroupNode,
@@ -126,8 +125,7 @@ const dynamicCohort = (...groups: CohortCriteriaGroupFilter[]): CohortType => ({
     filters: { properties: { type: FilterLogicalOperator.Or, values: groups } },
 })
 
-// No code under test reads the clock. The start dates sit on both sides of the September 1 cutoff.
-// They show that the predicate trusts the event the server resolved and does not apply the cutoff again.
+// No code under test reads the clock, so the fixed dates never age into a different result.
 const runningExperiment = (overrides: Partial<Experiment> = {}): Experiment =>
     ({
         id: 1,
@@ -142,22 +140,8 @@ const runningExperiment = (overrides: Partial<Experiment> = {}): Experiment =>
         ...overrides,
     }) as Experiment
 
-const legacyTrendsMetric = (
-    exposureQuery?: TrendsQuery,
-    countQuery: TrendsQuery = trends([events('$pageview')])
-): ExperimentTrendsQuery => ({
-    kind: NodeKind.ExperimentTrendsQuery,
-    count_query: countQuery,
-    ...(exposureQuery ? { exposure_query: exposureQuery } : {}),
-})
-
-// The legacy trends runner ignores the resolved event, so these cases resolve to
-// $experiment_exposure to leave the metric as the only path to $feature_flag_called.
-const legacyExperiment = (exposureQuery?: TrendsQuery, countQuery?: TrendsQuery): Experiment =>
-    runningExperiment({
-        resolved_exposure_event: '$experiment_exposure',
-        metrics: [legacyTrendsMetric(exposureQuery, countQuery)],
-    })
+const actionExposureExperiment = (overrides: Partial<Experiment> = {}): Experiment =>
+    runningExperiment({ exposure_criteria: { exposure_config: action(ACTION_ID) }, ...overrides })
 
 describe('flag called dependencies', () => {
     describe('insights', () => {
@@ -309,23 +293,33 @@ describe('flag called dependencies', () => {
 
     describe('experiments', () => {
         it.each<[string, boolean, Experiment, ActionType[]]>([
-            // A running experiment counts exposures on the event the server resolved.
-            ['running on a resolved $feature_flag_called', true, runningExperiment(), []],
+            // The exposure query counts $experiment_exposure from September 1 on, so the default exposure keeps counting.
+            ['on the default exposure, resolved to $feature_flag_called', false, runningExperiment(), []],
             [
-                'running on an action exposure with a $feature_flag_called step',
-                true,
+                'with an exposure config that names $feature_flag_called',
+                false,
                 runningExperiment({
-                    resolved_exposure_event: '$experiment_exposure',
-                    exposure_criteria: { exposure_config: action(ACTION_ID) },
+                    exposure_criteria: {
+                        exposure_config: {
+                            kind: NodeKind.ExperimentEventExposureConfig,
+                            event: FLAG_CALLED,
+                            properties: [],
+                        },
+                    },
                 }),
+                [],
+            ],
+            // An action exposure and an activation config still match rows in the events table.
+            [
+                'on an action exposure with a $feature_flag_called step',
+                true,
+                actionExposureExperiment(),
                 [FLAG_CALLED_ACTION],
             ],
-            // Activation composes with the default exposure. It reads the events table too.
             [
                 'activated by a $feature_flag_called event',
                 true,
                 runningExperiment({
-                    resolved_exposure_event: '$experiment_exposure',
                     exposure_criteria: {
                         activation_config: {
                             kind: NodeKind.ExperimentEventExposureConfig,
@@ -339,71 +333,18 @@ describe('flag called dependencies', () => {
             [
                 'activated by an action with a $feature_flag_called step',
                 true,
-                runningExperiment({
-                    resolved_exposure_event: '$experiment_exposure',
-                    exposure_criteria: { activation_config: action(ACTION_ID) },
-                }),
+                runningExperiment({ exposure_criteria: { activation_config: action(ACTION_ID) } }),
                 [FLAG_CALLED_ACTION],
             ],
-            [
-                'running on a resolved $experiment_exposure',
-                false,
-                runningExperiment({
-                    start_date: '2026-08-15T00:00:00Z',
-                    resolved_exposure_event: '$experiment_exposure',
-                }),
-                [],
-            ],
-            [
-                'running on a custom exposure event',
-                false,
-                runningExperiment({
-                    exposure_criteria: {
-                        exposure_config: {
-                            kind: NodeKind.ExperimentEventExposureConfig,
-                            event: '$pageview',
-                            properties: [],
-                        },
-                    },
-                }),
-                [],
-            ],
-            // A legacy trends metric counts $feature_flag_called unless its exposure query names another event.
-            ['with a legacy trends metric and no exposure query', true, legacyExperiment(), []],
-            [
-                'with a legacy trends metric whose exposure query is on $feature_flag_called',
-                true,
-                legacyExperiment(trends([events(FLAG_CALLED)])),
-                [],
-            ],
-            [
-                'with a legacy trends metric whose exposure query is on another event',
-                false,
-                legacyExperiment(trends([events('$pageview')])),
-                [],
-            ],
-            [
-                'with a shared legacy trends metric and no exposure query',
-                true,
-                runningExperiment({
-                    resolved_exposure_event: '$experiment_exposure',
-                    saved_metrics: [{ query: legacyTrendsMetric() }],
-                }),
-                [],
-            ],
-            [
-                'with a legacy data warehouse trends metric whose exposure query is on another event',
-                true,
-                legacyExperiment(
-                    trends([events('$pageview')]),
-                    trends([{ ...FLAG_EVALUATIONS_SERIES, id: 'charges', table_name: 'charges', name: 'Charges' }])
-                ),
-                [],
-            ],
             // Only a running experiment still counts new exposures.
-            ['still in draft', false, runningExperiment({ start_date: null }), []],
-            ['that has ended', false, runningExperiment({ end_date: '2026-09-30T00:00:00Z' }), []],
-            ['that is archived', false, runningExperiment({ archived: true }), []],
+            ['still in draft', false, actionExposureExperiment({ start_date: null }), [FLAG_CALLED_ACTION]],
+            [
+                'that has ended',
+                false,
+                actionExposureExperiment({ end_date: '2026-09-30T00:00:00Z' }),
+                [FLAG_CALLED_ACTION],
+            ],
+            ['that is archived', false, actionExposureExperiment({ archived: true }), [FLAG_CALLED_ACTION]],
         ])('an experiment %s depends on flag calls: %s', (_label, expected, experiment, actions) => {
             expect(dependsOnFlagCalls(experimentFlagCalledReferences(experiment), actions)).toBe(expected)
         })

@@ -1,18 +1,12 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
-import {
-    getActivationConfig,
-    getExposureEventAndProperty,
-    resolvedExposureEvent,
-} from 'scenes/experiments/exposureContract'
-import { isLegacyExperiment, isLegacyExperimentQuery } from 'scenes/experiments/utils'
+import { getActivationConfig } from 'scenes/experiments/exposureContract'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/featureFlagUsageQueries'
 
-import { Node, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { Node } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
-    isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isGroupNode,
@@ -163,51 +157,26 @@ export function cohortFlagCalledReferences(
 }
 
 /**
- * Extends count_running_experiments_on_feature_flag_called in products/experiments/backend/facade/api.py.
+ * The default exposure is left out, because the exposure query counts $experiment_exposure for calls from
+ * September 1 on. An action exposure and an activation config still match rows in the events table.
  * An experiment that ended keeps its exposures, because the events table keeps the flag calls it already has.
+ * Legacy experiments are left out, because their results stop being available on October 15, 2026.
  */
 export function experimentFlagCalledReferences(experiment: Experiment): FlagCalledReferences {
     if (!experiment.start_date || experiment.end_date || experiment.archived) {
         return NO_REFERENCES
     }
-    if (isLegacyExperiment(experiment)) {
-        const metricQueries: unknown[] = [
-            ...(experiment.metrics ?? []),
-            ...(experiment.metrics_secondary ?? []),
-            ...(experiment.saved_metrics ?? []).map((savedMetric) => savedMetric.query),
-        ]
-        // A legacy trends metric without its own exposure query counts exposures on $feature_flag_called.
-        // A data warehouse metric does too, because the runner ignores its exposure query.
-        // See _prepare_exposure_query in experiment_trends_query_runner.py.
-        return combineReferences(
-            metricQueries
-                .filter(isLegacyExperimentQuery)
-                .filter(isExperimentTrendsQuery)
-                .map((metric) =>
-                    metric.exposure_query && !isDataWarehouseNode(metric.count_query.series[0])
-                        ? insightFlagCalledReferences(metric.exposure_query)
-                        : eventReference(FEATURE_FLAG_CALLED_EVENT)
-                )
-        )
-    }
     const exposureConfig = experiment.exposure_criteria?.exposure_config
     if (isActionsNode(exposureConfig)) {
         return actionReference(exposureConfig.id)
     }
-    const { event } = getExposureEventAndProperty({
-        featureFlagKey: experiment.feature_flag_key,
-        exposureCriteria: experiment.exposure_criteria,
-        resolvedExposureEvent: resolvedExposureEvent(experiment),
-    })
-    // A user becomes an exposure only after an activation row in the events table.
     const activationConfig = getActivationConfig(experiment.exposure_criteria)
     if (!activationConfig) {
-        return eventReference(event)
+        return NO_REFERENCES
     }
-    const activationReferences = isActionsNode(activationConfig)
+    return isActionsNode(activationConfig)
         ? actionReference(activationConfig.id)
         : eventReference(activationConfig.event)
-    return combineReferences([eventReference(event), activationReferences])
 }
 
 /** False until the referenced actions load, so a banner that depends on an action waits rather than guessing. */

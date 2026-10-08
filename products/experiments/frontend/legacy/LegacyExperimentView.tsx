@@ -31,7 +31,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, SidePanelTab } from '~/types'
 
-import { ExperimentFlagCalledBanner } from 'products/experiments/frontend/components/ExperimentFlagCalledBanner'
 import {
     LegacyExperimentHeader,
     LegacyExperimentInfo,
@@ -203,7 +202,6 @@ export function LegacyExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <ExperimentWarningBanner />
-                        <ExperimentFlagCalledBanner />
 
                         {showDeprecationNotice && (
                             <LemonBanner
