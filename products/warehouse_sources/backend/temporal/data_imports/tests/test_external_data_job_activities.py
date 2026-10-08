@@ -4,6 +4,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import OperationalError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -11,6 +12,7 @@ from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -26,15 +28,26 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_SOURCE_ERROR_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
+    WORKER_RESTART_ERROR_MESSAGE,
+    FailureKind,
+    FailureOutcome,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
     _is_app_db_failure,
+    classify_failure,
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BillingLimitsWillBeReachedException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,11 +60,19 @@ class TestCustomerFacingError(SimpleTestCase):
         cause = ApplicationError(message, type="OperationalError")
         assert _customer_facing_error(cause) == message
 
-    def test_retryable_rest_error_becomes_a_friendly_message(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "temporal_wrapped",
+                ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError"),
+            ),
+            ("raised_outside_an_activity", RESTClientRetryableError("HTTP 503 for https://api.example.com/usage")),
+        ]
+    )
+    def test_retryable_rest_error_becomes_a_friendly_message(self, _name: str, cause: BaseException) -> None:
         # A REST source that exhausts its retries on an HTTP 429/5xx surfaces as an ApplicationError
         # typed RESTClientRetryableError, whose message is a raw string like "HTTP 503 for <url>".
         # The customer must read a friendly message, not the raw HTTP status.
-        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError")
         assert _customer_facing_error(cause) == TRANSIENT_SOURCE_ERROR_MESSAGE
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
@@ -85,6 +106,99 @@ class TestCustomerFacingError(SimpleTestCase):
         result = _customer_facing_error(cause)
         assert result == expected
         assert "timeout" not in result
+
+
+def _as_temporal_failure(error: BaseException | None) -> ApplicationError | None:
+    """The `ApplicationError` chain Temporal hands the workflow for an error raised in an activity."""
+    if error is None:
+        return None
+    converted = ApplicationError(str(error), type=type(error).__name__)
+    converted.__cause__ = _as_temporal_failure(error.__cause__)
+    return converted
+
+
+def _non_retryable(wrapped: BaseException) -> NonRetryableException:
+    error = NonRetryableException("Sync stopped after repeated failures")
+    error.__cause__ = wrapped
+    return error
+
+
+_SHUTDOWN = WorkerShuttingDownError("job-1", "sync.extract", "warehouse-extract", 2, "wf-1", "external-data-job")
+
+
+class TestClassifyFailure(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "shutdown_on_v3",
+                _SHUTDOWN,
+                True,
+                FailureOutcome(
+                    kind=FailureKind.WORKER_SHUTDOWN,
+                    status=ExternalDataJob.Status.FAILED,
+                    internal_error=f"WorkerShuttingDownError: {_SHUTDOWN}",
+                    latest_error=WORKER_RESTART_ERROR_MESSAGE,
+                ),
+            ),
+            (
+                "shutdown_on_v2",
+                _SHUTDOWN,
+                False,
+                FailureOutcome(kind=FailureKind.WORKER_SHUTDOWN, status=None, internal_error=None, latest_error=None),
+            ),
+            (
+                "billing_limit",
+                BillingLimitsWillBeReachedException("Your rows would pass the billing limit"),
+                True,
+                FailureOutcome(
+                    kind=FailureKind.BILLING_LIMIT_TOO_LOW,
+                    status=ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW,
+                    internal_error=None,
+                    latest_error=None,
+                ),
+            ),
+            (
+                "non_retryable_reports_the_wrapped_error",
+                _non_retryable(OperationalError("password authentication failed for user")),
+                True,
+                FailureOutcome(
+                    kind=FailureKind.NON_RETRYABLE,
+                    status=ExternalDataJob.Status.FAILED,
+                    internal_error="OperationalError: password authentication failed for user",
+                    latest_error="password authentication failed for user",
+                ),
+            ),
+            (
+                "retryable_source_error",
+                RESTClientRetryableError("HTTP 503 for https://api.example.com/usage"),
+                True,
+                FailureOutcome(
+                    kind=FailureKind.OTHER,
+                    status=ExternalDataJob.Status.FAILED,
+                    internal_error="RESTClientRetryableError: HTTP 503 for https://api.example.com/usage",
+                    latest_error=TRANSIENT_SOURCE_ERROR_MESSAGE,
+                ),
+            ),
+            (
+                "missing_cause",
+                None,
+                True,
+                FailureOutcome(
+                    kind=FailureKind.OTHER,
+                    status=ExternalDataJob.Status.FAILED,
+                    internal_error="None",
+                    latest_error=UNEXPECTED_ERROR_MESSAGE,
+                ),
+            ),
+        ]
+    )
+    def test_a_plain_error_classifies_like_its_temporal_failure(
+        self, _name: str, error: BaseException | None, is_v3: bool, expected: FailureOutcome
+    ) -> None:
+        # The workflow sees the ApplicationError Temporal made of the error. A run outside an
+        # activity has only the error itself. Both must finalize the job the same way.
+        assert classify_failure(_as_temporal_failure(error), is_v3=is_v3) == expected
+        assert classify_failure(error, is_v3=is_v3) == expected
 
 
 class TestIsAppDbFailure(SimpleTestCase):

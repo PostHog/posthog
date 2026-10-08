@@ -172,7 +172,13 @@ class PipelineV3(Generic[ResumableData]):
         incremental_checkpoints_allowed: bool = False,
         resumed_incremental_run_uuid: str | None = None,
         resumed_incremental_value: Any = None,
+        attempt: int | None = None,
+        workflow_id: str | None = None,
+        workflow_run_id: str | None = None,
+        always_final_marker: bool = False,
     ) -> None:
+        # `attempt`, `workflow_id` and `workflow_run_id` fall back to the Temporal activity context
+        # when not given. A run outside an activity must give them.
         self._resource = source_response
         self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
@@ -204,8 +210,12 @@ class PipelineV3(Generic[ResumableData]):
             self._resource_name, self._job, self._logger, expect_missing=models.table is None
         )
 
-        attempt = current_import_attempt()
+        attempt = attempt if attempt is not None else current_import_attempt()
         self._attempt = attempt
+        self._workflow_id = workflow_id if workflow_id is not None else current_workflow_id()
+        self._workflow_run_id = workflow_run_id if workflow_run_id is not None else current_workflow_run_id()
+        # True for a run that the loader must finalize even when the run stages no batch.
+        self._always_final_marker = always_final_marker
         self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
@@ -346,8 +356,8 @@ class PipelineV3(Generic[ResumableData]):
             "logger": self._logger,
             "primary_keys": self._resource.primary_keys,
             "cdc_write_mode": cdc_write_mode,
-            "workflow_id": current_workflow_id(),
-            "workflow_run_id": current_workflow_run_id(),
+            "workflow_id": self._workflow_id,
+            "workflow_run_id": self._workflow_run_id,
             # Snapshotted on the job when the run started. Empty for every run before
             # destinations, and every run of a team the flag is off for.
             "destination_ids": list(self._job.destination_ids or []),
