@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.constants import (
     review_arm_for_mode,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:
@@ -26,15 +27,24 @@ if TYPE_CHECKING:
 
 class _FindingModelContext(BaseModel):
     review_mode: Literal["full", "flash"]
+    # Contexts written before the single-agent design have no design and ran the pipeline.
+    review_design: str = REVIEW_DESIGN_PIPELINE
     review_arm: ReviewArm
-    validation_arm: ReviewArm
+    # None for the single-agent design, which runs no validator.
+    validation_arm: ReviewArm | None
 
 
-def review_event_uuid(event_name: str, *, report_id: str, run_index: int, review_mode: str) -> str:
-    """Preserve legacy Full event IDs while separating retry histories by review mode."""
+def review_event_uuid(event_name: str, *, report_id: str, run_index: int, review_mode: str, review_design: str) -> str:
+    """Preserve legacy Full event IDs while separating retry histories by review mode and design.
+
+    A failed turn keeps its run index, so a Flash turn on another design can reuse it, for example
+    after the kill switch flips. Pipeline IDs stay as they were.
+    """
     identity = f"{event_name}:{report_id}:{run_index}"
     if review_mode != REVIEW_MODE_FULL:
         identity = f"{identity}:{review_mode}"
+    if review_design != REVIEW_DESIGN_PIPELINE:
+        identity = f"{identity}:{review_design}"
     return str(uuid5(NAMESPACE_URL, identity))
 
 
@@ -43,6 +53,7 @@ def review_routing_properties(
     *,
     review_mode: str | None = None,
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> dict[str, str | bool | None]:
     """The tier, the reviewer arm, and the validator and resolver pins of a report's reviews.
 
@@ -55,7 +66,8 @@ def review_routing_properties(
     is the turn's, and the per-turn events pass it so a flash turn names the flash arm in both seats.
     Flash finding outcomes override these pins with their saved configuration in
     `finding_routing_properties`. The resolver is a module pin, not per report; it is included so
-    one event names every model a turn spent on.
+    one event names every model a turn spent on. A single-agent turn runs no validator, so its
+    validator pins are None.
     """
     persisted = (
         report.review_runtime_adapter,
@@ -71,10 +83,17 @@ def review_routing_properties(
         stored_arm.initial_permission_mode,
     )
     mode = review_mode if review_mode is not None else REVIEW_MODE_FULL
-    arm = review_arm_for_mode(mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort)
-    validator = validation_arm_for_mode(mode, flash_reasoning_effort=flash_reasoning_effort)
+    arm = review_arm_for_mode(
+        mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
+    )
+    validator = (
+        None
+        if review_design == REVIEW_DESIGN_SINGLE_AGENT
+        else validation_arm_for_mode(mode, flash_reasoning_effort=flash_reasoning_effort)
+    )
     return {
         "review_mode": review_mode,
+        "review_design": review_design,
         "review_tier": report.review_tier,
         "signal_priority": report.review_signal_priority,
         "signal_report_id": str(report.signal_report_id) if report.signal_report_id else None,
@@ -86,8 +105,8 @@ def review_routing_properties(
         # The whole bundle is compared because a failed assignment can share the default arm's model
         # string while differing on adapter or effort. Pre-arm rows (all NULL) stay False.
         "review_arm_fallback": mode != REVIEW_MODE_FLASH and any(persisted) and resolved != persisted,
-        "validator_model": validator.model,
-        "validator_reasoning_effort": validator.reasoning_effort.value,
+        "validator_model": validator.model if validator is not None else None,
+        "validator_reasoning_effort": validator.reasoning_effort.value if validator is not None else None,
         "resolution_model": RESOLUTION_MODEL,
         "resolution_reasoning_effort": RESOLUTION_REASONING_EFFORT.value if RESOLUTION_REASONING_EFFORT else None,
     }
@@ -105,13 +124,18 @@ def finding_routing_properties(report: ReviewReport, finding: ReviewIssueFinding
             context = _FindingModelContext.model_validate_json(finding.validation_context)
         except ValidationError:
             pass
-    properties = review_routing_properties(report, review_mode=context.review_mode if context else None)
+    properties = review_routing_properties(
+        report,
+        review_mode=context.review_mode if context else None,
+        review_design=context.review_design if context else REVIEW_DESIGN_PIPELINE,
+    )
     if context is not None and context.review_mode == REVIEW_MODE_FLASH:
+        validator = context.validation_arm
         properties.update(
             review_runtime_adapter=context.review_arm.runtime_adapter.value,
             review_model=context.review_arm.model,
             review_reasoning_effort=context.review_arm.reasoning_effort.value,
-            validator_model=context.validation_arm.model,
-            validator_reasoning_effort=context.validation_arm.reasoning_effort.value,
+            validator_model=validator.model if validator is not None else None,
+            validator_reasoning_effort=validator.reasoning_effort.value if validator is not None else None,
         )
     return properties
