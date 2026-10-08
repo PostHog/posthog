@@ -3281,7 +3281,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Fetch the logs for a task run as JSONL. If the run resumes from "
             "another (state.resume_from_run_id), each ancestor's log is "
             "concatenated first (oldest ancestor → ... → this run) so resume "
-            "consumers see a single continuous history."
+            "consumers see a single continuous history. A resumed Pi run "
+            "includes the earlier runs of its task session the same way, each "
+            "preceded by a pi_run_started entry that names its run."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3289,7 +3291,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         timer = ServerTimingsGathered()
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_conversation_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 
@@ -3478,6 +3480,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_runtime == tasks_facade.TaskRuntime.PI and method not in {
             "user_message",
             "cancel",
+            "permission_response",
+            "set_config_option",
             "pi/rpc",
             "queue_get",
             "queue_clear",

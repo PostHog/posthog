@@ -81,6 +81,20 @@ logger = logging.getLogger(__name__)
 
 TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
+PI_TASK_INCOMPATIBLE_RUN_FIELDS = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
+
+
+def _pi_task_run_request_errors(attrs: dict[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if attrs.get("claude_model_access") == "own-subscription":
+        errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+    if attrs.get("codex_model_access") == "own-subscription":
+        errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
+    for field in PI_TASK_INCOMPATIBLE_RUN_FIELDS:
+        if attrs.get(field) is not None:
+            errors[field] = "This field cannot be used with a Pi task."
+    return errors
+
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
     if "task_runtime" in context:
@@ -3642,7 +3656,10 @@ class TaskRunCreateRequestSerializer(
         required=False,
         default=None,
         allow_blank=False,
-        help_text="LLM model identifier. The server derives the runtime adapter when it is omitted.",
+        help_text=(
+            "LLM model identifier. The server derives the runtime adapter when it is omitted. "
+            "A Pi task runs any listed model and takes no runtime adapter."
+        ),
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
@@ -3697,7 +3714,7 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            attrs["runtime_adapter"] = get_runtime_adapter_for_model(attrs["model"]) or next(
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
                 (
                     RuntimeAdapter(choice.runtime_adapter)
                     for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
@@ -3705,12 +3722,12 @@ class TaskRunCreateRequestSerializer(
                 ),
                 None,
             )
-            if attrs["runtime_adapter"] is None:
+            if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
+            elif not is_pi_task:
+                attrs["runtime_adapter"] = model_runtime_adapter
         if is_pi_task:
-            for field in ("runtime_adapter", "model", "reasoning_effort", "initial_permission_mode"):
-                if attrs.get(field) is not None:
-                    errors[field] = "This field cannot be used with a Pi task. Remove it and try again."
+            errors.update(_pi_task_run_request_errors(attrs))
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
@@ -3720,15 +3737,22 @@ class TaskRunCreateRequestSerializer(
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
-        if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
-            errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
-        if attrs.get("codex_model_access") == "own-subscription" and is_pi_task:
-            errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
         if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
             attrs.pop("pending_user_message", None)
+
+        if is_pi_task:
+            if "model" not in errors and (
+                model_access_error := get_model_access_error(
+                    attrs.get("model"), distinct_id=request_distinct_id(self.context)
+                )
+            ):
+                errors["model"] = model_access_error
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
@@ -3891,19 +3915,8 @@ class TaskRunBootstrapCreateRequestSerializer(
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
-        is_pi_task = _is_pi_task_run_request(self.context)
-        if is_pi_task:
-            if attrs.get("claude_model_access") == "own-subscription":
-                errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
-            if attrs.get("codex_model_access") == "own-subscription":
-                errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
-            pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
-            for field in pi_incompatible_fields:
-                if attrs.get(field) is not None:
-                    errors[field] = "This field cannot be used with a Pi task."
-            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
-                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
-
+        if _is_pi_task_run_request(self.context):
+            errors.update(_pi_task_run_request_errors(attrs))
             if errors:
                 raise serializers.ValidationError(errors)
             return attrs

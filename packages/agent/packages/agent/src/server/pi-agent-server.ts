@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { RpcSessionState } from "@earendil-works/pi-coding-agent";
 import type { ServerType } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import {
+  type AgentContent,
   type AgentConversationEvent,
   type AgentTurnUsage,
   MCP_TOOL_PERMISSION_OPTIONS,
@@ -31,6 +33,15 @@ import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
+  type PermissionAnswer,
+  PI_ACP_MCP_PERMISSION_OPTIONS,
+  type PiExtensionDialog,
+  piAcpLogEntries,
+  piAcpWireEntry,
+  piExtensionDialogResponse,
+  readPiExtensionDialog,
+} from "../pi/acp-wire";
+import {
   createPiRpcClient,
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
@@ -41,10 +52,12 @@ import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
 import {
   type PiExtensionEvent,
+  type PiThinkingLevel,
   piExtensionUIResponseSchema,
   type RpcExtensionUIResponse,
 } from "../pi/types";
 import { PostHogAPIClient } from "../posthog-api";
+import { attachmentFilePath } from "../utils/attachments";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -59,6 +72,14 @@ const MODEL_CHANGING_RPC_COMMANDS: ReadonlySet<string> = new Set([
   "set_model",
   "cycle_model",
 ]);
+
+interface PiPreparedUserMessage {
+  /** The text Pi receives, with attachment paths appended for the model. */
+  prompt: string;
+  images: Parameters<PiRpcClient["prompt"]>[1];
+  /** What the conversation shows: the user's text and one `resource_link` per attachment. */
+  content: AgentContent[];
+}
 
 interface SseController {
   send(data: unknown): void;
@@ -97,11 +118,25 @@ const mcpPermissionResponseCommandSchema = z.object({
   decision: z.enum(["allow", "allow_always", "reject"]),
 });
 
+const permissionResponseCommandSchema = z.object({
+  requestId: z.string().min(1),
+  optionId: z.string().min(1),
+  customInput: z.string().optional(),
+  answers: z.record(z.string(), z.string()).optional(),
+});
+
+const setConfigOptionCommandSchema = z.object({
+  configId: z.enum(["model", "effort"]),
+  value: z.string().min(1),
+});
+
 const commandSchemas = {
   user_message: userMessageCommandSchema,
   cancel: emptySchema,
   queue_get: emptySchema,
   queue_clear: emptySchema,
+  permission_response: permissionResponseCommandSchema,
+  set_config_option: setConfigOptionCommandSchema,
   "pi/rpc": z.object({ command: piRpcCommandSchema }),
 } as const;
 
@@ -154,10 +189,15 @@ export class PiAgentServer {
   private logFlushQueue: Promise<void> = Promise.resolve();
   private logFlushActive = false;
   private logFlushRequested = false;
+  private logFlushFinalRequested = false;
   private readonly canceledSseControllers = new WeakSet<SseController>();
   private readonly pendingMcpPermissions = new Map<
     string,
     McpToolPermissionRequest
+  >();
+  private readonly pendingExtensionDialogs = new Map<
+    string,
+    { dialog: PiExtensionDialog; timer?: ReturnType<typeof setTimeout> }
   >();
   private rtkSavingsAttempted = false;
   private runUsage = new RunUsageAccumulator();
@@ -188,6 +228,14 @@ export class PiAgentServer {
 
   private get agentVersion(): string {
     return this.config.version ?? packageJson.version;
+  }
+
+  private get acpConversation(): boolean {
+    return this.config.piConversationFormat === "acp";
+  }
+
+  private toWire(entry: object): object | null {
+    return this.acpConversation ? piAcpWireEntry(entry) : entry;
   }
 
   private createRunTelemetry(
@@ -275,7 +323,11 @@ export class PiAgentServer {
     this.session = null;
     this.runUsage = new RunUsageAccumulator();
     this.pendingMcpPermissions.clear();
-    await this.flushConversationLog().catch((error) =>
+    for (const { timer } of this.pendingExtensionDialogs.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingExtensionDialogs.clear();
+    await this.flushConversationLog({ final: true }).catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
     await this.emitRtkSavings();
@@ -305,7 +357,7 @@ export class PiAgentServer {
     await this.syncTaskSession().catch((syncError) =>
       this.logger.error("Failed to sync crashed Pi session", syncError),
     );
-    await this.flushConversationLog().catch((syncError) =>
+    await this.flushConversationLog({ final: true }).catch((syncError) =>
       this.logger.error("Failed to persist crashed Pi events", syncError),
     );
     await this.posthogAPI
@@ -766,6 +818,62 @@ export class PiAgentServer {
       this.recordTurnUsage(event.usage);
     }
     this.handleEvent(event);
+    if (
+      this.acpConversation &&
+      event.type === "turn_completed" &&
+      event.usage
+    ) {
+      this.broadcastUsage(event.usage);
+    }
+  }
+
+  private broadcastUsage(usage: AgentTurnUsage): void {
+    const totals = this.runUsage.snapshot();
+    this.broadcastNotification(POSTHOG_NOTIFICATIONS.USAGE_UPDATE, {
+      used: {
+        inputTokens: totals.input_tokens,
+        outputTokens: totals.output_tokens,
+        cachedReadTokens: totals.cache_read_tokens,
+        cachedWriteTokens: totals.cache_write_tokens,
+      },
+    });
+    if (typeof usage.contextTokens === "number") {
+      this.broadcastNotification("session/update", {
+        update: {
+          sessionUpdate: "usage_update",
+          used: usage.contextTokens,
+          ...(typeof usage.contextWindow === "number"
+            ? { size: usage.contextWindow }
+            : {}),
+        },
+      });
+    }
+  }
+
+  private broadcastNotification(
+    method: string,
+    params: Record<string, unknown>,
+  ): void {
+    this.broadcast({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification: { jsonrpc: "2.0", method, params },
+    });
+  }
+
+  private persistNotification(
+    method: string,
+    params: Record<string, unknown>,
+  ): void {
+    this.pendingLogEntries.push({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      event_id: this.nextEventId(),
+      notification: { method, params },
+    });
+    void this.flushConversationLog().catch((error) =>
+      this.logger.error("Failed to persist Pi notification", error),
+    );
   }
 
   private recordTurnUsage(usage: AgentTurnUsage): void {
@@ -795,7 +903,33 @@ export class PiAgentServer {
   }
 
   private handleExtensionEvent(event: PiExtensionEvent): void {
+    const dialog = this.acpConversation
+      ? readPiExtensionDialog(event as unknown as Record<string, unknown>)
+      : null;
+    if (dialog) {
+      this.pendingExtensionDialogs.set(dialog.id, {
+        dialog,
+        timer: dialog.timeout
+          ? setTimeout(
+              () => this.expireExtensionDialog(dialog.id),
+              dialog.timeout,
+            )
+          : undefined,
+      });
+    }
     this.broadcast({ ...event });
+  }
+
+  private expireExtensionDialog(id: string): void {
+    if (!this.pendingExtensionDialogs.delete(id)) {
+      return;
+    }
+    this.broadcast({
+      type: "extension_ui_response",
+      id,
+      cancelled: true,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   private async respondExtensionUI(
@@ -805,6 +939,8 @@ export class PiAgentServer {
     if (!runtime) {
       throw new Error("No active Pi runtime");
     }
+    clearTimeout(this.pendingExtensionDialogs.get(response.id)?.timer);
+    this.pendingExtensionDialogs.delete(response.id);
     await runtime.client.respondToExtensionUI(response);
     this.broadcast({ ...response });
     return { resolved: true };
@@ -837,8 +973,27 @@ export class PiAgentServer {
           mcpInstallationId: request.installationId,
         }),
       },
-      options: MCP_TOOL_PERMISSION_OPTIONS,
+      options: this.acpConversation
+        ? PI_ACP_MCP_PERMISSION_OPTIONS
+        : MCP_TOOL_PERMISSION_OPTIONS,
     });
+    if (this.acpConversation) {
+      this.persistNotification(POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST, {
+        requestId: request.requestId,
+        toolCall: {
+          toolCallId: request.requestId,
+          title: `The agent wants to call ${request.toolName} (${request.serverName})`,
+          kind: "other",
+          rawInput: request.arguments,
+          _meta: posthogToolMeta({
+            toolName: mcpToolKey(mcp),
+            mcp,
+            mcpInstallationId: request.installationId,
+          }),
+        },
+        options: PI_ACP_MCP_PERMISSION_OPTIONS,
+      });
+    }
   }
 
   private async respondMcpToolPermission(
@@ -857,6 +1012,13 @@ export class PiAgentServer {
     }
     this.pendingMcpPermissions.delete(requestId);
     this.session?.runtime.client.respondMcpToolPermission(requestId, decision);
+    if (this.acpConversation) {
+      this.broadcastNotification(POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED, {
+        requestId,
+        toolCallId: requestId,
+        optionId: decision,
+      });
+    }
     return { resolved: true };
   }
 
@@ -881,6 +1043,15 @@ export class PiAgentServer {
         runtime.clearPendingQueuedUserMessages();
         return queue;
       }
+      case "permission_response":
+        return this.respondPermission(
+          params as unknown as PermissionAnswer & { requestId: string },
+        );
+      case "set_config_option":
+        return this.setConfigOption(
+          params.configId as "model" | "effort",
+          params.value as string,
+        );
       case "pi/rpc": {
         const command = params.command as RpcCommand;
         if (
@@ -903,6 +1074,54 @@ export class PiAgentServer {
         return result;
       }
     }
+  }
+
+  private async respondPermission(
+    answer: PermissionAnswer & { requestId: string },
+  ): Promise<{ resolved: true }> {
+    if (this.pendingMcpPermissions.has(answer.requestId)) {
+      const decision =
+        mcpPermissionResponseCommandSchema.shape.decision.safeParse(
+          answer.optionId,
+        );
+      if (!decision.success) {
+        throw new Error(
+          `Option "${answer.optionId}" was not offered for permission request ${answer.requestId}`,
+        );
+      }
+      return this.respondMcpToolPermission(answer.requestId, decision.data);
+    }
+    const pending = this.pendingExtensionDialogs.get(answer.requestId);
+    if (!pending) {
+      throw new Error(
+        `No pending permission request found for id: ${answer.requestId}`,
+      );
+    }
+    return this.respondExtensionUI(
+      piExtensionDialogResponse(pending.dialog, answer),
+    );
+  }
+
+  private async setConfigOption(
+    configId: "model" | "effort",
+    value: string,
+  ): Promise<Record<string, never>> {
+    const runtime = this.session?.runtime;
+    if (!runtime) {
+      throw new Error("No active Pi runtime");
+    }
+    const response = await runtime.sendCommand(
+      configId === "model"
+        ? { type: "set_model", provider: "posthog", modelId: value }
+        : { type: "set_thinking_level", level: value as PiThinkingLevel },
+    );
+    if (!response.success) {
+      throw new Error(response.error || `Pi rejected the ${configId} change`);
+    }
+    if (configId === "model") {
+      await this.refreshModelContextWindow(runtime.client);
+    }
+    return {};
   }
 
   private applyModelContextWindow(state: RpcSessionState): void {
@@ -933,28 +1152,25 @@ export class PiAgentServer {
     );
     const result = await this.dispatchUserMessage(
       runtime,
-      message.content,
-      message.images,
+      message,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
     return result;
   }
 
+  /**
+   * Every attachment is written to the shared `.posthog/attachments` layout and shows in the
+   * conversation as a `resource_link`. The model gets the files as paths in the prompt text, and
+   * images inline as well, since Pi reads images natively.
+   */
   private async prepareUserMessage(
     content: string,
     artifacts: TaskRunArtifact[],
-  ): Promise<{
-    content: string;
-    images: Parameters<PiRpcClient["prompt"]>[1];
-  }> {
+  ): Promise<PiPreparedUserMessage> {
     const images: NonNullable<Parameters<PiRpcClient["prompt"]>[1]> = [];
     const filePaths: string[] = [];
-    const attachmentDirectory = join(
-      this.config.repositoryPath ?? "/tmp/workspace",
-      ".posthog",
-      "attachments",
-    );
+    const attachments: AgentContent[] = [];
 
     for (const artifact of artifacts) {
       if (!artifact.storage_path) {
@@ -969,6 +1185,21 @@ export class PiAgentServer {
         throw new Error(`Failed to download attachment: ${artifact.name}`);
       }
 
+      const filePath = attachmentFilePath(
+        this.config.repositoryPath,
+        this.config.runId,
+        artifact,
+      );
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, Buffer.from(data));
+      attachments.push({
+        type: "resource_link",
+        uri: pathToFileURL(filePath).toString(),
+        name: artifact.name,
+        ...(artifact.content_type ? { mimeType: artifact.content_type } : {}),
+        ...(typeof artifact.size === "number" ? { size: artifact.size } : {}),
+      });
+
       const mimeType = artifact.content_type ?? "application/octet-stream";
       if (mimeType.startsWith("image/")) {
         images.push({
@@ -977,34 +1208,35 @@ export class PiAgentServer {
           mimeType,
           fileName: artifact.name,
         } as (typeof images)[number]);
-        continue;
+      } else {
+        filePaths.push(filePath);
       }
-
-      await mkdir(attachmentDirectory, { recursive: true });
-      const fileName = `${artifact.id}-${basename(artifact.name)}`;
-      const filePath = join(attachmentDirectory, fileName);
-      await writeFile(filePath, Buffer.from(data));
-      filePaths.push(filePath);
     }
 
     const attachmentText = filePaths.length
       ? `Attached files:\n${filePaths.map((filePath) => `- ${filePath}`).join("\n")}`
       : "";
     return {
-      content: [content, attachmentText].filter(Boolean).join("\n\n"),
+      prompt: [content, attachmentText].filter(Boolean).join("\n\n"),
       images,
+      content: [
+        ...(content ? [{ type: "text" as const, text: content }] : []),
+        ...attachments,
+      ],
     };
   }
 
   private async dispatchUserMessage(
     runtime: PiRuntime,
-    content: string,
-    images: Parameters<PiRpcClient["prompt"]>[1],
+    message: PiPreparedUserMessage,
     id: string,
     steer: boolean,
   ): Promise<unknown> {
     const send = (type: "prompt" | "follow_up" | "steer") =>
-      runtime.sendCommand({ id, type, message: content, images });
+      runtime.sendCommand(
+        { id, type, message: message.prompt, images: message.images },
+        { conversationContent: message.content },
+      );
     const state = await runtime.client.getState();
     if (!state.isStreaming) {
       return send("prompt");
@@ -1042,7 +1274,10 @@ export class PiAgentServer {
   }
 
   private async persistSettledTurn(): Promise<void> {
-    await Promise.all([this.syncTaskSession(), this.flushConversationLog()]);
+    await Promise.all([
+      this.syncTaskSession(),
+      this.flushConversationLog({ final: true }),
+    ]);
   }
 
   private syncTaskSession(): Promise<void> {
@@ -1094,32 +1329,37 @@ export class PiAgentServer {
     const isExtensionMessage =
       event.type === "extension_ui_request" ||
       event.type === "extension_ui_response";
-    if (isConversationEvent || isExtensionMessage) {
-      const logEntry: StoredLogEntry = isExtensionMessage
-        ? {
-            id: typeof event.id === "string" ? event.id : undefined,
-            type: "pi_extension_event",
-            timestamp:
-              typeof event.timestamp === "string"
-                ? event.timestamp
-                : new Date().toISOString(),
-            notification: {
-              method: "_posthog/pi_extension_event",
-              params: event,
-            },
-            event_id: eventId,
-          }
-        : {
-            id: typeof event.id === "string" ? event.id : undefined,
-            type: String(event.type),
-            timestamp:
-              typeof event.timestamp === "string" ? event.timestamp : undefined,
-            event:
-              event.type === "pi_event"
-                ? (event.event as AgentConversationEvent)
-                : undefined,
-            event_id: eventId,
-          };
+    const isNotification = event.type === "notification";
+    if (isConversationEvent || isExtensionMessage || isNotification) {
+      const logEntry: StoredLogEntry = isNotification
+        ? (event as unknown as StoredLogEntry)
+        : isExtensionMessage
+          ? {
+              id: typeof event.id === "string" ? event.id : undefined,
+              type: "pi_extension_event",
+              timestamp:
+                typeof event.timestamp === "string"
+                  ? event.timestamp
+                  : new Date().toISOString(),
+              notification: {
+                method: "_posthog/pi_extension_event",
+                params: event,
+              },
+              event_id: eventId,
+            }
+          : {
+              id: typeof event.id === "string" ? event.id : undefined,
+              type: String(event.type),
+              timestamp:
+                typeof event.timestamp === "string"
+                  ? event.timestamp
+                  : undefined,
+              event:
+                event.type === "pi_event"
+                  ? (event.event as AgentConversationEvent)
+                  : undefined,
+              event_id: eventId,
+            };
       const toolCallId = updatedToolCallId(logEntry.event);
       const pendingLogIndex = toolCallId
         ? this.pendingLogEntries.findLastIndex(
@@ -1154,6 +1394,7 @@ export class PiAgentServer {
       if (
         event.type === "pi_run_started" ||
         isExtensionMessage ||
+        isNotification ||
         this.pendingLogEntries.length >= LOG_FLUSH_ENTRY_COUNT ||
         (event.event as { type?: string } | undefined)?.type ===
           "turn_completed"
@@ -1164,9 +1405,14 @@ export class PiAgentServer {
       }
     }
 
-    this.eventStreamSender?.enqueue(event);
+    const streamEvent = this.toWire(event);
+    if (streamEvent) {
+      this.eventStreamSender?.enqueue(streamEvent as Record<string, unknown>);
+    }
     if (this.session?.sseController) {
-      this.session.sseController.send(event);
+      if (streamEvent) {
+        this.session.sseController.send(streamEvent);
+      }
     } else {
       const toolCallId = updatedToolCallId(
         event.type === "pi_event"
@@ -1214,7 +1460,14 @@ export class PiAgentServer {
     }
   }
 
-  private flushConversationLog(): Promise<void> {
+  private flushConversationLog({
+    final = false,
+  }: {
+    final?: boolean;
+  } = {}): Promise<void> {
+    if (final) {
+      this.logFlushFinalRequested = true;
+    }
     if (this.logFlushActive) {
       this.logFlushRequested = true;
       return this.logFlushQueue;
@@ -1227,23 +1480,34 @@ export class PiAgentServer {
     const flush = (async () => {
       do {
         this.logFlushRequested = false;
+        const final = this.logFlushFinalRequested;
+        this.logFlushFinalRequested = false;
         const entries = this.pendingLogEntries;
         this.pendingLogEntries = [];
         if (entries.length === 0) {
           return;
         }
-        try {
-          await this.posthogAPI.appendTaskRunLog(
-            this.config.taskId,
-            this.config.runId,
-            entries,
-          );
-        } catch (error) {
-          this.pendingLogEntries = [
-            ...entries,
-            ...this.pendingLogEntries,
-          ].slice(-MAX_PENDING_LOG_ENTRIES);
-          throw error;
+        const { wire, carry } = this.acpConversation
+          ? piAcpLogEntries(entries, { final })
+          : { wire: entries, carry: [] };
+        if (wire.length > 0) {
+          try {
+            await this.posthogAPI.appendTaskRunLog(
+              this.config.taskId,
+              this.config.runId,
+              wire,
+            );
+          } catch (error) {
+            this.pendingLogEntries = [
+              ...entries,
+              ...this.pendingLogEntries,
+            ].slice(-MAX_PENDING_LOG_ENTRIES);
+            throw error;
+          }
+        }
+        this.pendingLogEntries = [...carry, ...this.pendingLogEntries];
+        if (wire.length === 0) {
+          return;
         }
       } while (
         this.logFlushRequested ||
@@ -1265,7 +1529,10 @@ export class PiAgentServer {
     const events = this.pendingEvents;
     this.pendingEvents = [];
     for (const event of events) {
-      controller.send(event);
+      const streamEvent = this.toWire(event);
+      if (streamEvent) {
+        controller.send(streamEvent);
+      }
     }
   }
 

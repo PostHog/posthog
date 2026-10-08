@@ -32,6 +32,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PI_ACP_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -168,6 +169,7 @@ class TaskProcessingContext:
     # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
     # Exposure only: the peers endpoints re-check authorization server-side on every call.
     peer_messaging_enabled: bool = False
+    pi_acp_conversation_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
@@ -457,6 +459,28 @@ def _is_peer_messaging_enabled(
     if enabled:
         log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
     return enabled
+
+
+def _is_pi_acp_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_ACP_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pi_acp_flag_check_failed", run_id=run_id, error=str(e))
+        return False
 
 
 def _is_rtk_enabled(
@@ -1773,6 +1797,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI
         and _is_peer_messaging_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
+        pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI
+        and _is_pi_acp_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,
             run_id=run_id,

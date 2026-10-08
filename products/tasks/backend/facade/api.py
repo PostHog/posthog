@@ -340,6 +340,7 @@ __all__ = [
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
+    "read_task_run_conversation_logs",
     "read_task_run_logs",
     "record_comment_activity",
     "signal_task_run_client_activity",
@@ -4807,6 +4808,28 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     return read_task_run_log_content(log_urls)
 
 
+def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    chain = run.get_history_chain()
+    if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
+        return read_task_run_log_content([ancestor.log_url for ancestor in chain])
+
+    contents = _TASK_LOG_READ_EXECUTOR.map(lambda ancestor: read_task_run_log_content([ancestor.log_url]), chain)
+    parts: list[str] = []
+    for ancestor, content in zip(chain, contents):
+        marker = {
+            "type": "pi_run_started",
+            "timestamp": ancestor.created_at.isoformat(),
+            "taskId": str(ancestor.task_id),
+            "runId": str(ancestor.id),
+        }
+        parts.append(json.dumps(marker) + "\n")
+        parts.append(content)
+    return "".join(parts)
+
+
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:
     """Log URLs across the run's resume chain (oldest ancestor first). ``None`` if the run isn't found."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -8045,7 +8068,14 @@ def readonly_github_integration_id(team_id: int) -> int | None:
     return integration.integration.id if integration is not None else None
 
 
-def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
+def _with_ai_run_defaults(
+    data: dict,
+    *,
+    team_id: int,
+    acting_user_id: int | None,
+    internal: bool = False,
+    runtime: str = Task.Runtime.ACP,
+) -> dict:
     """A copy of ``data`` with the team/user default AI run triple filled in when it pins
     no runtime selection (see ``resolve_ai_run_selection``).
 
@@ -8061,7 +8091,7 @@ def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | Non
     )
 
     updated = dict(data)
-    apply_ai_run_defaults(updated, team_id, acting_user_id)
+    apply_ai_run_defaults(updated, team_id, acting_user_id, runtime=runtime)
     return updated
 
 
@@ -8939,6 +8969,7 @@ def run_task(
             team_id=task.team_id,
             acting_user_id=user_id if user_id is not None else task.created_by_id,
             internal=task.internal,
+            runtime=task.runtime,
         )
 
     access_state = {
@@ -9189,8 +9220,8 @@ def run_task(
         "fast_mode": fast_mode,
     }
     if is_pi_task:
-        for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
-            run_state_values.pop(key)
+        run_state_values.pop("runtime_adapter")
+        run_state_values.pop("provider")
     extra_state = extra_state or {}
     extra_state["pr_base_branch"] = branch
     for key, value in run_state_values.items():

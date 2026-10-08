@@ -32,6 +32,7 @@ import {
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { useThreadSkin } from '../../hooks/useThreadSkin'
@@ -88,6 +89,7 @@ export interface ComposerModelEffortPickersProps {
     /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
     codexBilling?: ComposerCodexBilling
     phoneSheet?: boolean
+    taskRuntime?: TaskRuntimeEnumApi
 }
 
 interface PickerSectionProps {
@@ -151,6 +153,7 @@ export function ComposerModelEffortPickers({
     onOpenDefaultSettings,
     codexBilling,
     phoneSheet = false,
+    taskRuntime,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
@@ -165,18 +168,18 @@ export function ComposerModelEffortPickers({
     const { selectedAdapter, modelLabel, effortOptions, adapters, adapterModels, ladder, showsAnyCost } =
         useMemo(() => {
             const adapter = getRuntimeAdapterForModel(models, selectedModel)
-            const offered = modelsForRuntimeAdapter(models, adapter)
+            const offered = modelsForRuntimeAdapter(models, adapter, taskRuntime)
             return {
                 selectedAdapter: adapter,
                 modelLabel: getModelLabel(models, selectedModel),
                 effortOptions: getEffortsForModel(models, selectedModel),
-                adapters: listRuntimeAdapters(models),
+                adapters: listRuntimeAdapters(models, taskRuntime),
                 adapterModels: offered,
                 ladder: getCapabilityLadder(models, adapter),
                 // The legend explains a symbol, so it only belongs where a row carries one.
                 showsAnyCost: offered.some((option) => !!getModelCost(option.model)),
             }
-        }, [models, selectedModel])
+        }, [models, selectedModel, taskRuntime])
 
     const selectAdapter = (adapter: string): void => {
         const runtimeAdapter = adapter as RuntimeAdapterEnumApi

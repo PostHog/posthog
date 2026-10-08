@@ -5,7 +5,11 @@ export interface ResolvedToolKey {
     resolvedKey: string
     innerToolName?: string
     innerInput?: Record<string, unknown>
+    /** The MCP tool a Pi proxy call names while the server has not yet reported which MCP server answered it. */
+    proxiedToolName?: string
 }
+
+type McpProxyCall = { kind: 'search'; query: string } | { kind: 'tool'; name: string }
 
 export interface ResolvableToolCall {
     rawServerName: string
@@ -48,6 +52,24 @@ export function extractAgentToolName(meta: unknown): string | undefined {
         }
     }
     return extractClaudeToolName(meta)
+}
+
+/** The structured `_meta.posthog.mcpProxy` a Pi harness puts on a call made through its `mcp` proxy tool. */
+function extractMcpProxyCall(meta: unknown): McpProxyCall | undefined {
+    const posthog = typeof meta === 'object' && meta !== null ? (meta as { posthog?: unknown }).posthog : undefined
+    const proxy =
+        typeof posthog === 'object' && posthog !== null ? (posthog as { mcpProxy?: unknown }).mcpProxy : undefined
+    if (typeof proxy !== 'object' || proxy === null) {
+        return undefined
+    }
+    const { kind, query, name } = proxy as { kind?: unknown; query?: unknown; name?: unknown }
+    if (kind === 'search' && typeof query === 'string' && query) {
+        return { kind, query }
+    }
+    if (kind === 'tool' && typeof name === 'string' && name) {
+        return { kind, name }
+    }
+    return undefined
 }
 
 /**
@@ -105,6 +127,15 @@ export function resolveToolCall(toolCall: ResolvableToolCall): ResolvedToolCall 
     const claudeToolName = extractClaudeToolName(toolCall.meta)
     const agentToolName = extractAgentToolName(toolCall.meta)
     const mcp = agentToolName?.match(/^mcp__(.+?)__(.+)$/)
+    // A Pi proxy call names the MCP tool before the server reports which server answered; the
+    // descriptor arrives with the result and takes over above.
+    const proxy = mcp ? undefined : extractMcpProxyCall(toolCall.meta)
+    if (proxy?.kind === 'search') {
+        return { resolvedKey: 'ToolSearch', innerInput: { query: proxy.query }, claudeToolName }
+    }
+    if (proxy) {
+        return { resolvedKey: agentToolName ?? toolCall.rawToolName, proxiedToolName: proxy.name, claudeToolName }
+    }
     return {
         ...resolveToolKey(
             mcp?.[1] ?? toolCall.rawServerName,

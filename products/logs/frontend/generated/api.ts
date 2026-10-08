@@ -1256,7 +1256,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history. A resumed Pi run includes the earlier runs of its task session the same way, each preceded by a pi_run_started entry that names its run.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (

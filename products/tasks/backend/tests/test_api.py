@@ -196,6 +196,9 @@ OVER_LIMIT = CodeUsageStatus(
 )
 
 
+ACP_RUN_DEFAULT = {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"}
+
+
 class BaseTaskAPITest(TestCase):
     OVER_LIMIT: ClassVar[CodeUsageStatus] = OVER_LIMIT
     organization: ClassVar[Organization]
@@ -3872,6 +3875,91 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertNotIn("mode", run.state)
         self.assertNotIn("pending_user_message", run.state)
 
+    @parameterized.expand(
+        [
+            (
+                "explicit_selection",
+                ACP_RUN_DEFAULT,
+                None,
+                {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
+                "gpt-5.6-terra",
+                "high",
+            ),
+            ("acp_team_default_is_ignored", ACP_RUN_DEFAULT, None, {}, None, None),
+            (
+                "pi_team_default_applies",
+                {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "low"},
+                None,
+                {},
+                "gpt-5.6-terra",
+                "low",
+            ),
+            (
+                "explicit_effort_survives_acp_team_default",
+                ACP_RUN_DEFAULT,
+                None,
+                {"reasoning_effort": "low"},
+                None,
+                "low",
+            ),
+            (
+                "resume_carries_the_previous_selection",
+                ACP_RUN_DEFAULT,
+                {"model": "gpt-5.6-terra", "reasoning_effort": "low"},
+                {},
+                "gpt-5.6-terra",
+                "low",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_keeps_pi_model_selection(
+        self,
+        _name: str,
+        team_default: dict[str, str | None],
+        previous_state: dict[str, str] | None,
+        payload: dict[str, str],
+        expected_model: str | None,
+        expected_effort: str | None,
+        mock_workflow,
+    ):
+        update_team_ai_run_preferences(self.team.id, **team_default)
+        task = self.create_task(runtime=Task.Runtime.PI)
+        if previous_state is not None:
+            previous = TaskRun.objects.create(
+                task=task, team=self.team, status=TaskRun.Status.COMPLETED, state=previous_state
+            )
+            payload = {**payload, "resume_from_run_id": str(previous.id), "pending_user_message": "Continue"}
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = task.runs.order_by("-created_at").first()
+        assert run is not None
+        self.assertEqual(
+            {key: run.state.get(key) for key in ("model", "reasoning_effort", "runtime_adapter", "provider")},
+            {"model": expected_model, "reasoning_effort": expected_effort, "runtime_adapter": None, "provider": None},
+        )
+
+    @parameterized.expand(
+        [
+            ("runtime_adapter", {"runtime_adapter": "codex"}),
+            ("initial_permission_mode", {"initial_permission_mode": "plan"}),
+            ("model", {"model": "not-a-listed-model"}),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_invalid_configuration_for_pi(self, field: str, config: dict[str, str], mock_workflow):
+        task = self.create_task(runtime=Task.Runtime.PI)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/", {"model": "gpt-5.6-terra", **config}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], field)
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_pi_task_when_disabled(self, mock_workflow):
         task = self.create_task(runtime=Task.Runtime.PI)
@@ -4447,7 +4535,6 @@ class TestTaskAPI(BaseTaskAPITest):
             ("context_window", {"context_window": "1m"}),
             ("fast_mode", {"fast_mode": True}),
             ("initial_permission_mode", {"initial_permission_mode": "plan"}),
-            ("reasoning_effort", {"reasoning_effort": "ultracode"}),
             ("claude_model_access", {"claude_model_access": "own-subscription"}),
         ]
     )
@@ -10516,6 +10603,47 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
 
+    @parameterized.expand(
+        [
+            ("earlier_run_in_session", "same", -1, ["earlier", "target"]),
+            ("run_in_another_session", "other", -1, ["target"]),
+            ("later_run_in_session", "same", 1, ["target"]),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_reads_pi_task_session(
+        self, _name: str, sibling_session: str, sibling_offset_minutes: int, expected_runs: list[str], mock_read
+    ):
+        task = self.create_task(runtime=Task.Runtime.PI)
+        session = TaskSession.create_for_task(task)
+        target = TaskRun.objects.create(task=task, team=self.team, active_task_session=session)
+        sibling = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            active_task_session=session if sibling_session == "same" else TaskSession.create_for_task(task),
+            created_at=target.created_at + timedelta(minutes=sibling_offset_minutes),
+        )
+        logs = {sibling.log_url: '{"line":"earlier"}\n', target.log_url: '{"line":"target"}\n'}
+        mock_read.side_effect = lambda path, missing_ok=False: logs.get(path)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        lines = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
+        runs = {"earlier": str(sibling.id), "target": str(target.id)}
+        if len(expected_runs) == 1:
+            self.assertEqual(lines, [{"line": "target"}])
+            return
+        self.assertEqual(
+            [(line.get("type"), line.get("runId"), line.get("line")) for line in lines],
+            [
+                ("pi_run_started", runs["earlier"], None),
+                (None, None, "earlier"),
+                ("pi_run_started", runs["target"], None),
+                (None, None, "target"),
+            ],
+        )
+
     @parameterized.expand([(None,), (True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self, subscription_owner):
@@ -13427,15 +13555,37 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             self._command_url(task, run),
             {
                 "jsonrpc": "2.0",
-                "method": "permission_response",
-                "params": {"requestId": "request-1", "optionId": "allow"},
+                "method": "close",
                 "id": "req-1",
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "permission_response is not supported for Pi tasks.")
+        self.assertEqual(response.json()["error"], "close is not supported for Pi tasks.")
+
+    @parameterized.expand(
+        [
+            ("permission_response", {"requestId": "request-1", "optionId": "allow"}),
+            ("set_config_option", {"configId": "effort", "value": "high"}),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_acp_session_commands_for_pi_task(self, method, params, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {}})
+        task = self.create_task(runtime=Task.Runtime.PI)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "req-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_post.call_args.kwargs["json"]["method"], method)
 
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
