@@ -155,8 +155,7 @@ class TestObservationRequestAPI(APIBaseTest):
             response = self.client.get(f"{self.url}{request.id}/")
 
         self.assertEqual(response.status_code, 200, response.json())
-        session = response.json()["sessions"][0]
-        self.assertEqual((session["observation_id"], session["scanner_result"]), (None, None))
+        self.assertEqual(response.json()["sessions"], [])
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 

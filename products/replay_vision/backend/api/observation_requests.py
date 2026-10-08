@@ -1,6 +1,5 @@
 """API for programmatic scan requests: start scans for named sessions and read them back as one handle."""
 
-import dataclasses
 from typing import Any, cast
 
 from django.db import models
@@ -246,7 +245,8 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
         ).data
 
     def _readable_sessions(self, sessions: list[RequestSession]) -> list[RequestSession]:
-        # A row authorizes against the experiment in its own snapshot, like every other observation read.
+        # A row authorizes against the experiment in its own snapshot, like every other observation read. A denied
+        # row is dropped, not blanked, since its state alone says the session was scanned and how it went.
         ids = [s.observation.id for s in sessions if s.observation is not None]
         readable = set(
             accessible_observations(
@@ -255,10 +255,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
                 ReplayObservation.objects.filter(team_id=self.team_id, id__in=ids),
             ).values_list("id", flat=True)
         )
-        return [
-            s if s.observation is None or s.observation.id in readable else dataclasses.replace(s, observation=None)
-            for s in sessions
-        ]
+        return [s for s in sessions if s.observation is None or s.observation.id in readable]
 
     @extend_schema(responses={200: ObservationRequestSerializer})
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
