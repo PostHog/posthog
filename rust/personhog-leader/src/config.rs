@@ -16,12 +16,11 @@ pub struct Config {
     pub grpc_address: SocketAddr,
 
     /// Per-partition person-cache capacity in bytes. Entries are weighed
-    /// by their approximate serialized size, so this bounds memory, not
-    /// entry count. Sized against full ownership: a lone survivor owns
-    /// every partition, so the worst-case cache footprint is this value
-    /// times the partition count — 16 MiB × 16 partitions = 256 MiB —
-    /// and in-memory size can run a small multiple of serialized weight
-    /// for key-dense documents.
+    /// by their stored properties plus a fixed per-entry overhead, so
+    /// this bounds memory, not entry count. Sized against full
+    /// ownership: a lone survivor owns every partition, so the worst-case
+    /// cache footprint is this value times the partition count — 16 MiB
+    /// × 16 partitions = 256 MiB.
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 

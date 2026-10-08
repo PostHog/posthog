@@ -81,7 +81,7 @@ pub async fn drop_settled_death_documents(
         // Skip lock-free only on a live or newer entry. An absent entry
         // must take the lock: a recovery holding it may be about to
         // install this very death document.
-        let settled = |entry: &Arc<CachedPerson>| entry.is_deleted && entry.version == mark.version;
+        let settled = |entry: &CachedPerson| entry.is_deleted && entry.version == mark.version;
         if cache
             .peek(mark.partition, key)
             .as_ref()
@@ -112,7 +112,6 @@ pub async fn drop_settled_death_documents(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::approx_person_bytes;
 
     fn death_person(version: i64) -> CachedPerson {
         CachedPerson {
@@ -125,7 +124,6 @@ mod tests {
             is_identified: true,
             is_deleted: true,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(0),
         }
     }
 

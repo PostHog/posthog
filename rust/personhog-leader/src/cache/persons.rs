@@ -5,6 +5,8 @@ use foyer::{Cache, CacheBuilder, Event, EventListener};
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 
+use super::stored::StoredPerson;
+
 /// Key for person cache lookups: (team_id, person_id).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PersonCacheKey {
@@ -12,25 +14,13 @@ pub struct PersonCacheKey {
     pub person_id: i64,
 }
 
-/// Fixed per-entry overhead charged on top of the stored properties
-/// bytes: the struct's scalar fields, the uuid, the key, and foyer's
-/// record bookkeeping.
-const PERSON_ENTRY_OVERHEAD_BYTES: usize = 256;
-
-/// The weight an entry contributes to the cache's byte capacity. The
-/// cache stores properties in serialized form, so this is the real
-/// allocation, not an estimate: entries held as parsed JSON trees cost
-/// a small multiple of their serialized size, and weighing those by
-/// serialized length let a "16MiB" cache hold ~2.7x that in heap.
-pub fn approx_person_bytes(properties_serialized_len: usize) -> usize {
-    PERSON_ENTRY_OVERHEAD_BYTES + properties_serialized_len
-}
-
-/// Cached person state, with properties held in serialized JSON form.
+/// Person state as the cache hands it out, with properties held in
+/// serialized JSON form.
 ///
 /// Serialized rather than parsed for memory accounting: the cache weighs
 /// entries by byte length, and holding the bytes makes the charged
-/// weight the real allocation. Readers that need the map parse on
+/// weight the real allocation. Entries held as parsed JSON trees cost a
+/// small multiple of their serialized size. Readers that need the map parse on
 /// access via [`CachedPerson::parse_properties`]; readers that need the
 /// wire form (proto responses, changelog records) take the bytes as
 /// they are.
@@ -53,9 +43,6 @@ pub struct CachedPerson {
     /// known (matching `created_at`'s unit). Max-merged on update — the
     /// value only ever advances — and deliberately not a change by itself.
     pub last_seen_at: Option<i64>,
-    /// Byte weight charged against the cache capacity; see
-    /// [`approx_person_bytes`].
-    pub approx_bytes: usize,
     // TODO: Add properties_last_updated_at and properties_last_operation
 }
 
@@ -81,7 +68,6 @@ impl TryFrom<Person> for CachedPerson {
         if !person.properties.is_empty() {
             serde_json::from_slice::<serde::de::IgnoredAny>(&person.properties)?;
         }
-        let approx_bytes = approx_person_bytes(person.properties.len());
         Ok(Self {
             id: person.id,
             uuid: person.uuid,
@@ -92,7 +78,6 @@ impl TryFrom<Person> for CachedPerson {
             is_identified: person.is_identified,
             is_deleted: person.is_deleted,
             last_seen_at: person.last_seen_at,
-            approx_bytes,
         })
     }
 }
@@ -106,7 +91,7 @@ struct CacheEventMetrics;
 
 impl EventListener for CacheEventMetrics {
     type Key = PersonCacheKey;
-    type Value = Arc<CachedPerson>;
+    type Value = StoredPerson;
 
     fn on_leave(&self, reason: Event, _key: &Self::Key, _value: &Self::Value) {
         let reason = match reason {
@@ -131,27 +116,27 @@ impl EventListener for CacheEventMetrics {
 /// A hybrid (disk+memory) tier remains a possible capacity optimization
 /// by switching to `HybridCache`.
 pub struct PersonCache {
-    inner: Cache<PersonCacheKey, Arc<CachedPerson>>,
+    inner: Cache<PersonCacheKey, StoredPerson>,
 }
 
 impl PersonCache {
     /// `capacity_bytes` bounds the cache by the entries' byte weights
-    /// (see [`approx_person_bytes`]), not their count — person documents
+    /// (see `StoredPerson::weight`), not their count — person documents
     /// vary by orders of magnitude and grow in place across writes, so
     /// an entry-count bound cannot bound memory.
     pub fn new(capacity_bytes: usize) -> Self {
         let cache = CacheBuilder::new(capacity_bytes)
-            .with_weighter(|_key: &PersonCacheKey, value: &Arc<CachedPerson>| value.approx_bytes)
+            .with_weighter(|_key: &PersonCacheKey, value: &StoredPerson| value.weight())
             .with_event_listener(Arc::new(CacheEventMetrics))
             .build();
         Self { inner: cache }
     }
 
-    pub fn get(&self, key: &PersonCacheKey) -> Option<Arc<CachedPerson>> {
+    pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
         match self.inner.get(key) {
             Some(entry) => {
                 counter!("personhog_leader_cache_hits_total").increment(1);
-                Some(entry.value().clone())
+                Some(entry.value().to_cached())
             }
             None => {
                 counter!("personhog_leader_cache_misses_total").increment(1);
@@ -163,20 +148,20 @@ impl PersonCache {
     /// A read that skips the hit/miss counters — for bookkeeping passes
     /// (the death-document settle), not serving. It still promotes the
     /// entry's recency, which is harmless for those passes.
-    pub fn peek(&self, key: &PersonCacheKey) -> Option<Arc<CachedPerson>> {
-        self.inner.get(key).map(|entry| entry.value().clone())
+    pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
+        self.inner.get(key).map(|entry| entry.value().to_cached())
     }
 
     pub fn put(&self, key: PersonCacheKey, person: CachedPerson) {
-        self.inner.insert(key, Arc::new(person));
+        self.inner.insert(key, StoredPerson::new(person));
     }
 
     pub fn remove(&self, key: &PersonCacheKey) {
         self.inner.remove(key);
     }
 
-    /// Resident weight in bytes — the sum of entries' `approx_bytes` as
-    /// foyer accounts it against the capacity.
+    /// Resident weight in bytes — the sum of entries' weights as foyer
+    /// accounts it against the capacity.
     pub fn usage_bytes(&self) -> usize {
         self.inner.usage()
     }
@@ -219,7 +204,6 @@ mod tests {
             is_identified: false,
             is_deleted: false,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(64),
         }
     }
 
@@ -244,7 +228,6 @@ mod tests {
             person.id = person_id;
             person.properties =
                 serde_json::to_vec(&serde_json::json!({ "blob": blob.clone() })).unwrap();
-            person.approx_bytes = approx_person_bytes(1536);
             cache.put(
                 PersonCacheKey {
                     team_id: 42,

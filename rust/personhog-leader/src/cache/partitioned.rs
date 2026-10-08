@@ -1,15 +1,11 @@
-use std::sync::Arc;
-
 use dashmap::DashMap;
 use metrics::counter;
 
-#[cfg(test)]
-use super::persons::approx_person_bytes;
 use super::persons::{CachedPerson, PersonCache, PersonCacheKey};
 
 /// Result of a cache lookup that distinguishes partition ownership from person existence.
 pub enum CacheLookup {
-    Found(Arc<CachedPerson>),
+    Found(CachedPerson),
     PersonNotFound,
     PartitionNotOwned,
 }
@@ -175,7 +171,7 @@ impl PartitionedCache {
     }
 
     /// Counter-free read for bookkeeping passes; see [`PersonCache::peek`].
-    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<Arc<CachedPerson>> {
+    pub fn peek(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedPerson> {
         self.partitions
             .get(&partition)
             .and_then(|cache| cache.peek(key))
@@ -214,7 +210,6 @@ mod tests {
             is_identified: false,
             is_deleted: false,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(64),
         }
     }
 

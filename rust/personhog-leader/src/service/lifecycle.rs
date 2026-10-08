@@ -16,7 +16,7 @@ use personhog_proto::personhog::types::v1::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
+use crate::cache::{CachedPerson, PersonCacheKey};
 use crate::fence::{
     fenced_status, mark_status, semantic_refusal, FenceState, MarkSnapshot, MarkVerifier,
 };
@@ -272,7 +272,6 @@ impl PersonHogLeaderService {
             is_identified: false,
             is_deleted: true,
             last_seen_at: None,
-            approx_bytes: approx_person_bytes(2),
         };
         let produce_started = Instant::now();
         // The RPC's own guard admitted the batch; this one rides the
