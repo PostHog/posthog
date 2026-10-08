@@ -5277,6 +5277,7 @@ export namespace Schemas {
       Metric: 'Metric',
       ActionsPie: 'ActionsPie',
       ActionsDonut: 'ActionsDonut',
+      ActionsProportionBar: 'ActionsProportionBar',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
       WorldMap: 'WorldMap',
@@ -10602,7 +10603,7 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
-      /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+      /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
       legendPosition?: LegendPosition | null;
       metric?: MetricChartSettings | null;
       pie?: PieChartSettings | null;

@@ -15,6 +15,7 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     [ChartDisplayType.Metric]: ChartDisplayCategory.TimeSeries,
     [ChartDisplayType.ActionsPie]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsDonut]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ActionsProportionBar]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsBarValue]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
@@ -56,10 +57,19 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
     ChartDisplayType.ScatterPlot,
+    ChartDisplayType.ActionsProportionBar,
 ]
 
 /** Pie and donut render the same chart, so they share every pie-shaped behavior. */
 export const PIE_DISPLAY_TYPES = [ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut]
+
+/** Display types that split one total into parts, one aggregated value per series. They share the
+ *  data shape and the clicks; slice labels and the percent view stay pie-only. */
+export const PART_OF_WHOLE_DISPLAY_TYPES = [...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsProportionBar]
+
+/** A proportion bar has no axis to read a size from, so its legend carries the shares and starts on.
+ *  Past this many parts, one legend row per part costs more than it helps, so the legend starts off. */
+export const MAX_DEFAULT_PROPORTION_LEGEND_PARTS = 20
 
 /** Display types for which a percent stack view is available. */
 export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
@@ -221,6 +231,7 @@ export const FEATURE_FLAGS = {
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     METRIC_INSIGHT: 'metric-insight', // owner: @sampennington #team-product-analytics
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
+    PROPORTION_BAR_CHART: 'proportion-bar-chart', // owner: @pauldambra, gates the proportion bar in the insight and SQL chart pickers
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
     REPLAY_BROWSER_SCROLL_BUG: 'replay-browser-scroll-bug', // owner: #team-replay, temporary: gates the rendered-scroll diagnostic
     REPLAY_CONSOLIDATED_CONTROLS: 'replay-consolidated-controls', // owner: #team-replay, gates the single player header bar and the list View menu
