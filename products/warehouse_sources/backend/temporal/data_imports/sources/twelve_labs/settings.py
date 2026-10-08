@@ -13,7 +13,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class TwelveLabsEndpointConfig:
     name: str
     # `path` may contain an `{index_id}` or `{asset_id}` placeholder for fan-out endpoints.
