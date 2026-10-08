@@ -504,11 +504,18 @@ export function SupportEditor({
         linkShortcutCallbackRef.current()
     }, [])
 
+    // Extension options are fixed when the editor is created, so the shortcut reads the latest callback from a ref
+    const cmdEnterCallbackRef = useRef(onPressCmdEnter)
+    cmdEnterCallbackRef.current = onPressCmdEnter
+    const handlePressCmdEnter = useCallback(() => {
+        cmdEnterCallbackRef.current?.()
+    }, [])
+
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
+            CommandEnterExtension.configure({ onPressCmdEnter: handlePressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
         ],
         disabled,
