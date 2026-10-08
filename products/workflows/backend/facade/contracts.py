@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
@@ -425,10 +425,48 @@ class Workflow:
     email_sending_paused_by: str
     email_sending_resumed_at: datetime | None
     user_access_level: str | None
+    # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
+    pending_suggestions: int | None = None
+    suggestions_enabled: bool | None = None
 
 
 class WorkflowNotFound(Exception):
     pass
+
+
+@frozen
+class WorkflowListQuery:
+    """What a workflow list asks for. The view validates each value before it builds one.
+
+    ``field_filters`` holds the raw exact-match and ``optimization_enabled`` query parameters. The
+    service validates them and raises WorkflowListFiltersInvalid when one does not parse.
+    """
+
+    search: str = ""
+    created_by_uuid: UUID | None = None
+    types: frozenset[str] = frozenset()
+    origin_product: str | None = None
+    trigger: Any = None
+    broadcast_eligible: bool = False
+    broadcast_statuses: frozenset[str] = frozenset()
+    suggestions_first: bool = False
+    field_filters: Mapping[str, str] = field(default_factory=dict)
+
+
+@frozen
+class WorkflowPage:
+    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
+
+    count: int
+    results: list[Workflow]
+
+
+class WorkflowListFiltersInvalid(Exception):
+    """A field filter did not parse. ``errors`` maps each parameter to its messages."""
+
+    def __init__(self, errors: dict[str, list[str]]) -> None:
+        super().__init__(errors)
+        self.errors = errors
 
 
 class WorkflowAccessDenied(Exception):
