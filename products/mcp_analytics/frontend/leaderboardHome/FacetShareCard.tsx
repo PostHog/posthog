@@ -18,16 +18,14 @@ function renderTooltip(ctx: TooltipContext<WindowFacetRow & { share: number }>):
     if (!row) {
         return null
     }
-    return (
-        <ChartTooltip
-            title={row.label}
-            rows={[
-                ['Calls', formatNumber(row.calls)],
-                ['Share', formatPercentage(row.share, { compact: true })],
-                ['Users', formatNumber(row.users)],
-            ]}
-        />
-    )
+    const rows: [string, string][] = [
+        ['Calls', formatNumber(row.calls)],
+        ['Share', formatPercentage(row.share, { compact: true })],
+    ]
+    if (row.users !== null) {
+        rows.push(['Users', formatNumber(row.users)])
+    }
+    return <ChartTooltip title={row.label} rows={rows} />
 }
 
 // Renders nothing once loaded when no row names a value: a property the server never sends would

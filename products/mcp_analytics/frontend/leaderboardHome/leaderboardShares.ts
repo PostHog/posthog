@@ -11,7 +11,8 @@ export interface BucketedFacetRow {
 export interface WindowFacetRow {
     label: string
     calls: number
-    users: number
+    // null for a folded "Other" row: distinct users cannot be summed across labels.
+    users: number | null
     errors: number
 }
 
@@ -153,7 +154,7 @@ export function topFacetRows(rows: WindowFacetRow[], limit: number): WindowFacet
         result.push({
             label: OTHER,
             calls: folded.reduce((sum, row) => sum + row.calls, 0),
-            users: folded.reduce((sum, row) => sum + row.users, 0),
+            users: null,
             errors: folded.reduce((sum, row) => sum + row.errors, 0),
         })
     }

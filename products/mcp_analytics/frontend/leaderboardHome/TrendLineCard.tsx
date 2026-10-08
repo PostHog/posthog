@@ -24,6 +24,7 @@ export function TrendLineCard({
     labels,
     lines,
     loading,
+    isEmpty,
     theme,
     timezone,
     interval,
@@ -33,6 +34,7 @@ export function TrendLineCard({
     labels: string[]
     lines: TrendLine[]
     loading: boolean
+    isEmpty: boolean
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -52,7 +54,7 @@ export function TrendLineCard({
             showGrid: true,
             xAxis: { interval, timezone },
             yAxis: { tickFormatter: formatTick },
-            tooltip: { placement: 'cursor' },
+            tooltip: { placement: 'cursor', valueFormatter: (value) => formatTick(value) },
         }),
         [timezone, interval, formatTick]
     )
@@ -61,7 +63,7 @@ export function TrendLineCard({
         <Card title={title} className="min-w-0">
             <CardState
                 loading={loading}
-                isEmpty={lines.every((line) => line.data.every((value) => value === 0))}
+                isEmpty={isEmpty}
                 skeleton={<Skeleton className="min-h-[240px] flex-1" />}
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No data in this date range.</div>}
             >

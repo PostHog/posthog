@@ -693,6 +693,17 @@ const PROTOCOL_SHARES: [string, number][] = [
     ['Unknown', 0.05],
 ]
 
+// The tool facet groups by the effective tool name, which reads `$mcp_exec_tool_call_name` first.
+const facetProperty = (query: string): string => {
+    if (query.includes('$mcp_protocol_version')) {
+        return '$mcp_protocol_version'
+    }
+    if (query.includes('$mcp_exec_tool_call_name')) {
+        return '$mcp_tool_name'
+    }
+    return query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
+}
+
 const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
     DAILY_TOTALS.flatMap(([day, calls]) =>
         shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
@@ -733,7 +744,13 @@ const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> =
     ],
 }
 
-const LATENCY_RESULTS = DAILY_TOTALS.map(([day], index) => [day, 700 + index * 20, 3100 + index * 90])
+const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
+    day,
+    calls,
+    errors,
+    700 + index * 20,
+    3100 + index * 90,
+])
 
 const meta: Meta = {
     component: App,
@@ -906,11 +923,11 @@ const meta: Meta = {
                             },
                         ]
                     }
-                    if (query.includes('uniqIf(person_id')) {
+                    if (query.includes("!= 'Unknown'")) {
                         return [200, { results: [[260]] }]
                     }
                     if (query.includes('AS label')) {
-                        const property = query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
+                        const property = facetProperty(query)
                         if (query.includes('AS bucket')) {
                             return [
                                 200,
@@ -924,7 +941,7 @@ const meta: Meta = {
                         return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
                     }
                     if (query.includes('AS p50')) {
-                        return [200, { results: LATENCY_RESULTS }]
+                        return [200, { results: RELIABILITY_RESULTS }]
                     }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.

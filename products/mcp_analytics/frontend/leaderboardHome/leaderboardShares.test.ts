@@ -68,11 +68,11 @@ describe('leaderboardShares', () => {
             windowRow('c', 3),
             windowRow('Other', 2),
         ]
-        expect(topFacetRows(rows, 2).map((r) => [r.label, r.calls])).toEqual([
-            ['b', 5],
-            ['c', 3],
-            ['Other', 3],
-            ['Unknown', 90],
+        expect(topFacetRows(rows, 2).map((r) => [r.label, r.calls, r.users])).toEqual([
+            ['b', 5, 1],
+            ['c', 3, 1],
+            ['Other', 3, null],
+            ['Unknown', 90, 1],
         ])
     })
 

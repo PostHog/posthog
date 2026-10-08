@@ -56,14 +56,15 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const {
         facets,
         facetsLoading,
-        latencyRowsLoading,
+        reliabilityRows,
+        reliabilityRowsLoading,
         leaderboardLoading,
         scoreboardMetric,
         scoreboardShares,
         modelSeries,
         labSeries,
         protocolVersionSeries,
-        latencySeries,
+        reliabilitySeries,
     } = useValues(mcpLeaderboardHomeLogic)
     const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
     const { timezone } = useValues(teamLogic)
@@ -79,25 +80,15 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
 
     const harnessErrorRows = useMemo(() => harnessErrorRateRows(harnessRows), [harnessRows])
     const errorRateLines = useMemo(
-        () => [
-            {
-                key: 'error-rate',
-                label: 'Error rate',
-                data: dailyActivity.successes.map((successes, i) => {
-                    const errors = dailyActivity.errors[i] ?? 0
-                    const total = successes + errors
-                    return total > 0 ? (errors / total) * 100 : 0
-                }),
-            },
-        ],
-        [dailyActivity]
+        () => [{ key: 'error-rate', label: 'Error rate', data: reliabilitySeries.errorRatePct }],
+        [reliabilitySeries]
     )
     const latencyLines = useMemo(
         () => [
-            { key: 'p50', label: 'p50', data: latencySeries.p50 },
-            { key: 'p95', label: 'p95', data: latencySeries.p95 },
+            { key: 'p50', label: 'p50', data: reliabilitySeries.p50 },
+            { key: 'p95', label: 'p95', data: reliabilitySeries.p95 },
         ],
-        [latencySeries]
+        [reliabilitySeries]
     )
 
     return (
@@ -241,9 +232,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <TwoColumns>
                     <TrendLineCard
                         title="Error rate"
-                        labels={dailyActivity.labels}
+                        labels={reliabilitySeries.labels}
                         lines={errorRateLines}
-                        loading={activityRowsLoading}
+                        loading={reliabilityRowsLoading}
+                        isEmpty={reliabilityRows.length === 0}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
@@ -251,9 +243,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                     <TrendLineCard
                         title="Latency"
-                        labels={latencySeries.labels}
+                        labels={reliabilitySeries.labels}
                         lines={latencyLines}
-                        loading={latencyRowsLoading}
+                        loading={reliabilityRowsLoading}
+                        isEmpty={reliabilityRows.length === 0}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}

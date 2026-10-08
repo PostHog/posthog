@@ -10,6 +10,7 @@ import {
 import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
+import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
 import { type ShareSeries } from './leaderboardShares'
@@ -53,7 +54,10 @@ export function ShareOverTimeChart({
             showCrosshair: true,
             showGrid: true,
             xAxis: { interval, timezone },
-            tooltip: { placement: 'cursor' },
+            tooltip: {
+                placement: 'cursor',
+                valueFormatter: (fraction) => formatPercentage(fraction * 100, { compact: true }),
+            },
         }),
         [timezone, interval]
     )

@@ -32,19 +32,37 @@ const TOOL_CALL_WHERE = `event = '$mcp_tool_call'
     AND properties.$mcp_tool_name != ''
     AND {filters}`
 
-const labelOf = (property: string): string => `coalesce(nullIf(trim(toString(properties.${property})), ''), 'Unknown')`
+const BUCKETED_ROW_LIMIT = 10000
+const WINDOW_ROW_LIMIT = 1000
 
-const bucketedFacetQuery = (property: string, interval: IntervalType): string => `
-SELECT ${bucketExpr(interval)} AS bucket, ${labelOf(property)} AS label, count() AS calls
+const labelOf = (valueSql: string): string => `coalesce(nullIf(trim(${valueSql}), ''), 'Unknown')`
+
+const propertyLabel = (property: string): string => labelOf(`toString(properties.${property})`)
+
+// The protocol version can be inferred as a DateTime property, so read the raw string like
+// MCPProtocolVersionBreakdownQueryRunner (backend/hogql_queries/protocol_version_breakdown.py).
+const PROTOCOL_VERSION_LABEL = labelOf("JSONExtractString(properties, '$mcp_protocol_version')")
+
+// Mirrors EFFECTIVE_TOOL_SQL (backend/hogql_queries/base.py): a single-exec call counts as the inner tool.
+const TOOL_LABEL = labelOf(`coalesce(
+    nullIf(toString(properties.$mcp_exec_tool_call_name), ''),
+    if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call',
+       nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
+    toString(properties.$mcp_tool_name)
+)`)
+
+const bucketedFacetQuery = (label: string, interval: IntervalType): string => `
+SELECT ${bucketExpr(interval)} AS bucket, ${label} AS label, count() AS calls
 FROM events
 WHERE ${TOOL_CALL_WHERE}
 GROUP BY bucket, label
 ORDER BY bucket
+LIMIT ${BUCKETED_ROW_LIMIT}
 `
 
-const windowFacetQuery = (property: string, onlyErrors = false): string => `
+const windowFacetQuery = (label: string, onlyErrors = false): string => `
 SELECT
-    ${labelOf(property)} AS label,
+    ${label} AS label,
     count() AS calls,
     uniq(person_id) AS users,
     countIf(toBool(properties.$mcp_is_error)) AS errors
@@ -53,10 +71,10 @@ WHERE ${TOOL_CALL_WHERE}
     ${onlyErrors ? 'AND toBool(properties.$mcp_is_error)' : ''}
 GROUP BY label
 ORDER BY calls DESC
-LIMIT 50
+LIMIT ${WINDOW_ROW_LIMIT}
 `
 
-const MODEL_LABEL = labelOf('$mcp_llm_model')
+const MODEL_LABEL = propertyLabel('$mcp_llm_model')
 
 const labUsersQuery = `
 SELECT ${labSqlExpression(MODEL_LABEL)} AS lab, uniq(person_id) AS users
@@ -71,15 +89,18 @@ FROM events
 WHERE ${TOOL_CALL_WHERE}
 `
 
-const latencyQuery = (interval: IntervalType): string => `
+const reliabilityQuery = (interval: IntervalType): string => `
 SELECT
     ${bucketExpr(interval)} AS bucket,
+    count() AS calls,
+    countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(quantile(0.5)(toFloat(properties.$mcp_duration_ms))) AS p50,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events
 WHERE ${TOOL_CALL_WHERE}
 GROUP BY bucket
 ORDER BY bucket
+LIMIT ${BUCKETED_ROW_LIMIT}
 `
 
 export interface LeaderboardFacets {
@@ -95,8 +116,17 @@ export interface LeaderboardFacets {
     namedModelUsers: number
 }
 
-export interface LatencySeries {
+export interface ReliabilityRow {
+    bucket: string
+    calls: number
+    errors: number
+    p50: number
+    p95: number
+}
+
+export interface ReliabilitySeries {
     labels: string[]
+    errorRatePct: number[]
     p50: number[]
     p95: number[]
 }
@@ -124,6 +154,18 @@ async function runQuery(query: string, filters: HogQLFilters): Promise<Row[]> {
 const toBucketedRows = (rows: Row[]): BucketedFacetRow[] =>
     rows.map((r) => ({ bucket: normalizeBucket(r[0]), label: String(r[1]), calls: Number(r[2]) }))
 
+const toReliabilityRows = (rows: Row[]): ReliabilityRow[] =>
+    rows.map((r) => ({
+        bucket: normalizeBucket(r[0]),
+        calls: Number(r[1]),
+        errors: Number(r[2]),
+        p50: Number(r[3]),
+        p95: Number(r[4]),
+    }))
+
+// A failed facet shows as empty rather than failing the other facets.
+const orEmpty = (query: Promise<Row[]>): Promise<Row[]> => query.catch(() => [])
+
 const toWindowRows = (rows: Row[]): WindowFacetRow[] =>
     rows.map((r) => ({ label: String(r[0]), calls: Number(r[1]), users: Number(r[2]), errors: Number(r[3]) }))
 
@@ -136,16 +178,12 @@ export interface mcpLeaderboardHomeLogicValues {
     facetsLoading: boolean
     labSeries: ShareSeries[]
     labShares: LabShare[]
-    latencyRows: {
-        bucket: string
-        p50: number
-        p95: number
-    }[]
-    latencyRowsLoading: boolean
-    latencySeries: LatencySeries
     leaderboardLoading: boolean
     modelSeries: ShareSeries[]
     protocolVersionSeries: ShareSeries[]
+    reliabilityRows: ReliabilityRow[]
+    reliabilityRowsLoading: boolean
+    reliabilitySeries: ReliabilitySeries
     scoreboardMetric: ScoreboardMetric
     scoreboardShares: LabShare[]
 }
@@ -170,27 +208,19 @@ export interface mcpLeaderboardHomeLogicActions {
         facets: LeaderboardFacets
         payload?: void
     }
-    loadLatencyRows: (_: void) => void
-    loadLatencyRowsFailure: (
+    loadReliabilityRows: (_: void) => void
+    loadReliabilityRowsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadLatencyRowsSuccess: (
-        latencyRows: {
-            bucket: string
-            p50: number
-            p95: number
-        }[],
+    loadReliabilityRowsSuccess: (
+        reliabilityRows: ReliabilityRow[],
         payload?: void
     ) => {
-        latencyRows: {
-            bucket: string
-            p50: number
-            p95: number
-        }[]
+        reliabilityRows: ReliabilityRow[]
         payload?: void
     }
     setScoreboardMetric: (metric: ScoreboardMetric) => {
@@ -201,7 +231,7 @@ export interface mcpLeaderboardHomeLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpLeaderboardHomeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        leaderboardLoading: (facetsLoading: boolean, latencyRowsLoading: boolean) => boolean
+        leaderboardLoading: (facetsLoading: boolean, reliabilityRowsLoading: boolean) => boolean
         labShares: (facets: LeaderboardFacets) => LabShare[]
         scoreboardShares: (
             scoreboardMetric: ScoreboardMetric,
@@ -211,14 +241,7 @@ export interface mcpLeaderboardHomeLogicMeta {
         modelSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         labSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
         protocolVersionSeries: (facets: LeaderboardFacets, bucketKeys: string[]) => ShareSeries[]
-        latencySeries: (
-            latencyRows: {
-                bucket: string
-                p50: number
-                p95: number
-            }[],
-            bucketKeys: string[]
-        ) => LatencySeries
+        reliabilitySeries: (reliabilityRows: ReliabilityRow[], bucketKeys: string[]) => ReliabilitySeries
     }
 }
 
@@ -264,16 +287,16 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                         labUsers,
                         namedModelUsers,
                     ] = await Promise.all([
-                        runQuery(bucketedFacetQuery('$mcp_llm_model', interval), queryFilters),
-                        runQuery(bucketedFacetQuery('$mcp_protocol_version', interval), queryFilters),
-                        runQuery(windowFacetQuery('$mcp_tool_category'), queryFilters),
-                        runQuery(windowFacetQuery('$mcp_tool_name'), queryFilters),
-                        runQuery(windowFacetQuery('$mcp_intent_source'), queryFilters),
-                        runQuery(windowFacetQuery('$mcp_error_type', true), queryFilters),
-                        runQuery(windowFacetQuery('$mcp_auth_method'), queryFilters),
-                        runQuery(windowFacetQuery('$mcp_llm_model_source'), queryFilters),
-                        runQuery(labUsersQuery, queryFilters),
-                        runQuery(namedModelUsersQuery, queryFilters),
+                        orEmpty(runQuery(bucketedFacetQuery(MODEL_LABEL, interval), queryFilters)),
+                        orEmpty(runQuery(bucketedFacetQuery(PROTOCOL_VERSION_LABEL, interval), queryFilters)),
+                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_tool_category')), queryFilters)),
+                        orEmpty(runQuery(windowFacetQuery(TOOL_LABEL), queryFilters)),
+                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_intent_source')), queryFilters)),
+                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_error_type'), true), queryFilters)),
+                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_auth_method')), queryFilters)),
+                        orEmpty(runQuery(windowFacetQuery(propertyLabel('$mcp_llm_model_source')), queryFilters)),
+                        orEmpty(runQuery(labUsersQuery, queryFilters)),
+                        orEmpty(runQuery(namedModelUsersQuery, queryFilters)),
                     ])
                     breakpoint()
                     return {
@@ -291,21 +314,22 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
                 },
             },
         ],
-        latencyRows: [
-            [] as { bucket: string; p50: number; p95: number }[],
+        reliabilityRows: [
+            [] as ReliabilityRow[],
             {
-                loadLatencyRows: async (_: void, breakpoint) => {
-                    const rows = await runQuery(latencyQuery(values.interval), values.queryFilters)
+                loadReliabilityRows: async (_: void, breakpoint): Promise<ReliabilityRow[]> => {
+                    const rows = await runQuery(reliabilityQuery(values.interval), values.queryFilters)
                     breakpoint()
-                    return rows.map((r) => ({ bucket: normalizeBucket(r[0]), p50: Number(r[1]), p95: Number(r[2]) }))
+                    return toReliabilityRows(rows)
                 },
             },
         ],
     })),
     selectors({
         leaderboardLoading: [
-            (s) => [s.facetsLoading, s.latencyRowsLoading],
-            (facetsLoading: boolean, latencyRowsLoading: boolean): boolean => facetsLoading || latencyRowsLoading,
+            (s) => [s.facetsLoading, s.reliabilityRowsLoading],
+            (facetsLoading: boolean, reliabilityRowsLoading: boolean): boolean =>
+                facetsLoading || reliabilityRowsLoading,
         ],
         labShares: [(s) => [s.facets], (facets: LeaderboardFacets): LabShare[] => buildLabShares(facets.model)],
         scoreboardShares: [
@@ -338,14 +362,19 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
             (facets: LeaderboardFacets, bucketKeys: string[]): ShareSeries[] =>
                 buildShareSeries(facets.protocolVersion, bucketKeys, (label) => label, PROTOCOL_SERIES_LIMIT),
         ],
-        latencySeries: [
-            (s) => [s.latencyRows, s.bucketKeys],
-            (rows: { bucket: string; p50: number; p95: number }[], bucketKeys: string[]): LatencySeries => {
+        reliabilitySeries: [
+            (s) => [s.reliabilityRows, s.bucketKeys],
+            (rows: ReliabilityRow[], bucketKeys: string[]): ReliabilitySeries => {
                 const byBucket = new Map(rows.map((row) => [row.bucket, row]))
+                const valueFor = (key: string, valueOf: (row: ReliabilityRow) => number): number => {
+                    const row = byBucket.get(key)
+                    return row ? valueOf(row) : NaN
+                }
                 return {
                     labels: bucketKeys,
-                    p50: bucketKeys.map((key) => byBucket.get(key)?.p50 ?? 0),
-                    p95: bucketKeys.map((key) => byBucket.get(key)?.p95 ?? 0),
+                    errorRatePct: bucketKeys.map((key) => valueFor(key, (row) => (row.errors / row.calls) * 100)),
+                    p50: bucketKeys.map((key) => valueFor(key, (row) => row.p50)),
+                    p95: bucketKeys.map((key) => valueFor(key, (row) => row.p95)),
                 }
             },
         ],
@@ -353,11 +382,11 @@ export const mcpLeaderboardHomeLogic = kea<mcpLeaderboardHomeLogicType>([
     listeners(({ actions }) => ({
         reloadAll: () => {
             actions.loadFacets()
-            actions.loadLatencyRows()
+            actions.loadReliabilityRows()
         },
     })),
     afterMount(({ actions }) => {
         actions.loadFacets()
-        actions.loadLatencyRows()
+        actions.loadReliabilityRows()
     }),
 ])
