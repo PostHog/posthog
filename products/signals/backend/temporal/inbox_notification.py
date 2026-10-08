@@ -20,8 +20,10 @@ import structlog
 import temporalio
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -112,6 +114,16 @@ def _release_inbox_notification_claim(team_id: int, report_id: str) -> None:
     SignalReport.objects.filter(id=report_id, team_id=team_id).update(inbox_notified_at=None)
 
 
+@retry(
+    retry=retry_if_exception_type(CH_TRANSIENT_ERRORS),
+    stop=stop_after_attempt(4),
+    wait=wait_random_exponential(multiplier=2, max=10),
+    reraise=True,
+)
+def _fetch_signals_for_notification(team: Team, report_id: str) -> list[dict]:
+    return fetch_signals_for_report_sync(team, report_id)
+
+
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Guard on status: a deferred wait can outlast the READY state (suppressed/deleted/re-promoted).
     report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status").first()
@@ -133,7 +145,7 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         return 0
 
     # Re-derive source products at send time so a deferred notification reflects the current signals.
-    signals = fetch_signals_for_report_sync(team, report_id)
+    signals = _fetch_signals_for_notification(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
 
     # Point any support ticket that raised this report at it. Shares this function's READY guard.
@@ -189,7 +201,7 @@ def _send_report_github_comments(team_id: int, report_id: str) -> int:
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return 0
-    return post_report_link_to_github_issues(team, report_id, fetch_signals_for_report_sync(team, report_id))
+    return post_report_link_to_github_issues(team, report_id, _fetch_signals_for_notification(team, report_id))
 
 
 @temporalio.activity.defn
