@@ -116,11 +116,16 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
     hidden: true,
     dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
     value:
-        'The user is starting a new workflow from a description. Make workflows-create your first tool call and ' +
-        'keep it minimal: the trigger plus the steps as placeholders, with placeholder email subjects and bodies. ' +
-        'Do not ask clarifying questions first. The editor opens the draft the moment it exists, so fill in ' +
-        'content and details afterwards with workflows-patch-graph and workflows-patch-action-email, then test. ' +
-        'Never enable it.',
+        'The user is starting a new workflow from a description. Work draft-first:\n' +
+        `1. Load the ${DESIGNING_EMAIL_TEMPLATES_SKILL} skill.\n` +
+        '2. Make workflows-create your first workflows tool call; questions wait until the draft exists. Keep it ' +
+        'minimal: the trigger plus each step as a placeholder. Each email step gets a placeholder subject, a ' +
+        "plain-text text, and a design copied from the skill reference's minimal example. Leave html out: step 4 " +
+        'renders it from the design. Done when the draft exists; the editor opens it at once.\n' +
+        '3. Fill in the details with workflows-patch-graph.\n' +
+        '4. Fill each email with one workflows-patch-action-email call: block operations for the content, plus an ' +
+        'email_patch with the real subject and a matching text. Done when no email holds placeholder copy.\n' +
+        '5. Test the workflow and leave it disabled.',
 }
 
 /** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
