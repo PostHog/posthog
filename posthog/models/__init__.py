@@ -36,6 +36,7 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .health_issue import HealthIssue
 from .identity_provider_config import IdentityProviderConfig
+from .id_jag_identity import IdJagIdentity  # noqa: F401
 from .linked_identity_provider_config import LinkedIdentityProviderConfig  # noqa: F401
 from .instance_setting import InstanceSetting
 from .integration import Integration
