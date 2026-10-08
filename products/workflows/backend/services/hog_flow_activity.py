@@ -76,15 +76,13 @@ def resume_workflow_email_sending(*, team_id: int, hog_flow_id: UUID, actor: Wor
 
 
 def bulk_delete_archived_workflows(
-    *, project_id: int, workflow_ids: list[UUID], user_access_control: UserAccessControl, actor: WorkflowActor
+    *, team_id: int, workflow_ids: list[UUID], user_access_control: UserAccessControl, actor: WorkflowActor
 ) -> list[tuple[UUID, Optional[str]]]:
     """Delete the archived workflows among `workflow_ids` that the caller may edit, and log each one.
     Returns the id and name of each deleted workflow."""
     # Deleting needs object-level editor access, as the single delete does. An access filter only drops
     # invisible workflows, so an object-specific viewer override would otherwise be bulk-deletable.
-    candidates = list(
-        HogFlow.objects.filter(team__project_id=project_id, id__in=workflow_ids, status=HogFlow.State.ARCHIVED)
-    )
+    candidates = list(HogFlow.objects.filter(team_id=team_id, id__in=workflow_ids, status=HogFlow.State.ARCHIVED))
     user_access_control.preload_object_access_controls(cast("list[models.Model]", candidates))
     deletable = [
         flow for flow in candidates if user_access_control.check_access_level_for_object(flow, required_level="editor")
@@ -94,10 +92,10 @@ def bulk_delete_archived_workflows(
     with transaction.atomic():
         deleted_ids = set(
             HogFlow.objects.select_for_update()
-            .filter(team__project_id=project_id, id__in=[flow.id for flow in deletable])
+            .filter(team_id=team_id, id__in=[flow.id for flow in deletable])
             .values_list("id", flat=True)
         )
-        HogFlow.objects.filter(team__project_id=project_id, id__in=deleted_ids).delete()
+        HogFlow.objects.filter(team_id=team_id, id__in=deleted_ids).delete()
         deleted = [(flow.id, flow.name) for flow in deletable if flow.id in deleted_ids]
         for flow_id, name in deleted:
             log_workflow_activity(actor=actor, workflow_id=flow_id, name=name, activity="deleted")

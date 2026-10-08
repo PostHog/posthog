@@ -5351,12 +5351,16 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400
 
-    def test_bulk_delete_does_not_leak_between_teams(self):
-        another_org = Organization.objects.create(name="other org")
-        another_team = Team.objects.create(organization=another_org)
-        another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+    @parameterized.expand([("other_organization",), ("sibling_environment_in_same_project",)])
+    def test_bulk_delete_does_not_leak_between_teams(self, other_team_kind):
+        if other_team_kind == "other_organization":
+            another_org = Organization.objects.create(name="other org")
+            another_team = Team.objects.create(organization=another_org)
+            another_user = User.objects.create_and_join(another_org, "other-bulk-delete@example.com", password="")
+            self.client.force_login(another_user)
+        else:
+            another_team = Team.objects.create(organization=self.organization, project=self.project)
 
-        self.client.force_login(another_user)
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
         )

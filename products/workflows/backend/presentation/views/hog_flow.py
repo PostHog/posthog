@@ -5824,7 +5824,7 @@ class HogFlowViewSet(
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
         deleted = bulk_delete_archived_workflows(
-            project_id=self.team.project_id,
+            team_id=self.team_id,
             workflow_ids=validated_ids,
             user_access_control=self.user_access_control,
             actor=self._activity_actor(),
