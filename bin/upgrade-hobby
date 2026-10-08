@@ -110,6 +110,26 @@ awk '
   }
 ' .env > "$tmp" && mv "$tmp" .env
 
+# Compose fills the proxy Caddyfile from .env, not from the service environment.
+# Installs from before July 2025 have no CADDY_HOST, so Caddy serves http://localhost:8000 instead of DOMAIN.
+read_env_value() {
+    grep "^$1=" .env | tail -n 1 | cut -d '=' -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'
+}
+if [[ -f ".env" ]] && ! grep -qE "^CADDY_HOST=.+" .env; then
+    ENV_DOMAIN=$(read_env_value DOMAIN)
+    if [ -n "$ENV_DOMAIN" ]; then
+        echo "CADDY_HOST=\"$ENV_DOMAIN, http://, https://\"" >> .env
+        echo "Added missing CADDY_HOST to .env file"
+    fi
+fi
+if [[ -f ".env" ]] && ! grep -qE "^CADDY_TLS_BLOCK=.+" .env; then
+    ENV_TLS_BLOCK=$(read_env_value TLS_BLOCK)
+    if [ -n "$ENV_TLS_BLOCK" ]; then
+        echo "CADDY_TLS_BLOCK=\"$ENV_TLS_BLOCK\"" >> .env
+        echo "Added missing CADDY_TLS_BLOCK to .env file"
+    fi
+fi
+
 if [[ -f ".env" ]]; then
     set -a           # auto-export all variables
     . ./.env         # or: source .env
