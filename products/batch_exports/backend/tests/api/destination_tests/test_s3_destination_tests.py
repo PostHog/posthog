@@ -5,8 +5,8 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
-from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
-from products.batch_exports.backend.presentation.views.destination_tests.s3 import (
+from products.batch_exports.backend.destination_tests import get_destination_test
+from products.batch_exports.backend.destination_tests.s3 import (
     AwsS3DestinationTest,
     S3AssumeRoleTestStep,
     S3CompatibleDestinationTest,

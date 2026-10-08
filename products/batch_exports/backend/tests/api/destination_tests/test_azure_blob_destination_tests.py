@@ -5,10 +5,7 @@ import pytest
 
 from azure.storage.blob.aio import BlobServiceClient
 
-from products.batch_exports.backend.presentation.views.destination_tests.azure_blob import (
-    AzureBlobContainerTestStep,
-    Status,
-)
+from products.batch_exports.backend.destination_tests.azure_blob import AzureBlobContainerTestStep, Status
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.conftest import AZURITE_CONNECTION_STRING
 
 pytestmark = [pytest.mark.asyncio]

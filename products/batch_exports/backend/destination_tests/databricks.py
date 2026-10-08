@@ -2,7 +2,7 @@ import contextlib
 import collections.abc
 from collections.abc import AsyncGenerator
 
-from products.batch_exports.backend.presentation.views.destination_tests.base import (
+from products.batch_exports.backend.destination_tests.base import (
     DestinationTest,
     DestinationTestStep,
     DestinationTestStepResult,

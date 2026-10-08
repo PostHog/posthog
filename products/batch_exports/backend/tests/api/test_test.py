@@ -13,13 +13,13 @@ from rest_framework import status
 
 from posthog.models import Integration
 
-from products.batch_exports.backend.models.batch_export import BatchExportDestination
-from products.batch_exports.backend.presentation.views.destination_tests.base import DestinationTestStepResult, Status
-from products.batch_exports.backend.presentation.views.destination_tests.bigquery import BigQueryProjectTestStep
-from products.batch_exports.backend.presentation.views.destination_tests.databricks import (
+from products.batch_exports.backend.destination_tests.base import DestinationTestStepResult, Status
+from products.batch_exports.backend.destination_tests.bigquery import BigQueryProjectTestStep
+from products.batch_exports.backend.destination_tests.databricks import (
     DatabricksDestinationTest,
     DatabricksEstablishConnectionTestStep,
 )
+from products.batch_exports.backend.models.batch_export import BatchExportDestination
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 pytestmark = [
@@ -348,7 +348,7 @@ def test_can_run_bigquery_test_step_with_castable_type(
     )
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.destination_tests.base.DestinationTest.run_step"
+        "products.batch_exports.backend.destination_tests.base.DestinationTest.run_step"
     ) as run_step_mocked:
         fake_test_step = BigQueryProjectTestStep()
         fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
