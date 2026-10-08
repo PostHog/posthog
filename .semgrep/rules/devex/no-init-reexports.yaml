@@ -53,7 +53,6 @@ rules:
               - 'ee/hogai/context/survey/__init__.py'
               - 'ee/hogai/core/agent_modes/__init__.py'
               - 'ee/hogai/core/loop_graph/__init__.py'
-              - 'ee/hogai/eval/scorers/__init__.py'
               - 'ee/hogai/tools/create_notebook/__init__.py'
               - 'ee/hogai/tools/read_data/__init__.py'
               - 'ee/hogai/tools/read_taxonomy/__init__.py'

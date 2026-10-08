@@ -1,9 +1,15 @@
 # Hedgebox demo data — reference for eval authors
 
-Evals that need a project to query — every eval in this tree, and those in `ee/hogai/eval/ci` that take the `demo_org_team_user` fixture — run against a **single, deterministic, seeded Hedgebox dataset**. Hedgebox is a fictional cloud-storage SaaS (think Dropbox). When you write an eval case, the events, properties, groups, flags, insights, and experiments below are the ground truth the agent has to work with — your `expected` queries and scorers must match this taxonomy exactly (e.g. the event is `signed_up`, not `sign_up` or `user_signed_up`).
+Evals that need a project to query run against a **single, deterministic, seeded Hedgebox dataset**. Hedgebox is a fictional cloud-storage SaaS (think Dropbox). When you write an eval case, the events, properties, groups, flags, insights, and experiments below are the ground truth the agent has to work with — your `expected` queries and scorers must match this taxonomy exactly (e.g. the event is `signed_up`, not `sign_up` or `user_signed_up`).
 
 Evals that score a prompt rather than a query supply their own case data inline and never touch this taxonomy.
-That data has to be invented rather than adapted from real material — see [`ee/hogai/eval/AGENTS.md`](../../../ee/hogai/eval/AGENTS.md).
+That data must be invented, not adapted from real material.
+Before writing cases from support conversations, list only the properties each case must test, close the source, then write the cases from that list.
+Use invented names, identifiers, and tokens, and reserved domains such as `example.com`.
+Read the [public repository guidance](../../../AGENTS.md#public-open-source-repo-guidance) before adding case data.
+
+Use [`hogli evals`](../eval_harness/README.md) to run PostHog AI evals.
+Add suites under `products/posthog_ai/evals/` or `products/<product>/evals/` and follow [`/writing-evals`](../../../.agents/skills/writing-evals/SKILL.md).
 
 Source of truth (read these if anything below looks stale):
 

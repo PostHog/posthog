@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 from braintrust import EvalAsync, EvalCase, Score
 from braintrust_core.score import Scorer
 
-import ee.hogai.eval.base  # noqa: F401  (imported for the braintrust patch it applies)
+from products.posthog_ai.eval_harness.engines import braintrust_patches  # noqa: F401 — applies the summary patch
 
 
 class _SkipsOneCase(Scorer):
