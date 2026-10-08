@@ -520,6 +520,8 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
         "gpt-6.1-sol",
         ReasoningEffort.MEDIUM,
     )
+    # The session reads untrusted PR text, so a write-capable GitHub token in its sandbox is a security regression.
+    assert mock_review.call_args.kwargs["github_read_access"] is True
     [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
     assert key == expected_key
     # The stored priority folds P0 and P1 together, so the P level must ride along or it is lost.
