@@ -1540,7 +1540,7 @@
 5 products/conversations/backend/temporal/channel_summary/schemas.py
 5 products/customer_analytics/backend/temporal/calendar_sync.py
 5 products/managed_warehouse/backend/temporal/ducklake_copy_data_modeling_workflow.py
-5 products/notebooks/backend/kernel_runtime.py
+4 products/notebooks/backend/kernel_runtime.py
 5 products/tasks/backend/temporal/execute_sandbox/workflow.py
 6 posthog/dags/deletes.py
 6 posthog/hogql/base.py
