@@ -11,7 +11,11 @@ It never touches the processor's state directly.
 
 ## The poll loop
 
-The seeder is a set of replicas polling Postgres, every 15 seconds by default.
+The seeder runs as one process that polls Postgres, every 15 seconds by default.
+Claim slots, the Kafka pacer, the ClickHouse breaker and planning backoff are per process, so a second process doubles the load on ClickHouse.
+For this reason the deployment has one pod and uses the `Recreate` strategy, which stops the old pod before the new pod starts.
+The ledger itself is safe with more processes, because claims use `FOR UPDATE SKIP LOCKED` and every write checks the claim epoch.
+The seeder can run more pods only after these limits are shared across pods.
 Each tick it:
 
 1. discovers runs in `awaiting_boundary` or `seeding` for allowlisted teams and enabled kinds, where person runs need `SEEDER_PERSON_SEEDS_ENABLED`,
@@ -23,7 +27,7 @@ Each tick it:
 
 Claims are also refilled whenever a chunk finishes.
 Planning and validation repeat on every tick.
-Both are idempotent, so any replica can do them and a restart loses nothing.
+Both are idempotent, so a restart loses nothing.
 
 ## Behavioral runs
 
@@ -201,7 +205,7 @@ Per run:
    If that write does not apply, the next probe decides again.
 
 Any other failure leaves the breaker as it is.
-The breaker lives in the seeder process, so each replica keeps its own and a restart closes them.
+The breaker lives in the seeder process, so a restart closes them.
 `seeder_clickhouse_resource_errors_total`, `seeder_run_breaker_trips_total`, `seeder_runs_failed_breaker_total` and `seeder_run_breakers_open` report it.
 
 ## Person-property runs
@@ -211,7 +215,7 @@ It scans persons whose record changed within the run's **horizon**, a pinned num
 
 ### Planning by person id range
 
-Planning a person run needs a scan, so it runs off the poll loop, one at a time per replica, under a cluster-wide advisory lock per run.
+Planning a person run needs a scan, so it runs off the poll loop, one at a time per process, under a cluster-wide advisory lock per run.
 The seeder streams the ids of the team's persons that changed within the horizon, keeps every Nth id as a boundary, and inserts chunks that tile the whole id space.
 The insert is all or nothing.
 
