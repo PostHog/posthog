@@ -10,26 +10,53 @@ export const CHATGPT_MODEL = `${CHATGPT_PROVIDER}/gpt-5.5`;
 const authPath = (): string => join(getAgentDir(), "auth.json");
 
 const PROFILE_CLAIM = "https://api.openai.com/profile";
+const AUTH_CLAIM = "https://api.openai.com/auth";
 
-const emailOf = (access: string): string | null => {
+type Claims = Record<
+  string,
+  { email?: string; chatgpt_plan_type?: string } | undefined
+>;
+
+const claimsOf = (access: string): Claims => {
   try {
-    const payload = JSON.parse(
+    return JSON.parse(
       Buffer.from(access.split(".")[1] ?? "", "base64url").toString("utf8"),
-    ) as Record<string, { email?: string } | undefined>;
-    return payload[PROFILE_CLAIM]?.email ?? null;
+    ) as Claims;
   } catch {
-    return null;
+    return {};
   }
 };
+
+const emailOf = (access: string): string | null =>
+  claimsOf(access)[PROFILE_CLAIM]?.email ?? null;
+
+const accessOf = (path: string): string | undefined => {
+  const saved = JSON.parse(readFileSync(path, "utf8")) as Record<
+    string,
+    { access?: string } | undefined
+  >;
+  return saved[CHATGPT_PROVIDER]?.access;
+};
+
+// The plan the ChatGPT login is on ("ChatGPT Plus"), from its access token; "ChatGPT plan" when the token hides it.
+export function chatgptPlan(path: string = authPath()): string {
+  try {
+    const access = accessOf(path);
+    const type = access
+      ? claimsOf(access)[AUTH_CLAIM]?.chatgpt_plan_type
+      : undefined;
+    return type
+      ? `ChatGPT ${type.charAt(0).toUpperCase()}${type.slice(1)}`
+      : "ChatGPT plan";
+  } catch {
+    return "ChatGPT plan";
+  }
+}
 
 // The login's email from its access token, "ChatGPT" when the token hides it, null when nobody is logged in.
 export function chatgptAccount(path: string = authPath()): string | null {
   try {
-    const saved = JSON.parse(readFileSync(path, "utf8")) as Record<
-      string,
-      { access?: string } | undefined
-    >;
-    const access = saved[CHATGPT_PROVIDER]?.access;
+    const access = accessOf(path);
     return access ? (emailOf(access) ?? "ChatGPT") : null;
   } catch {
     return null;

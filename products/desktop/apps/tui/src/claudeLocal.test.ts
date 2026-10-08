@@ -1,6 +1,9 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type StoredLogEntry, TypedEventEmitter } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
-import { ClaudeLocalSession } from "./claudeLocal";
+import { ClaudeLocalSession, claudePlan } from "./claudeLocal";
 import type { AgentPrompt } from "./prompts";
 
 function fakeLog(
@@ -197,6 +200,19 @@ describe("ClaudeLocalSession", () => {
     await session.control.setMode?.("plan");
     expect(setSessionConfigOption).toHaveBeenCalledWith("s1", "mode", "plan");
     expect((await session.control.modes?.())?.current).toBe("plan");
+  });
+
+  it("names the plan Claude Code is signed in on, and a plain plan without one", () => {
+    const path = join(
+      mkdtempSync(join(tmpdir(), "posthog-tui-")),
+      ".claude.json",
+    );
+    expect(claudePlan(path)).toBe("Claude plan");
+    writeFileSync(
+      path,
+      JSON.stringify({ oauthAccount: { organizationType: "claude_max" } }),
+    );
+    expect(claudePlan(path)).toBe("Claude Max");
   });
 
   it("stops the session and its turn", async () => {
