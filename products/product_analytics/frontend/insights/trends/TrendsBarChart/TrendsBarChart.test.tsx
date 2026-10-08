@@ -101,6 +101,9 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
         expect(tooltip.row('Napped')).toContain('5')
         expect(tooltip.row('Napped')).not.toContain('139')
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toHaveTextContent(
+            /Total\s*139/
+        )
     })
 
     it('opens the persons modal on click for a single series', async () => {
@@ -209,6 +212,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         const tooltip = await chart.hoverTooltip(2)
 
         expect(tooltip.row('Pageview')).toMatch(/%/)
+        expect(chart.getTooltip()?.querySelector('[data-attr="hog-chart-tooltip-total"]')).toBeNull()
     })
 })
 
