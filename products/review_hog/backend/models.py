@@ -481,10 +481,10 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     def default_mode_for_authored_prs(cls, enabled: bool) -> "ReviewUserSettings.DefaultReviewMode":
         """The `default_review_mode` that the deprecated `review_authored_prs` switch stands for.
 
-        The switch meant "Flash on my PRs in PostHog/posthog". The seeded PostHog/posthog repository
-        reviews only listed people and lists nobody, so Flash and Follow keep the old behavior there.
+        The switch meant "Flash on my PRs in PostHog/posthog". Turning it off maps to Off, not Follow:
+        a repository that reviews everyone would otherwise still give Flash to someone who said no.
         """
-        return cls.DefaultReviewMode.FLASH if enabled else cls.DefaultReviewMode.FOLLOW
+        return cls.DefaultReviewMode.FLASH if enabled else cls.DefaultReviewMode.OFF
 
 
 class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):

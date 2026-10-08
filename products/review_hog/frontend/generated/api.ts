@@ -155,7 +155,7 @@ export const getReviewHogRepositoriesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Add a GitHub repository, so pull requests there can get automatic reviews. By default only listed people get Flash reviews, and nobody is listed.
+ * Add a GitHub repository, so pull requests there can get automatic reviews. By default everyone gets Flash reviews there, except bots and excepted people. A person's own choice always wins.
  * @summary Add a repository
  */
 export const reviewHogRepositoriesCreate = async (
