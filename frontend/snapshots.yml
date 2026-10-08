@@ -1820,6 +1820,14 @@ snapshots:
         hash: v1.k794b7964.15fbabb08961435e861f16da95aaefeb3304c30b466197488268e540b8e20533.jfPtk0lZ5lhpRemspY5PLR53qxrhMfyR_WYQDEYWuvo
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.2ce59a009bfce14f01a88f688627cf4b1def20c28ce5124288a54f9c62ffd3a6.wIhKopBY00iVCPnC9GB4QncFt-dCm8Gq9Uz6FYXBZ68
+    components-member-select-multiple-popover--nothing-selected--dark:
+        hash: v1.k794b7964.53d779a3de672d54aefe7d3c01dc882f99691ff57e5963a87934433f80ce2154.R8DOW6RXDFH1vFrywXMvfg4ng6-a1uuJzvrLKLmZvpQ
+    components-member-select-multiple-popover--nothing-selected--light:
+        hash: v1.k794b7964.eee4dd418e8a240f05cb681f4ace121044e2cef9327bf5c155a01fc974904ff1.fWhrka9034FWqusluk91gVT2lcI06r2LUeTcHI0dD6M
+    components-member-select-multiple-popover--selected-members-on-open--dark:
+        hash: v1.k794b7964.c45c769c918a8d677a0d33f245ea75806ff493e0343100f1588ee947a18e3dca.JcbvpxvEQjbf0-ZL7vs1P4XwZ1ZeDk1R-kHJj9XXQt0
+    components-member-select-multiple-popover--selected-members-on-open--light:
+        hash: v1.k794b7964.9b1deda773d721c2fad711a6a5927621f3b41ffa49db91ac9989c7806fbcdaa1.HNnmqKaxJmsj5H1b_m6jmOSKBaa55WePPPYfasMBS70
     components-message-tool-calls-editor--editable-tool-calls--dark:
         hash: v1.k794b7964.7adaad1e91b71d0b933afe541a20fd43112e39d56d6638abadfae6a830bb0c15.TxnbKwXIG1XbB5e4KpRJa4-PA-wl-kKOWbtX1ERVqLU
     components-message-tool-calls-editor--editable-tool-calls--light:

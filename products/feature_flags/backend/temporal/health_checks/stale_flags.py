@@ -5,14 +5,17 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.utils import get_instance_region
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -34,6 +37,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
+
+LIVE_GATE_FLAG = "health-check-stale-feature-flags-live"
 
 # `last_called_at` exists and predates the stale threshold. The column only records received
 # `$feature_flag_called` events, so it says nothing about evaluations that send no event.
@@ -72,12 +77,12 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
-    # Dry until the feature-flags scout can consume these issues; flipping this is an
-    # operational checkpoint, not a code change to make casually.
+    # Both stay for one more deploy, so the gate reaches every worker before anything can write.
+    # Web's migrate job copies these into the schedule's workflow inputs, and the health-check
+    # worker deploys as a separate app behind it. A worker still on the previous release has no
+    # `eligible_team_ids`, so removing them in this release would let a run that starts inside
+    # that window write live issues for every active team. The follow-up removes both.
     dry_run = True
-    # dry_run stops the writes, not the detection queries. Sample teams until one batch of
-    # this check has a measured cost, because filter_stale_flags has only ever run paginated
-    # for a single team.
     rollout_percentage = 0.01
     remediation = Remediation(
         human="""
@@ -131,6 +136,34 @@ class StaleFeatureFlagsCheck(HealthCheck):
             ),
             link=f"/feature_flags/{flag_id}" if flag_id is not None else "/feature_flags",
         )
+
+    @classmethod
+    def eligible_team_ids(cls, team_ids: list[int]) -> list[int]:
+        """Only the teams `LIVE_GATE_FLAG` answers `True` for.
+
+        Every other answer drops the team from the run, which leaves whatever issues it already
+        holds untouched. That covers a deliberate `False`, a flag that does not exist, an
+        archived or switched-off gate, an unreadable definition set, and an SDK that is off by
+        configuration. None of them can resolve an issue.
+
+        Turning the gate off for a team therefore stops new issues without closing open ones.
+        Closing those is a deliberate act, not a side effect of a flag flip.
+        """
+        # The read below already answers non-True when the SDK is off or holds no definitions,
+        # so this guard is about cost and visibility, not safety. While definitions are not
+        # loaded, every flag read retries the definitions load, so checking once here stops a
+        # batch from making one load attempt per team. The warning is the only record of why a
+        # whole batch was skipped, because the caller returns before it logs anything.
+        if posthoganalytics.disabled or not posthoganalytics.feature_flag_definitions():
+            logger.warning(
+                "stale_feature_flags_live_gate_unreadable",
+                team_count=len(team_ids),
+                sdk_disabled=posthoganalytics.disabled,
+            )
+            return []
+        enabled = [team_id for team_id in team_ids if _live_gate_answer(team_id) is True]
+        logger.info("stale_feature_flags_live_gate_evaluated", team_count=len(team_ids), enabled_count=len(enabled))
+        return enabled
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         reportable_flags = FeatureFlag.objects.filter(
@@ -193,8 +226,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
             issues.setdefault(flag.team_id, []).append(_build_result(flag, now, stale_threshold))
 
         if issues:
-            # Each issue fires its own alert once dry_run flips, so the flip decision needs the
-            # worst single team, which the framework's batch-wide dry-run summary does not show.
+            # Each issue fires its own alert, so widening the gate needs the worst single team,
+            # which the workflow's run totals do not show.
             issue_counts = [len(team_issues) for team_issues in issues.values()]
             evidence_classes = [
                 result.payload["evidence_class"] for team_issues in issues.values() for result in team_issues
@@ -208,6 +241,22 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 full_rollout_query_issue_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
+
+
+def _live_gate_answer(team_id: int) -> bool | str | None:
+    # Local evaluation only sees the properties supplied here, so a project-id rollout needs the
+    # id passed in or the condition never matches. Team ids are per region and EU evaluates a
+    # mirror of this flag, so every condition needs a `region` filter as well or it matches the
+    # same-numbered project in both regions, which are different customers.
+    region = get_instance_region() or "DEV"
+    return get_feature_flag_or_none(
+        LIVE_GATE_FLAG,
+        f"team-{team_id}",
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
 
 
 def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
