@@ -26,11 +26,12 @@ import {
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import { useCanvasScenesEnabled } from 'products/canvas/frontend/canvasScenesEnabled'
 
 import { NewViewMenu } from './NewViewMenu'
 import { ViewRow } from './ViewRow'
@@ -51,8 +52,8 @@ const TYPE_FILTERS: { value: ViewTypeFilter; label: string }[] = [
 
 /** Canvases, notebooks and dashboards in one list. */
 export function Views(): JSX.Element {
-    const viewsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
-    // The page ships behind the Today navigation, so without the flag `/views` stays a missing page.
+    const viewsEnabled = useCanvasScenesEnabled()
+    // The page ships with the canvas scenes, so without their flags `/views` stays a missing page.
     return viewsEnabled ? <ViewsContent /> : <NotFound object="page" />
 }
 

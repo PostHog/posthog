@@ -28,6 +28,8 @@ const descriptions: Record<string, string> = {
         'See where people click and how far they scroll. Spot overlooked calls to action and places where a page loses attention.',
     Notebooks:
         'Keep an investigation together with notes, insights, and recordings. Give your team the evidence and context behind your conclusions.',
+    Canvases:
+        'Build small apps on your product data with an agent. Each canvas reads and acts with the permissions of the person who opens it.',
     'LLM analytics':
         'Follow your AI application from prompts to responses. Inspect traces, latency, token usage, and cost to understand quality and performance.',
     Persons:
@@ -70,6 +72,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Broadcasts',
     'Business intelligence',
     'Business knowledge',
+    'Canvases',
     'Engineering analytics',
     'Identity matching',
     'Product tours',
@@ -91,6 +94,7 @@ const examples: Record<string, string> = {
     Surveys: 'Ask people who abandon a flow what they were trying to do.',
     Heatmaps: 'Check whether visitors reach your pricing call to action.',
     Notebooks: 'Share a funnel drop-off alongside recordings that explain it.',
+    Canvases: 'Give the team one page that flips a launch flag and annotates the release.',
     'LLM analytics': 'Find the model calls making an assistant slow or expensive.',
     Persons: 'Review a user’s recent events while investigating a support question.',
     Cohorts: 'Compare people who tried a feature with those who have not.',

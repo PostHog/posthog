@@ -13,10 +13,10 @@ import {
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { useCanvasScenesEnabled } from '../canvasScenesEnabled'
 import { canvasEditLogic } from '../editing/canvasEditLogic'
 import { CanvasEditorRenderer } from '../editing/CanvasEditorRenderer'
 import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
@@ -168,7 +168,7 @@ function CanvasMain(): JSX.Element {
 }
 
 export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
-    const enabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const enabled = useCanvasScenesEnabled()
     const { viewMissing } = useValues(canvasSceneLogic({ id }))
 
     if (!enabled || viewMissing) {
