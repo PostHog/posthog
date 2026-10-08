@@ -859,25 +859,9 @@ export const ReportInANarrowWindow: Story = {
     parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
-export const SpacesPane: Story = {
+export const ChatsPane: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
-    },
-}
-
-// A hovered space row shows no buttons, so the faces keep their place.
-// Its actions, New session first, are in the hover card that opens beside it.
-export const SpacesPaneHoveringSpaceRow: Story = {
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByLabelText('Spaces'))
-        const labels = await canvas.findAllByText('checkout')
-        const row = labels.find((label) => label.closest('[data-attr="today-space-row"]'))
-        if (row) {
-            await userEvent.hover(row)
-            // The card opens in a portal outside the story's canvas.
-            await within(document.body).findByText('New session')
-        }
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
     },
 }
 
@@ -885,13 +869,12 @@ export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
-// New session opens this page. It files into the personal space until the user picks another one.
-export const NewSessionPage: Story = {
+export const NewChatPage: Story = {
     parameters: { pageUrl: urls.taskNewSession() },
 }
 
 // A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
-export const SpacesPaneWithSelectedSessions: Story = {
+export const ChatsPaneWithSelectedSessions: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
@@ -900,7 +883,7 @@ export const SpacesPaneWithSelectedSessions: Story = {
 }
 
 // The narrowed filters show their values in the primary color, and Clear filters shows at the end.
-export const SpacesPaneWithRecentFilterMenu: Story = {
+export const ChatsPaneWithRecentFilterMenu: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
@@ -952,27 +935,17 @@ async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: st
 }
 
 // Right-clicking a session row opens the same actions as its hover card.
-export const SpacesPaneSessionContextMenu: Story = {
+export const ChatsPaneChatContextMenu: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
         rightClick(row)
         await within(document.body).findByText('Open in new tab')
     },
 }
 
-// Right-clicking a space row opens its actions, New session first, like its hover card.
-export const SpacesPaneSpaceContextMenu: Story = {
-    play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
-        const row = await sidebarRow(canvasElement, 'checkout', 'today-space-row')
-        rightClick(row)
-        await within(document.body).findByText('New session')
-    },
-}
-
 // With two sessions picked, right-clicking one of them offers the selection's actions instead of the row's.
-export const SpacesPaneSelectedSessionsContextMenu: Story = {
+export const ChatsPaneSelectedSessionsContextMenu: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
@@ -1136,9 +1109,9 @@ export const ReportHoverCardResolved: Story = {
 }
 
 // The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
-export const SpacesPaneWithListItemDetails: Story = {
+export const ChatsPaneWithListItemDetails: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todayListAppearanceLogic.actions.setFields(['repository', 'activity'])
     },
@@ -1146,7 +1119,7 @@ export const SpacesPaneWithListItemDetails: Story = {
 
 export const ListItemAppearanceDialog: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todayListAppearanceLogic.actions.setFields(['space', 'branch'])
         todayListAppearanceLogic.actions.openAppearanceDialog()

@@ -534,14 +534,12 @@ describe('spaceSceneLogic', () => {
             logic.mount()
             await expectLogic(todaySpacesLogic).toDispatchActions(['loadTaskActivitySuccess'])
             expect([...todaySpacesLogic.values.unreadSessionIds]).toEqual(['task-1'])
-            expect([...todaySpacesLogic.values.unreadSpaceIds]).toEqual(['space-a'])
 
             router.actions.push(urls.aiTask('task-1'))
             await expectLogic(todaySpacesLogic).toFinishAllListeners()
 
             expect(markReadBodies).toEqual([{ activities: [{ task_id: 'task-1', seen_before: seenBefore }] }])
             expect([...todaySpacesLogic.values.unreadSessionIds]).toEqual(unreadAfter)
-            expect([...todaySpacesLogic.values.unreadSpaceIds]).toEqual(unreadAfter.length ? ['space-a'] : [])
         } finally {
             jest.useRealTimers()
         }
