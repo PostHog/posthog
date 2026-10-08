@@ -4864,10 +4864,10 @@ Today (16): `activities`, `app_events`, `apps`, `deployment_events`, `deployment
 
 Diffed against: <https://raw.githubusercontent.com/koyeb/koyeb-api-client-go/main/api/v1/koyeb/api/openapi.yaml>
 
-- [ ] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high)
-- [ ] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high)
-- [ ] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high)
-- [ ] `/v1/usages` — org-level usage rollup; PostHog syncs only usages/details, so totals must be re-derived (medium)
+- [x] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high). Added as `catalog_instances`.
+- [x] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high). Added as `catalog_regions`.
+- [x] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high). Added as `projects`.
+- ~~`/v1/usages`~~ — not table material: the reply is one nested object per period that sums `duration_seconds` by app, service, region and instance type. `usage_details` already holds those per-run durations, so the rollup is a `GROUP BY` over it.
 - [ ] `/v1/volume_events` — volume lifecycle history, the only event stream missing while app/service/deployment/instance events are synced (medium)
 - [ ] `/v1/regional_deployment_events` — per-region deployment transition history to explain rollout failures (medium)
 - [ ] `/v1/catalog/datacenters` — lookup mapping datacenter ids on regional deployments to physical locations (medium)
