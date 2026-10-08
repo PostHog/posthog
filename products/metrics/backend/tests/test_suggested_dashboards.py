@@ -101,7 +101,7 @@ class TestSuggestedDashboards(SimpleTestCase):
         assert insights[2].query["metricType"] == "histogram"
 
     def test_panels_from_tiles_keeps_metrics_tiles_and_drops_team_metric_types(self) -> None:
-        metrics_query = {**_query("orders_total"), "dateRange": {"date_from": "-1h"}}
+        metrics_query: dict[str, Any] = {**_query("orders_total"), "dateRange": {"date_from": "-1h"}}
         metrics_query["clauses"][0]["metricType"] = "sum"
         panels = panels_from_tiles(
             [
