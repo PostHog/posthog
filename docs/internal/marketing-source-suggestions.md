@@ -60,3 +60,9 @@ Keyword reporting continues to use `keyword_performance_report`.
 Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
 The current schema takes precedence when both are available.
 Table resolution uses schema metadata when available and otherwise recognizes source and custom table-name prefixes.
+
+## Source scan caching and readiness
+
+The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
+Source health polling refreshes metadata without forcing every dashboard query.
+Campaign reporting waits for all required schemas to complete their first sync.
