@@ -89,6 +89,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # RoleMembership has a direct user FK but org is indirect (via role), so the
         # script sees it as user_scoped while semgrep correctly has it in org_scoped.
         "RoleMembership",
+        # IdJagIdentity has a direct user FK but org is indirect (via its IdentityProviderConfig),
+        # so the script sees it as user_scoped while semgrep has it in org_scoped.
+        "IdJagIdentity",
         # --- Ingestion/event tables (not queried by user-supplied ID) ---
         "CoreEvent",
         "ElementGroup",
@@ -170,6 +173,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # OneToOne extension of Organization, read via the org relation
         # (enrichment_record), never looked up by user-supplied ID.
         "OrganizationEnrichment",
+        # Write-once OneToOne record of the partner that created an Organization, written by the
+        # partner account-creation paths; no API endpoint, never looked up by user-supplied ID.
+        # Remove this exemption the moment an endpoint exposes it, or the org_scoped rule stops
+        # protecting it silently.
+        "OrganizationProvisioning",
         # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
         # internal enrichment write-back path, never looked up by user-supplied ID.
         "EnrichmentSignupSnapshot",
@@ -209,6 +217,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamFeatureFlagPolicyConfig",
         # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
         "TeamHeatmapConfig",
+        "TeamEventVolume",
         "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
@@ -217,6 +226,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # no endpoint looks it up by a user-supplied ID.
         "TeamReplayVisionConfig",
         "TeamTracingConfig",
+        "WarehouseSuggestionTeamConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
@@ -324,6 +334,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "Role",
         "RoleMembership",
         "LinkedIdentityProviderConfig",
+        "IdJagIdentity",
         # --- User-scoped (cross-tenant by design) ---
         "NotificationViewed",
         "SCIMProvisionedUser",
@@ -376,6 +387,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
         "SourceBatchStatus",  # via SourceBatch
+        "QueueJobStatus",  # via QueueJob
+        # Keyed by (lane, group_key), not a direct team_id column — group_key is a
+        # generic caller-defined string (e.g. "team:schema") rather than always a
+        # team scope, unlike SourceGroupLease which carries team_id explicitly.
+        "QueueJobLease",
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
         "TicketAssignment",  # via Ticket

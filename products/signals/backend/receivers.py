@@ -980,6 +980,29 @@ def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **k
         logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)
 
 
+@receiver(post_save, sender="signals.SignalScoutConfig")
+def requeue_report_checks_on_scout_resume(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """A resumed scout answers the report checks its pause deferred on the next coordinator tick.
+    Saves that leave the scout paused, or that cannot change `enabled`, skip the write, and nothing
+    here may fail the config write."""
+    update_fields = kwargs.get("update_fields")
+    if not instance.enabled or (update_fields is not None and "enabled" not in update_fields):
+        return
+    try:
+        from products.signals.backend.report_check_agent import (
+            requeue_checks_waiting_on_scout,  # noqa: PLC0415 — keeps the scout run gates off the django.setup() path
+        )
+
+        requeue_checks_waiting_on_scout(instance.team_id, instance.skill_name)
+    except Exception:
+        logger.warning(
+            "signals.report_check.requeue_on_resume_failed",
+            team_id=instance.team_id,
+            skill_name=instance.skill_name,
+            exc_info=True,
+        )
+
+
 @receiver(post_save, sender=SignalReportArtefact)
 def sync_suggested_reviewer_index_on_save(
     sender: type[SignalReportArtefact],

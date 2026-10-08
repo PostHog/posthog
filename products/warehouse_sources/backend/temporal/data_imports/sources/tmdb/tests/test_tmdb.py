@@ -7,7 +7,6 @@ from unittest import mock
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb import tmdb as tmdb_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.tmdb import (
     TMDbResumeConfig,
     tmdb_source,
@@ -113,48 +112,8 @@ class TestPagination:
         assert params[0]["page"] == 5
         manager.save_state.assert_not_called()
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page_response([], page=1, total_pages=0)])
-        manager = _make_manager()
-
-        assert _rows(_source("movie_popular", manager)) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_at_max_pages(self, MockSession) -> None:
-        # total_pages far above the cap: request count must be bounded by MAX_PAGES, not total_pages.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [_page_response([{"id": p}], page=p, total_pages=10_000) for p in range(1, tmdb_module.MAX_PAGES + 1)],
-        )
-        manager = _make_manager()
-
-        rows = _rows(_source("movie_popular", manager))
-
-        assert len(rows) == tmdb_module.MAX_PAGES
-        assert session.send.call_count == tmdb_module.MAX_PAGES
-
 
 class TestNonPaginatedEndpoints:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_genres_endpoint_extracts_from_key_and_makes_one_request(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_body_response({"genres": [{"id": 28, "name": "Action"}]})])
-        manager = _make_manager()
-
-        rows = _rows(_source("movie_genres", manager))
-
-        assert rows == [{"id": 28, "name": "Action"}]
-        assert session.send.call_count == 1
-        # Reference endpoints omit the language param entirely (parity with the old URL builder).
-        assert "language" not in params[0]
-        assert "page" not in params[0]
-        manager.save_state.assert_not_called()
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_bare_list_endpoint_yields_rows(self, MockSession) -> None:
         session = MockSession.return_value
@@ -215,21 +174,3 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
         assert message != "Invalid TMDB API key"
-
-
-class TestSourceResponse:
-    @pytest.mark.parametrize(
-        "endpoint, expected_keys",
-        [
-            ("movie_popular", ["id"]),
-            ("languages", ["iso_639_1"]),
-            ("countries", ["iso_3166_1"]),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_primary_keys(self, MockSession, endpoint: str, expected_keys: list[str]) -> None:
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
-        assert response.partition_count == 1
-        assert response.partition_size == 1

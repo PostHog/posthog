@@ -122,6 +122,56 @@ const ROOTS = [
             },
         ],
     },
+    // The most visited logged-in scenes, whose JS gates their LCP. A scene root counts every chunk the
+    // scene needs, so code it shares with the shell is in both numbers. Like the other roots it adds the
+    // whole linked stylesheet, not the per-scene CSS the stable build serves, so a budget tracks JS.
+    {
+        root: 'src/scenes/dashboard/Dashboard.tsx',
+        label: 'dashboard scene',
+        // 2026-10-05: 9.93 MiB (3517 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 11_450_000,
+        forbidden: [
+            // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
+            'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
+    },
+    {
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayHome.tsx',
+        ],
+        label: 'today home path',
+        budgetBytes: 9_000_000,
+        forbidden: [
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayReportPage.tsx',
+            'src/queries/Query/Query.tsx',
+        ],
+    },
+    {
+        root: 'src/scenes/activity/explore/EventsScene.tsx',
+        label: 'events scene',
+        // 2026-10-05: 9.55 MiB (3371 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 11_020_000,
+        forbidden: [
+            // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
+            'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
+    },
+    {
+        root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
+        label: 'replay detail scene',
+        // 2026-10-01: 14.29 MiB (5280 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 16_480_000,
+        forbidden: [],
+    },
 ]
 
 function fail(message) {
@@ -411,7 +461,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         files: eagerBytesByFile.size,
         budgetBytes,
         overBudget,
-        forbidden,
+        forbidden: forbidden.map(forbiddenPattern),
         forbiddenHits,
         largest: largest.map(([f, b]) => ({ file: f, bytes: b })),
     })

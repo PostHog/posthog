@@ -67,7 +67,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
-    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const rawTriggerPrefill = searchParams[TRIGGER_PREFILL_PARAM]
+    const triggerPrefill =
+        rawTriggerPrefill && typeof rawTriggerPrefill !== 'string'
+            ? JSON.stringify(rawTriggerPrefill)
+            : rawTriggerPrefill
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
@@ -179,7 +183,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         selfOptimisingEnabled
             ? {
                   label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
-                  key: 'suggestions',
+                  key: 'self-driving',
                   content: <WorkflowSuggestions id={workflowSceneProps.id!} />,
               }
             : null,

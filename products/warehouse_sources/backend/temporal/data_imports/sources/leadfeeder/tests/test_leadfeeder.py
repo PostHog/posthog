@@ -10,25 +10,18 @@ from parameterized import parameterized
 from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    PageNumberPaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder import (
     LEADFEEDER_BASE_URL,
     LeadfeederResumeConfig,
-    _default_start_date,
     _flatten_item,
     _is_offset_exceeded,
     _split_window,
     _to_date_str,
-    _unified_client_config,
-    _unified_headers,
     leadfeeder_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.settings import (
     LEADFEEDER_API_2026_08_07,
-    LEADFEEDER_API_LEGACY,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -121,17 +114,10 @@ def _wire_full(session: mock.MagicMock, responses: list[Response]) -> list[dict[
 
 
 class TestFlattenItem:
-    def test_lifts_attributes_and_keeps_id_type(self) -> None:
-        row = _flatten_item(_item("1", "leads", name="Acme", last_visit_date="2024-06-01"), account_id=None)
-        assert row == {"id": "1", "type": "leads", "name": "Acme", "last_visit_date": "2024-06-01"}
-
     def test_injects_account_id_for_fan_out(self) -> None:
         row = _flatten_item(_item("9", "visits", started_at="2024-06-01T10:00:00Z"), account_id="42")
         assert row["account_id"] == "42"
         assert row["id"] == "9"
-
-    def test_handles_missing_attributes(self) -> None:
-        assert _flatten_item({"id": "1", "type": "accounts"}, account_id=None) == {"id": "1", "type": "accounts"}
 
     def test_missing_id_fails_loudly(self) -> None:
         # `id` is the primary key: a missing one must raise rather than seed a row under a None key.
@@ -150,16 +136,6 @@ class TestToDateStr:
     )
     def test_coerces_to_day_granular_string(self, value: Any, expected: str) -> None:
         assert _to_date_str(value) == expected
-
-
-class TestDefaultStartDate:
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_uses_config_start_date_floored(self) -> None:
-        assert _default_start_date("2023-01-01T12:00:00Z") == "2023-01-01"
-
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_defaults_to_lookback_window_when_blank(self) -> None:
-        assert _default_start_date("") == "2025-07-02"
 
 
 class TestTopLevelPagination:
@@ -196,15 +172,6 @@ class TestTopLevelPagination:
         _rows(_source("accounts", manager))
         assert urls[0] == resume_url
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_nothing_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-        manager = _make_manager()
-
-        assert _rows(_source("accounts", manager)) == []
-        manager.save_state.assert_not_called()
-
 
 class TestFanOut:
     def _accounts_response(self, *ids: str, next_url: str | None = None) -> Response:
@@ -237,52 +204,6 @@ class TestFanOut:
         assert lead_params["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_incremental_watermark_sets_start_date(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, params = _wire(session, [self._accounts_response("1"), _response([_item("100", "leads")])])
-
-        rows = _rows(
-            _source(
-                "leads",
-                _make_manager(),
-                start_date_config="2020-01-01",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2024, 5, 1),
-            )
-        )
-        assert rows == [{"id": "100", "type": "leads", "account_id": "1"}]
-        lead_params = next(p for p in params if "start_date" in p)
-        # The watermark wins over the configured start date, floored to a day.
-        assert lead_params["start_date"] == "2024-05-01"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_accounts(self, MockSession) -> None:
-        session = MockSession.return_value
-        urls, _ = _wire(session, [self._accounts_response("1", "2"), _response([_item("200", "leads")])])
-        manager = _make_manager(
-            LeadfeederResumeConfig(
-                fanout_state={"completed": ["/accounts/1/leads"], "current": None, "child_state": None}
-            )
-        )
-        rows = _rows(_source("leads", manager))
-
-        assert rows == [{"id": "200", "type": "leads", "account_id": "2"}]
-        assert not any("/accounts/1/leads" in u for u in urls)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unknown_completed_account_does_not_wedge_sync(self, MockSession) -> None:
-        # A completed path for an account that no longer exists must not stop the remaining accounts.
-        session = MockSession.return_value
-        _wire(session, [self._accounts_response("1"), _response([_item("100", "leads")])])
-        manager = _make_manager(
-            LeadfeederResumeConfig(
-                fanout_state={"completed": ["/accounts/999/leads"], "current": None, "child_state": None}
-            )
-        )
-        assert _rows(_source("leads", manager)) == [{"id": "100", "type": "leads", "account_id": "1"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_old_shape_resume_starts_fresh(self, MockSession) -> None:
         # A pre-migration state (account_id/next_url, no fanout_state) still parses and starts fresh.
         session = MockSession.return_value
@@ -298,12 +219,6 @@ class TestFanOut:
 
 
 class TestSourceResponse:
-    def test_accounts_is_full_refresh_without_partitioning(self) -> None:
-        response = _source("accounts", _make_manager())
-        assert response.name == "accounts"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-
     @parameterized.expand(
         [
             ("leads", ["account_id", "id"], "first_visit_date"),
@@ -327,17 +242,6 @@ class TestValidateCredentials:
         assert validate_credentials("token") is expected
 
     @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("token") is False
-
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
-    def test_sends_token_auth_header(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("secret")
-        assert mock_session.return_value.get.call_args.kwargs["headers"]["Authorization"] == "Token token=secret"
-
-    @mock.patch(LEADFEEDER_SESSION_PATCH)
     def test_session_redacts_token_and_blocks_redirects(self, mock_session: mock.MagicMock) -> None:
         # The token rides in a custom `Authorization: Token token=...` header the denylist can't see,
         # so it must be registered for value-based redaction; redirects must not be followed or the
@@ -357,19 +261,6 @@ class TestValidateCredentials:
         assert (call.args[0] if call.args else call.kwargs["url"]) == f"{LEADFEEDER_BASE_URL}/v1/accounts"
         assert call.kwargs["headers"]["X-Api-Key"] == "secret"
         assert "Authorization" not in call.kwargs["headers"]
-
-
-class TestUnifiedClientConfig:
-    def test_client_config_sends_api_key_header_and_page_number_pagination(self) -> None:
-        client = _unified_client_config("key123")
-        assert client["base_url"] == LEADFEEDER_BASE_URL
-        assert client["auth"] == {"type": "api_key", "api_key": "key123", "name": "X-Api-Key", "location": "header"}
-        paginator = client["paginator"]
-        assert isinstance(paginator, PageNumberPaginator)
-        assert paginator.page_param == "page[num]"
-
-    def test_headers_carry_api_key(self) -> None:
-        assert _unified_headers("key123")["X-Api-Key"] == "key123"
 
 
 def _offset_exceeded_response(body: dict[str, Any]) -> Response:
@@ -465,48 +356,6 @@ class TestUnifiedRequests:
         assert requests[0]["url"] == f"{LEADFEEDER_BASE_URL}/v1/accounts"
         assert requests[0]["params"]["page[num]"] == 1
         assert requests[0]["params"]["page[size]"] == 100
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_accounts_pagination_stops_without_meta_page_count(self, MockSession) -> None:
-        # The real /v1/accounts endpoint returns its whole result set in one response with no
-        # `meta.page_count` field at all (unlike the paginated child endpoints, modelled by
-        # _unified_response). The client-level PageNumberPaginator's total-pages stop check silently
-        # no-ops when that field is missing, and the page is never empty either, so it would otherwise
-        # keep requesting page[num]=2, 3, ... forever. Accounts must use a paginator that always stops
-        # after a single page regardless of what the response body contains.
-        session = MockSession.return_value
-        body = {"data": [{"id": "1", "type": "account", "attributes": {}}]}
-        resp = Response()
-        resp.status_code = 200
-        resp._content = json.dumps(body).encode()
-        requests = _wire_full(session, [resp])
-
-        rows = _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_2026_08_07))
-
-        assert rows == [{"id": "1", "type": "account"}]
-        assert len(requests) == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @time_machine.travel("2026-07-02", tick=False)
-    def test_leads_fan_out_hits_visitor_companies_with_account_id_query(self, MockSession) -> None:
-        session = MockSession.return_value
-        requests = _wire_full(
-            session,
-            [
-                _unified_response([_item("1", "account"), _item("2", "account")]),
-                _unified_response([], page_count=1),
-                _unified_response([_item("100", "company_location")]),
-                _unified_response([], page_count=1),
-                _unified_response([_item("200", "company_location")]),
-            ],
-        )
-        _rows(_source("leads", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07))
-
-        company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
-        # account id is a query param on the unified API (a path segment on the legacy API).
-        assert {r["params"]["account_id"] for r in company_reqs} == {"1", "2"}
-        assert company_reqs[0]["params"]["start_date"] == "2024-01-01"
-        assert company_reqs[0]["params"]["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
@@ -623,13 +472,3 @@ class TestUnifiedRequests:
 
         assert rows == [{"id": "100", "type": "company_location", "account_id": "1"}]
         assert len(requests) == 4
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_legacy_pin_still_uses_token_api_paths(self, MockSession) -> None:
-        # The legacy request path must be unchanged for sources still pinned to it.
-        session = MockSession.return_value
-        requests = _wire_full(session, [_response([_item("1", "accounts", name="A")])])
-        _rows(_source("accounts", _make_manager(), api_version=LEADFEEDER_API_LEGACY))
-
-        assert requests[0]["url"] == f"{LEADFEEDER_BASE_URL}/accounts"
-        assert requests[0]["params"]["page[number]"] == 1

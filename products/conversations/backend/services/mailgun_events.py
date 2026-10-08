@@ -75,6 +75,7 @@ _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
+MAX_EMAIL_ADDRESS_LENGTH = 254
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
@@ -260,7 +261,7 @@ def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]
 
 def _is_plausible_email(addr: str) -> bool:
     """Reject obviously malformed addresses before trusting a recovery header."""
-    return bool(_BASIC_EMAIL_RE.match(addr))
+    return len(addr) <= MAX_EMAIL_ADDRESS_LENGTH and bool(_BASIC_EMAIL_RE.match(addr))
 
 
 def _recover_dmarc_rewritten_sender(
@@ -406,6 +407,63 @@ def _message_header_values(request: MailgunRequest, header_name: str) -> tuple[s
     return tuple(dict.fromkeys(_iter_message_header_values(request, header_name)))
 
 
+def _trusted_relay_requester(
+    request: MailgunRequest,
+    config: EmailChannel,
+    sender_email: str,
+) -> EmailAddress | None:
+    trusted_sender = config.trusted_relay_sender.strip().lower()
+    if config.kind != EmailChannelKind.SUPPORT or not trusted_sender or sender_email.lower() != trusted_sender:
+        return None
+
+    _, envelope_sender = parseaddr(request.POST.get("sender", ""))
+    if envelope_sender.strip().lower() != trusted_sender or not _sender_authenticated(request, sender_email):
+        logger.warning(
+            "email_inbound_trusted_relay_rejected",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            reason="sender_not_authenticated",
+        )
+        return None
+
+    excluded_addresses = {
+        trusted_sender,
+        config.from_email.lower(),
+    }
+    _, inbound_recipient = parseaddr(request.POST.get("recipient", ""))
+    inbound_domain = inbound_recipient.rpartition("@")[2].lower()
+    # Without SPF, a replay of relay-signed mail can add a requester header that DKIM does not cover.
+    # So DKIM-only mail can name a requester only in a single header that every signature covers.
+    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
+    dkim_signed_headers = frozenset() if spf_passed else _headers_signed_by_every_dkim_signature(request)
+    for header_name in ("X-PostHog-Requester", "Reply-To"):
+        header_values = _message_header_values(request, header_name)
+        if not spf_passed and (header_name.lower() not in dkim_signed_headers or len(header_values) != 1):
+            continue
+        for header_value in header_values:
+            for requester_name, requester_email in getaddresses([header_value]):
+                normalized_email = requester_email.strip().lower()
+                if (
+                    not _is_plausible_email(normalized_email)
+                    or normalized_email in excluded_addresses
+                    or _extract_inbound_token(normalized_email) is not None
+                    or (inbound_domain and normalized_email.rpartition("@")[2] == inbound_domain)
+                ):
+                    continue
+                return EmailAddress(
+                    name=requester_name.strip()[:400] or normalized_email.split("@")[0],
+                    email=normalized_email,
+                )
+
+    logger.warning(
+        "email_inbound_trusted_relay_rejected",
+        team_id=config.team_id,
+        config_id=str(config.id),
+        reason="requester_missing",
+    )
+    return None
+
+
 def _forwarding_challenge_tokens(request: MailgunRequest) -> tuple[str, ...]:
     tokens: list[str] = []
     seen: set[str] = set()
@@ -435,15 +493,32 @@ def _mailgun_authentication_passed(request: MailgunRequest, header_name: str) ->
     return results == ("pass",)
 
 
+def _dkim_signature_tags(signature: str) -> dict[str, str]:
+    tags: dict[str, str] = {}
+    for raw_tag in signature.split(";"):
+        key, separator, value = raw_tag.partition("=")
+        if separator:
+            tags[key.strip().lower()] = value.strip()
+    return tags
+
+
+def _dkim_signed_headers(tags: dict[str, str]) -> frozenset[str]:
+    return frozenset(header.strip().lower() for header in tags.get("h", "").split(":"))
+
+
+def _headers_signed_by_every_dkim_signature(request: MailgunRequest) -> frozenset[str]:
+    signed_headers: frozenset[str] | None = None
+    for signature in _message_header_values(request, "DKIM-Signature"):
+        headers = _dkim_signed_headers(_dkim_signature_tags(signature))
+        signed_headers = headers if signed_headers is None else signed_headers & headers
+    return signed_headers or frozenset()
+
+
 def _dkim_signing_domains(request: MailgunRequest) -> tuple[str, ...]:
     domains: list[str] = []
     for signature in _message_header_values(request, "DKIM-Signature"):
-        tags: dict[str, str] = {}
-        for raw_tag in signature.split(";"):
-            key, separator, value = raw_tag.partition("=")
-            if separator:
-                tags[key.strip().lower()] = value.strip()
-        signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
+        tags = _dkim_signature_tags(signature)
+        signed_headers = _dkim_signed_headers(tags)
         domain = tags.get("d", "").rstrip(".").lower()
         if not domain or not {"from", "subject"}.issubset(signed_headers) or "l" in tags:
             return ()
@@ -514,7 +589,25 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
     sender_email = sender_email.strip().lower()[:400]
     if not sender_name:
         sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
-    sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
+    relay_sender: EmailAddress | None = None
+    sender_authenticated = _sender_authenticated(request, sender_email)
+    relay_requester = _trusted_relay_requester(request, config, sender_email)
+    if relay_requester is not None:
+        relay_sender = EmailAddress(name=sender_name[:400], email=sender_email)
+        sender_email = relay_requester.email
+        sender_name = relay_requester.name
+        sender_authenticated = False
+    else:
+        recovered_email, recovered_name = _recover_dmarc_rewritten_sender(
+            request,
+            config,
+            sender_email,
+            sender_name,
+        )
+        if recovered_email.lower() != sender_email.lower():
+            sender_authenticated = False
+        sender_email = recovered_email
+        sender_name = recovered_name
 
     stripped_text = request.POST.get("stripped-text", "")
     stripped_signature = request.POST.get("stripped-signature", "")
@@ -548,13 +641,14 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
         body_html=request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_html=request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH],
-        sender_authenticated=_sender_authenticated(request, sender_email),
+        sender_authenticated=sender_authenticated,
         dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
         dkim_signing_domains=_dkim_signing_domains(request),
         capture_address=request.POST.get("recipient", "").strip().lower(),
         attachments=tuple(attachments),
         forwarding_challenge_tokens=_forwarding_challenge_tokens(request),
         auto_generated=_is_auto_generated(request),
+        relay_sender=relay_sender,
     )
 
 
@@ -669,6 +763,7 @@ def _process_support_email(
                     anonymous_traits={
                         "name": sender_name,
                         "email": sender_email,
+                        **({"email_relayed": True} if email.relay_sender is not None else {}),
                     },
                     email_subject=email.subject,
                     email_from=sender_email,
@@ -696,6 +791,7 @@ def _process_support_email(
                 "from_email": True,
                 "email_from": sender_email,
                 "email_from_name": sender_name,
+                "email_relay_from": email.relay_sender.email if email.relay_sender is not None else None,
                 "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
                 "has_full_email_content": full_body_plain is not None,

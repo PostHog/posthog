@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from django.db import transaction
 from django.utils import timezone
@@ -11,6 +11,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.approvals.backend.experiment_policy_sync import sync_experiment_policies
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from products.approvals.backend.notifications import send_approval_expired_notification
+from products.approvals.backend.services import requester_still_has_access
 
 logger = get_logger(__name__)
 
@@ -34,8 +35,11 @@ def validate_pending_change_requests() -> dict[str, Any]:
     checked_count = 0
     errors: list[str] = []
 
+    # Approved requests are revalidated too. The apply-time access check only runs once a request
+    # is approved, so marking it invalid there and then never revisiting it would latch the mark
+    # exactly where it is set. `expire_old_change_requests` already spans both states.
     pending_requests = ChangeRequest.objects.filter(
-        state=ChangeRequestState.PENDING,
+        state__in=[ChangeRequestState.PENDING, ChangeRequestState.APPROVED],
     )
 
     for change_request in pending_requests:
@@ -57,30 +61,40 @@ def validate_pending_change_requests() -> dict[str, Any]:
                 "organization": change_request.organization,
             }
             context = action_class.prepare_context(change_request, base_context)
-            is_stale = action_class.check_staleness(change_request.intent, context)
-            was_stale = change_request.validation_status == ValidationStatus.STALE
 
-            if is_stale and not was_stale:
-                change_request.validation_status = ValidationStatus.STALE
-                change_request.validation_errors = {
+            # Derive the status the request should hold, rather than branching per transition.
+            # Branching missed the invalid-to-valid direction, which latched a request forever
+            # once its requester lost access.
+            if action_class.check_staleness(change_request.intent, context):
+                status = ValidationStatus.STALE
+                errors_for_status: Optional[dict[str, str]] = {
                     "staleness": "Resource has been modified since this change request was created"
                 }
+            elif not requester_still_has_access(change_request, context):
+                status = ValidationStatus.INVALID
+                errors_for_status = {
+                    "access": "The requester no longer has edit access to this resource, or their account is gone."
+                }
+            else:
+                status = ValidationStatus.VALID
+                errors_for_status = None
+
+            was = change_request.validation_status
+            if status != was:
+                change_request.validation_status = status
+                change_request.validation_errors = errors_for_status
                 change_request.validated_at = timezone.now()
                 change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
-                stale_count += 1
+                if status == ValidationStatus.VALID:
+                    healed_count += 1
+                else:
+                    stale_count += 1
                 logger.info(
-                    "validate_pending_change_requests.stale",
+                    "validate_pending_change_requests.healed"
+                    if status == ValidationStatus.VALID
+                    else "validate_pending_change_requests.stale",
                     change_request_id=str(change_request.id),
-                )
-            elif was_stale and not is_stale:
-                change_request.validation_status = ValidationStatus.VALID
-                change_request.validation_errors = None
-                change_request.validated_at = timezone.now()
-                change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
-                healed_count += 1
-                logger.info(
-                    "validate_pending_change_requests.healed",
-                    change_request_id=str(change_request.id),
+                    status=status,
                 )
 
         except Exception as e:

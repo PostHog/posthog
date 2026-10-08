@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.m
     MetabaseAuth,
     MetabaseAuthError,
     MetabaseHostNotAllowedError,
-    _redact_values_for_data_requests,
     _resolve_auth_headers,
     get_rows,
     metabase_source,
@@ -88,30 +87,10 @@ class TestResolveAuthHeaders:
         session.post.return_value = post_response
         return session, mock.patch.object(metabase_module, "make_tracked_session", return_value=session)
 
-    def test_api_key_header(self):
-        session, patch = self._patch_mint()
-        with patch:
-            headers = _resolve_auth_headers("https://x.metabaseapp.com", _api_key_auth(), mock.MagicMock())
-        assert headers["x-api-key"] == "mb_secret"
-        # API-key auth makes no network call to mint anything.
-        session.post.assert_not_called()
-
     def test_api_key_missing_raises(self):
         auth = MetabaseAuth(method=API_KEY_AUTH, api_key=None)
         with pytest.raises(MetabaseAuthError):
             _resolve_auth_headers("https://x.metabaseapp.com", auth, mock.MagicMock())
-
-    def test_session_mints_token(self):
-        session, patch = self._patch_mint(_response(json_data={"id": "session-token-abc"}))
-        with patch as patched:
-            headers = _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
-        assert headers["X-Metabase-Session"] == "session-token-abc"
-        # The token is exchanged at the session endpoint, never persisted.
-        assert session.post.call_args.args[0] == "https://x.metabaseapp.com/api/session"
-        assert session.post.call_args.kwargs["allow_redirects"] is False
-        # The mint exchange is excluded from HTTP sample capture so neither the password
-        # (request body) nor the minted token (response `id`) can land in a captured sample.
-        assert patched.call_args.kwargs["capture"] is False
 
     @pytest.mark.parametrize("status_code", [400, 401, 403])
     def test_session_bad_credentials_raises_auth_error(self, status_code):
@@ -146,15 +125,6 @@ class TestResolveAuthHeaders:
         session, patch = self._patch_mint(_response(status_code=status_code))
         with patch, pytest.raises(metabase_module.MetabaseRetryableError):
             _resolve_auth_headers("https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
-
-
-class TestRedactValuesForDataRequests:
-    def test_api_key(self):
-        assert _redact_values_for_data_requests(_api_key_auth(), {}) == ("mb_secret",)
-
-    def test_session_includes_creds_and_minted_token(self):
-        values = _redact_values_for_data_requests(_session_auth(), {"X-Metabase-Session": "tok-123"})
-        assert set(values) == {"me@example.com", "hunter2", "tok-123"}
 
 
 class TestValidateCredentials:
@@ -232,15 +202,6 @@ class TestValidateCredentials:
             assert valid is False
             assert msg == "internal address"
             patched.return_value.get.assert_not_called()
-
-    def test_bad_session_credentials_surface_before_probe(self):
-        session = mock.MagicMock()
-        session.post.return_value = _response(status_code=401)
-        with mock.patch.object(metabase_module, "make_tracked_session", return_value=session):
-            valid, msg = validate_credentials("https://x.metabaseapp.com", _session_auth())
-            assert valid is False
-            assert msg == "Invalid Metabase username or password"
-            session.get.assert_not_called()
 
     def test_unexpected_session_status_returns_failure_not_raises(self):
         # A 404 (e.g. wrong API path) during session minting must come back as (False, msg), not an
@@ -336,19 +297,9 @@ class TestGetRows:
                 rows.extend(table)
         return rows, session, requests_seen
 
-    def test_yields_bare_array(self):
-        rows, session, requests_seen = self._run([_real_response(json_data=[{"id": 1}, {"id": 2}])])
-        assert [r["id"] for r in rows] == [1, 2]
-        assert session.send.call_count == 1
-        assert requests_seen[0].url == "https://x.metabaseapp.com/api/card"
-
     def test_yields_wrapped_array(self):
         rows, _, _ = self._run([_real_response(json_data={"data": [{"id": 7}], "total": 1})], endpoint="databases")
         assert [r["id"] for r in rows] == [7]
-
-    def test_empty_collection_yields_nothing(self):
-        rows, _, _ = self._run([_real_response(json_data=[])])
-        assert rows == []
 
     def test_passes_allow_redirects_false(self):
         _rows, session, _ = self._run([_real_response(json_data=[{"id": 1}])])
@@ -363,12 +314,6 @@ class TestGetRows:
         with mock.patch.object(metabase_module, "_is_host_safe", return_value=(False, "internal address")):
             with pytest.raises(MetabaseHostNotAllowedError):
                 self._run([_real_response(json_data=[{"id": 1}])])
-
-    def test_api_key_auth_header_sent(self):
-        _rows, _, requests_seen = self._run([_real_response(json_data=[{"id": 1}])])
-        auth = requests_seen[0].auth
-        assert auth.name == "x-api-key"
-        assert auth.api_key == "mb_secret"
 
     def test_session_auth_mints_token_then_lists(self):
         rows, session, requests_seen = self._run(

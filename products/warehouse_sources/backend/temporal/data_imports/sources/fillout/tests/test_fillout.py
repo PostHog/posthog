@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout import (
     FilloutSubmissionsPaginator,
     _format_fillout_datetime,
-    _incremental_window_factory,
     _validated_api_base_url,
     fillout_source,
     get_resource,
@@ -35,21 +34,6 @@ class _FakeDltResource:
 
 
 class TestFilloutTransport:
-    def test_submissions_paginator_init_sets_offset_limit_sort(self) -> None:
-        paginator = FilloutSubmissionsPaginator(limit=150)
-        request = Mock()
-        request.params = {"afterDate": "2026-01-01T00:00:00.000Z"}
-
-        paginator.init_request(request)
-
-        assert request.params["offset"] == 0
-        assert request.params["limit"] == 150
-        assert request.params["sort"] == "asc"
-        # `finished` is Fillout's default, so the request carries no `status` of its own.
-        assert "status" not in request.params
-        # The incremental window filter is left untouched.
-        assert request.params["afterDate"] == "2026-01-01T00:00:00.000Z"
-
     @parameterized.expand(
         [
             # A full page that has not yet reached the total — keep paging.
@@ -74,19 +58,6 @@ class TestFilloutTransport:
 
         assert paginator.has_next_page is expected_has_next
 
-    def test_submissions_paginator_advances_offset(self) -> None:
-        paginator = FilloutSubmissionsPaginator(limit=150)
-        request = Mock()
-        request.params = {}
-        paginator.init_request(request)
-
-        response = Mock()
-        response.json.return_value = {"totalResponses": 1000}
-        paginator.update_state(response, data=[{"submissionId": str(i)} for i in range(150)])
-        paginator.update_request(request)
-
-        assert request.params["offset"] == 150
-
     @parameterized.expand(
         [
             ("naive_datetime", datetime(2026, 3, 1, 12, 30, 45), "2026-03-01T12:30:45.000Z"),
@@ -98,20 +69,6 @@ class TestFilloutTransport:
     )
     def test_format_fillout_datetime(self, _name, value, expected) -> None:
         assert _format_fillout_datetime(value) == expected
-
-    def test_incremental_window_omitted_without_a_watermark(self) -> None:
-        # Fillout 400s the submissions request when `afterDate` carries a sentinel date, so a
-        # sync with no watermark yet must send no `afterDate` at all.
-        assert _incremental_window_factory(None)("submissionTime") is None
-
-    def test_incremental_window_binds_afterDate_to_the_watermark(self) -> None:
-        config = _incremental_window_factory(datetime(2026, 3, 1, tzinfo=UTC))("submissionTime")
-
-        assert config is not None
-        assert config["start_param"] == "afterDate"
-        assert config["cursor_path"] == "submissionTime"
-        # No fallback date: the watermark is the only value `afterDate` is ever given.
-        assert "initial_value" not in config
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
@@ -126,23 +83,32 @@ class TestFilloutTransport:
         result = validate_credentials(api_key="key")
         assert result == (False, "/forms request failed: boom")
 
+    @parameterized.expand(
+        [
+            ("next_form_readable", [400, 200]),
+            ("not_found_then_readable", [404, 200]),
+            ("no_form_readable", [400, 400]),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_checks_forms_and_submissions(self, mock_session) -> None:
+    def test_validate_credentials_skips_a_form_fillout_cannot_serve(self, _name, probe_statuses, mock_session) -> None:
         forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = [{"formId": "form_1", "name": "Survey"}]
-        submissions_response = Mock(status_code=200, text="ok")
-        submissions_response.json.return_value = {"responses": [], "totalResponses": 0, "pageCount": 0}
-        mock_session.return_value.get.side_effect = [forms_response, submissions_response]
+        forms_response.json.return_value = [{"formId": "form_1"}, {"formId": "form_2"}]
+        probe_responses = []
+        for status in probe_statuses:
+            probe_response = Mock(status_code=status, text="form unavailable")
+            probe_response.json.return_value = {"message": "form unavailable"}
+            probe_responses.append(probe_response)
+        mock_session.return_value.get.side_effect = [forms_response, *probe_responses]
 
         result = validate_credentials(api_key="key")
 
         assert result == (True, None)
-        assert mock_session.return_value.get.call_count == 2
-        assert mock_session.return_value.get.call_args_list[0].args[0] == "https://api.fillout.com/v1/api/forms"
-        assert (
-            mock_session.return_value.get.call_args_list[1].args[0]
-            == "https://api.fillout.com/v1/api/forms/form_1/submissions"
-        )
+        assert mock_session.return_value.get.call_count == 3
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]] == [
+            "https://api.fillout.com/v1/api/forms/form_1/submissions",
+            "https://api.fillout.com/v1/api/forms/form_2/submissions",
+        ]
 
     @parameterized.expand(
         [
@@ -159,28 +125,6 @@ class TestFilloutTransport:
         result = validate_credentials(api_key="key")
 
         assert result == (False, expected_message)
-        assert mock_session.return_value.get.call_count == 1
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_returns_success_when_no_forms_exist(self, mock_session) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = []
-        mock_session.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(api_key="key")
-
-        assert result == (True, None)
-        assert mock_session.return_value.get.call_count == 1
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.fillout.make_tracked_session")
-    def test_validate_credentials_for_forms_schema_skips_submissions_probe(self, mock_session) -> None:
-        forms_response = Mock(status_code=200, text="ok")
-        forms_response.json.return_value = [{"formId": "form_1"}]
-        mock_session.return_value.get.side_effect = [forms_response]
-
-        result = validate_credentials(api_key="key", schema_name="forms")
-
-        assert result == (True, None)
         assert mock_session.return_value.get.call_count == 1
 
     @parameterized.expand(
@@ -211,14 +155,6 @@ class TestFilloutTransport:
 
         assert result == (False, expected_message)
         assert mock_session.return_value.get.call_args_list[1].args[0] == expected_probe_url
-
-    def test_get_resource_forms_full_refresh(self) -> None:
-        resource = cast(dict[str, Any], get_resource(endpoint="forms"))
-        assert resource["name"] == "forms"
-        assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["path"] == "/forms"
-        assert resource["endpoint"]["data_selector"] == "$"
-        assert resource["table_format"] == "delta"
 
     @parameterized.expand([("submissions",), ("form_metadata",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:

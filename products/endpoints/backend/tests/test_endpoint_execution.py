@@ -13,10 +13,11 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
-from posthog.exceptions import APIQueriesBudgetExceeded
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -225,6 +226,37 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         mock_counter.labels.assert_not_called()
         mock_signal.assert_not_called()
         mock_capture.assert_not_called()
+
+    def test_capacity_error_preserves_retry_after(self):
+        endpoint = create_endpoint_with_version(
+            name="at_capacity",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = ClickHouseAtCapacity()
+        error.wait = 37
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "query_capacity",
+                "detail": (
+                    "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
+                    "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
+                ),
+                "attr": None,
+            },
+        )
+        self.assertEqual(response.get("Retry-After"), "37")
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(
@@ -1072,6 +1104,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -1678,6 +1713,30 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             assert pagination is not None
             assert pagination.limit == req_limit
             assert pagination.offset == req_offset
+
+    @parameterized.expand(
+        [
+            ("truncated_at_default_limit", 150, 100, True),
+            ("under_default_limit", 20, 20, False),
+        ]
+    )
+    def test_inline_run_without_limit_reports_has_more(self, _name, num_rows, expected_rows, expected_has_more):
+        endpoint = create_endpoint_with_version(
+            name="no_limit_has_more",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": f"SELECT number FROM numbers({num_rows})"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(len(data["results"]), expected_rows)
+        self.assertEqual(data["hasMore"], expected_has_more)
 
     def test_inline_pagination_with_variables(self):
         """Pagination on a HogQL query with {variables.*} placeholders must not raise."""

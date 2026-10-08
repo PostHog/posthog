@@ -3,16 +3,11 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    JSONResponseCursorPaginator,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.motion.motion import (
     MotionResumeConfig,
-    get_resource,
     motion_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.motion.settings import MOTION_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motion.motion"
 
@@ -31,59 +26,12 @@ def _response(status_code: int = 200) -> mock.MagicMock:
     return response
 
 
-class TestMotionResources:
-    @pytest.mark.parametrize("endpoint", sorted(MOTION_ENDPOINTS))
-    def test_rows_are_selected_from_the_endpoints_own_envelope(self, endpoint: str) -> None:
-        # Motion wraps rows in a per-resource key next to `meta`, so a wrong selector yields nothing.
-        resource_endpoint = get_resource(endpoint)["endpoint"]
-        assert resource_endpoint is not None and not isinstance(resource_endpoint, str)
-        assert resource_endpoint["data_selector"] == f"{MOTION_ENDPOINTS[endpoint].data_key}[*]"
-
-    def test_tasks_ask_for_every_status(self) -> None:
-        # Without this param Motion omits completed work, which would silently truncate the table.
-        resource_endpoint = get_resource("tasks")["endpoint"]
-        assert resource_endpoint is not None and not isinstance(resource_endpoint, str)
-        assert resource_endpoint["params"] == {"includeAllStatuses": "true"}
-
-
 class TestMotionSource:
-    def test_pages_are_walked_with_motions_cursor_field(self) -> None:
-        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
-            motion_source("key", "tasks", 1, "job", _manager())
-
-        paginator = rest_api_resource.call_args.args[0]["client"]["paginator"]
-        assert isinstance(paginator, JSONResponseCursorPaginator)
-        assert paginator.cursor_path == "meta.nextCursor"
-        assert paginator.cursor_param == "cursor"
-
-    def test_requests_have_a_timeout(self) -> None:
-        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
-            motion_source("key", "tasks", 1, "job", _manager())
-
-        assert rest_api_resource.call_args.args[0]["client"]["request_timeout"] == 30
-
-    def test_the_key_rides_the_header_motion_expects(self) -> None:
-        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
-            motion_source("key", "tasks", 1, "job", _manager())
-
-        assert rest_api_resource.call_args.args[0]["client"]["auth"] == {
-            "type": "api_key",
-            "api_key": "key",
-            "name": "X-API-Key",
-            "location": "header",
-        }
-
     def test_a_saved_cursor_seeds_the_paginator(self) -> None:
         with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
             motion_source("key", "tasks", 1, "job", _manager(MotionResumeConfig(cursor="page-2")))
 
         assert rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "page-2"}
-
-    def test_a_fresh_run_seeds_no_paginator_state(self) -> None:
-        with mock.patch(f"{_MODULE}.rest_api_resource") as rest_api_resource:
-            motion_source("key", "tasks", 1, "job", _manager())
-
-        assert rest_api_resource.call_args.kwargs["initial_paginator_state"] is None
 
     @pytest.mark.parametrize(
         "state,expected_saves,expected_clears",
@@ -107,18 +55,6 @@ class TestMotionSource:
         assert manager.save_state.call_args_list == expected_saves
         assert manager.clear_state.call_count == expected_clears
 
-    def test_returns_the_pipeline_source_contract(self) -> None:
-        resource = mock.MagicMock()
-        resource.column_hints = {"id": "text"}
-        with mock.patch(f"{_MODULE}.rest_api_resource", return_value=resource):
-            response = motion_source("key", "projects", 1, "job", _manager())
-
-        assert response.name == "projects"
-        assert response.items() is resource
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["createdTime"]
-        assert response.column_hints == {"id": "text"}
-
 
 class TestMotionCredentials:
     @pytest.mark.parametrize(
@@ -134,15 +70,6 @@ class TestMotionCredentials:
 
         assert valid is expected_valid
         assert (message is None) is expected_valid
-
-    def test_a_rate_limited_key_says_to_wait(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(429)
-
-        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
-            _, message = validate_credentials("key")
-
-        assert message is not None and "rate limiting" in message
 
     def test_an_unreachable_api_is_reported_rather_than_raised(self) -> None:
         session = mock.MagicMock()

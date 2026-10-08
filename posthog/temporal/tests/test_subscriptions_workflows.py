@@ -1590,6 +1590,7 @@ async def test_create_export_assets_respects_max_asset_count(team, user):
 
     assert len(result.exported_asset_ids) == 3
     assert result.total_insight_count == 10
+    assert result.insight_limit == 3
 
 
 async def test_create_export_assets_rejects_non_positive_max_asset_count():

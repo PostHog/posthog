@@ -1,10 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -25,7 +27,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { createViewerClause, isBuilderCompatibleQuery, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -92,36 +94,52 @@ describe('metricsViewerLogic', () => {
         logic?.unmount()
     })
 
-    // Regression: the viewer defaulted every metric to `sum`, so selecting a
-    // cumulative counter summed raw monotonic readings across pods and buckets —
-    // a huge meaningless total instead of the actual increase.
-    it.each([
-        ['requests_total', 'increase'],
-        ['queue_depth', 'avg'],
-        ['request_duration', 'p95'],
-    ])('selecting %s applies the type-appropriate aggregation %s', (metricName, expected) => {
-        logic.actions.setMetricName(metricName)
-        expect(logic.values.aggregation).toBe(expected)
-    })
+    // Regression: the builder used to pick an aggregation from the metric type. An unaggregated
+    // clause must stay one line per series, whatever the metric is.
+    it.each(['requests_total', 'queue_depth', 'request_duration'])(
+        'selecting %s leaves the clause without operations',
+        (metricName) => {
+            logic.actions.setMetricName(metricName)
+            expect(logic.values.aggregation).toBeNull()
+            expect(logic.values.rangeFunction).toBeNull()
+            expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'none' })
+        }
+    )
 
-    it('keeps a manual aggregation pick until the metric changes', () => {
+    it('keeps the operations when the metric changes', () => {
         logic.actions.setMetricName('requests_total')
-        logic.actions.setAggregation('rate')
-        expect(logic.values.aggregation).toBe('rate')
+        logic.actions.setRangeFunction('rate')
+        logic.actions.setAggregation('max')
         logic.actions.setMetricName('queue_depth')
-        expect(logic.values.aggregation).toBe('avg')
+        expect(logic.values.rangeFunction).toBe('rate')
+        expect(logic.values.aggregation).toBe('max')
     })
 
-    it('leaves aggregation untouched for unknown metric types', () => {
+    it('sends a range function without an aggregation as per-series rates', () => {
         logic.actions.setMetricName('requests_total')
-        logic.actions.setMetricName('mystery_metric')
-        expect(logic.values.aggregation).toBe('increase')
+        logic.actions.setRangeFunction('rate')
+        expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({ aggregation: 'none', rangeFunction: 'rate' })
+        expect(logic.values.metricsQueryNode?.clauses[0]).toEqual({
+            name: 'a',
+            metricName: 'requests_total',
+            metricType: 'sum',
+            rangeFunction: 'rate',
+        })
+    })
+
+    it('clears group-by when the aggregation is removed', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('avg')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setAggregation(null)
+        expect(logic.values.groupByKeys).toEqual([])
     })
 
     // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
     // silently saves insights that re-run a different query than the viewer showed.
     it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
         logic.actions.setMetricName('request_duration')
+        logic.actions.setAggregation('p95')
         logic.actions.setGroupByKeys(['container'])
         logic.actions.setFilterGroup(
             filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
@@ -150,19 +168,135 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
     })
 
+    // A latency-over-time heatmap is only meaningful for a distribution metric — offering it
+    // for a gauge or counter would render a meaningless all-in-one-bucket chart.
+    it.each([
+        ['request_duration', 'histogram', true],
+        ['queue_depth', 'gauge', false],
+        ['requests_total', 'sum', false],
+    ])('heatmap eligibility for %s (%s) is %s', (metricName, _type, expected) => {
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.heatmapEligible).toBe(expected)
+    })
+
+    // The heatmap reads a single distribution: a multi-series or formula query has no one
+    // histogram to grid, so the option is ineligible there too.
+    it('is not heatmap-eligible for multi-series or formula queries', () => {
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.heatmapEligible).toBe(true)
+
+        logic.actions.setFormula('a / 2')
+        expect(logic.values.heatmapEligible).toBe(false)
+        logic.actions.setFormula('')
+
+        logic.actions.addClause()
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.heatmapEligible).toBe(false)
+    })
+
+    // The heatmap runs a MetricsHistogramQuery built from the same clause and window as the
+    // time-series MetricsQuery, so the tile re-runs exactly what the viewer shows.
+    it('maps the active histogram clause to a MetricsHistogramQuery node', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
+        )
+        logic.actions.setDateFrom('-24h')
+
+        expect(logic.values.histogramQueryNode).toEqual({
+            kind: NodeKind.MetricsHistogramQuery,
+            metricName: 'request_duration',
+            metricType: 'histogram',
+            filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+            dateRange: { date_from: '-24h' },
+        })
+    })
+
+    it('produces no MetricsHistogramQuery node when the query is not heatmap-eligible', () => {
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.histogramQueryNode).toBeNull()
+    })
+
+    // "Save as insight" on the heatmap persists the histogram query node, not the time-series
+    // node, so the saved tile renders the same heatmap the viewer showed.
+    it('saves the histogram query node when the heatmap display is selected', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setDisplayType('heatmap')
+
+        expect(logic.values.savedQueryNode?.kind).toBe(NodeKind.MetricsHistogramQuery)
+        expect(logic.values.metricsQueryNode?.kind).toBe(NodeKind.MetricsQuery)
+    })
+
+    // Mirrors the needsGroupBy fallback: a query that stops being heatmap-eligible (a metric
+    // switch to a gauge, a formula added) cannot stay on a display type that no longer applies.
+    it('falls back to the default display when the query stops being heatmap-eligible', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setDisplayType('heatmap')
+        expect(logic.values.displayType).toBe('heatmap')
+
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.displayType).toBe('line')
+    })
+
+    // The heatmap grids one distribution as-is; the histogram query has no grouping field,
+    // so a grouped clause would render its heatmap with the grouping silently dropped.
+    it('is not heatmap-eligible for a grouped clause', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setGroupByKeys(['container'])
+
+        expect(logic.values.heatmapEligible).toBe(false)
+        expect(logic.values.histogramQueryNode).toBeNull()
+    })
+
+    // The display latches only at metric-switch time, so every other change that makes the
+    // query ineligible (a formula, a second clause, a URL restore, a group-by) must fall
+    // back too — otherwise the viewer keeps "heatmap" selected while rendering a time
+    // series, and saving silently does nothing (savedQueryNode is null).
+    it('falls back to the default display from heatmap on any eligibility loss', () => {
+        const expectHeatmapFallback = (act: () => void): void => {
+            logic.actions.setClauses([createViewerClause('a')], '')
+            logic.actions.setMetricName('request_duration')
+            logic.actions.setDisplayType('heatmap')
+            expect(logic.values.displayType).toBe('heatmap')
+
+            act()
+            expect(logic.values.displayType).toBe('line')
+        }
+
+        expectHeatmapFallback(() => logic.actions.setFormula('a / 2'))
+        expectHeatmapFallback(() => {
+            logic.actions.addClause()
+            logic.actions.setMetricName('queue_depth')
+        })
+        expectHeatmapFallback(() => logic.actions.duplicateClause(0))
+        expectHeatmapFallback(() => logic.actions.setGroupByKeys(['container']))
+        expectHeatmapFallback(() =>
+            logic.actions.setClauses([createViewerClause('a'), createViewerClause('b')], 'a / 2')
+        )
+    })
+
     // Guards the multi-series save path: each clause carries its own metric/aggregation,
     // and the (sanitized) formula rides along — otherwise a saved insight re-runs a
     // different query than the viewer showed.
     it('maps multiple clauses and a formula into the MetricsQuery node', () => {
         logic.actions.setMetricName('requests_total')
+        logic.actions.setRangeFunction('increase')
+        logic.actions.setAggregation('sum')
         logic.actions.addClause()
         logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('avg')
         logic.actions.setFormula('A / b!')
 
         expect(logic.values.metricsQueryNode).toEqual({
             kind: NodeKind.MetricsQuery,
             clauses: [
-                { name: 'a', metricName: 'requests_total', aggregation: 'increase', metricType: 'sum' },
+                {
+                    name: 'a',
+                    metricName: 'requests_total',
+                    rangeFunction: 'increase',
+                    aggregation: 'sum',
+                    metricType: 'sum',
+                },
                 { name: 'b', metricName: 'queue_depth', aggregation: 'avg', metricType: 'gauge' },
             ],
             formula: 'a / b',
@@ -175,6 +309,7 @@ describe('metricsViewerLogic', () => {
     // shows one series' samples under another series' chart line.
     it('single-clause setters and selectors follow the active clause', () => {
         logic.actions.setMetricName('requests_total')
+        logic.actions.setAggregation('sum')
         logic.actions.addClause()
         expect(logic.values.activeClauseIndex).toBe(1)
 
@@ -183,7 +318,7 @@ describe('metricsViewerLogic', () => {
 
         logic.actions.setActiveClauseIndex(0)
         expect(logic.values.metricName).toBe('requests_total')
-        expect(logic.values.aggregation).toBe('increase')
+        expect(logic.values.aggregation).toBe('sum')
     })
 
     // A formula referencing a removed clause's alias can only 400 — a routine remove
@@ -266,6 +401,20 @@ describe('metricsViewerLogic', () => {
         expect(firstSignal?.aborted).toBe(true)
     })
 
+    it('hides the anomaly badge silently when characterize fails', async () => {
+        jest.mocked(metricsCharacterizeCreate).mockRejectedValue({ status: 500, detail: 'boom' })
+        const toastSpy = jest.spyOn(lemonToast, 'error')
+        logic.actions.setMetricName('requests_total')
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchAnomaly({})
+        }).toDispatchActions(['fetchAnomalySuccess'])
+
+        expect(logic.values.anomalyReport).toBeNull()
+        expect(toastSpy).not.toHaveBeenCalled()
+        toastSpy.mockRestore()
+    })
+
     it('names a formula insight after the formula and its inputs', async () => {
         jest.mocked(insightsApi.create).mockImplementation(
             async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
@@ -299,15 +448,13 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
-    it('backfills the metric type and recommended aggregation when the picker loads after the metric was set', () => {
+    it('backfills the metric type when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
-        // A cold URL restore sets the name before the list arrives, so without the late
-        // recommendation a gauge/counter link would silently chart as a raw sum.
-        expect(logic.values.aggregation).toBe('avg')
+        expect(logic.values.aggregation).toBeNull()
     })
 
     it('the late backfill leaves an explicitly chosen aggregation alone', () => {
@@ -351,7 +498,7 @@ describe('metricsViewerLogic', () => {
         await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
 
         logic.actions.closeAddToDashboardModal()
-        logic.actions.setAggregation('rate')
+        logic.actions.setRangeFunction('rate')
         logic.actions.addToDashboard()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
@@ -484,7 +631,7 @@ describe('metricsViewerLogic', () => {
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
 
-        logic.actions.setAggregation('rate')
+        logic.actions.setRangeFunction('rate')
         logic.actions.createAlert()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
@@ -506,7 +653,7 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.pendingAlert).toBe(false)
 
         push.mockClear()
-        logic.actions.setAggregation('rate')
+        logic.actions.setRangeFunction('rate')
         logic.actions.saveAsInsight()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
         expect(push).not.toHaveBeenCalled()
@@ -718,5 +865,126 @@ describe('metricsViewerLogic', () => {
 
         expect(insightsApi.create).not.toHaveBeenCalled()
         expect(logic.values.pendingAddToDashboard).toBe(false)
+    })
+
+    it.each([
+        ['UTC', '2026-06-15T10:00:00.000Z'],
+        ['Europe/Zurich', '2026-06-15T08:00:00.000Z'],
+        ['America/New_York', '2026-06-15T14:00:00.000Z'],
+    ])('resolves a custom date in the project timezone %s', (timezone, expected) => {
+        expect(resolveDate('2026-06-15T10:00:00', timezone)).toBe(expected)
+    })
+
+    it.each([
+        ['UTC', '2026-06-08T00:00:00.000Z'],
+        ['Europe/Zurich', '2026-06-07T22:00:00.000Z'],
+        ['America/New_York', '2026-06-08T04:00:00.000Z'],
+    ])('resolves a relative date from midnight in the project timezone %s', (timezone, expected) => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-15T10:00:00Z'))
+        try {
+            expect(resolveDate('-7d', timezone)).toBe(expected)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    describe('insight editor instance', () => {
+        const SAVED_QUERY: MetricsQuery = {
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                {
+                    name: 'a',
+                    metricName: 'request_duration',
+                    aggregation: 'quantile',
+                    metricType: 'histogram',
+                    quantile: 0.95,
+                    filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+                    groupBy: [{ key: 'container' }],
+                },
+                { name: 'b', metricName: 'requests_total', rangeFunction: 'rate', metricType: 'sum' },
+            ],
+            formula: 'a / b',
+            dateRange: { date_from: '-6h' },
+            interval: 'minute_5',
+            display: { type: 'area' },
+        }
+
+        // The editor writes this node back to the insight; if it differs from the saved
+        // query, merely opening edit mode would mark the insight as changed.
+        it('maps a saved query back to the same node', () => {
+            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: SAVED_QUERY })
+            editor.mount()
+            expect(editor.values.metricsQueryNode).toEqual(SAVED_QUERY)
+            editor.unmount()
+        })
+
+        it('keeps its state apart from the viewer', () => {
+            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: SAVED_QUERY })
+            editor.mount()
+            editor.actions.setInterval('hour')
+            expect(editor.values.interval).toBe('hour')
+            expect(logic.values.interval).toBeNull()
+            expect(logic.values.viewerClauses).toHaveLength(1)
+            editor.unmount()
+        })
+
+        it('keeps the saved aggregation when the picker backfills the type', () => {
+            const editor = metricsViewerLogic({
+                key: 'editor-test',
+                initialQuery: {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'sum' }],
+                },
+            })
+            editor.mount()
+            metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+            expect(editor.values.aggregation).toBe('sum')
+            editor.unmount()
+        })
+    })
+
+    it('reads a saved query with a legacy rate aggregation as a rate range function over a sum', () => {
+        const editor = metricsViewerLogic({
+            key: 'legacy-test',
+            initialQuery: {
+                kind: NodeKind.MetricsQuery,
+                clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'rate' }],
+            },
+        })
+        editor.mount()
+        expect(editor.values.rangeFunction).toBe('rate')
+        expect(editor.values.aggregation).toBe('sum')
+        editor.unmount()
+    })
+
+    it('sends the picked interval to the viewer query', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setInterval('minute')
+        expect(logic.values.queryPayload?.interval).toBe('minute')
+        expect(logic.values.metricsQueryNode?.interval).toBe('minute')
+        logic.actions.setInterval(null)
+        expect(logic.values.queryPayload).not.toHaveProperty('interval')
+    })
+})
+
+describe('isBuilderCompatibleQuery', () => {
+    const queryWith = (clause: Partial<MetricsQuery['clauses'][number]>): MetricsQuery => ({
+        kind: NodeKind.MetricsQuery,
+        clauses: [{ name: 'a', metricName: 'm', aggregation: 'sum', ...clause }],
+    })
+
+    it.each([
+        ['a viewer aggregation', queryWith({ aggregation: 'max' }), true],
+        ['no aggregation', queryWith({ aggregation: undefined }), true],
+        ['a legacy rate aggregation', queryWith({ aggregation: 'rate' }), true],
+        ['a range function', queryWith({ aggregation: undefined, rangeFunction: 'rate' }), true],
+        ['p95', queryWith({ aggregation: 'quantile', quantile: 0.95 }), true],
+        ['another quantile', queryWith({ aggregation: 'quantile', quantile: 0.99 }), false],
+        ['histogram_quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), false],
+        ['a scoped filter', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'resource' }] }), false],
+        ['a scoped group-by', queryWith({ groupBy: [{ key: 'k', scope: 'attribute' }] }), false],
+        ['auto scopes', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'auto' }] }), true],
+    ])('%s', (_name, query, expected) => {
+        expect(isBuilderCompatibleQuery(query)).toBe(expected)
     })
 })

@@ -6,6 +6,7 @@ import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -25,6 +26,8 @@ import {
     type TeamType,
 } from '~/types'
 
+import { inboxSceneLogic } from 'products/signals/frontend/inbox/inboxSceneLogic'
+
 import { sceneLogic } from './sceneLogic'
 import type { testLogicType } from './sceneLogic.testType'
 
@@ -33,6 +36,7 @@ jest.mock('lib/api', () => ({
     default: {
         get: jest.fn(),
         update: jest.fn(),
+        signalReports: { availableReviewers: jest.fn().mockResolvedValue([]) },
     },
 }))
 
@@ -42,6 +46,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
+    [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
@@ -50,6 +55,8 @@ const testScenes: Record<string, () => any> = {
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
+    Inbox: sceneImport,
+    ScoutTrials: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
 }
 
@@ -92,6 +99,8 @@ describe('sceneLogic', () => {
         [urls.settings('user'), Scene.Settings],
         [urls.projectFiles(), Scene.ProjectFiles],
         [urls.projectFiles('Research'), Scene.ProjectFiles],
+        [urls.inboxScout('trials'), 'Inbox'],
+        [urls.inboxScout('trials', 'finding-1'), 'Inbox'],
     ])('changing URL to %s loads its own scene', async (url, sceneId) => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
@@ -130,6 +139,38 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
+
+    it.each<[string, boolean]>([
+        ['/inbox/scout-trials', false],
+        ['/inbox/scout-trials', true],
+        ['/scout-trials', false],
+        ['/scout-trials', true],
+    ])(
+        'opens %s on the canonical scout trials route with inbox mounted=%p and preserves URL parameters',
+        async (path, inboxMounted) => {
+            await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+                sceneId: Scene.DataManagement,
+            })
+            const inbox = inboxMounted ? inboxSceneLogic() : null
+            inbox?.mount()
+            try {
+                await expectLogic(logic, () => {
+                    router.actions.push(path, { source: 'bookmark' }, { comparison: 'comparison-1' })
+                })
+                    .toDispatchActions(['openScene', 'loadScene', 'setScene'])
+                    .toMatchValues({ activeSceneId: 'ScoutTrials' })
+
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/inbox/scout-trials')
+                expect(router.values.searchParams).toEqual({ source: 'bookmark' })
+                expect(router.values.hashParams).toEqual({ comparison: 'comparison-1' })
+                if (inbox) {
+                    expect(inbox.values.selectedScoutSkillName).toBeNull()
+                }
+            } finally {
+                inbox?.unmount()
+            }
+        }
+    )
 
     it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
         router.actions.push('/billing')
@@ -227,6 +268,19 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams).toEqual(hash)
     })
 
+    it('redirects a copied event link to the activity list filtered to its uuid and event name', async () => {
+        const uuid = '0190a4c2-0000-7000-8000-000000000001'
+        router.actions.push(urls.event(uuid, '2026-01-01T00:00:00.000Z', '$feature_flag_called'))
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
+            urls.activity(ActivityTab.ExploreEvents)
+        )
+        expect(router.values.hashParams.q.source).toMatchObject({
+            event: '$feature_flag_called',
+            properties: [{ key: `uuid = '${uuid}'` }],
+        })
+    })
+
     it.each([
         ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
         [
@@ -281,6 +335,31 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it.each([
+        [AccessControlLevel.Viewer, Scene.AIObservabilityEvaluations],
+        [AccessControlLevel.None, Scene.ErrorAccessDenied],
+    ])('gates the combined evaluations entry with scorer access %s', async (scorerAccess, expectedScene) => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.Evaluation]: AccessControlLevel.None,
+                    [AccessControlResourceType.LlmAnalytics]: scorerAccess,
+                },
+            } as AppContext
+            logic.actions.setScene(Scene.AIObservabilityEvaluations, 'aiObservabilityEvaluations', {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+            await expectLogic(logic).toMatchValues({ activeSceneId: expectedScene })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 
     it('does not blanket deny the combined alerts scene without insight access', async () => {
@@ -423,6 +502,16 @@ describe('sceneLogic', () => {
             router.actions.push(urls.projectHomepage())
             await expectLogic(logic).delay(1)
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+        })
+
+        it('stays on /home with the rail nav even when a homepage is configured', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
         it('stays on the launchpad at /home when no homepage is configured', async () => {

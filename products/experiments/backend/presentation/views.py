@@ -123,6 +123,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -133,7 +134,7 @@ from products.experiments.backend.running_time_calculator import (
     calculate_variance_from_stats,
 )
 from products.experiments.backend.session_buckets import (
-    SessionBucket,
+    ExperimentSessionBucket,
     SessionBucketUnavailable,
     finalize_session_bucket,
     get_experiment_session_bucket,
@@ -150,9 +151,6 @@ from products.experiments.backend.setup_context import (
     EXPERIMENT_SETUP_CONTEXT_FLAG,
     SetupContextInputs,
     build_setup_context,
-)
-from products.experiments.backend.temporal.models import (
-    ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -324,7 +322,7 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         name="search",
         location=OpenApiParameter.QUERY,
         type=str,
-        description="Free-text search applied to the experiment name (case-insensitive).",
+        description="Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
         required=False,
     ),
     OpenApiParameter(
@@ -1365,6 +1363,12 @@ class EnterpriseExperimentsViewSet(
         responses={
             200: ExperimentMetricsRecalculationJobSerializer,
             201: ExperimentMetricsRecalculationJobSerializer,
+            429: OpenApiResponse(
+                description=(
+                    "A manual trigger arrived less than five minutes after the latest completed run finished. "
+                    "Retry-After carries the seconds until the next run is allowed."
+                )
+            ),
         },
     )
     @action(
@@ -1377,7 +1381,8 @@ class EnterpriseExperimentsViewSet(
         """Trigger a batch recalculation of all metrics for this experiment.
 
         Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
-        already pending or in progress for this experiment. The response payload intentionally does not
+        already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+        completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
         include the `results` array — at POST time the workflow has just been queued and no per-metric
         results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
         progresses.
@@ -1400,36 +1405,11 @@ class EnterpriseExperimentsViewSet(
         is_existing = result.get("is_existing", False)
 
         if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(
-                            recalculation_id=recalculation_id,
-                            fairness_key=str(experiment.team.organization_id),
-                        ),
-                        id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-                # where only discovery ran, the rollback wins deliberately: the mark_started and
-                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
-                # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
-                    team=self.team,
-                    id=recalculation_id,
-                    status=ExperimentMetricsRecalculation.Status.PENDING,
-                    query_to__isnull=True,
-                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+            start_metrics_recalculation_workflow(
+                str(result["id"]),
+                team_id=experiment.team_id,
+                organization_id=str(experiment.team.organization_id),
+            )
 
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
@@ -1790,7 +1770,7 @@ class EnterpriseExperimentsViewSet(
                 # property-level access control.
                 user=cast(User, request.user),
                 experiment=experiment,
-                bucket=SessionBucket(request.validated_data["bucket"]),
+                bucket=ExperimentSessionBucket(request.validated_data["bucket"]),
                 metric_uuids=request.validated_data["metric_uuids"],
                 variant=request.validated_data["variant"],
                 limit=request.validated_data["limit"],

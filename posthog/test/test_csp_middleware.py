@@ -1,8 +1,10 @@
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
 from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
@@ -27,6 +29,40 @@ def _parse_policies(header: str) -> list[dict[str, list[str]]]:
 
 def _report_version(policy: dict[str, list[str]]) -> list[str] | None:
     return parse_qs(urlsplit(policy.get("report-uri", [""])[0]).query).get("v")
+
+
+_US_BUNDLE = "https://app-static-prod.posthog.com"
+
+
+class _PageLoads(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scripts: list[tuple[dict[str, str | None], str]] = []
+        self.stylesheets: list[str] = []
+        self._script: dict[str, str | None] | None = None
+        self._script_body = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script":
+            self._script, self._script_body = dict(attrs), ""
+        elif tag == "link" and dict(attrs).get("rel") == "stylesheet":
+            self.stylesheets.append(dict(attrs).get("href") or "")
+
+    def handle_data(self, data: str) -> None:
+        if self._script is not None:
+            self._script_body += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script" and self._script is not None:
+            self.scripts.append((self._script, self._script_body.strip()))
+            self._script = None
+
+
+def _admits(sources: list[str], url: str) -> bool:
+    parts = urlsplit(url)
+    if not parts.netloc:
+        return "'self'" in sources
+    return f"{parts.scheme}://{parts.netloc}" in sources
 
 
 # Tests run as a self-hosted install, which never enforces. LOCAL enforces without turning on DEBUG.
@@ -99,6 +135,39 @@ class TestCSPMiddleware(APIBaseTest):
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
+    @parameterized.expand([("swagger", "/api/schema/swagger-ui/"), ("redoc", "/api/schema/redoc/")])
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL="https://app-static-prod.posthog.com",
+    )
+    def test_api_doc_pages_load_only_what_the_app_policy_admits(self, _name: str, path: str) -> None:
+        # drf-spectacular defaults to a public CDN and to an inline init script with no nonce. The
+        # enforced app policy refuses both, and the page renders blank with no error shown.
+        response = self.client.get(path)
+        assert response.status_code == 200
+        policy = next(p for p in _parse_policies(response["Content-Security-Policy"]) if "script-src" in p)
+        page = _PageLoads()
+        page.feed(response.content.decode())
+
+        assert page.scripts
+        for attrs, body in page.scripts:
+            src = attrs.get("src")
+            if src is None:
+                assert f"'nonce-{attrs.get('nonce')}'" in policy["script-src"], body[:80]
+            else:
+                assert _admits(policy["script-src"], src), src
+                if not urlsplit(src).netloc and not src.startswith(settings.STATIC_URL):
+                    # The Swagger init script comes from the page's own URL. A response that is not
+                    # JavaScript leaves the page blank without any violation to report.
+                    script = self.client.get(src)
+                    assert script.status_code == 200, src
+                    assert "javascript" in script["Content-Type"], src
+        for href in page.stylesheets:
+            assert _admits(policy["style-src"], href), href
+
     @parameterized.expand(
         [
             ("app_root", "/", True),
@@ -124,7 +193,7 @@ class TestCSPMiddleware(APIBaseTest):
         # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
         # The enforced list has to be the one the reported policy names, or the two drift apart.
         enforced = response["Content-Security-Policy"]
-        assert enforced.startswith("frame-ancestors https://posthog.com")
+        assert enforced.startswith("frame-ancestors 'self' https://posthog.com")
         assert "default-src" not in enforced
         assert enforced in reported
 
@@ -313,18 +382,26 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://live.{region}.posthog.com" in connect_src
         assert f"https://webhooks.{region}.posthog.com" in connect_src
         assert f"https://{region}.i.posthog.com/decide/" in connect_src
+        assert f"https://{region}.i.posthog.com/i/v0/e/" in connect_src
+        # The bare origin would admit every endpoint on the ingestion host, not only the paths the app calls.
+        assert f"https://{region}.i.posthog.com" not in connect_src
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
     @parameterized.expand(
         [
-            ("enforced_app_page", "/", {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com"}, True),
-            # This document already sends the app policy report-only, so the shadow must join that header.
+            (
+                "enforced_app_page",
+                "/",
+                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
+                True,
+            ),
+            # This document already sends the app policy report-only, so the shadows must join that header.
             (
                 "report_only_embeddable_document",
                 "/shared/notarealtoken",
-                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com"},
+                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
                 True,
             ),
             (
@@ -339,8 +416,8 @@ class TestCSPMiddleware(APIBaseTest):
             ),
         ]
     )
-    def test_cloud_reports_images_that_need_https_without_blocking_them(
-        self, _name: str, path: str, overrides: dict[str, str | None], expects_shadow: bool
+    def test_cloud_reports_narrower_sources_without_blocking_them(
+        self, _name: str, path: str, overrides: dict[str, str | None], expects_shadows: bool
     ) -> None:
         with override_settings(TEST=False, DEBUG=False, E2E_TESTING=False, **overrides):
             response = self.client.get(path)
@@ -350,18 +427,32 @@ class TestCSPMiddleware(APIBaseTest):
         (app_policy,) = [policy for policy in enforced + reported if "default-src" in policy]
         # The app policy keeps `https:`, so the shadow reports images without blocking any.
         assert "https:" in app_policy["img-src"]
-        # Enforced, the shadow would block every image from a host it does not name.
-        assert [policy for policy in enforced if _report_version(policy) == ["5"]] == []
-        shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
-        if not expects_shadow:
-            assert shadows == []
+        # The app policy keeps the wildcards until the v=6 reports show the named hosts are complete.
+        assert "https://*.posthog.com" in app_policy["style-src"]
+        assert "https://*.posthog.com" in app_policy["font-src"]
+        # Enforced, a shadow would block every image, stylesheet or font from a host it does not name.
+        assert [policy for policy in enforced if _report_version(policy) in (["5"], ["6"])] == []
+        image_shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
+        style_font_shadows = [policy for policy in reported if _report_version(policy) == ["6"]]
+        if not expects_shadows:
+            assert image_shadows == style_font_shadows == []
             return
 
-        (shadow,) = shadows
+        (image_shadow,) = image_shadows
         # Any other directive would make a v=5 report mean something besides "this image needs https:".
-        assert set(shadow) == {"img-src", "report-uri"}
-        assert "https:" not in shadow["img-src"]
-        assert "https://www.gravatar.com" in shadow["img-src"]
+        assert set(image_shadow) == {"img-src", "report-uri"}
+        assert "https:" not in image_shadow["img-src"]
+        assert "https://www.gravatar.com" in image_shadow["img-src"]
+
+        (style_font_shadow,) = style_font_shadows
+        # Any other directive would make a v=6 report mean something besides "this host is missing".
+        assert set(style_font_shadow) == {"style-src", "font-src", "report-uri"}
+        for sources in (style_font_shadow["style-src"], style_font_shadow["font-src"]):
+            # A wildcard admits every PostHog host, so a missed host would never report.
+            assert "https://*.posthog.com" not in sources
+            # Without these, every page load reports its own bundle or the toolbar, and a real miss is lost.
+            assert _US_BUNDLE in sources
+            assert "https://internal-cf.posthog.com/static/" in sources
 
     @override_settings(
         OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",
@@ -394,7 +485,6 @@ class TestAppCspHeaderName(SimpleTestCase):
             ("shared_dashboard", "/shared_dashboard/abc123"),
             ("shared", "/shared/abc123"),
             ("embedded", "/embedded/abc123"),
-            ("interview", "/interview/abc123"),
             ("exporter_with_token", "/exporter/abc123"),
             ("exporter_render", "/exporter"),
             ("render_query", "/render_query"),

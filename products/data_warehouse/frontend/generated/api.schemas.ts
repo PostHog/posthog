@@ -130,6 +130,11 @@ export interface PipelineActivityRowApi {
      * @nullable
      */
     origin: string | null
+    /**
+     * Id of the source the run belongs to, for linking to it. Null for model runs.
+     * @nullable
+     */
+    source_id?: string | null
 }
 
 export interface PipelineActivityResponseApi {
@@ -1360,6 +1365,15 @@ export const DataWarehouseSavedQueryStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
 /**
  * * `data_warehouse` - Data Warehouse
  * * `endpoint` - Endpoint
@@ -1375,6 +1389,11 @@ export const DataWarehouseSavedQueryOriginEnumApi = {
 } as const
 
 export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryMinimalApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Lightweight serializer for list views - excludes large query field to reduce memory usage.
@@ -1402,6 +1421,8 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly folder_name: string | null
     /** @nullable */
     readonly latest_error: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryMinimalApiSuspended
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Whether this view is set up to update incrementally. A run can still rebuild the whole table, for example on the first run or after the query changes. */
@@ -1451,15 +1472,6 @@ export type DataWarehouseSavedQueryApiQuery = {
 }
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
-
-export interface SavedQuerySuspensionApi {
-    /** When materialization was suspended. */
-    at: string
-    /** Error from the materialization run that tripped suspension. */
-    reason: string
-    /** Materialization job that tripped suspension. */
-    job_id: string
-}
 
 /**
  * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
@@ -2651,6 +2663,7 @@ export interface CredentialApi {
  * * `Squarespace` - Squarespace
  * * `Statsig` - Statsig
  * * `Statuspage` - Statuspage
+ * * `Steam` - Steam
  * * `Stigg` - Stigg
  * * `Strava` - Strava
  * * `SurveySparrow` - SurveySparrow
@@ -3161,6 +3174,7 @@ export interface CredentialApi {
  * * `Donorbox` - Donorbox
  * * `Doorloop` - Doorloop
  * * `Dovetail` - Dovetail
+ * * `Dragonboat` - Dragonboat
  * * `Drchrono` - Drchrono
  * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
  * * `EcbDataPortal` - EcbDataPortal
@@ -3396,6 +3410,7 @@ export interface CredentialApi {
  * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
  * * `WhoGho` - WhoGho
  * * `Whop` - Whop
+ * * `Wistia` - Wistia
  * * `Wiz` - Wiz
  * * `Wompi` - Wompi
  * * `Workiz` - Workiz
@@ -3506,6 +3521,26 @@ export interface CredentialApi {
  * * `Commslayer` - Commslayer
  * * `Sprinto` - Sprinto
  * * `Gem` - Gem
+ * * `AudioGO` - AudioGO
+ * * `ExactOnline` - ExactOnline
+ * * `LettrLabs` - LettrLabs
+ * * `GrafanaIRM` - GrafanaIRM
+ * * `Tessitura` - Tessitura
+ * * `ChargebackStop` - ChargebackStop
+ * * `Chargeflow` - Chargeflow
+ * * `Dreamdata` - Dreamdata
+ * * `GoogleBusinessProfile` - GoogleBusinessProfile
+ * * `Ledyer` - Ledyer
+ * * `Supermetrics` - Supermetrics
+ * * `SQLite` - SQLite
+ * * `Modal` - Modal
+ * * `Vimeo` - Vimeo
+ * * `Scrunch` - Scrunch
+ * * `Loom` - Loom
+ * * `Arcade` - Arcade
+ * * `Neo4j` - Neo4j
+ * * `TestDino` - TestDino
+ * * `ChessCom` - ChessCom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4006,6 +4041,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Squarespace: 'Squarespace',
     Statsig: 'Statsig',
     Statuspage: 'Statuspage',
+    Steam: 'Steam',
     Stigg: 'Stigg',
     Strava: 'Strava',
     SurveySparrow: 'SurveySparrow',
@@ -4516,6 +4552,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Donorbox: 'Donorbox',
     Doorloop: 'Doorloop',
     Dovetail: 'Dovetail',
+    Dragonboat: 'Dragonboat',
     Drchrono: 'Drchrono',
     Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
     EcbDataPortal: 'EcbDataPortal',
@@ -4751,6 +4788,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WhatsappBusinessManagement: 'WhatsappBusinessManagement',
     WhoGho: 'WhoGho',
     Whop: 'Whop',
+    Wistia: 'Wistia',
     Wiz: 'Wiz',
     Wompi: 'Wompi',
     Workiz: 'Workiz',
@@ -4861,6 +4899,26 @@ export const ExternalDataSourceTypeEnumApi = {
     Commslayer: 'Commslayer',
     Sprinto: 'Sprinto',
     Gem: 'Gem',
+    AudioGO: 'AudioGO',
+    ExactOnline: 'ExactOnline',
+    LettrLabs: 'LettrLabs',
+    GrafanaIRM: 'GrafanaIRM',
+    Tessitura: 'Tessitura',
+    ChargebackStop: 'ChargebackStop',
+    Chargeflow: 'Chargeflow',
+    Dreamdata: 'Dreamdata',
+    GoogleBusinessProfile: 'GoogleBusinessProfile',
+    Ledyer: 'Ledyer',
+    Supermetrics: 'Supermetrics',
+    SQLite: 'SQLite',
+    Modal: 'Modal',
+    Vimeo: 'Vimeo',
+    Scrunch: 'Scrunch',
+    Loom: 'Loom',
+    Arcade: 'Arcade',
+    Neo4j: 'Neo4j',
+    TestDino: 'TestDino',
+    ChessCom: 'ChessCom',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5291,10 +5349,11 @@ export type DataWarehouseCompletedActivityRetrieveParams = {
      */
     offset?: number
     /**
-     * Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.
+     * Which outcome to return: 'completed', 'failed', or 'all' for every run that finished either way. Defaults to 'completed'. Running jobs come from `running_activity` instead.
      *
      * * `completed` - completed
      * * `failed` - failed
+     * * `all` - all
      * @minLength 1
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome
@@ -5315,6 +5374,7 @@ export type DataWarehouseCompletedActivityRetrieveOutcome =
 export const DataWarehouseCompletedActivityRetrieveOutcome = {
     Completed: 'completed',
     Failed: 'failed',
+    All: 'all',
 } as const
 
 export type DataWarehouseJobStatsRetrieveParams = {
@@ -5398,6 +5458,39 @@ export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
      */
     source_id: string
 }
+
+export type DataWarehouseRunningActivityRetrieveParams = {
+    /**
+     * Only include runs created within this many days of now. Defaults to 30.
+     */
+    cutoff_days?: number
+    /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseRunningActivityRetrieveKind
+    /**
+     * Max rows to return. Capped at 50 server-side. Defaults to 20.
+     */
+    limit?: number
+    /**
+     * Rows to skip, for pagination. Defaults to 0.
+     */
+    offset?: number
+}
+
+export type DataWarehouseRunningActivityRetrieveKind =
+    (typeof DataWarehouseRunningActivityRetrieveKind)[keyof typeof DataWarehouseRunningActivityRetrieveKind]
+
+export const DataWarehouseRunningActivityRetrieveKind = {
+    All: 'all',
+    Import: 'import',
+    Model: 'model',
+} as const
 
 export type FixHogqlListParams = {
     /**

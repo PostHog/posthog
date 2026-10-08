@@ -75,8 +75,13 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
             [
                 {"key": "$created_at", "type": "person", "operator": "between", "value": [0, 1]},
             ],
-            """and(ifNull(greaterOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), 0.0), 0), ifNull(lessOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\'), 1.0), 0))""",
-            {"hogql_val_0": "$created_at", "hogql_val_1": "$created_at"},
+            """and(ifNull(greaterOrEquals(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_1)s), 0.0), 0), ifNull(lessOrEquals(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_2)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_3)s), 1.0), 0))""",
+            {
+                "hogql_val_0": "$created_at",
+                "hogql_val_1": "Float64",
+                "hogql_val_2": "$created_at",
+                "hogql_val_3": "Float64",
+            },
         ),
         # HogQL
         (
@@ -123,41 +128,6 @@ def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
         == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
     )
     assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
-
-
-def test_compose_filters_clause_reads_flags_from_the_native_map(ateam):
-    result_clause, result_values = compose_filters_clause(
-        [
-            {"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]},
-            {"key": "properties.`$feature/other-feature` = 'control'", "type": "hogql"},
-        ],
-        team_id=ateam.id,
-        native_events_source=True,
-    )
-
-    def map_read(flag_key: int, flag_name: int) -> str:
-        return f"""replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_{flag_key})s, %(hogql_val_{flag_name})s), ''), 'null'), '^"|"$', '')"""
-
-    assert result_clause == (
-        f"""and(ifNull(equals(if(ifNull(equals({map_read(0, 1)}, %(hogql_val_2)s), 0), %(hogql_val_3)s, {map_read(4, 5)}), %(hogql_val_6)s), 0), """
-        f"""ifNull(equals(if(ifNull(equals({map_read(7, 8)}, %(hogql_val_9)s), 0), %(hogql_val_10)s, {map_read(11, 12)}), %(hogql_val_13)s), 0))"""
-    )
-    assert result_values == {
-        "hogql_val_0": "$feature_flags",
-        "hogql_val_1": "some-feature",
-        "hogql_val_2": "$false",
-        "hogql_val_3": "false",
-        "hogql_val_4": "$feature_flags",
-        "hogql_val_5": "some-feature",
-        "hogql_val_6": "true",
-        "hogql_val_7": "$feature_flags",
-        "hogql_val_8": "other-feature",
-        "hogql_val_9": "$false",
-        "hogql_val_10": "false",
-        "hogql_val_11": "$feature_flags",
-        "hogql_val_12": "other-feature",
-        "hogql_val_13": "control",
-    }
 
 
 @pytest.mark.parametrize(

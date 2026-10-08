@@ -22,15 +22,7 @@ import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from posthog.schema import (
-    ActionsNode,
-    ExperimentEventExposureConfig,
-    ExperimentExposureCriteria,
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
-    ExperimentMetric,
-    ExperimentRetentionMetric,
-)
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureCriteria
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -48,19 +40,18 @@ from posthog.exceptions import (
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.filters.filter import Filter
+from posthog.models.entity.entity import Entity, parse_entities
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
+from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -70,14 +61,17 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
+from products.experiments.backend.metric_validation import (
+    extract_entity_nodes,
+    parse_and_validate_metric,
+    validate_metric_action_ids,
+    validate_saved_metric_link_overrides,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -144,6 +138,8 @@ class CleanupRequestSummary(TypedDict):
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
+# The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
+ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
 
 
 def _parse_tag_names(value: Any) -> list[str]:
@@ -166,15 +162,29 @@ DEFAULT_VARIANTS = [
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
 
-# Synchronous freeze-exposure bounds. The snapshot is built inline in the request, so we cap both the
-# time spent scanning $feature_flag_called events (ClickHouse) and the number of exposed users we
-# materialize — the Postgres cohort sync is size-linear and is NOT covered by the query timeout.
-# The user cap is sized to the cohort insert (batches of 1000, sequential): 100k keeps the whole
-# freeze comfortably inside a web request. Long-running / very-high-traffic experiments that exceed
-# either bound are rejected rather than frozen synchronously (they would need a future async
-# populate path).
+# Synchronous freeze-exposure bounds. The freeze builds the snapshot inline in the web request, so the
+# request must finish before the ingress ends it at 120 seconds. After that the caller gets an error.
+#
+# The query timeout bounds the ClickHouse scan of the exposure events only. The user cap bounds the
+# two steps that the timeout does NOT cover. Both are linear in the number of exposed users, and
+# together they are almost all of the freeze duration:
+# - the personhog lookup: one RPC per PERSONHOG_BATCH_SIZE users, FREEZE_EXPOSURE_RESOLVE_CONCURRENCY at a time
+# - the cohort write: sequential batches of 1000, each with a ClickHouse read, a ClickHouse insert
+#   and a personhog insert
+#
+# The cap is sized so that the slowest freeze stays below the ingress limit. As of October 2026 the
+# slowest measured cost in production is about 0.5 ms per exposed user, which is about 105 seconds
+# at the cap. Every freeze logs its user count and step durations as experiment_freeze_exposure_timing.
+# Read those logs and repeat this calculation before you raise the cap.
+#
+# A longer build also widens the gap between the scan and the flag save. A user who is first exposed
+# in that gap is not in the snapshot and loses their variant when the flag narrows.
+#
+# Flag evaluation does not depend on the cap. It does one indexed lookup per person, whatever the
+# cohort size. An experiment over either bound is rejected. To freeze such an experiment, populate
+# the cohort in a background task and narrow the flag only after the cohort is complete.
 FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
-FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 100_000
+FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 200_000
 # Cohort membership is person-keyed, so exposed users without a person profile (anonymous
 # "personless" traffic, or since-deleted persons) can never match the snapshot cohort and would
 # silently lose their variant at freeze time. A small unresolvable share is tolerated as
@@ -769,48 +779,8 @@ class ExperimentService:
                 f"Invalid {field_path} (kind={cls._safe_repr(kind)}): {safe_errors}. {cls.EXPOSURE_CONFIG_HINT}"
             )
 
-    # Maps the public `metric_type` literal to the pydantic class name that pydantic reports
-    # in `loc[0]` when validation fails. Used to narrow union-variant errors to the variant
-    # the caller picked. A drift test asserts this stays in sync with the ExperimentMetric union.
-    _METRIC_TYPE_TO_CLASS = {
-        "mean": "ExperimentMeanMetric",
-        "funnel": "ExperimentFunnelMetric",
-        "ratio": "ExperimentRatioMetric",
-        "retention": "ExperimentRetentionMetric",
-    }
-
-    # Cap reported pydantic errors so a funnel with many steps (each producing union-variant
-    # errors) cannot blow up the response size. The first N errors are the most actionable.
-    _MAX_REPORTED_METRIC_ERRORS = 15
-
-    _EVENTS_NODE_ID_HINT = (
-        "EventsNode does not accept an 'id' field. "
-        "To reference an event, use {'kind': 'EventsNode', 'event': '<event_name>'} (omit 'id'). "
-        "To reference an action, switch to {'kind': 'ActionsNode', 'id': <integer_action_id>} (omit 'event')."
-    )
-
     @staticmethod
-    def _is_events_node_actions_node_confusion(err: dict) -> bool:
-        """An `id` field was passed on an EventsNode (probably meant ActionsNode)."""
-        loc = tuple(err.get("loc") or ())
-        if len(loc) < 2 or err.get("type") != "extra_forbidden":
-            return False
-        return loc[-1] == "id" and "EventsNode" in loc
-
-    @classmethod
-    def _build_metric_validation_hint(cls, safe_errors: list[dict]) -> str:
-        """Return a targeted hint for an observed pydantic error pattern, or '' if none applies.
-
-        The structural shape of valid metrics is conveyed by `safe_errors` itself (loc, type,
-        msg) — adding prose duplicates the pydantic models and rots silently. Only hints
-        whose facts are independent of metric shape belong here."""
-        for err in safe_errors:
-            if cls._is_events_node_actions_node_confusion(err):
-                return cls._EVENTS_NODE_ID_HINT
-        return ""
-
-    @classmethod
-    def validate_experiment_metrics(cls, metrics: list | None) -> None:
+    def validate_experiment_metrics(metrics: list | None) -> None:
         """Validate metric payloads accepted by the API layer."""
         if metrics is None:
             return
@@ -819,87 +789,7 @@ class ExperimentService:
             raise ValidationError("Metrics must be a list")
 
         for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict):
-                raise ValidationError(f"Invalid metric at index {i}: must be a dict")
-
-            kind = metric.get("kind")
-            if kind in LEGACY_METRIC_KINDS:
-                raise ValidationError(
-                    f"Invalid metric at index {i}: legacy metric kind '{kind}' is no longer supported for new experiments. "
-                    "Use 'ExperimentMetric' instead."
-                )
-
-            if kind != "ExperimentMetric":
-                raise ValidationError(f"Invalid metric at index {i}: metric kind must be 'ExperimentMetric'")
-
-            if kind == "ExperimentMetric":
-                try:
-                    validated_metric = ExperimentMetric.model_validate(metric)
-
-                    # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
-                    actual_metric = validated_metric.root
-                    if isinstance(actual_metric, ExperimentFunnelMetric):
-                        # The experiment exposure event is prepended as step_0 at query time,
-                        # so series must contain at least one user-supplied step for the funnel
-                        # to yield a meaningful conversion metric.
-                        if not actual_metric.series:
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: funnel metrics require at least one step. "
-                                "The experiment exposure event is added as the initial step automatically."
-                            )
-                        # Additional validation for funnel metrics with DW steps
-                        FunnelDWValidator.validate_funnel_metric(actual_metric)
-                    elif isinstance(actual_metric, ExperimentMeanMetric) and actual_metric.threshold is not None:
-                        # A threshold turns the per-user value into a binary "did the user reach N"
-                        # outcome, which only makes sense for sum/count math types.
-                        source_math = getattr(actual_metric.source, "math", None)
-                        if not is_threshold_supported_math(source_math):
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: a threshold is only supported for "
-                                "sum or count (total) math types."
-                            )
-                        # A non-positive threshold is satisfied by every user (missing users
-                        # accumulate to 0), producing a meaningless 100% proportion.
-                        if actual_metric.threshold <= 0:
-                            raise ValidationError(f"Invalid metric at index {i}: threshold must be a positive number.")
-                        # Winsorization caps continuous outliers, which is meaningless once the
-                        # value collapses to a binary threshold outcome.
-                        if (
-                            actual_metric.lower_bound_percentile is not None
-                            or actual_metric.upper_bound_percentile is not None
-                        ):
-                            raise ValidationError(
-                                f"Invalid metric at index {i}: a threshold cannot be combined with "
-                                "outlier handling (winsorization)."
-                            )
-                    elif isinstance(actual_metric, ExperimentRetentionMetric):
-                        retention_error = retention_metric_error(actual_metric)
-                        if retention_error:
-                            raise ValidationError(f"Invalid metric at index {i}: {retention_error}")
-
-                except pydantic.ValidationError as e:
-                    # Surface only the field locations and error types from pydantic — not the
-                    # echoed `input`, `ctx`, and `url` fields, which would reflect arbitrary
-                    # user data back into the response (potentially unbounded in size).
-                    safe_errors = [
-                        {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
-                    ]
-                    # ExperimentMetric is a union of four variants; pydantic reports errors against
-                    # every variant by default. If the caller picked a metric_type, narrow to that
-                    # variant's errors so the message stays actionable instead of dumping 25+ errors.
-                    metric_type = metric.get("metric_type")
-                    variant_class = cls._METRIC_TYPE_TO_CLASS.get(metric_type) if isinstance(metric_type, str) else None
-                    if variant_class is not None:
-                        filtered = [err for err in safe_errors if err["loc"] and err["loc"][0] == variant_class]
-                        if filtered:
-                            safe_errors = filtered
-                    hint = cls._build_metric_validation_hint(safe_errors)
-                    if len(safe_errors) > cls._MAX_REPORTED_METRIC_ERRORS:
-                        truncated = safe_errors[: cls._MAX_REPORTED_METRIC_ERRORS]
-                        truncated.append({"truncated": f"...{len(safe_errors) - cls._MAX_REPORTED_METRIC_ERRORS} more"})
-                        safe_errors = truncated
-                    suffix = f" {hint}" if hint else ""
-                    raise ValidationError(f"Invalid metric at index {i}: {safe_errors}.{suffix}")
+            parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
@@ -1094,7 +984,7 @@ class ExperimentService:
         if not isinstance(saved_metrics_ids, list):
             raise ValidationError("Saved metrics must be a list")
 
-        for saved_metric in saved_metrics_ids:
+        for i, saved_metric in enumerate(saved_metrics_ids):
             if not isinstance(saved_metric, dict):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
@@ -1103,6 +993,10 @@ class ExperimentService:
                 raise ValidationError("Metadata must be an object")
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "metadata" in saved_metric:
+                validate_saved_metric_link_overrides(
+                    saved_metric["metadata"], error_prefix=f"Invalid saved metric metadata at index {i}: "
+                )
 
         saved_metrics = ExperimentSavedMetric.objects.filter(
             id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
@@ -1110,92 +1004,6 @@ class ExperimentService:
         )
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
-
-    @staticmethod
-    def _extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
-        """Extract event names and action IDs from all EventsNode/ActionsNode refs in metrics."""
-        event_names: set[str] = set()
-        action_ids: set[int] = set()
-        if not metrics:
-            return event_names, action_ids
-
-        for metric in metrics:
-            nodes: list[dict] = []
-            metric_type = metric.get("metric_type")
-            if metric_type == "mean":
-                if source := metric.get("source"):
-                    nodes.append(source)
-            elif metric_type == "funnel":
-                nodes.extend(metric.get("series") or [])
-            elif metric_type == "ratio":
-                if num := metric.get("numerator"):
-                    nodes.append(num)
-                if den := metric.get("denominator"):
-                    nodes.append(den)
-            elif metric_type == "retention":
-                if se := metric.get("start_event"):
-                    nodes.append(se)
-                if ce := metric.get("completion_event"):
-                    nodes.append(ce)
-
-            for node in nodes:
-                kind = node.get("kind")
-                if kind == "EventsNode":
-                    event = node.get("event")
-                    # Treat None and empty/whitespace-only strings as "no event"
-                    # (semantically equivalent to "All events"). The pydantic
-                    # schema permits "" but it can't reference a real event.
-                    if isinstance(event, str) and event.strip():
-                        event_names.add(event)
-                    elif event is not None and not isinstance(event, str):
-                        # Pydantic should have rejected non-str/None upstream;
-                        # log so we can catch any path that bypassed validation
-                        # rather than silently dropping the value.
-                        logger.warning(
-                            "experiment_metric_unexpected_event_type",
-                            event_type=type(event).__name__,
-                            event_value=repr(event)[:100],
-                        )
-                elif kind == "ActionsNode":
-                    if (action_id := node.get("id")) is not None:
-                        action_ids.add(int(action_id))
-
-        return event_names, action_ids
-
-    @classmethod
-    def validate_metric_action_ids(
-        cls, metrics: list[dict] | None, team_id: int, *, known_action_ids: set[int] | None = None
-    ) -> None:
-        """Validate that all ActionsNode IDs reference existing, non-deleted actions for the team.
-
-        Actions are explicitly created entities with stable IDs, so a reference to a
-        nonexistent action is almost certainly a mistake, so we raise a hard validation error.
-
-        ``known_action_ids`` exempts ids already persisted on the experiment, so an
-        update is checked for what it introduces rather than for everything it
-        resends. Without it, deleting a referenced action makes every later metric
-        edit fail on the resent arrays. See ``update_experiment``.
-        """
-        _, action_ids = cls._extract_entity_nodes(metrics)
-        if known_action_ids:
-            action_ids -= known_action_ids
-        if not action_ids:
-            return
-
-        existing_ids = set(
-            Action.objects.filter(
-                id__in=action_ids,
-                team_id=team_id,
-                deleted=False,
-            ).values_list("id", flat=True)
-        )
-        missing = action_ids - existing_ids
-        if missing:
-            missing_str = ", ".join(str(aid) for aid in sorted(missing))
-            raise ValidationError(
-                f"Action(s) with ID {missing_str} not found or deleted. "
-                "Each ActionsNode must reference an existing action belonging to this project."
-            )
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
@@ -1217,7 +1025,7 @@ class ExperimentService:
         multi-team project can pick an event ingested by a sibling team. We
         mirror that scope here to avoid rejecting legitimate selections.
         """
-        all_event_names, _ = self._extract_entity_nodes(metrics)
+        all_event_names, _ = extract_entity_nodes(metrics)
         event_names = all_event_names - known_event_names if known_event_names else all_event_names
         if not event_names:
             return
@@ -1292,6 +1100,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode = "new",
+        analytics_properties: dict[str, Any] | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         # Seed the dedup set with uuids the inline metrics must not collide with:
@@ -1310,8 +1119,8 @@ class ExperimentService:
         running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
-        self.validate_metric_action_ids(metrics, self.team.id)
-        self.validate_metric_action_ids(metrics_secondary, self.team.id)
+        validate_metric_action_ids(metrics, self.team.id)
+        validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
@@ -1448,6 +1257,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         )
 
@@ -1461,6 +1271,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
         try:
@@ -1470,7 +1281,15 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
+            if experiment.start_date is not None:
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="create_request",
+                    request=serializer_context.get("request") if serializer_context else None,
+                    event_source=event_source,
+                )
         except Exception:
             logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
@@ -1485,17 +1304,21 @@ class ExperimentService:
         *,
         request: Any | None,
         extra_metadata: dict[str, Any] | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
         """Emit a lifecycle analytics event with the experiment's standard metadata.
 
-        No-ops for non-HTTP callers (``request`` is None). ``report_user_action`` is referenced as a
-        module-level name so tests can patch it at this module's path.
+        No-ops for a caller that has neither a ``request`` nor an ``event_source``.
+        ``report_user_action`` is referenced as a module-level name so tests can patch it at this
+        module's path.
         """
-        if request is None:
+        if request is None and event_source is None:
             return
         metadata = experiment.get_analytics_metadata()
         if extra_metadata:
             metadata.update(extra_metadata)
+        if event_source is not None:
+            metadata["source"] = event_source
         report_user_action(self.user, event_name, metadata, team=experiment.team, request=request)
 
     def _report_experiment_created(
@@ -1506,6 +1329,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
@@ -1519,6 +1343,8 @@ class ExperimentService:
             analytics_metadata["allow_unknown_events"] = True
         if request is not None:
             analytics_metadata.update(_deprecated_fields_in_request(request))
+        if analytics_properties:
+            analytics_metadata.update(analytics_properties)
 
         report_user_action(
             self.user,
@@ -1532,14 +1358,40 @@ class ExperimentService:
         self,
         experiment: Experiment,
         *,
+        launch_path: ExperimentLaunchPath,
         request: Any | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
-        self._report_lifecycle_event(
-            experiment,
-            "experiment launched",
-            request=request,
-            extra_metadata={"launch_date": experiment.start_date.isoformat() if experiment.start_date else None},
+        # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
+        try:
+            flag_age = timezone.now() - experiment.feature_flag.created_at
+            self._report_lifecycle_event(
+                experiment,
+                "experiment launched",
+                request=request,
+                event_source=event_source,
+                extra_metadata={
+                    "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                    "launch_path": launch_path,
+                    "flag_age_seconds": int(flag_age.total_seconds()),
+                },
+            )
+        except Exception:
+            logger.exception("experiment_launched_analytics_failed", experiment_id=experiment.id)
+
+    @staticmethod
+    def _notify_experiment_launched(experiment: Experiment) -> None:
+        responses = experiment_launched.send_robust(
+            sender=Experiment, team_id=experiment.team_id, experiment_id=experiment.id
         )
+        for receiver, response in responses:
+            if isinstance(response, Exception):
+                logger.error(
+                    "experiment_launched_receiver_failed",
+                    receiver=getattr(receiver, "__qualname__", repr(receiver)),
+                    experiment_id=experiment.id,
+                    exc_info=response,
+                )
 
     def _ensure_feature_flag(
         self,
@@ -1951,7 +1803,8 @@ class ExperimentService:
                 ]
             )
 
-        self._report_experiment_launched(experiment, request=request)
+        self._report_experiment_launched(experiment, launch_path="launch_endpoint", request=request)
+        self._notify_experiment_launched(experiment)
 
         return experiment
 
@@ -3537,14 +3390,14 @@ class ExperimentService:
         # sections are pooled: moving a metric between them changes which array holds
         # it, not which entity it references. Read before the update is applied, so
         # these are the stored references.
-        persisted_event_names, persisted_action_ids = self._extract_entity_nodes(
+        persisted_event_names, persisted_action_ids = extract_entity_nodes(
             [*(experiment.metrics or []), *(experiment.metrics_secondary or [])]
         )
 
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
-            self.validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
+            validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
         if "metrics_secondary" in update_data:
@@ -3552,7 +3405,7 @@ class ExperimentService:
                 update_data["metrics_secondary"], seen=seen_metric_uuids
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
-            self.validate_metric_action_ids(
+            validate_metric_action_ids(
                 update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
             )
             if not allow_unknown_events:
@@ -3834,6 +3687,15 @@ class ExperimentService:
                     event_source=event_source,
                     deprecated_config_changed=deprecated_flag_config_changed,
                 )
+
+        if launching:
+            self._report_experiment_launched(
+                experiment,
+                launch_path="update_start_date",
+                request=report_request,
+                event_source=event_source,
+            )
+            self._notify_experiment_launched(experiment)
 
         return experiment
 
@@ -4119,8 +3981,12 @@ class ExperimentService:
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.variants:
-                clone_variants = deepcopy(existing_flag.variants)
+            if existing_flag:
+                # The same adoption check create_experiment applies, taken before the variants are
+                # read so a flag this product cannot use surfaces as a validation error here too.
+                assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
+                if existing_flag.variants:
+                    clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
         if clone_variants:
@@ -4266,9 +4132,9 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_filter = None
+        exposure_entities: list[Entity] = []
         if exposure_filter_data:
-            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
+            exposure_entities = parse_entities(exposure_filter_data)
 
         target_entity: int | str = "$feature_flag_called"
         target_entity_type = "events"
@@ -4281,8 +4147,8 @@ class ExperimentService:
             }
         ]
 
-        if exposure_filter:
-            entity = exposure_filter.entities[0]
+        if exposure_entities:
+            entity = exposure_entities[0]
             if entity.id:
                 target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
                 target_entity = entity.id
@@ -4494,7 +4360,7 @@ class ExperimentService:
 
         search = query_params.get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search))
+            queryset = queryset.filter(Q(name__icontains=search) | Q(feature_flag__key__icontains=search))
 
         order = query_params.get("order")
         if order:
