@@ -628,7 +628,7 @@ def get_postgres_source_table_location(
     )
 
 
-DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, ClickHouse, MotherDuck, and Trino sources."
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, ClickHouse, MotherDuck, Trino, and BigQuery sources."
 
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
 DIRECT_CONNECTION_ENGINE_CHOICES = [

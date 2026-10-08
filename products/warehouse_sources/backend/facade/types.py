@@ -1462,6 +1462,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
     ExternalDataSourceType.TRINO: "trino",
+    ExternalDataSourceType.BIGQUERY: "bigquery",
 }
 
 

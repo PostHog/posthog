@@ -2963,7 +2963,9 @@ class TestExternalDataSource(APIBaseTest):
         source_types = {option["source_type"] for option in payload}
 
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
-        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
+        self.assertTrue(
+            {"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino", "BigQuery"}.issubset(source_types)
+        )
         self.assertNotIn("Stripe", source_types)
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
@@ -4284,6 +4286,45 @@ class TestExternalDataSource(APIBaseTest):
         assert connection_metadata is not None
         self.assertEqual(connection_metadata["database"], "app")
         self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_direct_bigquery_source_without_table_registration(self, mock_get_source):
+        # BigQuery is raw-only: it has no materialization engine, so a pure-direct connection must
+        # be created with its schema rows but no DataWarehouseTable, instead of crashing in the
+        # table-registration step.
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {"dataset_id": "analytics"}
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "INTEGER", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "BigQuery",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Analytics warehouse",
+                "payload": {"dataset_id": "analytics"},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        self.assertEqual(source.access_method, ExternalDataSource.AccessMethod.DIRECT)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source=source, name="orders")
+        self.assertIsNone(schema.table)
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
