@@ -43,7 +43,12 @@ from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
-from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
+from products.signals.backend.temporal.llm import (
+    MAX_QUERY_TOKENS,
+    EmptyLLMResponseError,
+    call_llm,
+    truncate_query_to_token_limit,
+)
 from products.signals.backend.temporal.signal_queries import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -197,15 +202,27 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
         result = QueryGenerationResponse.model_validate(data)
         return [truncate_query_to_token_limit(q) for q in result.queries[:MAX_SEARCH_QUERIES]]
 
-    return await call_llm(
-        team_id=input.team_id,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        validate=validate,
-        temperature=0.7,
-        stage="query_generation",
-        ai_product="signals_grouping",
-    )
+    try:
+        return await call_llm(
+            team_id=input.team_id,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            validate=validate,
+            temperature=0.7,
+            stage="query_generation",
+            ai_product="signals_grouping",
+        )
+    except EmptyLLMResponseError as e:
+        # A provider refusal repeats on every retry, and one failed signal drops its whole batch.
+        # The description is the next best search text, so the signal still gets grouped.
+        logger.warning(
+            "Query generation returned no text, falling back to the signal description",
+            team_id=input.team_id,
+            source_product=input.source_product,
+            source_type=input.source_type,
+            error=str(e),
+        )
+        return [truncate_query_to_token_limit(input.description)]
 
 
 @dataclass

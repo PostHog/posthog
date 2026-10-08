@@ -8,6 +8,7 @@ from products.signals.backend.temporal.grouping import (
     GenerateSearchQueriesInput,
     generate_search_queries,
 )
+from products.signals.backend.temporal.llm import EmptyLLMResponseError
 
 MODULE_PATH = "products.signals.backend.temporal.grouping"
 
@@ -32,3 +33,20 @@ async def test_generate_search_queries_keeps_the_first_three_without_a_retry(ret
 
     assert result == queries[:MAX_SEARCH_QUERIES]
     assert call_llm.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_search_queries_falls_back_to_the_description_on_an_empty_response():
+    description = "Date picker shows the wrong day"
+
+    with patch(f"{MODULE_PATH}.call_llm", side_effect=EmptyLLMResponseError("No text content in response")):
+        result = await generate_search_queries(
+            GenerateSearchQueriesInput(
+                description=description,
+                source_product="zendesk",
+                source_type="ticket",
+                signal_type_examples=[],
+            )
+        )
+
+    assert result == [description]

@@ -118,7 +118,7 @@ def _extract_text_content(response: Message) -> str:
     for block in reversed(response.content):
         if block.type == "text":
             return block.text
-    raise EmptyLLMResponseError("No text content in response")
+    raise EmptyLLMResponseError(f"No text content in response (stop_reason={response.stop_reason})")
 
 
 # I could not for the life of me get thinking claude to stop outputting markdown.
