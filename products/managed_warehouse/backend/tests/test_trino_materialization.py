@@ -1,3 +1,5 @@
+import datetime as dt
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -18,12 +20,14 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
     TrinoCompiledQuery,
     TrinoExpansionMode,
+    TrinoIncrementalWrite,
 )
 from products.managed_warehouse.backend.models import (
     ManagedWarehouseViewTranslationJob,
     ManagedWarehouseViewTranslationResult,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
+from products.managed_warehouse.backend.trino_materialization import DuplicateUniqueKeyError
 from products.managed_warehouse.backend.view_translation_status import source_query_hash
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -81,6 +85,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             team=self.team,
             bypass_warehouse_access_control=True,
             expansion_mode=TrinoExpansionMode.DJANGO,
+            select_transform=None,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),
@@ -227,3 +232,128 @@ class TestTrinoShadowMaterialization(BaseTest):
             )
         assert locators["orders"] == (self.connection.catalog, written.schema_name, written.table_name)
         assert written.table_name == (model_label or f"model_{self.saved_query_id.hex}")
+
+
+class _ScriptedCursor:
+    """Answers each statement by its leading words, and records every statement it ran."""
+
+    def __init__(self, *, table_exists: bool, staged: int, duplicate: bool = False, max_key: Any = None) -> None:
+        self.table_exists = table_exists
+        self.staged = staged
+        self.duplicate = duplicate
+        self.max_key = max_key
+        self.statements: list[tuple[str, Any]] = []
+        self.rowcount = -1
+        self.description: list[tuple[str]] | None = None
+        self._rows: list[tuple[Any, ...]] = []
+
+    def execute(self, statement: str, parameters: Any = None) -> None:
+        self.statements.append((statement, parameters))
+        self.rowcount, self._rows = -1, []
+        if "information_schema.tables" in statement:
+            self._rows = [(1,)] if self.table_exists else []
+        elif statement.startswith("CREATE OR REPLACE TABLE"):
+            self.rowcount = self.staged
+        elif "HAVING count(*) > 1" in statement:
+            self._rows = [(1,)] if self.duplicate else []
+        elif statement.endswith("LIMIT 0"):
+            self.description = [("id",), ("ts",)]
+        elif statement.startswith("MERGE"):
+            self.rowcount = self.staged
+        elif statement.startswith("SELECT max("):
+            self._rows = [(self.max_key,)]
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self._rows
+
+    def close(self) -> None:
+        pass
+
+
+class TestTrinoIncrementalMaterialization(BaseTest):
+    saved_query_id = UUID("12345678-1234-5678-1234-567812345678")
+    query = {"kind": "HogQLQuery", "query": "SELECT id, ts FROM orders"}
+    since = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
+
+    def run_build(
+        self, cursor: _ScriptedCursor, since: Any
+    ) -> tuple[DuckLakeTableResult | Exception, list[str], list[Any]]:
+        compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={})
+        connection = MagicMock(catalog="cat")
+        connection.cursor.return_value = cursor
+        with (
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
+                return_value=compiled,
+            ) as compile_query,
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+            ) as connect,
+        ):
+            connect.return_value.__enter__.return_value = connection
+            try:
+                result: DuckLakeTableResult | Exception = execute_trino_shadow_materialization(
+                    organization_id=str(self.organization.pk),
+                    team_id=self.team.pk,
+                    saved_query_id=self.saved_query_id,
+                    source_query=self.query,
+                    incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("id",), since=since),
+                )
+            except Exception as error:
+                result = error
+        transforms = [call.kwargs["select_transform"] for call in compile_query.call_args_list]
+        return result, [statement for statement, _ in cursor.statements], transforms
+
+    def test_merges_staged_rows_and_reports_their_watermark(self) -> None:
+        latest = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+        result, statements, transforms = self.run_build(
+            _ScriptedCursor(table_exists=True, staged=3, max_key=latest), self.since
+        )
+
+        assert isinstance(result, DuckLakeTableResult)
+        assert (result.row_count, result.watermark, result.merged) == (3, latest, True)
+        assert len(transforms) == 1 and transforms[0] is not None
+        table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
+        stage = table[:-1] + '__ph_incremental_stage"'
+        assert f"CREATE OR REPLACE TABLE {stage} AS SELECT id, ts FROM orders" in statements
+        assert not any(statement.startswith(f"CREATE OR REPLACE TABLE {table} ") for statement in statements)
+        assert (
+            f'MERGE INTO {table} t USING {stage} s ON t."id" = s."id" '
+            'WHEN MATCHED THEN UPDATE SET "id" = s."id", "ts" = s."ts" '
+            'WHEN NOT MATCHED THEN INSERT ("id", "ts") VALUES (s."id", s."ts")'
+        ) in statements
+        assert f'SELECT max("ts") FROM {stage}' in statements
+        assert statements[-1] == f"DROP TABLE IF EXISTS {stage}"
+
+    @parameterized.expand(
+        [
+            ("quiet_window", _ScriptedCursor(table_exists=True, staged=0), None),
+            ("duplicate_keys", _ScriptedCursor(table_exists=True, staged=3, duplicate=True), DuplicateUniqueKeyError),
+        ]
+    )
+    def test_leaves_the_table_untouched(self, _name: str, cursor: _ScriptedCursor, error: type | None) -> None:
+        result, statements, _ = self.run_build(cursor, self.since)
+
+        if error is None:
+            assert isinstance(result, DuckLakeTableResult)
+            assert (result.row_count, result.watermark, result.merged) == (0, None, True)
+        else:
+            assert isinstance(result, error)
+        assert not any(statement.startswith("MERGE") for statement in statements)
+        assert statements[-1].startswith("DROP TABLE IF EXISTS") and "__ph_incremental_stage" in statements[-1]
+
+    @parameterized.expand([("first_run", None, True), ("table_missing", since, False)])
+    def test_builds_the_whole_table_and_seeds_the_watermark(self, _name: str, since: Any, exists: bool) -> None:
+        latest = dt.datetime(2026, 10, 7, tzinfo=dt.UTC)
+        result, statements, transforms = self.run_build(
+            _ScriptedCursor(table_exists=exists, staged=9, max_key=latest), since
+        )
+
+        assert isinstance(result, DuckLakeTableResult)
+        assert (result.row_count, result.watermark, result.merged) == (9, latest, False)
+        # The table is rebuilt from the unfiltered query.
+        assert transforms[-1] is None
+        table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
+        assert f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders" in statements
+        assert not any("__ph_incremental_stage" in statement for statement in statements)
+        assert statements[-1] == f'SELECT max("ts") FROM {table}'

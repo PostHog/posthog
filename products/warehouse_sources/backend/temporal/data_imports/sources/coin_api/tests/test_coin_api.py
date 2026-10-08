@@ -32,6 +32,9 @@ class _FakeResponse:
     def ok(self) -> bool:
         return self.status_code < 400
 
+    def json(self) -> Any:
+        return self._json_data
+
     def raise_for_status(self) -> None:
         if not self.ok:
             raise requests.HTTPError(f"{self.status_code} Client Error", response=self)  # type: ignore[arg-type]

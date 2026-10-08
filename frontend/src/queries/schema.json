@@ -25341,6 +25341,41 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "ExperimentApiBreakdown": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdown"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentApiGroupBreakdown"
+                }
+            ],
+            "description": "Slim breakdown entry for experiment API payloads. Narrower than the full Breakdown type: the experiment query only resolves event, person, session and group properties, so the other breakdown types are not accepted here."
+        },
+        "ExperimentApiBreakdownAttributionType": {
+            "description": "'all_events' is excluded: the experiment funnel query rejects it.",
+            "enum": ["first_touch", "last_touch", "step"],
+            "type": "string"
+        },
+        "ExperimentApiBreakdownFilter": {
+            "additionalProperties": false,
+            "description": "Slim breakdown config for experiment API payloads. Only the fields the experiment query runner reads; the full BreakdownFilter's other knobs (breakdown, breakdown_type, attribution, …) are ignored for experiment metrics, so exposing them would only invite no-op input.",
+            "properties": {
+                "breakdown_limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Maximum number of breakdown values to compute results for."
+                },
+                "breakdowns": {
+                    "description": "Properties to break the metric results down by.",
+                    "items": {
+                        "$ref": "#/definitions/ExperimentApiBreakdown"
+                    },
+                    "maxItems": 3,
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentApiEventSource": {
             "additionalProperties": false,
             "description": "Slim event/action source for experiment API payloads.",
@@ -25435,10 +25470,43 @@
             },
             "type": "object"
         },
+        "ExperimentApiGroupBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by a group property.",
+            "properties": {
+                "group_type_index": {
+                    "description": "Which group type the property belongs to.",
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                }
+            },
+            "required": ["property", "type", "group_type_index"],
+            "type": "object"
+        },
         "ExperimentApiMetric": {
             "additionalProperties": false,
             "description": "Experiment metric for API create/update. All metric-type-specific fields are optional; discriminated by metric_type at runtime.",
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownAttributionType",
+                    "description": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels."
+                },
+                "breakdownAttributionValue": {
+                    "$ref": "#/definitions/integer",
+                    "description": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from."
+                },
+                "breakdownFilter": {
+                    "$ref": "#/definitions/ExperimentApiBreakdownFilter",
+                    "description": "Break the metric results down by up to 3 event, person, session or group properties."
+                },
                 "completion_event": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
                     "description": "For retention metrics: completion event."
@@ -25541,6 +25609,26 @@
             },
             "required": ["kind", "metric_type"],
             "type": "object"
+        },
+        "ExperimentApiPropertyBreakdown": {
+            "additionalProperties": false,
+            "description": "Breakdown by an event, person or session property.",
+            "properties": {
+                "property": {
+                    "description": "Property name to break down by.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/ExperimentApiPropertyBreakdownType",
+                    "description": "Where the property lives. Defaults to 'event'."
+                }
+            },
+            "required": ["property"],
+            "type": "object"
+        },
+        "ExperimentApiPropertyBreakdownType": {
+            "enum": ["event", "person", "session"],
+            "type": "string"
         },
         "ExperimentApiRetentionStart": {
             "additionalProperties": false,
@@ -36379,6 +36467,10 @@
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36401,6 +36493,10 @@
                     "type": "number"
                 },
                 "position": {
+                    "type": ["number", "null"]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
                     "type": ["number", "null"]
                 }
             },
@@ -36525,6 +36621,10 @@
         "MarketingAnalyticsSearchRow": {
             "additionalProperties": false,
             "properties": {
+                "absoluteTopImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown as the first ad.",
+                    "type": ["number", "null"]
+                },
                 "clicks": {
                     "type": "number"
                 },
@@ -36574,6 +36674,10 @@
                             "type": "null"
                         }
                     ]
+                },
+                "topImpressionRate": {
+                    "description": "Fraction of Google Search ad impressions shown among the top ads.",
+                    "type": ["number", "null"]
                 }
             },
             "required": [
@@ -39356,7 +39460,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation": {
-                    "$ref": "#/definitions/MetricsAggregation"
+                    "$ref": "#/definitions/MetricsAggregation",
+                    "description": "Omit to get one line per series (at most 100), without combining them"
                 },
                 "filters": {
                     "items": {
@@ -39384,9 +39489,13 @@
                 "quantile": {
                     "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations",
                     "type": "number"
+                },
+                "rangeFunction": {
+                    "$ref": "#/definitions/MetricsRangeFunction",
+                    "description": "Applied to each series before `aggregation`, like `rate()` in PromQL"
                 }
             },
-            "required": ["name", "metricName", "aggregation"],
+            "required": ["name", "metricName"],
             "type": "object"
         },
         "MetricsQueryFilter": {
@@ -39531,6 +39640,11 @@
             },
             "required": ["labels", "points"],
             "type": "object"
+        },
+        "MetricsRangeFunction": {
+            "description": "Counter-aware transform applied to each series before any aggregation",
+            "enum": ["rate", "increase"],
+            "type": "string"
         },
         "MetricsReducer": {
             "description": "How a series collapses to one number for the scalar panels and legend calcs.",

@@ -364,12 +364,11 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
-    // More single-suite workflows, held to the trees their suites read: the AI
-    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    // More single-suite workflows, held to the trees their suites read:
+    // replay-vision evals and ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-ai.yml', PYTHON],
     ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
@@ -444,7 +443,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
     ['.github/scripts/post-django-migration-section.mjs', PYTHON],
     ['.github/scripts/post-coverage-section.mjs', PYTHON],
-    ['.github/scripts/post-eval-section.mjs', PYTHON],
     // CI-report sections and helpers owned by one suite each.
     ['.github/scripts/post-playwright-section.mjs', FULLSTACK],
     ['.github/scripts/verify-playwright-new-tests-and-snapshots.sh', FULLSTACK],
@@ -533,8 +531,9 @@ const TRIPWIRE_RULES = [
     ['tsconfig.*.json', JAVASCRIPT],
     ['babel.config.js', JAVASCRIPT],
     ['webpack.config.js', JAVASCRIPT],
-    ['.oxlintrc.json', JAVASCRIPT],
-    ['.oxfmtrc*', JAVASCRIPT],
+    // Both ignore nodejs/, which has its own toolchain; a lane test guards that.
+    ['.oxlintrc.json', FRONTEND_SUITE],
+    ['.oxfmtrc*', FRONTEND_SUITE],
     // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
     // its ignore file is a JS toolchain setting like the two above.
     ['.prettierignore', JAVASCRIPT],
@@ -2936,6 +2935,11 @@ function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
     }
 }
 
+// The change list carries deleted paths too; the tree no longer does.
+function findDeletedFiles(changedFiles) {
+    return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
@@ -2971,6 +2975,7 @@ module.exports = {
     buildContext,
     compileContractMatcher,
     compileWorkspaceMatcher,
+    findDeletedFiles,
     globToRegExp,
     isProductDirectory,
     isTripwire,
@@ -3014,9 +3019,10 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            // The change list carries deleted paths too; the tree no longer does.
-            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
-            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
+            result = computeTargets(changedFiles, {
+                ...buildContext(REPO_ROOT),
+                deletedFiles: findDeletedFiles(changedFiles),
+            })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a
