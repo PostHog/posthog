@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.db.models import Q
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -149,10 +148,10 @@ def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
     """Decide if an enabled subscription delivers this insight.
 
     A subscription delivers the insight in three cases: it targets the insight, its dashboard
-    selection names the insight, or it has no selection and the insight is a live tile of its
-    dashboard. A selected insight counts when its tile is deleted, and a tile counts when its
-    dashboard is deleted. A restore of the tile or the dashboard starts delivery again without a
-    subscription write, so the insight edit check must stay in place.
+    selection names the insight, or it has no live selected insight and the insight is a tile of
+    its dashboard. A deleted tile counts, and so does a tile of a deleted dashboard: a restore of
+    the tile or the dashboard starts delivery again without a subscription write, so the insight
+    edit check must stay in place while the tile is hidden.
 
     A disabled or deleted subscription does not count. Enabling or restoring it runs the
     subscription save check on the requester.
@@ -162,25 +161,28 @@ def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
         return True
     if active.filter(dashboard_export_insights=insight_id).exists():
         return True
-    # The tile conditions stay in one filter() call so that they match the same joined row.
-    return active.filter(
-        Q(dashboard__tiles__deleted__isnull=True) | Q(dashboard__tiles__deleted=False),
-        dashboard__tiles__insight_id=insight_id,
-        dashboard_export_insights__isnull=True,
-    ).exists()
+    return (
+        active.filter(dashboard__tiles__insight_id=insight_id)
+        .exclude(dashboard_export_insights__deleted=False)
+        .exists()
+    )
 
 
 def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -> bool:
     """Decide if an enabled subscription delivers every insight on this dashboard. Such a
     subscription also delivers an insight that is added after the subscription was saved.
 
-    A subscription with an insight selection does not count, because it does not deliver a tile
-    outside its selection. A disabled or deleted subscription does not count. Enabling or
-    restoring it runs the subscription save check on the requester.
+    A subscription with a live insight in its selection does not count, because it does not
+    deliver a tile outside its selection. A selection whose insights are all deleted counts as no
+    selection, because the delivery then exports every live tile. A disabled or deleted
+    subscription does not count. Enabling or restoring it runs the subscription save check on the
+    requester.
     """
-    return Subscription.objects.filter(
-        team_id=team_id, deleted=False, enabled=True, dashboard_id=dashboard_id, dashboard_export_insights__isnull=True
-    ).exists()
+    return (
+        Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True, dashboard_id=dashboard_id)
+        .exclude(dashboard_export_insights__deleted=False)
+        .exists()
+    )
 
 
 def blocked_access_for_subscribed_dashboard_tile(

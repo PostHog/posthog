@@ -2366,6 +2366,47 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"query": self._DENIED_QUERY}
         )
 
+    def test_query_update_blocked_when_a_modifier_reads_the_denied_view(self):
+        # A warehouse events mapping parses id_field as an expression, so a saved query can reach a
+        # denied view through its modifiers without naming it in the SQL.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="open_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 2 AS id"},
+            columns={"id": "String"},
+        )
+        governed_view = DataWarehouseSavedQuery.objects.get(team=self.team, name="governed_view")
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_view", resource_id=str(governed_view.id), access_level="none"
+        )
+        SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/",
+            {
+                "query": {
+                    "kind": "DataTableNode",
+                    "source": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT id FROM open_view",
+                        "modifiers": {
+                            "dataWarehouseEventsModifiers": [
+                                {
+                                    "table_name": "open_view",
+                                    "id_field": "(SELECT id FROM governed_view LIMIT 1)",
+                                    "distinct_id_field": "id",
+                                    "timestamp_field": "id",
+                                }
+                            ]
+                        },
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "governed_view" in str(response.json())
+
     def _subscription(self, **kwargs) -> Subscription:
         fields = {
             "team": self.team,
@@ -2387,6 +2428,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("dashboard_subscription", "delivered by a subscription"),
             # Restoring the dashboard resumes delivery without a subscription write.
             ("deleted_dashboard_subscription", "delivered by a subscription"),
+            # A selection whose insights are all deleted delivers every live tile.
+            ("dashboard_subscription_with_deleted_selection", "delivered by a subscription"),
+            # Deleting the dashboard hides its tiles; restoring it brings them back without a gate.
+            ("dashboard_subscription_with_hidden_tile", "delivered by a subscription"),
         ]
     )
     def test_query_update_blocked_when_insight_is_shared_or_delivered(self, coverage: str, expected_reason: str):
@@ -2405,6 +2450,15 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             self._subscription(dashboard=dashboard)
+        elif coverage == "dashboard_subscription_with_hidden_tile":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
+            self._subscription(dashboard=dashboard)
+        elif coverage == "dashboard_subscription_with_deleted_selection":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            deleted_insight = Insight.objects.create(team=self.team, created_by=self.user, deleted=True)
+            self._subscription(dashboard=dashboard).dashboard_export_insights.add(deleted_insight)
         else:
             notebook = Notebook.objects.create(
                 team=self.team,
