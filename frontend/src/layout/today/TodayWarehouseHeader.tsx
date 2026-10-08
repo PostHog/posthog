@@ -7,10 +7,11 @@ import {
     Button,
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-    Text,
     cn,
 } from '@posthog/quill'
 
@@ -27,7 +28,14 @@ import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
-const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'primary', 'secondary']
+const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'import', 'transform', 'export', 'define', 'manage']
+
+const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
+    import: 'Import',
+    transform: 'Transform',
+    export: 'Export',
+    define: 'Define',
+}
 
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */
 export function TodayWarehouseHeader({ className }: { className?: string }): JSX.Element {
@@ -42,17 +50,32 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
         <QuillSceneHeader
             className={cn('bg-chrome', className)}
             title={
-                <>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button data-attr="today-warehouse-menu" />}>
-                            <IconDatabase />
-                            Warehouse
-                            <IconChevronDown />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start" className="w-60">
-                            {groups.map((group, index) => (
-                                <Fragment key={group[0].group}>
-                                    {index > 0 && <DropdownMenuSeparator />}
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button
+                                elevated
+                                variant="outline"
+                                size="lg"
+                                className="min-w-0 max-w-full shrink"
+                                data-attr="today-warehouse-menu"
+                            />
+                        }
+                    >
+                        <IconDatabase />
+                        <span className="min-w-0 truncate">
+                            {current && current.key !== 'home' ? current.label : 'Warehouse'}
+                        </span>
+                        <IconChevronDown />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-60">
+                        {groups.map((group, index) => (
+                            <Fragment key={group[0].group}>
+                                {index > 0 && <DropdownMenuSeparator />}
+                                <DropdownMenuGroup>
+                                    {GROUP_HEADINGS[group[0].group] && (
+                                        <DropdownMenuLabel>{GROUP_HEADINGS[group[0].group]}</DropdownMenuLabel>
+                                    )}
                                     {group.map((item) => (
                                         <DropdownMenuItem
                                             key={item.key}
@@ -85,16 +108,11 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
                                             {item.label}
                                         </DropdownMenuItem>
                                     ))}
-                                </Fragment>
-                            ))}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    {current && current.key !== 'home' && (
-                        <Text size="sm" variant="muted" className="min-w-0 truncate">
-                            {current.label}
-                        </Text>
-                    )}
-                </>
+                                </DropdownMenuGroup>
+                            </Fragment>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
             }
             actions={
                 <>

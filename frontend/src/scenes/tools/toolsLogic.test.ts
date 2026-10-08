@@ -16,17 +16,24 @@ describe('toolsLogic', () => {
         [true, true, false],
         [true, false, true],
         [false, false, true],
-    ])('with the rail %s and the warehouse flag %s, lists the SQL editor: %s', (railOn, warehouseOn, listed) => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE], {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: railOn,
-            [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: warehouseOn,
-        })
+    ])('with the rail %s and the warehouse flag %s, lists the warehouse tools: %s', (railOn, warehouseOn, listed) => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE, FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+            {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: railOn,
+                [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: warehouseOn,
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            }
+        )
         const logic = toolsLogic()
         logic.mount()
 
         const hrefs = logic.values.tools.map((tool) => tool.href?.split(/[?#]/)[0])
         expect(hrefs.includes(urls.sqlEditor())).toBe(listed)
         expect(hrefs.includes(urls.sources())).toBe(listed)
+        expect(hrefs.includes(urls.endpoints())).toBe(listed)
+        expect(hrefs.includes(urls.propertyDefinitions())).toBe(listed)
+        expect(hrefs.includes(urls.businessIntelligence().split(/[?#]/)[0])).toBe(true)
         expect(hrefs.length).toBeGreaterThan(0)
     })
 })

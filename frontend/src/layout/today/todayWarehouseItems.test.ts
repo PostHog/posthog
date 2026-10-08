@@ -9,6 +9,13 @@ describe('todayWarehouseItems', () => {
         ['/warehouse', 'home'],
         ['/data-warehouse/new-source', null],
         ['/insights/abc', null],
+        ['/data-management/properties/abc', 'definitions'],
+        ['/data-management/events', 'definitions'],
+        ['/pipeline/batch-exports/abc', 'destinations'],
+        ['/data-management/ingestion-warnings-v2', 'ingestion_warnings'],
+        ['/endpoints/my-endpoint', 'endpoints'],
+        ['/bi', null],
+        ['/data-management/annotations', null],
     ])('marks %s as %s', (path, key) => {
         expect(warehouseItemForLocation(path, WAREHOUSE_ITEMS)?.key ?? null).toBe(key)
     })
@@ -18,8 +25,11 @@ describe('todayWarehouseItems', () => {
         ['/data-catalog', true],
         ['/data-management/variables', true],
         ['/sql?open_query=abc', true],
-        ['/etl', false],
-        ['/data-management/destinations?tab=all', false],
+        ['/etl', true],
+        ['/data-management/destinations?tab=all', true],
+        ['/bi', false],
+        ['/data-management/schema', true],
+        ['/data-management/annotations', false],
     ])('treats the %s tool as a warehouse tool: %s', (href, expected) => {
         expect(isWarehouseToolHref(href)).toBe(expected)
     })
