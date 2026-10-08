@@ -38,7 +38,7 @@ const autoWildcardHref = (url: string): string => {
             queryParams[i] = `${key}=${replaceWithWildcard(value)}`
         }
 
-        url = `${url}\\?${queryParams.join('&')}`
+        url = `${url}?${queryParams.join('&')}`
     }
 
     return url

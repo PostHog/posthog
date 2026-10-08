@@ -14,7 +14,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -27,6 +27,7 @@ from posthog.models import Organization, Team
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 
+from products.web_analytics.backend.api.heatmaps_api import HeatmapsRequestSerializer
 from products.web_analytics.backend.models.heatmap_capture_config_version import HeatmapCaptureConfigVersion
 
 INSERT_SINGLE_HEATMAP_EVENT = """
@@ -952,3 +953,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "events": quote(events, safe="")},
             expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
+
+
+class TestHeatmapUrlPatternValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("bare_wildcard", "https://example.com/*", "^https://example.com/.+$"),
+            ("regex_wildcard", r"https://example\.com/.*", r"^https://example\.com/.*$"),
+            ("repeated_wildcards", "https://example.com/**", "^https://example.com/.+.+$"),
+            ("escaped_punctuation", r"https://example\.com/a\[b\]\?x=1", r"^https://example\.com/a\[b\]\?x=1$"),
+            ("page_pattern", r"^https://example\.com\/?(\?.*)?(#.*)?$", r"^https://example\.com\/?(\?.*)?(#.*)?$"),
+            ("unclosed_bracket", "https://example.com/[", None),
+            ("bad_repetition", "https://example.com/a{2,1}", None),
+            ("unsupported_lookahead", "https://example.com/(?=a)", None),
+        ]
+    )
+    def test_validates_transformed_re2_pattern(self, _name: str, pattern: str, expected: str | None) -> None:
+        serializer = HeatmapsRequestSerializer(data={"url_pattern": pattern}, context={"team": Team()})
+        self.assertEqual(serializer.is_valid(), expected is not None)
+        if expected is None:
+            self.assertEqual(set(serializer.errors), {"url_pattern"})
+            self.assertEqual(serializer.errors["url_pattern"][0], "Enter a valid URL pattern.")
+        else:
+            self.assertEqual(serializer.validated_data["url_pattern"], expected)
