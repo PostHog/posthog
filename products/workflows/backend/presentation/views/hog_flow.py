@@ -480,6 +480,10 @@ _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 # workflow built through the API or MCP.
 _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 
+# "Analyze session with Replay vision" step. The scan runs as the workflow's owner, but whoever saves the step
+# chooses which sessions it reads and where the answers go, so the editor needs recording access too.
+_ANALYZE_SESSIONS_TEMPLATE_ID = "template-posthog-replay-vision-analyze-sessions"
+
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
@@ -1385,6 +1389,21 @@ class HogFlowActionSerializer(serializers.Serializer):
                     }
                 )
 
+    def _validate_analyze_sessions_action(self) -> None:
+        """Reject the Replay vision scan step from an editor who can't view recordings, so editing someone
+        else's workflow can't forward recordings the editor may not read."""
+        get_team = self.context.get("get_team")
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if get_team is None or user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return
+        if not UserAccessControl(user=user, team=get_team()).check_access_level_for_resource(
+            "session_recording", "viewer"
+        ):
+            raise serializers.ValidationError(
+                {"template_id": "You need access to session recordings to use the Replay vision scan step."}
+            )
+
     def _validate_run_scout_action(self) -> None:
         """Save-time check for the "Run scout" step: reject it in a child environment, matching
         the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
@@ -1665,6 +1684,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if template_id == _ANALYZE_SESSIONS_TEMPLATE_ID:
+                    self._validate_analyze_sessions_action()
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
