@@ -39,7 +39,7 @@ import { CanvasVisibilityControl } from './CanvasVisibilityControl'
  * at the start, then the canvas's status, editing, the side panel, and the canvas menu at the end.
  */
 export function CanvasSceneHeader(): JSX.Element {
-    const { canvas, space } = useValues(canvasSceneLogic)
+    const { canvas, space, spaceLinksEnabled } = useValues(canvasSceneLogic)
     const { copyLink, deleteCanvas } = useActions(canvasSceneLogic)
 
     if (!canvas) {
@@ -104,15 +104,26 @@ export function CanvasSceneHeader(): JSX.Element {
         >
             {space && (
                 <>
-                    <Button
-                        size="sm"
-                        variant="link-muted"
-                        className="hidden shrink-0 @min-[32rem]/canvas-toolbar:inline-flex"
-                        render={<LinkPrimitive to={urls.taskSpace(space.id)} />}
-                        data-attr="canvas-toolbar-space"
-                    >
-                        {canvasSpaceLabel(space)}
-                    </Button>
+                    {spaceLinksEnabled ? (
+                        <Button
+                            size="sm"
+                            variant="link-muted"
+                            className="hidden shrink-0 @min-[32rem]/canvas-toolbar:inline-flex"
+                            render={<LinkPrimitive to={urls.taskSpace(space.id)} />}
+                            data-attr="canvas-toolbar-space"
+                        >
+                            {canvasSpaceLabel(space)}
+                        </Button>
+                    ) : (
+                        <Text
+                            size="sm"
+                            variant="muted"
+                            className="hidden shrink-0 @min-[32rem]/canvas-toolbar:inline"
+                            data-attr="canvas-toolbar-space"
+                        >
+                            {canvasSpaceLabel(space)}
+                        </Text>
+                    )}
                     <Text size="sm" variant="muted" aria-hidden className="hidden @min-[32rem]/canvas-toolbar:inline">
                         /
                     </Text>
