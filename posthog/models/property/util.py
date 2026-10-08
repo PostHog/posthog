@@ -80,17 +80,15 @@ def get_property_string_expr(
 def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
     object_value = f"JSONStripEmptyStringsAndNulls(toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)}))"
-    # dynamicType only chooses scalar versus container formatting; both branches cast the
-    # whole Dynamic value rather than selecting one physical variant.
-    dynamic_type = f"dynamicType(accurateCast({scalar_value}, 'Dynamic'))"
-    is_container = " OR ".join(f"startsWith({dynamic_type}, '{family}')" for family in ("Array", "Map", "Tuple"))
     scalar_string = f"toString({scalar_value})"
-    formatted_scalar = (
-        f"if(startsWith({dynamic_type}, 'DateTime'), replaceOne({scalar_string}, ' ', 'T'), {scalar_string})"
-    )
+    # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
+    # string's JSON form starts with '"' (see the HogQL resolver).
+    scalar_json = f"toJSONString({scalar_value})"
+    # 91 and 123 are '[' and '{'; compared by code so no brace literal reaches callers that str.format the SQL.
+    is_container = f"ascii({scalar_string}) IN (91, 123) AND ascii({scalar_json}) IN (91, 123)"
     raw_value = (
         f"if({object_value} != '{{}}', {object_value}, "
-        f"if({is_container}, nullIf(nullIf(toJSONString({scalar_value}), '[]'), '{{}}'), {formatted_scalar}))"
+        f"if({is_container}, nullIf(nullIf({scalar_json}, '[]'), '{{}}'), {scalar_string}))"
     )
     return f"ifNull({raw_value}, '')", False
 
@@ -98,13 +96,17 @@ def _json_events_property_expr(property_name: PropertyName, var: str, column_ref
 def _json_events_subcolumn_expr(
     property_name: PropertyName, var: str, column_ref: str, *, sub_object: bool = False
 ) -> str:
-    if "%" not in property_name:
+    if "%" not in property_name and "." not in property_name:
         separator = ".^" if sub_object else "."
         return f"{column_ref}{separator}{escape_clickhouse_identifier(property_name)}"
 
-    escaped_backticks = f"replaceAll({var}, char(96), concat(char(96), char(96)))"
+    # A dot inside one key is stored as `%2E` (EVENTS_JSON_INSERT_SETTINGS), so it must not read as a path
+    # separator. `%` is spelled char(37) because callers run this SQL through parameter substitution, where a
+    # literal `%` is a format directive.
+    escaped_dots = f"replaceAll({var}, '.', concat(char(37), '2E'))"
+    escaped_backticks = f"replaceAll({escaped_dots}, char(96), concat(char(96), char(96)))"
     quoted_subcolumn = f"concat(char(96), {escaped_backticks}, char(96))"
-    subcolumn = f"concat('^', {quoted_subcolumn})" if sub_object else var
+    subcolumn = f"concat('^', {quoted_subcolumn})" if sub_object else escaped_dots
     return f"getSubcolumn({column_ref}, {subcolumn})"
 
 
