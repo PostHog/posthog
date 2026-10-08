@@ -264,8 +264,17 @@ describe('DashboardTemplatesTable', () => {
                 button: 'Try again',
                 action: 'getAllTemplates',
             },
-        ])('offers a next step when $label', ({ searchText, loadFailed, title, button, action }) => {
-            const actions = mountTable({ isStaff: false, templates: [], searchText, loadFailed })
+            {
+                label: 'a reload failed after rows loaded',
+                templates: [makeTemplate('team')],
+                searchText: 'churn',
+                loadFailed: true,
+                title: "Couldn't load templates",
+                button: 'Try again',
+                action: 'getAllTemplates',
+            },
+        ])('offers a next step when $label', ({ templates = [], searchText, loadFailed, title, button, action }) => {
+            const actions = mountTable({ isStaff: false, templates, searchText, loadFailed })
 
             expect(screen.getByText(title)).toBeInTheDocument()
             fireEvent.click(screen.getByText(button))
