@@ -86,7 +86,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                 </div>
             )}
             {/* A fixed height keeps the Instructions field below in place while the diff follows each keystroke. */}
-            <div className="h-64 overflow-auto">
+            <div className="ph-no-capture h-64 overflow-auto">
                 {selectedVersion !== null && revisionLoadFailed ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm text-danger">Could not load {versionName}.</span>
