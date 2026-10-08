@@ -32,7 +32,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
-    PI_WEB_SESSIONS_FEATURE_FLAG,
+    PI_ACP_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
@@ -461,7 +461,7 @@ def _is_peer_messaging_enabled(
     return enabled
 
 
-def _is_pi_web_sessions_enabled(
+def _is_pi_acp_enabled(
     *,
     distinct_id: str,
     organization_id: str,
@@ -470,7 +470,7 @@ def _is_pi_web_sessions_enabled(
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                PI_WEB_SESSIONS_FEATURE_FLAG,
+                PI_ACP_FEATURE_FLAG,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -479,7 +479,7 @@ def _is_pi_web_sessions_enabled(
             )
         )
     except Exception as e:
-        log_with_activity_context("pi_web_sessions_flag_check_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("pi_acp_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
 
@@ -1802,7 +1802,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             run_id=run_id,
         ),
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI
-        and _is_pi_web_sessions_enabled(
+        and _is_pi_acp_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,
             run_id=run_id,

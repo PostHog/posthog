@@ -33,7 +33,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const isActiveCreation = activeCreation?.taskId === taskId
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const skin = useThreadSkin()
-    const piWebSessionsEnabled = useFeatureFlag('PI_WEB_SESSIONS')
+    const piAcpEnabled = useFeatureFlag('PI_ACP')
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -56,7 +56,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     }
     const canRun =
         !!task &&
-        (!isPiTaskRuntime(task.runtime) || piWebSessionsEnabled) &&
+        (!isPiTaskRuntime(task.runtime) || piAcpEnabled) &&
         !isLatestRunInProgress &&
         !isLatestRunCompleted
     const taskActions =

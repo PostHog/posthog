@@ -45,11 +45,11 @@ function setValues(
         runOpening: boolean
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
-        piWebSessionsEnabled: boolean
+        piAcpEnabled: boolean
     }>
 ): void {
-    const { piWebSessionsEnabled = true, ...values } = overrides
-    ;(useFeatureFlag as jest.Mock).mockReturnValue(piWebSessionsEnabled)
+    const { piAcpEnabled = true, ...values } = overrides
+    ;(useFeatureFlag as jest.Mock).mockReturnValue(piAcpEnabled)
     ;(useValues as jest.Mock).mockReturnValue({
         bootstrapLoading: false,
         threadItems: [],
@@ -141,7 +141,7 @@ describe('RunSurface', () => {
         ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun, reset: jest.fn(), loadTask: jest.fn() })
         setValues({
             task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi },
-            piWebSessionsEnabled: false,
+            piAcpEnabled: false,
         })
 
         render(
