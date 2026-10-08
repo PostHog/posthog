@@ -1650,11 +1650,15 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "email" not in person_data["properties"]
         assert "name" in person_data["properties"]
 
+    @parameterized.expand(
+        [
+            ("event_property", PropertyDefinition.Type.EVENT, "secret_field", "properties.secret_field"),
+            ("person_property_in_set", PropertyDefinition.Type.PERSON, "secret_field", "properties.$set.secret_field"),
+        ]
+    )
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
-    def test_restricted_event_property_in_select_raises_error(self):
+    def test_restricted_property_in_select_raises_error(self, _name, property_type, property_name, select):
         from posthog.hogql.errors import ResolutionError
-
-        from posthog.models import PropertyDefinition
 
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -1666,14 +1670,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-11T12:00:01Z",
-            properties={"secret_field": "hidden"},
+            properties={"secret_field": "hidden", "$set": {"secret_field": "hidden"}},
         )
         flush_persons_and_events()
 
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
-            name="secret_field",
-            type=PropertyDefinition.Type.EVENT,
+            name=property_name,
+            type=property_type,
         )
         PropertyAccessControl.objects.create(
             team=self.team,
@@ -1681,7 +1685,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             access_level=PropertyAccessLevel.NONE.value,
         )
 
-        query = EventsQuery(select=["properties.secret_field"], after="2020-01-10")
+        query = EventsQuery(select=[select], after="2020-01-10")
         runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
         with self.assertRaises(ResolutionError):
             runner.run()

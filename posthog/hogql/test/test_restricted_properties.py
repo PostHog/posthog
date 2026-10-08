@@ -8,7 +8,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import build_database_root_node
 from posthog.hogql.database.models import StringJSONDatabaseField, Table, TableNode
 from posthog.hogql.property_access_types import RestrictedProperty
-from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    PERSON_PROPERTY_CONTAINERS,
+    RESTRICTABLE_JSON_BLOB_COLUMNS,
+    restricted_property_keys_for_table_type,
+)
 
 from posthog.constants import GROUP_TYPES_LIMIT
 
@@ -25,9 +29,12 @@ _GROUP_KEYS = tuple(f"restricted_group_{index}_property" for index in range(GROU
 # Every catalog blob the printer masks, and the keys it drops from each. Written out rather than derived
 # from RESTRICTABLE_JSON_BLOB_COLUMNS, so that dropping a column name from that set fails here instead of
 # quietly shrinking the walk below.
+# An event blob also hides the restricted person key where identify events carry it.
+_EVENT_BLOB_KEYS = frozenset({_EVENT_KEY, *(f"{container}.{_PERSON_KEY}" for container in PERSON_PROPERTY_CONTAINERS)})
+
 _MASKED_BLOBS: dict[str, frozenset[str]] = {
-    "events.properties (EventsTable)": frozenset({_EVENT_KEY}),
-    "ai_events.properties (AiEventsTable)": frozenset({_EVENT_KEY}),
+    "events.properties (EventsTable)": _EVENT_BLOB_KEYS,
+    "ai_events.properties (AiEventsTable)": _EVENT_BLOB_KEYS,
     "events.person_properties (EventsPersonSubTable)": frozenset({_PERSON_KEY}),
     **{
         f"events.group{index}_properties (EventsGroupSubTable)": frozenset({_GROUP_KEYS[index]})
@@ -35,7 +42,7 @@ _MASKED_BLOBS: dict[str, frozenset[str]] = {
     },
     # The one blob flag_evaluations stores. It carries event properties, so it masks the event class alone:
     # the table keeps no person or group blob to mask, only a person id and the group keys.
-    "flag_evaluations.properties (FlagEvaluationsTable)": frozenset({_EVENT_KEY}),
+    "flag_evaluations.properties (FlagEvaluationsTable)": _EVENT_BLOB_KEYS,
     "persons.properties (PersonsTable)": frozenset({_PERSON_KEY}),
     "raw_persons.properties (RawPersonsTable)": frozenset({_PERSON_KEY}),
     # The groups tables hold every group type, with the index in a column rather than in the blob's name, so
@@ -136,4 +143,8 @@ def test_every_restrictable_blob_column_is_masked_with_the_keys_of_its_property_
     if use_new_events_schema:
         for label in ("events.properties (EventsTable)", "events.person_properties (EventsPersonSubTable)"):
             expected[label] |= {"$unparseable_properties"}
+        # The native schema also restricts the `%2E` spelling of every dotted key.
+        expected["events.properties (EventsTable)"] |= {
+            f"{container}%2E{_PERSON_KEY}" for container in PERSON_PROPERTY_CONTAINERS
+        }
     assert masked == expected
