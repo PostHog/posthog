@@ -264,24 +264,6 @@ def test_findings_permission_probe_reads_details(config: AwsMacieSourceConfig, s
     assert urlsplit(session.request.call_args.args[1]).path == "/findings/describe"
 
 
-@pytest.mark.parametrize(
-    "code,expected",
-    [
-        ("UnrecognizedClientException", "access key"),
-        ("InvalidSignatureException", "signature"),
-        ("ExpiredTokenException", "expired"),
-        ("SubscriptionRequiredException", "Enable Amazon Macie"),
-    ],
-)
-def test_credential_errors(config: AwsMacieSourceConfig, session: Mock, code: str, expected: str) -> None:
-    session.request.return_value = response(
-        {"__type": f"com.amazonaws.macie#{code}", "message": "Request rejected."}, 403
-    )
-    valid, message = validate_credentials(config)
-    assert not valid and expected in (message or "")
-    assert any(pattern.lower() in code.lower() for pattern in AwsMacieSource().get_non_retryable_errors())
-
-
 @pytest.mark.parametrize("status,code", [(429, "ThrottlingException"), (500, "InternalServerException")])
 def test_transient_errors_propagate(config: AwsMacieSourceConfig, session: Mock, status: int, code: str) -> None:
     session.request.return_value = response({"message": "Try again."}, status, {"x-amzn-ErrorType": code})

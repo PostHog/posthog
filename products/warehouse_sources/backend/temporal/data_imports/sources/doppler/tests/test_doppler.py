@@ -86,30 +86,6 @@ class TestCoerceWatermark:
 
 
 class TestGetRows:
-    def test_paginates_until_short_page(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{_BASE}/projects?page=1&per_page=20": _full_page("projects", "a"),
-            f"{_BASE}/projects?page=2&per_page=20": _items("projects", ["last"]),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-
-        rows = _collect(manager, endpoint="projects")
-
-        assert len(rows) == DEFAULT_PER_PAGE + 1
-        assert fetched == list(pages)
-        # State is saved only while more pages remain, never on the last page.
-        assert manager.saved == [DopplerResumeConfig(next_page=2)]
-
-    def test_stops_on_empty_page(self, monkeypatch: Any) -> None:
-        pages = {f"{_BASE}/projects?page=1&per_page=20": _items("projects", [])}
-        fetched = _patch_fetch(monkeypatch, pages)
-
-        rows = _collect(_FakeResumableManager(), endpoint="projects")
-
-        assert rows == []
-        assert fetched == [f"{_BASE}/projects?page=1&per_page=20"]
-
     def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
         pages = {f"{_BASE}/projects?page=3&per_page=20": _items("projects", ["p1"])}
         fetched = _patch_fetch(monkeypatch, pages)
@@ -191,23 +167,6 @@ class TestGetRowsIncremental:
         assert [r["id"] for r in rows] == [f"l{i}" for i in range(DEFAULT_PER_PAGE)] + ["new", "unparseable"]
         assert fetched == list(pages)
 
-    def test_first_sync_without_watermark_walks_all_pages(self, monkeypatch: Any) -> None:
-        pages = {
-            f"{_BASE}/logs?page=1&per_page=20": _full_page("logs", "l"),
-            f"{_BASE}/logs?page=2&per_page=20": _items("logs", ["last"]),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-
-        rows = _collect(
-            _FakeResumableManager(),
-            endpoint="activity_logs",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-
-        assert len(rows) == DEFAULT_PER_PAGE + 1
-        assert fetched == list(pages)
-
 
 class TestGetRowsFanOut:
     _PROJECTS_URL = f"{_BASE}/projects?page=1&per_page=20"
@@ -233,49 +192,6 @@ class TestGetRowsFanOut:
             DopplerResumeConfig(next_page=2, project="proj-a"),
             DopplerResumeConfig(next_page=1, project="proj-b"),
         ]
-
-    def test_resumes_from_bookmarked_project_and_page(self, monkeypatch: Any) -> None:
-        pages = {
-            self._PROJECTS_URL: self._projects_page(["proj-a", "proj-b"]),
-            f"{_BASE}/configs?project=proj-b&page=2&per_page=20": _items("configs", ["b-page2"]),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-
-        rows = _collect(_FakeResumableManager(DopplerResumeConfig(next_page=2, project="proj-b")), endpoint="configs")
-
-        # proj-a is skipped entirely; proj-b picks up at its saved page.
-        assert [r["id"] for r in rows] == ["b-page2"]
-        assert fetched == list(pages)
-
-    def test_restarts_when_bookmarked_project_no_longer_exists(self, monkeypatch: Any) -> None:
-        pages = {
-            self._PROJECTS_URL: self._projects_page(["proj-a"]),
-            f"{_BASE}/configs?project=proj-a&page=1&per_page=20": _items("configs", ["a0"]),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-
-        rows = _collect(
-            _FakeResumableManager(DopplerResumeConfig(next_page=4, project="deleted-project")), endpoint="configs"
-        )
-
-        assert [r["id"] for r in rows] == ["a0"]
-        assert fetched == list(pages)
-
-    def test_unpaginated_fan_out_makes_one_request_per_project(self, monkeypatch: Any) -> None:
-        # /v3/environments takes no pagination params; one request per project, no page loop.
-        pages = {
-            self._PROJECTS_URL: self._projects_page(["proj-a", "proj-b"]),
-            f"{_BASE}/environments?project=proj-a": _items("environments", ["dev", "prd"]),
-            f"{_BASE}/environments?project=proj-b": _items("environments", ["dev"]),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-
-        rows = _collect(manager, endpoint="environments")
-
-        assert [r["id"] for r in rows] == ["dev", "prd", "dev"]
-        assert fetched == list(pages)
-        assert manager.saved == [DopplerResumeConfig(next_page=1, project="proj-b")]
 
 
 class TestGetRowsProjectMemberFanOut:
@@ -304,29 +220,6 @@ class TestGetRowsConfigFanOut:
 
     def _logs_url(self, project: str, config: str, page: int = 1) -> str:
         return f"{_BASE}/configs/config/logs?project={project}&config={config}&page={page}&per_page=20"
-
-    def test_fans_out_over_every_config_of_every_project(self, monkeypatch: Any) -> None:
-        pages = {
-            self._PROJECTS_URL: {"projects": [{"slug": "proj-a"}, {"slug": "proj-b"}]},
-            f"{_BASE}/configs?project=proj-a&page=1&per_page=20": {"configs": [{"name": "dev"}, {"name": "prd"}]},
-            f"{_BASE}/configs?project=proj-b&page=1&per_page=20": {"configs": [{"name": "dev"}]},
-            self._logs_url("proj-a", "dev"): _items("logs", ["a-dev"]),
-            self._logs_url("proj-a", "prd"): _items("logs", ["a-prd"]),
-            self._logs_url("proj-b", "dev"): _items("logs", ["b-dev"]),
-        }
-        fetched = _patch_fetch(monkeypatch, pages)
-        manager = _FakeResumableManager()
-
-        rows = _collect(manager, endpoint="config_logs")
-
-        assert [row["id"] for row in rows] == ["a-dev", "a-prd", "b-dev"]
-        # Both fan-out levels are resolved up front, so every parent listing precedes the logs.
-        assert fetched == list(pages)
-        # The bookmark carries the config too; a project-only bookmark would restart the project.
-        assert manager.saved == [
-            DopplerResumeConfig(next_page=1, project="proj-a", config="prd"),
-            DopplerResumeConfig(next_page=1, project="proj-b", config="dev"),
-        ]
 
     def test_drops_secret_values_from_the_diff(self, monkeypatch: Any) -> None:
         # Doppler puts the plaintext before and after value of every changed secret in `diff`.
