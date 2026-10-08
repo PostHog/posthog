@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -52,13 +53,21 @@ describe('watchPicksLogic', () => {
     describe('inside a recordings list', () => {
         let logic: ReturnType<typeof watchPicksLogic.build>
         let playlistLogic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
+        let captureSpy: jest.SpyInstance
 
-        beforeEach(async () => {
+        const mountList = async (): Promise<void> => {
+            captureSpy = jest.spyOn(posthog, 'capture').mockImplementation()
+            captureSpy.mockClear()
             playlistLogic = sessionRecordingsPlaylistLogic(playlistLogicProps)
             playlistLogic.mount()
             logic = watchPicksLogic({ logicKey: 'test-picks', playlistLogicProps })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadPicks', 'loadPicksSuccess']).toFinishAllListeners()
+            await expectLogic(logic).toDispatchActions(['loadPicks']).toFinishAllListeners()
+        }
+
+        beforeEach(async () => {
+            router.actions.push('/replay/home')
+            await mountList()
         })
 
         afterEach(() => {
@@ -72,6 +81,29 @@ describe('watchPicksLogic', () => {
             expect(url.searchParams.get('limit')).toBe('50')
             expect(logic.values.picks?.map((pick) => pick.observation.id)).toEqual(['o1', 'o2', 'o3'])
             expect(playlistLogic.values.selectedRecordingId).toBeNull()
+        })
+
+        const shownEvents = (): unknown[] =>
+            captureSpy.mock.calls.filter(([name]) => name === 'replay_vision_watch_picks_shown').map((call) => call[1])
+
+        it('opens on the picks and reports the impression with its count', () => {
+            expect(logic.values.effectiveListMode).toBe('picks')
+            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3 }])
+        })
+
+        it.each([
+            ['the feed is empty', () => feedSpy.mockImplementation(() => [200, { results: [] }]), {}],
+            ['the feed fails', () => feedSpy.mockImplementation(() => [500, {}]), {}],
+            ['the link carries filters', () => {}, { filters: { date_from: '-30d' } }],
+            ['the link carries a saved filter', () => {}, { savedFilterId: 'sf-1' }],
+        ])('opens on the recordings when %s', async (_, arrange, params) => {
+            logic.unmount()
+            playlistLogic.unmount()
+            arrange()
+            router.actions.push('/replay/home', params)
+            await mountList()
+            expect(logic.values.effectiveListMode).toBe('recordings')
+            expect(shownEvents()).toEqual([])
         })
 
         it('selects the pick, seeks ahead of its key moment, and marks it viewed for this person', async () => {

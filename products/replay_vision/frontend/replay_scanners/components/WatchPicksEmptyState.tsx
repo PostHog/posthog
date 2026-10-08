@@ -75,6 +75,20 @@ export function WatchPicksEmptyState({ size }: { size: 'small' | 'large' }): JSX
                 </LemonButton>
             )
             break
+        case 'all-capped':
+            title = 'Every running scanner has reached its credit limit'
+            body = "They stop scanning until the period resets. Raise a scanner's limit to start it again."
+            action = (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => push(urls.replayVision(), { tab: 'usage' })}
+                    data-attr="vision-watch-picks-see-usage"
+                >
+                    See usage
+                </LemonButton>
+            )
+            break
         case 'quota-exhausted':
             title = 'Your Replay vision credits are used up for this period'
             body = 'Scans are skipped until the period resets. Raise the limit to start them again.'

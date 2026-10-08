@@ -16,7 +16,7 @@ describe('sessionReplaySceneLogic', () => {
     let playlistLogic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
 
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
         router.actions.push('/replay/home', { sessionRecordingId: 'session-a', t: 42 })
         logic = sessionReplaySceneLogic()
         logic.mount()
@@ -30,10 +30,16 @@ describe('sessionReplaySceneLogic', () => {
     })
 
     describe('landing on the tab arms', () => {
-        const land = (variant: string, path: string, params: Record<string, any> = {}): void => {
+        const land = (
+            variant: string,
+            path: string,
+            params: Record<string, any> = {},
+            otherFlags: Record<string, string> = {}
+        ): void => {
             logic.unmount()
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT]: variant,
+                ...otherFlags,
             })
             router.actions.push(path, params)
             logic = sessionReplaySceneLogic()
@@ -46,10 +52,20 @@ describe('sessionReplaySceneLogic', () => {
             ['the in-list arm', 'in-list', '/replay/home', {}, '/replay/home'],
             ['a deep link to a recording', 'watch-tab', '/replay/home', { sessionRecordingId: 'x' }, '/replay/home'],
             ['a link with filters', 'watch-tab', '/replay/home', { filters: { date_from: '-30d' } }, '/replay/home'],
+            ['a saved filter link', 'watch-tab', '/replay/home', { savedFilterId: 'sf-1' }, '/replay/home'],
             ['another tab', 'watch-tab', '/replay/playlists', {}, '/replay/playlists'],
+            ['a direct tab link on the tab arm', 'watch-tab', '/replay/what-to-watch', {}, '/replay/what-to-watch'],
+            ['a direct tab link on control', 'control', '/replay/what-to-watch', {}, '/replay/home'],
+            ['a direct tab link on the in-list arm', 'in-list', '/replay/what-to-watch', {}, '/replay/home'],
         ])('lands %s where expected', (_, variant, path, params, expected) => {
             land(variant, path, params)
             expect(router.values.location.pathname).toMatch(new RegExp(`${expected}$`))
+        })
+
+        it('leaves users on the replay redesign out of the experiment', () => {
+            land('both', '/replay/home', {}, { [FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026]: 'test' })
+            expect(logic.values.watchPicksVariant).toBeNull()
+            expect(router.values.location.pathname).toMatch(/\/replay\/home$/)
         })
 
         it('hides every arm when the organization has not approved AI data processing', () => {

@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import posthog from 'lib/posthog-typed'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -30,23 +31,31 @@ export const SCENE_PLAYLIST_LOGIC_PROPS: SessionRecordingPlaylistLogicProps = {
     updateSearchParams: true,
 }
 
+export function replayUrlPointsSomewhere(searchParams: Record<string, any>, hashParams: Record<string, any>): boolean {
+    return Object.keys(searchParams).length > 0 || Boolean(hashParams.sessionRecordingId)
+}
+
 function landOnWhatToWatch(
     values: Pick<
         sessionReplaySceneLogicValues,
-        'tab' | 'watchPicksVariant' | 'receivedFeatureFlags' | 'currentOrganization'
+        'tab' | 'showWatchTab' | 'receivedFeatureFlags' | 'currentOrganization'
     >,
     cache: Record<string, any>
 ): void {
-    if (cache.landed || !values.receivedFeatureFlags || !values.currentOrganization) {
+    if (!values.receivedFeatureFlags || !values.currentOrganization) {
+        return
+    }
+    const { searchParams, hashParams } = router.values
+    if (values.tab === ReplayTabs.WhatToWatch && !values.showWatchTab) {
+        router.actions.replace(urls.replay(ReplayTabs.Home), searchParams, hashParams)
+        return
+    }
+    if (cache.landed) {
         return
     }
     cache.landed = true
-    const { searchParams, hashParams } = router.values
-    const pointsSomewhere = Boolean(
-        searchParams.sessionRecordingId || searchParams.filters || searchParams.order || hashParams.sessionRecordingId
-    )
-    const tabArm = values.watchPicksVariant === 'watch-tab' || values.watchPicksVariant === 'both'
-    if (values.tab === ReplayTabs.Home && tabArm && !pointsSomewhere) {
+    if (values.tab === ReplayTabs.Home && values.showWatchTab && !replayUrlPointsSomewhere(searchParams, hashParams)) {
+        posthog.capture('replay_vision_watch_tab_auto_landed')
         router.actions.replace(urls.replay(ReplayTabs.WhatToWatch), searchParams, hashParams)
     }
 }
@@ -74,6 +83,7 @@ export interface sessionReplaySceneLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     breadcrumbs: Breadcrumb[]
     pickSeekSessionId: string | null
+    showWatchTab: boolean
     sidePanelContext: SidePanelSceneContext
     tab: ReplayTabs
     watchPicksVariant: WatchPicksVariant | null
@@ -107,6 +117,7 @@ export interface sessionReplaySceneLogicActions {
 export interface sessionReplaySceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         watchPicksVariant: (featureFlags: FeatureFlagsSet, dataProcessingAccepted: boolean) => WatchPicksVariant | null
+        showWatchTab: (watchPicksVariant: WatchPicksVariant | null) => boolean
         breadcrumbs: (tab: ReplayTabs) => Breadcrumb[]
         sidePanelContext: (searchParams: Record<string, any>) => SidePanelSceneContext
     }
@@ -187,9 +198,14 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         watchPicksVariant: [
             (s) => [s.featureFlags, s.dataProcessingAccepted],
             (featureFlags: FeatureFlagsSet, dataProcessingAccepted: boolean): WatchPicksVariant | null =>
-                dataProcessingAccepted
+                dataProcessingAccepted && featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] !== 'test'
                     ? watchPicksVariantFromFlag(featureFlags[FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT])
                     : null,
+        ],
+        showWatchTab: [
+            (s) => [s.watchPicksVariant],
+            (watchPicksVariant: WatchPicksVariant | null): boolean =>
+                watchPicksVariant === 'watch-tab' || watchPicksVariant === 'both',
         ],
         breadcrumbs: [
             (s) => [s.tab],

@@ -21,7 +21,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { sessionReplaySceneLogic } from 'scenes/session-recordings/sessionReplaySceneLogic'
+import { replayUrlPointsSomewhere, sessionReplaySceneLogic } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -47,7 +47,8 @@ const PICKS_DATE_FROM = '-7d'
 export interface watchPicksLogicValues {
     currentTeamId: number | null // teamLogic
     activeSessionId: string | null
-    listMode: WatchPicksListMode
+    effectiveListMode: WatchPicksListMode
+    listMode: WatchPicksListMode | null
     moreItems: WatchFeedItemApi[]
     picks: WatchFeedItemApi[] | null
     picksFailed: boolean
@@ -103,6 +104,11 @@ export interface watchPicksLogicActions {
 export interface watchPicksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        effectiveListMode: (
+            listMode: WatchPicksListMode | null,
+            picks: WatchFeedItemApi[] | null,
+            picksFailed: boolean
+        ) => WatchPicksListMode
         topPicks: (picks: WatchFeedItemApi[] | null) => WatchFeedItemApi[]
         unwatchedCount: (picks: WatchFeedItemApi[] | null) => number
         moreItems: (picks: WatchFeedItemApi[] | null) => WatchFeedItemApi[]
@@ -156,7 +162,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         picks: {
             markPickViewed: (state, { observationId }) =>
                 state?.map((pick) =>
@@ -166,7 +172,9 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 ) ?? null,
         },
         listMode: [
-            'picks' as WatchPicksListMode,
+            (props.playlistLogicProps && replayUrlPointsSomewhere(router.values.searchParams, router.values.hashParams)
+                ? 'recordings'
+                : null) as WatchPicksListMode | null,
             {
                 setListMode: (_, { mode }) => mode,
             },
@@ -184,9 +192,18 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 setActiveSessionId: (_, { sessionId }) => sessionId,
             },
         ],
-    }),
+    })),
 
     selectors({
+        effectiveListMode: [
+            (s) => [s.listMode, s.picks, s.picksFailed],
+            (
+                listMode: WatchPicksListMode | null,
+                picks: WatchFeedItemApi[] | null,
+                picksFailed: boolean
+            ): WatchPicksListMode =>
+                listMode ?? (picksFailed || (picks !== null && picks.length === 0) ? 'recordings' : 'picks'),
+        ],
         topPicks: [
             (s) => [s.picks],
             (picks: WatchFeedItemApi[] | null): WatchFeedItemApi[] => (picks ?? []).slice(0, TOP_PICKS_COUNT),
@@ -202,64 +219,82 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
-        setListMode: ({ mode }) => {
-            posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })
-        },
-        watchPick: async ({ item, position, surface }) => {
-            const { observation, reason } = item
-            const keyMomentMs = observationKeyMomentMs(observation)
-            posthog.capture('replay_vision_watch_clip_clicked', {
-                scanner_id: observation.scanner_id,
-                scanner_type: observation.scanner_snapshot?.scanner_type,
-                observation_id: observation.id,
-                position,
-                reason_kind: reason.kind,
-                has_key_moment: keyMomentMs !== null,
-                target: 'replay_page',
-                view: surface,
+    listeners(({ actions, props, values, cache }) => {
+        const reportPicksShown = (): void => {
+            if (!values.picks || (props.playlistLogicProps && values.effectiveListMode !== 'picks')) {
+                return
+            }
+            posthog.capture('replay_vision_watch_picks_shown', {
+                view: props.playlistLogicProps ? 'list' : 'page',
+                count: values.picks.length,
+                unwatched_count: values.unwatchedCount,
             })
-            const playerParams = {
-                t: keyMomentMs === null ? undefined : watchStartSeconds(keyMomentMs),
-                sidebarTab: SessionRecordingSidebarTab.OBSERVATIONS,
-                showInspector: true,
-            }
-            const markViewed =
-                !observation.viewed && values.currentTeamId
-                    ? visionObservationsViewedCreate(String(values.currentTeamId), observation.id)
-                    : null
-            sessionReplaySceneLogic.findMounted()?.actions.setPickSeekSessionId(observation.session_id)
-            const { location, searchParams, hashParams } = router.values
-            if (props.playlistLogicProps) {
-                router.actions.replace(location.pathname, { ...searchParams, ...playerParams }, hashParams)
-                sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
-                    observation.session_id
-                )
-            } else {
-                router.actions.push(urls.replay(ReplayTabs.Home), {
-                    sessionRecordingId: observation.session_id,
-                    ...playerParams,
+        }
+        return {
+            loadPicksSuccess: () => {
+                reportPicksShown()
+            },
+            setListMode: ({ mode }) => {
+                posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })
+                if (mode === 'picks') {
+                    reportPicksShown()
+                }
+            },
+            watchPick: async ({ item, position, surface }) => {
+                const { observation, reason } = item
+                const keyMomentMs = observationKeyMomentMs(observation)
+                posthog.capture('replay_vision_watch_clip_clicked', {
+                    scanner_id: observation.scanner_id,
+                    scanner_type: observation.scanner_snapshot?.scanner_type,
+                    observation_id: observation.id,
+                    position,
+                    reason_kind: reason.kind,
+                    has_key_moment: keyMomentMs !== null,
+                    target: 'replay_page',
+                    view: surface,
                 })
-            }
-            if (!markViewed) {
-                return
-            }
-            const mountedIn = getContext()
-            try {
-                await markViewed
-            } catch {
-                return
-            }
-            if (getContext() === mountedIn && !cache.disposables.isDisposed) {
-                actions.markPickViewed(observation.id)
-            }
-        },
-        [props.playlistLogicProps
-            ? sessionRecordingsPlaylistLogic(props.playlistLogicProps).actionTypes.setSelectedRecordingId
-            : 'watchPicksLogic/noPlaylist']: ({ id }: { id: string | null }) => {
-            actions.setActiveSessionId(id)
-        },
-    })),
+                const playerParams = {
+                    t: keyMomentMs === null ? undefined : watchStartSeconds(keyMomentMs),
+                    sidebarTab: SessionRecordingSidebarTab.OBSERVATIONS,
+                    showInspector: true,
+                }
+                const markViewed =
+                    !observation.viewed && values.currentTeamId
+                        ? visionObservationsViewedCreate(String(values.currentTeamId), observation.id)
+                        : null
+                sessionReplaySceneLogic.findMounted()?.actions.setPickSeekSessionId(observation.session_id)
+                const { location, searchParams, hashParams } = router.values
+                if (props.playlistLogicProps) {
+                    router.actions.replace(location.pathname, { ...searchParams, ...playerParams }, hashParams)
+                    sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
+                        observation.session_id
+                    )
+                } else {
+                    router.actions.push(urls.replay(ReplayTabs.Home), {
+                        sessionRecordingId: observation.session_id,
+                        ...playerParams,
+                    })
+                }
+                if (!markViewed) {
+                    return
+                }
+                const mountedIn = getContext()
+                try {
+                    await markViewed
+                } catch {
+                    return
+                }
+                if (getContext() === mountedIn && !cache.disposables.isDisposed) {
+                    actions.markPickViewed(observation.id)
+                }
+            },
+            [props.playlistLogicProps
+                ? sessionRecordingsPlaylistLogic(props.playlistLogicProps).actionTypes.setSelectedRecordingId
+                : 'watchPicksLogic/noPlaylist']: ({ id }: { id: string | null }) => {
+                actions.setActiveSessionId(id)
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadPicks()

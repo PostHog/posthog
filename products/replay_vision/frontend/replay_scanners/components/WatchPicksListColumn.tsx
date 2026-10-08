@@ -11,7 +11,7 @@ interface WatchPicksListColumnProps {
 }
 
 export function WatchPicksListColumn({ recordingsList }: WatchPicksListColumnProps): JSX.Element {
-    const { listMode, unwatchedCount } = useValues(watchPicksLogic)
+    const { effectiveListMode, unwatchedCount } = useValues(watchPicksLogic)
     const { setListMode } = useActions(watchPicksLogic)
 
     return (
@@ -20,7 +20,7 @@ export function WatchPicksListColumn({ recordingsList }: WatchPicksListColumnPro
                 size="small"
                 fullWidth
                 className="mb-2"
-                value={listMode}
+                value={effectiveListMode}
                 onChange={setListMode}
                 options={[
                     {
@@ -38,7 +38,7 @@ export function WatchPicksListColumn({ recordingsList }: WatchPicksListColumnPro
                     { value: 'recordings', label: 'All recordings', 'data-attr': 'vision-watch-picks-mode-recordings' },
                 ]}
             />
-            {listMode === 'picks' ? <WatchPicksList /> : recordingsList}
+            {effectiveListMode === 'picks' ? <WatchPicksList /> : recordingsList}
         </>
     )
 }

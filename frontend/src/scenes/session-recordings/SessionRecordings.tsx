@@ -181,7 +181,7 @@ function AttachScenePlaylistLogic({
 }
 
 function MainPanel(): JSX.Element {
-    const { tab, watchPicksVariant } = useValues(sessionReplaySceneLogic)
+    const { tab, watchPicksVariant, showWatchTab } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     return (
@@ -205,7 +205,11 @@ function MainPanel(): JSX.Element {
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
             ) : tab === ReplayTabs.WhatToWatch ? (
-                <WatchPage />
+                showWatchTab ? (
+                    <WatchPage />
+                ) : (
+                    <Spinner />
+                )
             ) : null}
         </div>
     )
@@ -235,9 +239,8 @@ const WhatToWatchTab: ReplayTab = {
 }
 
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, watchPicksVariant } = useValues(sessionReplaySceneLogic)
-    const showWhatToWatch = watchPicksVariant === 'watch-tab' || watchPicksVariant === 'both'
-    const tabs = showWhatToWatch ? [WhatToWatchTab, ...ReplayPageTabs] : ReplayPageTabs
+    const { tab, showWatchTab } = useValues(sessionReplaySceneLogic)
+    const tabs = showWatchTab ? [WhatToWatchTab, ...ReplayPageTabs] : ReplayPageTabs
     return (
         <LemonTabs
             activeKey={tab}
