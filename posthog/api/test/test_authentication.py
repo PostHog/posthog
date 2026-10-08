@@ -840,11 +840,9 @@ class TestDevLoginAPI(APIBaseTest):
 
 
 class TestUserAuthenticationClassesRefuseInactiveAndBlockedUsers(APIBaseTest):
-    # DRF stops at the first authenticator that succeeds, so a check in one class alone leaves the others open.
     def _authenticate(self, path: str, request: Request) -> tuple[object, Exception | None]:
         try:
             result = import_string(path)().authenticate(request)
-        # Partner authenticators refuse with their own error types, and any error keeps the user out.
         except Exception as error:
             return None, error
         return (result[0] if result else None), None
@@ -872,13 +870,11 @@ class TestUserAuthenticationClassesRefuseInactiveAndBlockedUsers(APIBaseTest):
             user, error = self._authenticate(path, request)
 
         assert user is None
-        # A catch-all around the lookup would turn the refusal into a generic "Token invalid."
         if isinstance(error, AuthenticationFailed):
             assert error.get_codes() == "access_blocked"
 
 
 class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
-    # Django restores a session through the backend that created it, so every backend must refuse inactive users.
     @parameterized.expand(
         [(path,) for path in settings.AUTHENTICATION_BACKENDS if hasattr(import_string(path), "get_user")]
     )

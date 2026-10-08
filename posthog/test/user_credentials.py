@@ -1,10 +1,3 @@
-"""A valid credential for every authentication class whose `authenticate()` returns a `User`.
-
-`posthog/test/repo_invariants/test_authentication_credential_types.py` fails when such a class has no
-entry here. `posthog/api/test/test_authentication.py` uses each credential to check that its class
-refuses an inactive or blocked user.
-"""
-
 import time
 import base64
 from collections.abc import Callable
@@ -36,7 +29,6 @@ from posthog.models.utils import generate_random_token, generate_random_token_pe
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
-# Takes the running test, so a factory can read its user and team and hold settings for the whole test.
 CredentialFactory = Callable[[APIBaseTest], Request]
 
 
@@ -52,7 +44,6 @@ def _session(test: APIBaseTest) -> Request:
     django_request = APIRequestFactory().get("/")
     SessionMiddleware(lambda _: HttpResponse()).process_request(django_request)
     login(django_request, test.user, backend="django.contrib.auth.backends.ModelBackend")
-    # Load the user when authenticate() runs, as AuthenticationMiddleware does, so the test can deactivate it first.
     django_request.user = cast(User, SimpleLazyObject(lambda: get_user(django_request)))
     return Request(django_request)  # ty: ignore[invalid-return-type]
 

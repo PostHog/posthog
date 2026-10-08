@@ -9,7 +9,6 @@ def _union_members(hint: Any) -> tuple[Any, ...]:
 
 
 def principal_types(authentication_class: type) -> set[Any]:
-    """The types that `authenticate()` declares for the principal DRF sets as `request.user`."""
     assert issubclass(authentication_class, BaseAuthentication)
     returned = get_type_hints(authentication_class.authenticate).get("return")
     tuples = [member for member in _union_members(returned) if get_origin(member) is tuple]
