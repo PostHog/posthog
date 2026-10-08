@@ -415,9 +415,7 @@ def series_scope_expr(
             ast.OrderExpr(expr=ast.Field(chain=["series_fingerprint"]), order="ASC"),
         ]
         query.limit = ast.Constant(value=limit)
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.In, left=ast.Field(chain=["series_fingerprint"]), right=query
-    )
+    return ast.CompareOperation(op=ast.CompareOperationOp.In, left=ast.Field(chain=["series_fingerprint"]), right=query)
 
 
 def series_labels_query(metric_name: str, date_from: dt.datetime | None = None) -> ast.SelectQuery:
