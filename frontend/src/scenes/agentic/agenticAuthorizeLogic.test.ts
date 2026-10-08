@@ -85,4 +85,49 @@ describe('agenticAuthorizeLogic', () => {
             retryable: expect.any(Boolean),
         })
     })
+
+    it('confirms a paying partner without asking for a project', async () => {
+        const redirectUrl = 'https://app.example.com/callback?code=example_code&state=valid_state'
+        let confirmBody: unknown
+        useMocks({
+            get: {
+                '/api/agentic/authorize/pending/': () => [
+                    200,
+                    {
+                        partner_name: 'Example App',
+                        scopes: [],
+                        pays_for_customers: true,
+                        partner_organization_name: null,
+                    },
+                ],
+            },
+            post: {
+                '/api/agentic/authorize/confirm/': async ({ request }) => {
+                    confirmBody = await request.json()
+                    return [200, { redirect_url: redirectUrl }]
+                },
+            },
+        })
+        logic = agenticAuthorizeLogic()
+        logic.mount()
+        logic.actions.setState('valid_state')
+        await expectLogic(logic, () => logic.actions.loadPendingAuth()).toDispatchActions(['loadPendingAuthSuccess'])
+
+        const originalLocation = window.location
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            writable: true,
+            value: { ...originalLocation, href: originalLocation.href },
+        })
+        try {
+            await expectLogic(logic, () => logic.actions.submitAgenticAuthorization()).toDispatchActions([
+                'submitAgenticAuthorizationSuccess',
+            ])
+
+            expect(confirmBody).toEqual({ state: 'valid_state' })
+            expect(window.location.href).toBe(redirectUrl)
+        } finally {
+            Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation })
+        }
+    })
 })
