@@ -482,7 +482,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 id="dashboard-templates"
                 data-attr="dashboards-template-table"
                 pagination={{ pageSize: 25 }}
-                dataSource={Object.values(allTemplates)}
+                // A failed request keeps the rows of the previous load, which do not match the current filter.
+                // Hide them so that the empty state shows the load error and its retry button.
+                dataSource={allTemplatesLoadFailed ? [] : Object.values(allTemplates)}
                 columns={columns}
                 loading={allTemplatesLoading}
                 sorting={tableSorting}
