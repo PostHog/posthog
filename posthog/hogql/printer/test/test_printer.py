@@ -3549,7 +3549,7 @@ class TestPrinter(BaseTest):
             context=context,
         )
         property_expr = (
-            self._json_dynamic_property_expr("is_boolean")
+            "events.properties.is_boolean"
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             else "nullIf(nullIf(events.mat_is_boolean, ''), 'null')"
         )
