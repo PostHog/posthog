@@ -20,9 +20,6 @@ export interface sourcesDataLogicActions {
     loadSources: () => {
         value: true
     }
-    setLastUpdateConnectionWarning: (warning: string | null) => {
-        warning: string | null
-    }
     loadSourcesFailure: (
         error: string,
         errorObject?: any
@@ -54,6 +51,9 @@ export interface sourcesDataLogicActions {
         payload?: {
             value: true
         }
+    }
+    setLastUpdateConnectionWarning: (warning: string | null) => {
+        warning: string | null
     }
     updateSource: (source: ExternalDataSource) => ExternalDataSource
     updateSourceFailure: (
