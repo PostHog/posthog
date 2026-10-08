@@ -513,7 +513,12 @@ export class IngestionApiServer implements NodeServer {
 
         const service: PluginServerService = {
             id: 'ingestion-api',
+            // Runs before the lifecycle ends Postgres and Redis, so in-flight batches and the store drain finish here.
             onShutdown: async () => {
+                // Stop accepting stream traffic before draining stores, so no
+                // new batches land mid-teardown.
+                await this.grpcServer?.stop()
+                await this.drainStores()
                 await this.topHog.stop()
                 await this.hogTransformer.stop()
                 await eventFilterManagerStarted.stop()
@@ -532,6 +537,33 @@ export class IngestionApiServer implements NodeServer {
         return new HealthCheckResultOk()
     }
 
+    private async drainStores(): Promise<void> {
+        // No Kafka offsets in this server — drain buffered writes before
+        // shutdown so shutdown() can assert a clean cache, through the
+        // pipeline's store: in shadow mode that is the router, whose flush
+        // seals and writes the shadow segments; the raw store writes Postgres only.
+        const personsStore = this.pipelinePersonsStore ?? this.personsStore
+        if (personsStore) {
+            const personsFlushResults = await personsStore.flush()
+            if (this.ingestionOutputs) {
+                await Promise.all(createPersonProducePromises(personsFlushResults, this.ingestionOutputs))
+            }
+            await personsStore.shutdown()
+        }
+        this.personhogClientClosers.forEach((close) => close())
+        if (this.groupStore) {
+            const groupFlushResults = await this.groupStore.flush()
+            // flush() returns messages for the caller to produce (it no
+            // longer awaits ClickHouse delivery inline) — produce them here,
+            // as for persons above, so a drain at shutdown doesn't write
+            // Postgres but silently drop the corresponding ClickHouse row.
+            if (groupFlushResults.length > 0 && this.ingestionOutputs) {
+                await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
+            }
+            await this.groupStore.shutdown()
+        }
+    }
+
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
@@ -541,34 +573,8 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                // Stop accepting stream traffic before draining stores, so no
-                // new batches land mid-teardown.
-                await this.grpcServer?.stop()
-                // No Kafka offsets in this server — drain buffered writes before
-                // shutdown so shutdown() can assert a clean cache, through the
-                // pipeline's store: in shadow mode that is the router, whose flush
-                // seals and writes the shadow segments; the raw store writes Postgres only.
-                const personsStore = this.pipelinePersonsStore ?? this.personsStore
-                if (personsStore) {
-                    const personsFlushResults = await personsStore.flush()
-                    if (this.ingestionOutputs) {
-                        await Promise.all(createPersonProducePromises(personsFlushResults, this.ingestionOutputs))
-                    }
-                    await personsStore.shutdown()
-                }
-                this.personhogClientClosers.forEach((close) => close())
-                if (this.groupStore) {
-                    const groupFlushResults = await this.groupStore.flush()
-                    // flush() returns messages for the caller to produce (it no
-                    // longer awaits ClickHouse delivery inline) — produce them here,
-                    // as for persons above, so a drain at shutdown doesn't write
-                    // Postgres but silently drop the corresponding ClickHouse row.
-                    if (groupFlushResults.length > 0 && this.ingestionOutputs) {
-                        await Promise.all(createGroupProducePromises(groupFlushResults, this.ingestionOutputs))
-                    }
-                    await this.groupStore.shutdown()
-                }
                 this.cookielessManager?.shutdown()
+                // Disconnected last: the store drain in the ingestion-api service's onShutdown produces through them.
                 await this.ingestionProducerRegistry?.disconnectAll()
             },
         }

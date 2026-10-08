@@ -1,7 +1,6 @@
 import { GROUPS_OUTPUT, PERSONS_OUTPUT } from '~/common/outputs'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 
-import { CleanupResources } from './base-server'
 import { IngestionApiServer } from './ingestion-api-server'
 
 describe('IngestionApiServer', () => {
@@ -38,8 +37,7 @@ describe('IngestionApiServer', () => {
             ;(server as any).groupStore = groupStore
             ;(server as any).ingestionOutputs = ingestionOutputs
 
-            const cleanup: CleanupResources = (server as any).getCleanupResources()
-            await cleanup.additionalCleanup?.()
+            await (server as any).drainStores()
 
             expect(ingestionOutputs.produce).toHaveBeenCalledWith(GROUPS_OUTPUT, {
                 key: null,
@@ -66,8 +64,7 @@ describe('IngestionApiServer', () => {
             ;(server as any).pipelinePersonsStore = pipelinePersonsStore
             ;(server as any).ingestionOutputs = ingestionOutputs
 
-            const cleanup: CleanupResources = (server as any).getCleanupResources()
-            await cleanup.additionalCleanup?.()
+            await (server as any).drainStores()
 
             expect(pipelinePersonsStore.flush).toHaveBeenCalledTimes(1)
             expect(personsStore.flush).not.toHaveBeenCalled()
