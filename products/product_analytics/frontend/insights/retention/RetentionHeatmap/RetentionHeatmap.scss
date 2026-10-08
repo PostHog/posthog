@@ -1,0 +1,98 @@
+.RetentionHeatmap {
+    // The label column and the canvas rows line up only while both use the same row height, so
+    // the head band above each one must stay the same height too.
+    --retention-head-height: 2.5rem;
+
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    font-weight: 500;
+
+    &--small {
+        --retention-head-height: 2rem;
+
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+
+    &__rows {
+        flex: 0 0 auto;
+        max-width: 40%;
+    }
+
+    &__grid {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    &__head {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        height: var(--retention-head-height);
+        white-space: nowrap;
+    }
+
+    &__intervals {
+        display: grid;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.25rem;
+        align-items: center;
+        width: 100%;
+        padding-right: 0.75rem;
+        text-align: left;
+        cursor: pointer;
+        border-radius: var(--radius);
+
+        &:hover {
+            background-color: var(--color-bg-fill-highlight-50);
+        }
+
+        &--indented {
+            padding-left: 1rem;
+        }
+    }
+
+    &__label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__size {
+        margin-left: auto;
+        color: var(--color-text-secondary);
+    }
+
+    &__interval {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+        border-radius: var(--radius) var(--radius) 0 0;
+
+        &:disabled {
+            cursor: default;
+        }
+
+        &--hovered {
+            background-color: var(--color-bg-fill-highlight-50);
+        }
+
+        &--selected {
+            font-weight: 600;
+            background-color: var(--color-bg-fill-highlight-100);
+        }
+    }
+
+    // The chart's own wrapper is a flex child, so this must be a flex column. In a block parent
+    // it collapses to zero height, the chart reports no dimensions, and nothing is drawn.
+    &__canvas {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+    }
+}
