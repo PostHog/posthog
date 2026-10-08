@@ -16,9 +16,10 @@ from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERA
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import flag_owner_kind
 
-# The API adds these keys to a property filter for display. The flag editor sends them back on
-# every save, so a difference in them is not a change to who gets the flag.
-DISPLAY_ONLY_PROPERTY_KEYS = frozenset({"label", "cohort_name", "group_key_names"})
+# The property filter keys that flag evaluation reads. The API adds display keys such as
+# `cohort_name` on read, and the flag editor sends them back on every save, so any other key is not
+# a change to who gets the flag.
+MATCHED_PROPERTY_KEYS = frozenset({"key", "value", "type", "operator", "negation", "group_type_index"})
 
 
 def _to_wire_form(value: Any) -> Any:
@@ -227,6 +228,28 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         raise ApplyFailed(f"Serializer save failed: {str(e)}")
 
 
+def _normalize_numbers(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _normalize_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_numbers(item) for item in value]
+    return value
+
+
+def _comparable(value: Any) -> str:
+    """Encode a value so that equal JSON compares equal and `true` never equals `1`.
+
+    Python's `==` treats `True == 1` as equal, but flag evaluation does not, so a change between them
+    must count. A whole-number float equals its integer, because the flag editor parses a stored
+    `1.0` as `1` and sends `1` back.
+    """
+    return json.dumps(_normalize_numbers(value), sort_keys=True, default=str)
+
+
 def _canonical_property(prop: Any) -> Any:
     """Normalize a property filter, so a stored filter and the same filter sent back compare equal.
 
@@ -236,9 +259,7 @@ def _canonical_property(prop: Any) -> Any:
     if not isinstance(prop, dict):
         return prop
 
-    canonical = {
-        key: value for key, value in prop.items() if key not in DISPLAY_ONLY_PROPERTY_KEYS and value is not None
-    }
+    canonical = {key: value for key, value in prop.items() if key in MATCHED_PROPERTY_KEYS and value is not None}
 
     operator = canonical.get("operator")
     if isinstance(operator, str):
@@ -258,6 +279,11 @@ def _canonical_property(prop: Any) -> Any:
     return canonical
 
 
+def _canonical_bucketing(bucketing_identifier: Any) -> str:
+    # A null identifier buckets by distinct ID, the same as the default.
+    return "device_id" if bucketing_identifier == "device_id" else "distinct_id"
+
+
 def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[str]) -> list[dict[str, Any]]:
     """Return what decides who gets the flag, as path and value pairs.
 
@@ -270,11 +296,7 @@ def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[
     condition sets, and each set's own value below already carries it.
     """
     results: list[dict[str, Any]] = [
-        # A null identifier buckets by distinct ID, the same as the default.
-        {
-            "path": "bucketing_identifier",
-            "value": "device_id" if bucketing_identifier == "device_id" else "distinct_id",
-        },
+        {"path": "bucketing_identifier", "value": _canonical_bucketing(bucketing_identifier)},
         {"path": "early_exit", "value": filters.get("early_exit") is True},
         {"path": "feature_enrollment", "value": filters.get("feature_enrollment") is True},
     ]
@@ -288,10 +310,13 @@ def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[
         if not isinstance(group, dict):
             continue
 
-        # The properties of a condition set must all match, so their order does not matter.
-        properties = sorted(
-            (_canonical_property(prop) for prop in group.get("properties") or []),
-            key=lambda prop: json.dumps(prop, sort_keys=True, default=str),
+        raw_properties = group.get("properties") or []
+        # The properties of a condition set must all match, so their order does not matter. A
+        # malformed value is compared as stored, so that it cannot fail every save of the flag.
+        properties = (
+            sorted((_canonical_property(prop) for prop in raw_properties), key=_comparable)
+            if isinstance(raw_properties, list)
+            else raw_properties
         )
         results.append(
             {
@@ -309,24 +334,30 @@ def _release_conditions(filters: dict[str, Any], bucketing_identifier: Optional[
     return results
 
 
-def _precondition_version(request, flag: FeatureFlag) -> Optional[int]:
-    """Return the flag version that the caller's change was made against.
+def _stale_caller_original_flag(request, flag: FeatureFlag) -> Optional[dict[str, Any]]:
+    """Return the flag the caller loaded, when FeatureFlagSerializer.update treats the write as stale.
 
-    The flag editor sends back every field it loaded. A save from an editor opened before someone
-    else changed the release conditions resends the old ones, and the gate reads that as a release
-    condition change. Applying that request would revert the other edit, so the request records the
-    caller's version and the apply refuses it as stale. A caller that sends no version gets the
-    stored one.
+    The flag editor sends back every field it loaded, with `version` and `original_flag`. When that
+    version is older than the stored one, the serializer writes a field only if the caller changed it
+    from `original_flag` and nobody else changed it since. Otherwise it drops the field or refuses the
+    write as a conflict. The gate runs before that logic, so it must skip the same fields, or a stale
+    save opens a change request that would revert the newer edit.
+
+    The checks mirror the serializer. A version newer than the stored one is not stale here, because a
+    concurrent write can make it current before the serializer takes the row lock.
     """
+    if getattr(request, "strict_version_precondition", False) is True:
+        return None
     request_data = getattr(request, "data", None)
-    caller_version = request_data.get("version") if isinstance(request_data, dict) else None
-    if (
-        isinstance(caller_version, int)
-        and not isinstance(caller_version, bool)
-        and caller_version != (flag.version or 0)
-    ):
-        return caller_version
-    return flag.version
+    if not isinstance(request_data, dict):
+        return None
+    version = request_data.get("version", -1)
+    original_flag = request_data.get("original_flag")
+    if not isinstance(version, int) or isinstance(version, bool) or version == -1:
+        return None
+    if version >= (flag.version or 0) or not isinstance(original_flag, dict) or not original_flag:
+        return None
+    return original_flag
 
 
 @frozen
@@ -679,10 +710,43 @@ class UpdateFeatureFlagAction(BaseAction):
         old_by_path = {v["path"]: v["value"] for v in old_values}
         new_by_path = {v["path"]: v["value"] for v in new_values}
         paths = [*new_by_path, *(path for path in old_by_path if path not in new_by_path)]
-        return [path for path in paths if old_by_path.get(path) != new_by_path.get(path)]
+        return [path for path in paths if _comparable(old_by_path.get(path)) != _comparable(new_by_path.get(path))]
 
     @classmethod
-    def _gated_values(cls, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
+    def _new_release_conditions(
+        cls, request, flag: FeatureFlag, change: dict[str, Any], new_filters: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Return the release conditions the flag gets from this write.
+
+        For a stale caller this keeps each stored field that FeatureFlagSerializer.update would not
+        write: one the caller did not change from what they loaded, or one somebody else changed
+        since. The serializer drops the first and refuses the second as a conflict, field by field.
+        """
+        release_filters = new_filters
+        release_bucketing = change.get("bucketing_identifier", flag.bucketing_identifier)
+
+        original_flag = _stale_caller_original_flag(request, flag)
+        if original_flag is not None and "filters" in original_flag:
+            original_filters = original_flag["filters"]
+            caller_changed = not isinstance(original_filters, dict) or bool(
+                cls._changed_paths(
+                    _release_conditions(original_filters, flag.bucketing_identifier),
+                    _release_conditions(new_filters, flag.bucketing_identifier),
+                )
+            )
+            if not caller_changed or original_filters != flag.filters:
+                release_filters = flag.filters or {}
+
+        if original_flag is not None and "bucketing_identifier" in original_flag and "bucketing_identifier" in change:
+            original_bucketing = original_flag["bucketing_identifier"]
+            caller_changed = _canonical_bucketing(original_bucketing) != _canonical_bucketing(release_bucketing)
+            if not caller_changed or original_bucketing != flag.bucketing_identifier:
+                release_bucketing = flag.bucketing_identifier
+
+        return _release_conditions(release_filters, release_bucketing)
+
+    @classmethod
+    def _gated_values(cls, request, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
         """Return the values of each gated field before and after the change.
 
         `release_conditions` is present only when the release conditions of a standalone flag
@@ -699,7 +763,7 @@ class UpdateFeatureFlagAction(BaseAction):
             return _GatedValues(before=before, after=after)
 
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
-        new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
+        new_release = cls._new_release_conditions(request, flag, change, new_filters)
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
         if cls._changed_paths(old_release, new_release) and flag_owner_kind(flag) is None:
             before["release_conditions"] = old_release
@@ -722,7 +786,7 @@ class UpdateFeatureFlagAction(BaseAction):
 
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        if not cls._triggered_paths(cls._gated_values(flag, change)):
+        if not cls._triggered_paths(cls._gated_values(request, flag, change)):
             return False
 
         team = cls._get_team(view)
@@ -736,7 +800,7 @@ class UpdateFeatureFlagAction(BaseAction):
         flag = _get_flag_instance(view, *args, **kwargs)
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        values = cls._gated_values(flag, change)
+        values = cls._gated_values(request, flag, change)
 
         # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
         # the approved change replays, the way the lifecycle base records it. Without this an
@@ -751,7 +815,7 @@ class UpdateFeatureFlagAction(BaseAction):
             "triggered_paths": cls._triggered_paths(values),
             "full_request_data": dict(change),
             "preconditions": {
-                "version": _precondition_version(request, flag) if flag is not None else None,
+                "version": flag.version if flag is not None else None,
                 "updated_at": (flag.updated_at.isoformat() if flag.updated_at else None) if flag is not None else None,
             },
             "skip_opportunistic_filter_cleanup": skip_cleanup,

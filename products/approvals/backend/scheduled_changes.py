@@ -115,7 +115,9 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
         try:
             if action_class.detect(http_request, serializer, *gate_args):
                 policy = decorators._check_policy_for_action(action_class, team, organization)
-                if policy:
+                if policy and decorators._policy_conditions_match(
+                    action_class, policy, http_request, serializer, gate_args, {}
+                ):
                     return _GatedAction(action_class, policy, serializer, http_request, gate_args)
         except Exception as e:
             # Unknown means deny. A schedule saved here fires later with no approver watching, so

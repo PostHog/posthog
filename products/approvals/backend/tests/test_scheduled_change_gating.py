@@ -16,6 +16,8 @@ from products.approvals.backend.services import ChangeRequestService
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
+EMAIL_CONDITION = {"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}
+
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestScheduledChangeGating(APIBaseTest):
@@ -186,16 +188,24 @@ class TestScheduledChangeGating(APIBaseTest):
                 "rollout",
                 {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
                 {"properties": [], "rollout_percentage": 90},
+                True,
             ),
+            ("properties_only", {}, {"properties": [EMAIL_CONDITION]}, True),
             (
-                "properties_only",
-                {},
-                {"properties": [{"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}]},
+                "properties_only_under_a_rollout_policy",
+                {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
+                {"properties": [EMAIL_CONDITION]},
+                False,
             ),
         ]
     )
-    def test_scheduled_added_condition_under_update_policy_is_gated(
-        self, _mock_enabled, _name: str, conditions: dict[str, Any], condition_fields: dict[str, Any]
+    def test_scheduled_added_condition_under_update_policy(
+        self,
+        _mock_enabled,
+        _name: str,
+        conditions: dict[str, Any],
+        condition_fields: dict[str, Any],
+        expected_gated: bool,
     ):
         self._update_policy(conditions)
         flag = self._disabled_flag(key="rollout-flag")
@@ -209,6 +219,14 @@ class TestScheduledChangeGating(APIBaseTest):
             },
             timezone.now() - timedelta(seconds=30),
         )
+
+        if not expected_gated:
+            # The policy allows it when scheduled, so it must not be skipped when it fires.
+            assert scheduled.change_request is None
+            process_scheduled_changes()
+            flag.refresh_from_db()
+            assert len(flag.filters.get("groups", [])) == 2
+            return
 
         assert scheduled.change_request is not None
         assert scheduled.change_request.state == ChangeRequestState.PENDING

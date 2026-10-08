@@ -294,6 +294,38 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
                 False,
             ),
             (
+                "boolean_value_replaces_number",
+                [_condition_set({**PROVIDER_FILTER, "value": 1})],
+                [_condition_set({**PROVIDER_FILTER, "value": True})],
+                {},
+                {},
+                True,
+            ),
+            (
+                "whole_float_value_is_its_integer",
+                [_condition_set({**PROVIDER_FILTER, "value": 1.0})],
+                [_condition_set({**PROVIDER_FILTER, "value": 1})],
+                {},
+                {},
+                False,
+            ),
+            (
+                "undeclared_property_key",
+                [_condition_set({**GROUP_KEY_FILTER, "operator_type": "string"})],
+                [_condition_set(GROUP_KEY_FILTER)],
+                {},
+                {},
+                False,
+            ),
+            (
+                "malformed_stored_properties",
+                [{"properties": 5, "rollout_percentage": 100}],
+                [{"properties": 5, "rollout_percentage": 100}],
+                {},
+                {},
+                False,
+            ),
+            (
                 "null_bucketing_is_distinct_id",
                 [_condition_set(GROUP_KEY_FILTER)],
                 [_condition_set(GROUP_KEY_FILTER)],
@@ -467,26 +499,6 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
 
         assert len(intent["triggered_paths"]) > 0
         assert any("groups" in path for path in intent["triggered_paths"])
-
-    @parameterized.expand(
-        [
-            ("stale_caller", {"version": 2}, 2, True),
-            ("current_caller", {"version": 3}, 3, False),
-            ("caller_without_version", {}, 3, False),
-        ]
-    )
-    def test_intent_records_the_version_the_caller_edited(
-        self, _name: str, caller_fields: dict[str, Any], expected_version: int, expected_stale: bool
-    ):
-        flag = self._create_flag({"groups": [_condition_set(GROUP_KEY_FILTER)]})
-        FeatureFlag.objects.filter(pk=flag.pk).update(version=3)
-        flag.refresh_from_db()
-        body = {"filters": {"groups": [_condition_set(PROVIDER_FILTER)]}, **caller_fields}
-
-        intent = UpdateFeatureFlagAction.extract_intent(self._mock_request("PATCH", body), self._mock_view(flag))
-
-        assert intent["preconditions"]["version"] == expected_version
-        assert UpdateFeatureFlagAction.check_staleness(intent, {"instance": flag}) is expected_stale
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
@@ -962,6 +974,16 @@ class TestReleaseConditionGating(APIBaseTest):
                 [],
             ),
             (
+                "enabling_under_a_rollout_only_policy_needs_the_enable_approval_only",
+                [
+                    ("feature_flag.enable", {}),
+                    ("feature_flag.update", {"type": "any_change", "field": "rollout_percentage"}),
+                ],
+                True,
+                409,
+                ["feature_flag.enable"],
+            ),
+            (
                 "enabling_in_the_same_save_conflicts",
                 [("feature_flag.enable", {}), ("feature_flag.update", {})],
                 True,
@@ -1048,6 +1070,51 @@ class TestReleaseConditionGating(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert self._change_request_keys() == expected_change_requests
+
+    @parameterized.expand(
+        [
+            ("someone_else_changed_targeting", 1, "a", "a", "b", [], "b"),
+            ("caller_changed_targeting_nobody_else_did", 1, "a", "c", "a", ["feature_flag.update"], "a"),
+            ("both_changed_targeting", 1, "a", "c", "b", [], "b"),
+            ("stale_caller_claims_the_edit_was_loaded", 1, "c", "c", "a", [], "a"),
+            ("current_caller_claims_the_edit_was_loaded", 2, "c", "c", "a", ["feature_flag.update"], "a"),
+        ]
+    )
+    def test_stale_save_gates_only_the_targeting_the_serializer_would_write(
+        self,
+        _mock_enabled: MagicMock,
+        _name: str,
+        caller_version: int,
+        loaded: str,
+        submitted: str,
+        stored: str,
+        expected_change_requests: list[str],
+        expected_stored: str,
+    ):
+        def filters(email: str) -> dict[str, Any]:
+            prop = {**self.EMAIL_FILTER, "value": [f"{email}@example.com"]}
+            return {"groups": [{"properties": [prop], "rollout_percentage": 100}]}
+
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="stale-flag", filters=filters("a"), version=1, created_by=self.user
+        )
+        FeatureFlag.objects.filter(pk=flag.pk).update(filters=filters(stored), version=2)
+        self._create_policies([("feature_flag.update", {})])
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "name": "renamed",
+                "filters": filters(submitted),
+                "version": caller_version,
+                "original_flag": {"name": "", "filters": filters(loaded)},
+            },
+            format="json",
+        )
+
+        assert self._change_request_keys() == expected_change_requests
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == [f"{expected_stored}@example.com"]
 
 
 class TestActionRegistrationAndIntegration(APIBaseTest):

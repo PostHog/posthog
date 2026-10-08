@@ -176,6 +176,9 @@ class PolicyEngine:
             },
         )
 
+    def conditions_match(self, conditions: dict[str, Any], intent: dict) -> bool:
+        return self._evaluate_conditions(conditions, intent)
+
     def _evaluate_conditions(self, conditions: dict[str, Any], intent: dict) -> bool:
         """
         Evaluate policy conditions against the intent.
@@ -260,18 +263,10 @@ class PolicyEngine:
         if not self._field_changed(field, intent):
             return False
 
-        current_state = intent.get("current_state", {})
-        gated_changes = intent.get("gated_changes", {})
+        before_by_path = self._values_by_path(intent, "current_state", field)
+        after_by_path = self._values_by_path(intent, "gated_changes", field)
 
-        before_values = current_state.get(field, [])
-        after_values = gated_changes.get(field, [])
-
-        before_by_path = {v["path"]: v["value"] for v in before_values}
-        after_by_path = {v["path"]: v["value"] for v in after_values}
-
-        all_paths = set(before_by_path.keys()) | set(after_by_path.keys())
-
-        for path in all_paths:
+        for path in before_by_path.keys() | after_by_path.keys():
             before_val = before_by_path.get(path)
             after_val = after_by_path.get(path)
 
@@ -297,24 +292,11 @@ class PolicyEngine:
         if not field:
             return True
 
-        current_state = intent.get("current_state", {})
-        gated_changes = intent.get("gated_changes", {})
-
-        before_values = current_state.get(field, [])
-        after_values = gated_changes.get(field, [])
-
-        before_by_path = {v["path"]: v["value"] for v in before_values}
-        after_by_path = {v["path"]: v["value"] for v in after_values}
-
-        all_paths = set(before_by_path.keys()) | set(after_by_path.keys())
-
-        for path in all_paths:
-            before_val = before_by_path.get(path)
-            after_val = after_by_path.get(path)
-            if before_val != after_val:
-                return True
-
-        return False
+        before_by_path = self._values_by_path(intent, "current_state", field)
+        after_by_path = self._values_by_path(intent, "gated_changes", field)
+        return any(
+            before_by_path.get(path) != after_by_path.get(path) for path in before_by_path.keys() | after_by_path.keys()
+        )
 
     def _field_changed(self, field: str, intent: dict) -> bool:
         """Whether the change touches the field that a condition names.
@@ -329,11 +311,11 @@ class PolicyEngine:
             # Not the path and value shape this check reads, so the condition decides alone.
             return True
 
-        before_by_path = {v["path"]: v["value"] for v in before_values}
-        after_by_path = {v["path"]: v["value"] for v in after_values}
-        return any(
-            before_by_path.get(path) != after_by_path.get(path) for path in before_by_path.keys() | after_by_path.keys()
-        )
+        return self._evaluate_any_change({"field": field}, intent)
+
+    @staticmethod
+    def _values_by_path(intent: dict, side: str, field: str) -> dict[str, Any]:
+        return {v["path"]: v["value"] for v in intent.get(side, {}).get(field, [])}
 
     def _has_bypass(self, actor, policy, bypass_role_ids: list[str], context: dict) -> bool:
         """Check if user can bypass this policy based on org membership level or RBAC role."""
