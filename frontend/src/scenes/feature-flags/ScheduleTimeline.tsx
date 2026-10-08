@@ -3,7 +3,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { ScheduledChangeOperationType } from '~/types'
 
-import { ScheduleOccurrence } from './scheduleOccurrences'
+import { ScheduleOccurrence, ScheduleProjectedState } from './scheduleOccurrences'
 
 const WIDTH = 600
 const HEIGHT = 140
@@ -17,6 +17,28 @@ const TIME_LABEL_MIN_GAP = 40
 const TOP_LABEL_MIN_GAP = 40
 /** How far the second lane sits above the first. Tuned against the 9px label size. */
 const TOP_LABEL_LANE_OFFSET = 10
+const LABEL_FONT_SIZE = 9
+/** Average width of one label character at the 9px size, measured in a browser. */
+const LABEL_CHAR_WIDTH = 4.5
+/**
+ * The longest string either builder can produce. stepLabel and markerLabel tie at 27 characters, the
+ * other being "3 variants (needs approval)".
+ */
+const WIDEST_LABEL = 'still 100% (needs approval)'
+/**
+ * Inside this distance from an edge, a centered label leaves the plot. Half the widest label, plus
+ * headroom for a wider fallback font. Derived rather than written down, so lengthening either
+ * builder's longest string carries through here on its own.
+ */
+const LABEL_EDGE_PAD = (WIDEST_LABEL.length * LABEL_CHAR_WIDTH) / 2 + 5
+
+type LabelAnchor = 'start' | 'middle' | 'end'
+
+function describeCoveringLevel(projected: ScheduleProjectedState): string {
+    return projected.active
+        ? `${projected.rolloutPercentage}% the flag already serves`
+        : `${projected.rolloutPercentage}% set on this disabled flag`
+}
 
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
     const { operation, projected, addedRolloutPercentage } = occurrence
@@ -24,11 +46,13 @@ function describeOccurrence(occurrence: ScheduleOccurrence): string {
         return projected.active ? 'enabled' : 'disabled'
     }
     if (operation === ScheduledChangeOperationType.AddReleaseCondition) {
+        if (addedRolloutPercentage === null) {
+            return 'add a condition'
+        }
         // Describe the condition this change adds, not the flag's projected max rollout: the change
         // appends a condition set, so an existing higher one would otherwise be misreported here.
-        return addedRolloutPercentage !== null
-            ? `add a condition at ${addedRolloutPercentage}% rollout`
-            : 'add a condition'
+        const added = `add a condition at ${addedRolloutPercentage}% rollout`
+        return occurrence.rolloutUnchanged ? `${added}, no change from the ${describeCoveringLevel(projected)}` : added
     }
     return `switch to ${pluralize(occurrence.projected.variantCount ?? 0, 'variant')}`
 }
@@ -70,6 +94,56 @@ function yForRollout(rollout: number): number {
     return MARGIN.top + ((100 - rollout) * PLOT_HEIGHT) / 100
 }
 
+/**
+ * `unlabelledRollout` is the level of a step whose label was dropped for overlapping an earlier one.
+ * Without it such a mark is a bare dot: the drop takes away the only reading of its level, and a
+ * plain step has no other reason to carry a title.
+ */
+function markTitle(occurrence: ScheduleOccurrence, unlabelledRollout: number | null): string {
+    return [
+        unlabelledRollout !== null ? `${unlabelledRollout}% rollout` : '',
+        occurrence.needsApproval ? 'Needs approval' : '',
+        occurrence.rolloutUnchanged
+            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${describeCoveringLevel(occurrence.projected)}`
+            : '',
+    ]
+        .filter(Boolean)
+        .join('. ')
+}
+
+function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
+    const level = occurrence.rolloutUnchanged ? `still ${rollout}%` : `${rollout}%`
+    return occurrence.needsApproval ? `${level} (needs approval)` : level
+}
+
+/**
+ * Near an edge a label ends or starts at its mark, because the SVG clips what leaves the viewBox.
+ * Both step labels and marker labels anchor through here.
+ */
+function labelAnchor(x: number): LabelAnchor {
+    if (x > MARGIN.left + PLOT_WIDTH - LABEL_EDGE_PAD) {
+        return 'end'
+    }
+    if (x < MARGIN.left + LABEL_EDGE_PAD) {
+        return 'start'
+    }
+    return 'middle'
+}
+
+function labelExtent(x: number, anchor: LabelAnchor, text: string): { left: number; right: number } {
+    const width = text.length * LABEL_CHAR_WIDTH
+    const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+    return { left, right: left + width }
+}
+
+interface PlacedLabel {
+    text: string
+    y: number
+    anchor: LabelAnchor
+    left: number
+    right: number
+}
+
 /** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */
 interface OccurrenceLayout {
     x: number
@@ -77,6 +151,14 @@ interface OccurrenceLayout {
     timeLabel: string | null
     /** Alternates between two heights when top-lane markers land near the same x. */
     topLabelY: number
+    /** The step mark's y. Null for a marker. */
+    stepY: number | null
+    /**
+     * Null for a marker, and for a step label that would overlap an earlier step label whose baseline
+     * sits within one font size of its own. One font size is 9 units and the plot spends 0.9 units per
+     * rollout point, so two steps less than about 10 points apart on nearby dates stack their text.
+     */
+    placedStepLabel: PlacedLabel | null
 }
 
 /**
@@ -92,7 +174,7 @@ export function ScheduleTimeline({
     timezone,
 }: {
     occurrences: ScheduleOccurrence[]
-    /** The flag's max rollout across condition sets today, the step line's starting level. */
+    /** What the flag reaches today, the step line's starting level. See projectedRolloutPercentage. */
     currentRolloutPercentage: number | null
     timezone: string
 }): JSX.Element | null {
@@ -122,6 +204,7 @@ export function ScheduleTimeline({
     let lastTimeLabelX = -Infinity
     let lastTopLabelX = -Infinity
     let topLabelLane = 0
+    const shownStepLabels: PlacedLabel[] = []
     occurrences.forEach((occurrence, index) => {
         const x = xFor(times[index])
         const timeLabel = x - lastTimeLabelX >= TIME_LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
@@ -129,10 +212,25 @@ export function ScheduleTimeline({
             lastTimeLabelX = x
         }
         let topLabelY = MARGIN.top - 8
-        const onStepLine =
-            occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition &&
-            occurrence.projected.rolloutPercentage !== null
-        if (!onStepLine) {
+        let stepY: number | null = null
+        let placedStepLabel: PlacedLabel | null = null
+        const rollout = occurrence.projected.rolloutPercentage
+        if (occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition && rollout !== null) {
+            stepY = yForRollout(rollout)
+            const text = stepLabel(occurrence, rollout)
+            const anchor = labelAnchor(x)
+            const label = { text, y: stepY - 7, anchor, ...labelExtent(x, anchor, text) }
+            const collides = shownStepLabels.some(
+                (shown) =>
+                    Math.abs(shown.y - label.y) < LABEL_FONT_SIZE &&
+                    label.left < shown.right &&
+                    label.right > shown.left
+            )
+            if (!collides) {
+                shownStepLabels.push(label)
+                placedStepLabel = label
+            }
+        } else {
             // Two lanes clear the common case of a pair landing together. Three or more markers
             // inside one gap still overlap, because the lane alternates rather than tracks every
             // occupied slot. The occurrence cap keeps that rare.
@@ -140,7 +238,7 @@ export function ScheduleTimeline({
             lastTopLabelX = x
             topLabelY -= topLabelLane * TOP_LABEL_LANE_OFFSET
         }
-        layouts.push({ x, timeLabel, topLabelY })
+        layouts.push({ x, timeLabel, topLabelY, stepY, placedStepLabel })
     })
 
     // Step-line segments, split so an approval-blocked step dashes its jump and not its run.
@@ -175,6 +273,13 @@ export function ScheduleTimeline({
         })
     }
 
+    // A known level is not the same as a drawn segment. A plan whose only plottable step is its last
+    // occurrence draws a labelled mark and no segment: the step has no level before it to run from,
+    // and the trailing run stops at the plot edge the mark already sits on. Reading the segments here
+    // would tell that reader no line is drawn because every condition is targeted, beside a mark
+    // proving otherwise.
+    const hasRolloutLevel = currentRolloutPercentage !== null || layouts.some((layout) => layout.stepY !== null)
+
     // role="img" makes the chart a single leaf node, so a screen reader never descends into the
     // marks and hears no date, level, or approval state. The label has to carry the plan itself.
     const chartLabel = `Timeline of ${occurrences.length} upcoming scheduled changes: ${occurrences
@@ -187,132 +292,144 @@ export function ScheduleTimeline({
         .join(', then ')}`
 
     return (
-        // The chart scrolls horizontally rather than scale its 9-unit labels below legibility. The
-        // minimum width is WIDTH itself, so at the floor one viewBox unit is one pixel and the
-        // labels hold at 9px. A smaller floor would scale them down by the same ratio.
-        // A plain div with overflow takes no focus and no arrow keys, so the scroll region needs a
-        // focus stop of its own to be reachable without a mouse.
-        <div
-            className="flex flex-col gap-1 overflow-x-auto"
-            tabIndex={0}
-            role="group"
-            aria-label="Scrollable schedule timeline"
-            data-attr="feature-flag-schedule-timeline"
-        >
-            <svg
-                viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                className="w-full max-w-3xl"
-                style={{ minWidth: WIDTH }}
-                role="img"
-                aria-label={chartLabel}
+        <div className="flex flex-col gap-1">
+            {/* The chart scrolls horizontally rather than scale its 9-unit labels below legibility.
+                The minimum width is WIDTH itself, so at the floor one viewBox unit is one pixel and
+                the labels hold at 9px. A smaller floor would scale them down by the same ratio.
+                A plain div with overflow takes no focus and no arrow keys, so the scroll region
+                needs a focus stop of its own to be reachable without a mouse. */}
+            <div
+                className="overflow-x-auto"
+                tabIndex={0}
+                role="group"
+                aria-label="Scrollable schedule timeline"
+                data-attr="feature-flag-schedule-timeline"
             >
-                {[0, 50, 100].map((rollout) => (
-                    <g key={rollout}>
-                        <line
-                            x1={MARGIN.left}
-                            x2={MARGIN.left + PLOT_WIDTH}
-                            y1={yForRollout(rollout)}
-                            y2={yForRollout(rollout)}
-                            stroke="var(--color-border-primary)"
-                            strokeWidth={rollout === 0 ? 1 : 0.5}
-                        />
-                        <text
-                            x={MARGIN.left - 4}
-                            y={yForRollout(rollout) + 3}
-                            textAnchor="end"
-                            fontSize={9}
-                            fill="var(--color-text-secondary)"
-                        >
-                            {rollout}%
-                        </text>
-                    </g>
-                ))}
-
-                {stepSegments.map((segment, index) => (
-                    <path
-                        key={index}
-                        d={segment.path}
-                        fill="none"
-                        stroke="var(--data-color-1)"
-                        strokeWidth={2}
-                        strokeDasharray={segment.blocked ? '4 3' : undefined}
-                        opacity={segment.blocked ? 0.5 : 1}
-                    />
-                ))}
-
-                {occurrences.map((occurrence, index) => {
-                    const { x, timeLabel, topLabelY } = layouts[index]
-                    const blocked = occurrence.needsApproval
-                    const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
-                    const rollout = occurrence.projected.rolloutPercentage
-                    return (
-                        <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
-                            {blocked && <title>Needs approval</title>}
+                <svg
+                    viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+                    className="w-full max-w-3xl"
+                    style={{ minWidth: WIDTH }}
+                    role="img"
+                    aria-label={chartLabel}
+                >
+                    {[0, 50, 100].map((rollout) => (
+                        <g key={rollout}>
                             <line
-                                x1={x}
-                                x2={x}
-                                y1={BASELINE_Y}
-                                y2={BASELINE_Y + 4}
+                                x1={MARGIN.left}
+                                x2={MARGIN.left + PLOT_WIDTH}
+                                y1={yForRollout(rollout)}
+                                y2={yForRollout(rollout)}
                                 stroke="var(--color-border-primary)"
+                                strokeWidth={rollout === 0 ? 1 : 0.5}
                             />
-                            {isRolloutStep && rollout !== null ? (
-                                <>
-                                    <circle
-                                        cx={x}
-                                        cy={yForRollout(rollout)}
-                                        r={3.5}
-                                        fill="var(--data-color-1)"
-                                        stroke="var(--color-bg-surface-primary)"
-                                        strokeWidth={1.5}
-                                        strokeDasharray={blocked ? '2 2' : undefined}
-                                    />
-                                    <text
-                                        x={x}
-                                        y={yForRollout(rollout) - 7}
-                                        textAnchor="middle"
-                                        fontSize={9}
-                                        fill="var(--color-text-secondary)"
-                                    >
-                                        {rollout}%{blocked ? ' (needs approval)' : ''}
-                                    </text>
-                                </>
-                            ) : (
-                                <>
-                                    <line
-                                        x1={x}
-                                        x2={x}
-                                        y1={MARGIN.top - 4}
-                                        y2={BASELINE_Y}
-                                        stroke="var(--color-border-primary)"
-                                        strokeDasharray="2 3"
-                                    />
-                                    <text
-                                        x={x}
-                                        y={topLabelY}
-                                        textAnchor="middle"
-                                        fontSize={9}
-                                        fill="var(--color-text-secondary)"
-                                    >
-                                        {markerLabel(occurrence)}
-                                        {blocked ? ' (needs approval)' : ''}
-                                    </text>
-                                </>
-                            )}
-                            {timeLabel && (
-                                <text
-                                    x={x}
-                                    y={BASELINE_Y + 15}
-                                    textAnchor="middle"
-                                    fontSize={9}
-                                    fill="var(--color-text-secondary)"
-                                >
-                                    {timeLabel}
-                                </text>
-                            )}
+                            <text
+                                x={MARGIN.left - 4}
+                                y={yForRollout(rollout) + 3}
+                                textAnchor="end"
+                                fontSize={LABEL_FONT_SIZE}
+                                fill="var(--color-text-secondary)"
+                            >
+                                {rollout}%
+                            </text>
                         </g>
-                    )
-                })}
-            </svg>
+                    ))}
+
+                    {stepSegments.map((segment, index) => (
+                        <path
+                            key={index}
+                            d={segment.path}
+                            fill="none"
+                            stroke="var(--data-color-1)"
+                            strokeWidth={2}
+                            strokeDasharray={segment.blocked ? '4 3' : undefined}
+                            opacity={segment.blocked ? 0.5 : 1}
+                        />
+                    ))}
+
+                    {occurrences.map((occurrence, index) => {
+                        const { x, timeLabel, topLabelY, stepY, placedStepLabel } = layouts[index]
+                        const blocked = occurrence.needsApproval
+                        // A browser shows only the first <title> child as the hover tooltip.
+                        const title = markTitle(
+                            occurrence,
+                            stepY !== null && !placedStepLabel ? occurrence.projected.rolloutPercentage : null
+                        )
+                        return (
+                            <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
+                                {title && <title>{title}</title>}
+                                <line
+                                    x1={x}
+                                    x2={x}
+                                    y1={BASELINE_Y}
+                                    y2={BASELINE_Y + 4}
+                                    stroke="var(--color-border-primary)"
+                                />
+                                {stepY !== null ? (
+                                    <>
+                                        <circle
+                                            cx={x}
+                                            cy={stepY}
+                                            r={3.5}
+                                            fill="var(--data-color-1)"
+                                            stroke="var(--color-bg-surface-primary)"
+                                            strokeWidth={1.5}
+                                            strokeDasharray={blocked ? '2 2' : undefined}
+                                        />
+                                        {placedStepLabel && (
+                                            <text
+                                                x={x}
+                                                y={placedStepLabel.y}
+                                                textAnchor={placedStepLabel.anchor}
+                                                fontSize={LABEL_FONT_SIZE}
+                                                fill="var(--color-text-secondary)"
+                                            >
+                                                {placedStepLabel.text}
+                                            </text>
+                                        )}
+                                    </>
+                                ) : (
+                                    <>
+                                        <line
+                                            x1={x}
+                                            x2={x}
+                                            y1={MARGIN.top - 4}
+                                            y2={BASELINE_Y}
+                                            stroke="var(--color-border-primary)"
+                                            strokeDasharray="2 3"
+                                        />
+                                        <text
+                                            x={x}
+                                            y={topLabelY}
+                                            textAnchor={labelAnchor(x)}
+                                            fontSize={LABEL_FONT_SIZE}
+                                            fill="var(--color-text-secondary)"
+                                        >
+                                            {markerLabel(occurrence)}
+                                            {blocked ? ' (needs approval)' : ''}
+                                        </text>
+                                    </>
+                                )}
+                                {timeLabel && (
+                                    <text
+                                        x={x}
+                                        y={BASELINE_Y + 15}
+                                        textAnchor="middle"
+                                        fontSize={LABEL_FONT_SIZE}
+                                        fill="var(--color-text-secondary)"
+                                    >
+                                        {timeLabel}
+                                    </text>
+                                )}
+                            </g>
+                        )
+                    })}
+                </svg>
+            </div>
+            <p className="text-xs text-muted m-0">
+                {hasRolloutLevel
+                    ? 'The line shows how much of your audience the flag reaches. It does not count conditions that target specific users, or conditions set to a different audience type, because their reach depends on how many match them.'
+                    : 'No rollout line is shown because every condition targets specific users or a different audience type. Their reach depends on how many match them.'}
+            </p>
         </div>
     )
 }

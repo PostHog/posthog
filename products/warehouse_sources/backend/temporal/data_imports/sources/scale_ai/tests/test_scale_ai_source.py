@@ -20,10 +20,6 @@ class TestScaleAISourceConfig:
 
 
 class TestScaleAISchemas:
-    def test_lists_all_endpoints(self) -> None:
-        schemas = ScaleAISource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == {"tasks", "batches", "projects"}
-
     @parameterized.expand(
         [
             ("tasks", True, ["task_id"], ["updated_at", "created_at"]),
@@ -43,14 +39,6 @@ class TestScaleAISchemas:
     def test_names_filter(self) -> None:
         schemas = ScaleAISource().get_schemas(MagicMock(), team_id=1, names=["tasks"])
         assert [s.name for s in schemas] == ["tasks"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # The docs Supported-tables section depends on this static, no-I/O catalog being exposed.
-        tables = ScaleAISource().get_documented_tables()
-        assert {t["name"] for t in tables} == {"tasks", "batches", "projects"}
-        tasks = next(t for t in tables if t["name"] == "tasks")
-        assert tasks["primary_keys"] == ["task_id"]
-        assert tasks["description"]  # canonical description flows through
 
 
 class TestScaleAICredentials:

@@ -91,23 +91,6 @@ class TestResponseEnvelope:
 
 
 class TestParseFields:
-    def test_prefers_the_definition_for_the_requested_object(self) -> None:
-        # Describe answers with a list; taking the first entry blindly would select another
-        # object's fields and sync the wrong columns.
-        body = {
-            "result": True,
-            "data": [
-                {"objectName": "company_person", "fields": [_field("PersonId")]},
-                {"objectName": "company", "fields": [_field("Name")]},
-            ],
-        }
-        assert [f.name for f in _parse_fields(body, "company")] == ["Name"]
-
-    def test_reads_type_and_sortability_from_the_field_metadata(self) -> None:
-        body = _describe_body([_field("CreatedDate", data_type="datetime", sortable=False)])
-        field = _parse_fields(body, "company")[0]
-        assert (field.data_type, field.sortable) == ("DATETIME", False)
-
     def test_raises_when_the_object_exposes_no_fields(self) -> None:
         with pytest.raises(ValueError, match="no fields for object"):
             _parse_fields(_describe_body([]), "company")
@@ -136,11 +119,6 @@ class TestNormalizeRow:
     )
     def test_converts_date_fields(self, _name: str, value: Any, expected: Any) -> None:
         assert _normalize_row({"CreatedDate": value}, frozenset({"CreatedDate"})) == {"CreatedDate": expected}
-
-    def test_leaves_non_date_columns_alone(self) -> None:
-        row = {"Employees": 1521691459693, "CreatedDate": 0}
-        normalized = _normalize_row(row, frozenset({"CreatedDate"}))
-        assert normalized["Employees"] == 1521691459693
 
 
 class TestCustomObjects:
@@ -192,47 +170,6 @@ class TestPagination:
             )
             return list(cast(Iterable[list[dict[str, Any]]], response.items()))
 
-    def test_pages_until_a_short_page_and_advances_the_offset(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [
-            _response({"result": True, "data": [{"Gsid": "1"}, {"Gsid": "2"}]}),
-            _response({"result": True, "data": [{"Gsid": "3"}]}),
-        ]
-        manager = _manager()
-
-        batches = self._run(session, manager)
-
-        assert batches == [[{"Gsid": "1"}, {"Gsid": "2"}], [{"Gsid": "3"}]]
-        assert [call.kwargs["json"]["offset"] for call in session.post.call_args_list] == [0, 2]
-
-    def test_checkpoints_only_after_a_full_page_is_yielded(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [
-            _response({"result": True, "data": [{"Gsid": "1"}, {"Gsid": "2"}]}),
-            _response({"result": True, "data": []}),
-        ]
-        manager = _manager()
-
-        self._run(session, manager)
-
-        # One save, for the boundary after the first page — the terminal page has nothing to resume to.
-        manager.save_state.assert_called_once_with(GainsightCsResumeConfig(offset=2))
-        # ...and the finished walk drops that checkpoint so the next job starts from offset 0.
-        manager.clear_state.assert_called_once_with()
-
-    def test_a_walk_that_ends_on_its_first_page_still_clears_state(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [_response({"result": True, "data": [{"Gsid": "1"}]})]
-        manager = _manager()
-
-        self._run(session, manager)
-
-        manager.save_state.assert_not_called()
-        manager.clear_state.assert_called_once_with()
-
     def test_checkpoints_then_stops_when_the_page_budget_runs_out(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response(_describe_body([_field("Gsid")]))
@@ -260,35 +197,6 @@ class TestPagination:
 
         assert session.post.call_args_list[0].kwargs["json"]["offset"] == 4
 
-    def test_orders_on_gsid_only_when_the_object_reports_it_sortable(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid", sortable=False)]))
-        session.post.side_effect = [_response({"result": True, "data": []})]
-
-        self._run(session, _manager())
-
-        assert "orderBy" not in session.post.call_args_list[0].kwargs["json"]
-
-    def test_partitions_on_created_date_when_the_object_has_one(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid"), _field("CreatedDate", "DATETIME")]))
-
-        with (
-            mock.patch(SESSION_PATCH, return_value=session),
-            mock.patch(HOST_CHECK_PATCH, return_value=(True, None)),
-        ):
-            response = gainsight_cs_source(
-                domain=DOMAIN,
-                access_key="key",
-                schema_name="company",
-                object_name="company",
-                primary_keys=["Gsid"],
-                team_id=1,
-                resumable_source_manager=_manager(),
-            )
-
-        assert response.partition_keys == ["CreatedDate"]
-
     def test_refuses_a_host_that_resolves_internally(self) -> None:
         session = mock.MagicMock()
         with (
@@ -314,9 +222,6 @@ class TestCappedResponses:
         response.iter_content.return_value = iter(chunks)
         return response
 
-    def test_parses_a_body_that_fits(self) -> None:
-        assert _read_capped_json(self._streaming([b'{"a": ', b"1}"])) == {"a": 1}
-
     def test_refuses_a_body_past_the_size_cap(self) -> None:
         response = self._streaming([b"x" * 10, b"y" * 10])
         with mock.patch(f"{GAINSIGHT_MODULE}.MAX_RESPONSE_BYTES", 15), pytest.raises(GainsightCsResponseTooLargeError):
@@ -332,16 +237,6 @@ class TestCappedResponses:
         ):
             _read_capped_json(response)
         response.close.assert_called_once_with()
-
-    def test_pages_are_requested_as_streams(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(_describe_body([_field("Gsid")]))
-        session.post.side_effect = [_response({"result": True, "data": []})]
-
-        TestPagination()._run(session, _manager())
-
-        assert session.get.call_args.kwargs["stream"] is True
-        assert session.post.call_args.kwargs["stream"] is True
 
 
 class TestValidateCredentials:

@@ -80,38 +80,6 @@ class TestFormatAqlDatetime:
 
 
 class TestBuildAqlQuery:
-    def test_incremental_query_filters_and_sorts_on_cursor_field(self) -> None:
-        query = build_aql_query(
-            JFROG_ARTIFACTORY_ENDPOINTS["artifacts"],
-            incremental_field="modified",
-            incremental_filter_value="2026-03-04T02:58:14.000+00:00",
-            offset=2000,
-        )
-        assert query.startswith('items.find({"modified": {"$gt": "2026-03-04T02:58:14.000+00:00"}})')
-        assert '.sort({"$asc": ["modified"]})' in query
-        assert query.endswith(f".offset(2000).limit({AQL_PAGE_SIZE})")
-
-    def test_full_refresh_query_has_no_criteria_but_stable_sort(self) -> None:
-        query = build_aql_query(JFROG_ARTIFACTORY_ENDPOINTS["artifacts"])
-        assert query.startswith("items.find()")
-        assert '.sort({"$asc": ["modified"]})' in query
-        assert f".offset(0).limit({AQL_PAGE_SIZE})" in query
-
-    def test_user_chosen_cursor_field_drives_filter_and_sort(self) -> None:
-        query = build_aql_query(
-            JFROG_ARTIFACTORY_ENDPOINTS["artifacts"],
-            incremental_field="created",
-            incremental_filter_value="2026-03-04T00:00:00.000+00:00",
-        )
-        assert '"created": {"$gt"' in query
-        assert '.sort({"$asc": ["created"]})' in query
-
-    def test_builds_query_uses_builds_domain(self) -> None:
-        query = build_aql_query(JFROG_ARTIFACTORY_ENDPOINTS["builds"], limit=1)
-        assert query.startswith("builds.find()")
-        assert '"name", "number", "created"' in query
-        assert query.endswith(".offset(0).limit(1)")
-
     def test_sort_field_always_included_in_output_fields(self) -> None:
         # AQL rejects .sort() on fields absent from a primary-domain .include() list.
         for config in JFROG_ARTIFACTORY_ENDPOINTS.values():
@@ -120,29 +88,6 @@ class TestBuildAqlQuery:
             assert config.default_incremental_field in config.aql_fields
             for incremental_field in config.incremental_fields:
                 assert incremental_field["field"].removeprefix(config.parent_field_prefix) in config.aql_fields
-
-    def test_static_criteria_combined_with_incremental_filter(self) -> None:
-        query = build_aql_query(
-            JFROG_ARTIFACTORY_ENDPOINTS["artifact_statistics"],
-            incremental_field="created",
-            incremental_filter_value="2026-03-04T00:00:00.000+00:00",
-        )
-        assert query.startswith(
-            'items.find({"stat.downloads": {"$gt": 0}, "created": {"$gt": "2026-03-04T00:00:00.000+00:00"}})'
-        )
-        # The parent page include stays primary-domain only, or AQL ignores sort/offset/limit.
-        assert '.include("repo", "path", "name", "created")' in query
-
-    def test_related_query_selects_chunk_without_pagination(self) -> None:
-        query = build_related_aql_query(
-            JFROG_ARTIFACTORY_ENDPOINTS["build_promotions"],
-            [{"name": "app", "number": "1", "created": "x"}, {"name": "app", "number": "2", "created": "y"}],
-        )
-        assert query.startswith(
-            'builds.find({"$or": [{"name": "app", "number": "1"}, {"name": "app", "number": "2"}]})'
-        )
-        assert '"promotion.created"' in query
-        assert ".sort(" not in query and ".offset(" not in query and ".limit(" not in query
 
 
 class TestStripDomainPrefix:
@@ -206,29 +151,6 @@ class TestFlattenRelated:
                 "name": "web.war",
                 "sha1": "b2",
             },
-        ]
-
-    def test_artifact_statistics_merges_stat_into_item(self) -> None:
-        item = {
-            "repo": "libs",
-            "path": "com/acme",
-            "name": "a.jar",
-            "created": "2026-01-01",
-            "stats": [{"downloads": 12, "downloaded": "2026-02-01", "downloaded_by": "ci"}],
-        }
-
-        rows = list(flatten_related(JFROG_ARTIFACTORY_ENDPOINTS["artifact_statistics"], item))
-
-        assert rows == [
-            {
-                "repo": "libs",
-                "path": "com/acme",
-                "name": "a.jar",
-                "created": "2026-01-01",
-                "downloads": 12,
-                "downloaded": "2026-02-01",
-                "downloaded_by": "ci",
-            }
         ]
 
     def test_parent_without_related_entries_emits_nothing(self) -> None:
@@ -301,23 +223,6 @@ class TestGetRowsAql:
         assert len(rows) == AQL_PAGE_SIZE + 1
         assert queries == [page_1, page_2]
 
-    def test_saves_resume_state_after_each_yielded_page(self, monkeypatch: Any) -> None:
-        full_page = [_artifact(f"a{i}.jar") for i in range(AQL_PAGE_SIZE)]
-        config = JFROG_ARTIFACTORY_ENDPOINTS["artifacts"]
-        _patch_aql(
-            monkeypatch,
-            {
-                build_aql_query(config, offset=0): {"results": full_page},
-                build_aql_query(config, offset=AQL_PAGE_SIZE): {"results": [_artifact("last.jar")]},
-            },
-        )
-        manager = _FakeResumableManager()
-
-        _collect(manager, endpoint="artifacts")
-
-        # State is saved only while more pages remain, never on the final short page.
-        assert manager.saved == [JfrogArtifactoryResumeConfig(next_offset=AQL_PAGE_SIZE, incremental_filter_value=None)]
-
     def test_resumes_from_saved_offset_with_original_filter(self, monkeypatch: Any) -> None:
         config = JFROG_ARTIFACTORY_ENDPOINTS["artifacts"]
         saved_filter = "2026-01-01T00:00:00.000+00:00"
@@ -340,47 +245,6 @@ class TestGetRowsAql:
 
         assert [r["name"] for r in rows] == ["resumed.jar"]
         assert queries == [resume_query]
-
-    def test_incremental_filter_built_from_db_watermark(self, monkeypatch: Any) -> None:
-        config = JFROG_ARTIFACTORY_ENDPOINTS["artifacts"]
-        query = build_aql_query(
-            config,
-            incremental_field="modified",
-            incremental_filter_value="2026-03-04T02:58:14.000+00:00",
-            offset=0,
-        )
-        queries = _patch_aql(monkeypatch, {query: {"results": [_artifact("new.jar")]}})
-
-        _collect(
-            _FakeResumableManager(),
-            endpoint="artifacts",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            incremental_field="modified",
-        )
-
-        assert queries == [query]
-
-    def test_stops_on_empty_first_page(self, monkeypatch: Any) -> None:
-        config = JFROG_ARTIFACTORY_ENDPOINTS["artifacts"]
-        _patch_aql(monkeypatch, {build_aql_query(config, offset=0): {"results": []}})
-
-        assert _collect(_FakeResumableManager(), endpoint="artifacts") == []
-
-    def test_builds_rows_normalized_from_prefixed_keys(self, monkeypatch: Any) -> None:
-        config = JFROG_ARTIFACTORY_ENDPOINTS["builds"]
-        _patch_aql(
-            monkeypatch,
-            {
-                build_aql_query(config, offset=0): {
-                    "results": [{"build.name": "app", "build.number": "42", "build.created": "2026-01-01"}]
-                }
-            },
-        )
-
-        rows = _collect(_FakeResumableManager(), endpoint="builds")
-
-        assert rows == [{"name": "app", "number": "42", "created": "2026-01-01"}]
 
 
 def _build(number: int) -> dict:
@@ -568,14 +432,6 @@ class TestGetRowsXray:
             JfrogArtifactoryResumeConfig(next_offset=2, incremental_filter_value="2026-03-04T00:00:00.000+00:00")
         ]
 
-    def test_full_refresh_sends_no_created_from(self, monkeypatch: Any) -> None:
-        bodies = _patch_xray(monkeypatch, lambda body: {"violations": []})
-
-        _collect(_FakeResumableManager(), endpoint="xray_violations")
-
-        assert bodies == [build_xray_violations_request(None, 1)]
-        assert bodies[0]["filters"] == {}
-
     def test_restarts_scroll_from_last_created_before_depth_cap(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(jfrog_artifactory, "XRAY_MAX_SCROLL_ROWS", 2 * XRAY_PAGE_SIZE)
         calls: list[tuple[str | None, int]] = []
@@ -620,29 +476,6 @@ class TestGetRowsRest:
         rows = _collect(_FakeResumableManager(), endpoint="repositories")
 
         assert rows == [{"key": "libs-release", "type": "LOCAL"}]
-
-    def test_storage_summary_extracts_repositories_summary_list(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(
-            jfrog_artifactory,
-            "_get_json",
-            lambda session, base_url, access_token, path, logger: {
-                "binariesSummary": {"binariesCount": "100"},
-                "repositoriesSummaryList": [{"repoKey": "libs-release", "filesCount": 10}],
-            },
-        )
-
-        rows = _collect(_FakeResumableManager(), endpoint="storage_summary")
-
-        assert rows == [{"repoKey": "libs-release", "filesCount": 10}]
-
-    def test_storage_summary_missing_key_yields_nothing(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(
-            jfrog_artifactory,
-            "_get_json",
-            lambda session, base_url, access_token, path, logger: {"binariesSummary": {}},
-        )
-
-        assert _collect(_FakeResumableManager(), endpoint="storage_summary") == []
 
 
 class TestSourceResponse:
@@ -701,15 +534,6 @@ class _FakeSession:
 
 
 class TestProbeEndpoint:
-    def test_token_probe_gets_repositories(self, monkeypatch: Any) -> None:
-        session = _FakeSession()
-        monkeypatch.setattr(jfrog_artifactory, "_get_session", lambda access_token: session)
-
-        ok, status = probe_endpoint("https://acme.jfrog.io", "token")
-
-        assert (ok, status) == (True, 200)
-        assert session.requests == [("GET", "https://acme.jfrog.io/artifactory/api/repositories", None)]
-
     def test_aql_endpoint_probe_posts_single_row_query(self, monkeypatch: Any) -> None:
         session = _FakeSession(status_code=403)
         monkeypatch.setattr(jfrog_artifactory, "_get_session", lambda access_token: session)

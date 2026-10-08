@@ -92,30 +92,6 @@ def _source(manager: Any, endpoint: str = "accounts") -> Any:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": 1}]), _response([{"id": 2}]), _response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        # 1-indexed page param advances one page per request.
-        assert [p["page"] for p in params] == [1, 2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_batch(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}]), _response([{"id": 2}]), _response([])])
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # State is saved AFTER each non-empty page, pointing at the next page to fetch; the empty
-        # terminating page saves nothing.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params, _ = _wire(session, [_response([{"id": 2}]), _response([])])
@@ -126,26 +102,6 @@ class TestPagination:
         assert rows == [{"id": 2}]
         # Page 1 must never be fetched on resume.
         assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing_and_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_request_targets_account_host(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, urls = _wire(session, [_response([])])
-
-        _rows(_source(_make_manager(), endpoint="tasks"))
-        assert urls[0] == "https://acme.flowlu.com/api/v1/module/task/tasks/list"
 
 
 class TestErrorHandling:

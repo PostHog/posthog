@@ -50,6 +50,8 @@ chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.annotationBadges() // HTMLElement[]
+chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
+chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
 ```
 
 For interactions, use the module-level helpers:

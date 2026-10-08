@@ -5,7 +5,6 @@ import asyncio
 from typing import TYPE_CHECKING, Annotated
 from uuid import uuid4
 
-from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
@@ -49,6 +48,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 MAX_RUNTIME_SECONDS = 15 * 60
+MAX_GENERATION_INSTRUCTION_CHARACTERS = 60_000
+MAX_GENERATION_REFERENCE_CHARACTERS = 60_000
+MAX_GENERATION_REFERENCE_FILES = 4
+MAX_GENERATION_REFERENCE_PATHS = 20
 
 RUBRIC_GENERATION_PROMPT = """Help the scout's owner decide whether a run did useful work. Suggest a small set of checks they can
 read, choose and edit in the UI. Use everyday language in every field, including references to the
@@ -236,26 +239,15 @@ def read_selection_output(text: str, draft: ScoutRubricSuggestionBatch) -> Scout
 def build_rubric_reference_context(team: Team, config: SignalScoutConfig) -> ScoutRubricReferenceContext:
     skill = load_skill_for_run(team, config.skill_name)
     report_channel = ScoutRubricReportChannel(resolve_report_channel_variant(skill.allowed_tools))
-    remaining_characters = 60_000
-    references: list[ScoutRubricReferenceText] = []
-    truncated_references: list[str] = []
     files = (
         LLMSkillFile.objects.filter(skill_id=skill.skill_id, skill__team_id=team.id)
-        .annotate(snippet=Substr("content", 1, remaining_characters + 1))
         .order_by("path")
-        .values("path", "content_type", "snippet")[:4]
+        .values("path", "content_type", "content")
     )
-    for file in files:
-        if remaining_characters == 0:
-            break
-        content = file["snippet"]
-        included = content[:remaining_characters]
-        references.append(
-            ScoutRubricReferenceText(path=file["path"], content_type=file["content_type"], content=included)
-        )
-        if len(content) > remaining_characters:
-            truncated_references.append(file["path"])
-        remaining_characters -= len(included)
+    references = tuple(
+        ScoutRubricReferenceText(path=file["path"], content_type=file["content_type"], content=file["content"])
+        for file in files.iterator()
+    )
     return ScoutRubricReferenceContext(
         skill_id=skill.skill_id,
         skill_name=skill.name,
@@ -263,14 +255,44 @@ def build_rubric_reference_context(team: Team, config: SignalScoutConfig) -> Sco
         description=skill.description,
         report_channel=report_channel,
         report_disposition_instructions=report_disposition_instructions(report_channel),
-        instructions=skill.body[:60_000],
-        instructions_truncated=len(skill.body) > 60_000,
-        reference_files=tuple(file.path for file in skill.files[:20]),
-        reference_files_truncated=len(skill.files) > 20,
-        reference_texts=tuple(references),
-        reference_limits=ScoutRubricReferenceLimits(
-            omitted_files=len(skill.files) - len(references), truncated_files=tuple(truncated_references)
-        ),
+        instructions=skill.body,
+        instructions_truncated=False,
+        reference_files=tuple(reference.path for reference in references),
+        reference_files_truncated=False,
+        reference_texts=references,
+        reference_limits=ScoutRubricReferenceLimits(omitted_files=0, truncated_files=()),
+    )
+
+
+def _generation_reference(reference_context: ScoutRubricReferenceContext) -> ScoutRubricReferenceContext:
+    # Prompt budgets must not shorten the saved reference used for judging.
+    remaining_characters = MAX_GENERATION_REFERENCE_CHARACTERS
+    references: list[ScoutRubricReferenceText] = []
+    truncated_references = list(reference_context.reference_limits.truncated_files)
+    for reference in reference_context.reference_texts[:MAX_GENERATION_REFERENCE_FILES]:
+        if remaining_characters == 0:
+            break
+        included = reference.content[:remaining_characters]
+        references.append(reference.model_copy(update={"content": included}))
+        if len(reference.content) > remaining_characters and reference.path not in truncated_references:
+            truncated_references.append(reference.path)
+        remaining_characters -= len(included)
+    return reference_context.model_copy(
+        update={
+            "instructions": reference_context.instructions[:MAX_GENERATION_INSTRUCTION_CHARACTERS],
+            "instructions_truncated": reference_context.instructions_truncated
+            or len(reference_context.instructions) > MAX_GENERATION_INSTRUCTION_CHARACTERS,
+            "reference_files": reference_context.reference_files[:MAX_GENERATION_REFERENCE_PATHS],
+            "reference_files_truncated": reference_context.reference_files_truncated
+            or len(reference_context.reference_files) > MAX_GENERATION_REFERENCE_PATHS,
+            "reference_texts": tuple(references),
+            "reference_limits": ScoutRubricReferenceLimits(
+                omitted_files=reference_context.reference_limits.omitted_files
+                + len(reference_context.reference_texts)
+                - len(references),
+                truncated_files=tuple(truncated_references),
+            ),
+        }
     )
 
 
@@ -281,6 +303,7 @@ def build_rubric_prompt(
     *,
     generation_context: str = "",
 ) -> str:
+    reference_context = _generation_reference(reference_context)
     # TODO: Let the generator inspect past run transcripts and reports through read-only MCP
     # so it can identify gaps that the supplied summaries hide.
     runs = list(

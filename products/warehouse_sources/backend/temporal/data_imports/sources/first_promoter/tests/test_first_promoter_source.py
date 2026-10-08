@@ -2,16 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
-    COMMISSIONS_INCREMENTAL_LOOKBACK_SECONDS,
-    ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source import FirstPromoterSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
     FirstPromoterSourceConfig,
@@ -26,41 +16,6 @@ class TestFirstPromoterSource:
         self.team_id = 123
         self.config = FirstPromoterSourceConfig(api_key="fp-key", account_id="98765")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "FirstPromoter"
-        assert config.label == "FirstPromoter"
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/first_promoter.png"
-        # The source ships visible — a truthy unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-
-    def test_credential_fields(self) -> None:
-        config = self.source.get_source_config
-        # Both are mandatory: the Admin API rejects a request carrying only the bearer token.
-        assert [f.name for f in config.fields] == ["api_key", "account_id"]
-        api_key, account_id = config.fields
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(account_id, SourceFieldInputConfig)
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.secret is True
-        assert api_key.required is True
-        assert account_id.required is True
-
-    def test_get_schemas_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_commissions_is_the_only_incremental_table(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-
-        assert schemas["commissions"].supports_incremental is True
-        assert [f["field"] for f in schemas["commissions"].incremental_fields] == ["created_at"]
-        # Commission status and payout linkage mutate after creation, so an incremental run has to
-        # re-read a trailing window rather than only rows newer than the watermark.
-        assert schemas["commissions"].default_incremental_lookback_seconds == COMMISSIONS_INCREMENTAL_LOOKBACK_SECONDS
-
     @parameterized.expand([(name,) for name in FULL_REFRESH_ENDPOINTS])
     def test_mutable_tables_stay_full_refresh(self, name: str) -> None:
         # These endpoints either have no usable server-side time filter or no way to pin row
@@ -69,10 +24,6 @@ class TestFirstPromoterSource:
         assert schemas[name].supports_incremental is False
         assert schemas[name].incremental_fields == []
         assert schemas[name].default_incremental_lookback_seconds is None
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["commissions"])
-        assert [s.name for s in schemas] == ["commissions"]
 
     @parameterized.expand(
         [

@@ -39,7 +39,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_modeling',
             iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
             href: urls.models(),
-            searchKeywords: ['materialized views', 'materialization'],
+            searchKeywords: ['materialized views', 'materialization', 'data modeling'],
             searchTabs: [
                 { name: 'Lineage', href: urls.models('lineage') },
                 {

@@ -955,7 +955,7 @@
         "scope": "project"
     },
     "inboxScoutTrials": {
-        "template": "/scout-trials",
+        "template": "/inbox/scout-trials",
         "params": [],
         "scope": "project"
     },
@@ -1461,11 +1461,6 @@
     },
     "replayVisionScannerOverview": {
         "template": "/replay-vision/{id}/overview",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "replayVisionScannerSelfDriving": {
-        "template": "/replay-vision/{id}/self-driving",
         "params": ["id"],
         "scope": "project"
     },
