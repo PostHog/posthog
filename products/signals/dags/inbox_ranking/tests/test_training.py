@@ -3093,6 +3093,15 @@ def test_served_scores_grade_per_version_at_the_threshold_that_was_served(monkey
     assert graded[V2]["auc"] == 1.0
     assert graded[V2]["expected_calibration_error"] is not None
     assert (graded[V2]["classification_threshold"], graded[V2]["true_positives"]) == (None, None)
+    # The tie holds a score from each served version, so each version keeps its own report event.
+    tie_reports = [
+        (call["properties"]["model_version"], call["properties"]["p_open"])
+        for call in client.calls
+        if call["event"] == "inbox_ranking_unseen_report_graded"
+        and call["properties"]["report_id"] == "tie"
+        and call["properties"]["model_role"] == SERVED_ROLE
+    ]
+    assert sorted(tie_reports) == [(V1, 0.4), (V2, 0.9)]
 
 
 class TestServedEventsQuery(ClickhouseTestMixin, BaseTest):

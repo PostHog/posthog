@@ -432,15 +432,22 @@ def calibration_rows(grades: Sequence[HeadGrade]) -> list[dict[str, object]]:
 def report_grade_rows(
     graded_by_head: Mapping[str, pd.DataFrame], *, pool: str, horizon_days: int, scoring_partition: str
 ) -> list[dict[str, object]]:
-    """One dict per (report, model) carrying every head graded at this horizon.
+    """One dict per (report, model_name, model_version, model_role) carrying every head graded at
+    this horizon. A promotion part of the way through the day can leave one report with a row per
+    served version, and each version keeps its own event.
 
     Heads are grouped by horizon because they were all scored on the same day, so one event holds a
     report's whole outcome at that horizon.
     """
-    rows: dict[tuple[str, str, str], dict[str, object]] = {}
+    rows: dict[tuple[str, str, str, str], dict[str, object]] = {}
     for head_name, graded in sorted(graded_by_head.items()):
         for record in graded.to_dict("records"):
-            key = (str(record["report_id"]), str(record["model_name"]), str(record["model_role"]))
+            key = (
+                str(record["report_id"]),
+                str(record["model_name"]),
+                str(record["model_version"]),
+                str(record["model_role"]),
+            )
             entry = rows.setdefault(
                 key,
                 {
