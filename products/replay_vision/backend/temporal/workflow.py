@@ -377,7 +377,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # 30s once truncated the tail on a slow facade, so give it 2 minutes; retries are safe
                 # because each finding carries a deterministic idempotency key.
                 try:
-                    wf.deprecate_patch("replay-vision-emitted-signal-summaries")
                     signal_summaries = await wf.execute_activity(
                         emit_observation_signal_summaries_activity,
                         emit_inputs,
@@ -453,7 +452,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         # Gating on scanner_type is deterministic: it comes from the create activity's recorded output.
         resolve_task = None
         if scanner_type == ScannerType.EXPERIMENT:
-            wf.deprecate_patch("replay-vision-experiment-variant-2026-09")
             # Rides alongside the fetch, so attribution costs no wall-clock. An unexposed session
             # raises IneligibleSessionError here, before any model call and at no credit cost.
             resolve_task = wf.execute_activity(
@@ -489,7 +487,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
-        wf.deprecate_patch("replay-vision-session-network-2026-09")
         # Rides alongside the other two so the extra recording-block read costs no wall-clock.
         network_task = wf.execute_activity(
             fetch_session_network_activity,
@@ -536,7 +533,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
             if _failure_type(e) == _RASTERIZER_TOO_LARGE_TYPE:
-                wf.deprecate_patch("replay-vision-too-large-ineligible-2026-08")
                 # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
             rasterizer_type = _failure_type(e)
@@ -563,7 +559,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             # Direct cause only: a nested activity timeout inside the child already bumped the
             # counter there, and matching it here would double-count one run.
             if isinstance(e, ChildWorkflowError) and isinstance(e.cause, TemporalTimeoutError):
-                wf.deprecate_patch("bump-stuck-on-rasterize-timeout-2026-08")
                 # The single-attempt execution_timeout terminates the child before its own final-attempt
                 # bump can run, so a render that rode out the whole budget would never reach the
                 # quarantine threshold. Bump from here instead; the child's own bump covers every
@@ -588,7 +583,6 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         call_output: ScannerCallOutput,
     ) -> None:
         """Render the observation's thumbnail. Fail-soft: a missing poster must never fail a paid-for scan."""
-        wf.deprecate_patch("replay-vision-media-2026-09")
         try:
             # Started, not awaited: the poster is delivery, and the scan has no reason to hold a workflow
             # slot open while one frame is cut. ABANDON keeps the child alive past the parent's close.

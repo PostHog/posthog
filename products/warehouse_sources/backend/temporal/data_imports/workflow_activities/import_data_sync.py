@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_non_retryable_error,
     report_heartbeat_timeout,
+    reset_pipeline_requested,
     trim_source_job_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -160,14 +161,12 @@ class ImportDataActivityInputs:
 def _resolve_reset_pipeline(
     inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
 ) -> bool:
-    if inputs.reset_pipeline is not None:
-        return inputs.reset_pipeline
-    if schema.sync_type_config.get("reset_pipeline", False) is True:
-        return True
-    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
-    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
-    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
+    return reset_pipeline_requested(
+        schema,
+        workflow_reset_pipeline=inputs.reset_pipeline,
+        scheduled_full_refresh=inputs.scheduled_full_refresh,
+        job_created_at=job_created_at,
+    )
 
 
 @database_sync_to_async_pool
