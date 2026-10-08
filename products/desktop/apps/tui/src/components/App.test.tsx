@@ -18,6 +18,7 @@ import {
   openTask,
   paneIds,
   saveLayout,
+  showToday,
   splitFocused,
 } from "../layout";
 import type { LocalSession } from "../local";
@@ -150,8 +151,8 @@ describe("App", () => {
     }
   });
 
-  it("shows today's briefing in the main view's new chat, under a Today row", async () => {
-    saveLayout(initialLayout());
+  it("shows today's briefing in the main view once its Today row is opened", async () => {
+    saveLayout(showToday(initialLayout()));
     const today = {
       load: async () => ({
         kind: "ready",

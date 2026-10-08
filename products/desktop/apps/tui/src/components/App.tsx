@@ -1,7 +1,9 @@
+import { homedir } from "node:os";
 import type { CloudRegion, Task } from "@posthog/shared";
 import { Box, type DOMElement, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ActionsLine } from "../actions";
+import { bannerLines, startingModel } from "../banner";
 import { currentRepository, type PiChats } from "../chats";
 import { dividerGlyphs } from "../dividers";
 import { useChatPlace } from "../hooks/useChatPlace";
@@ -315,7 +317,7 @@ export function App({
   // Without a briefing to read, such as when signed out, the main view stays a plain new chat.
   const todayPaneId =
     session?.today &&
-    mainPane &&
+    mainPane?.today &&
     mainPane.taskId === null &&
     !pending.has(mainPane.id)
       ? mainPane.id
@@ -398,8 +400,7 @@ export function App({
   };
 
   const titleOf = (pane: PaneNode): string => {
-    if (pane.taskId === null)
-      return pane.id === todayPaneId ? "Today" : "New chat";
+    if (pane.taskId === null) return pane.today ? "Today" : "New chat";
     return (
       titles.get(pane.taskId) ||
       taskOf(pane.taskId)?.title ||
@@ -417,6 +418,18 @@ export function App({
       local={isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined}
       isLocalPane={runsLocally(node.id, node.taskId)}
       newChatPlace={placeFor(node.id)}
+      banner={bannerLines({
+        place: placeFor(node.id),
+        cwd: process.cwd(),
+        home: homedir(),
+        repositories: repoPicker.reposFor(node.id),
+        billing: loadPrefs().billing,
+        model: startingModel(
+          loadPrefs().billing,
+          placeFor(node.id),
+          modelLabel(node.id, null),
+        ),
+      })}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}

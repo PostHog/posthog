@@ -130,8 +130,13 @@ export function useKeys({
     }
     // The open search or settings take every other key through onKey.
     if (search.open || settings.open) return;
+    // Inside a split workspace a new chat joins it as another pane; elsewhere it takes the main view.
     if (shortcut === "newChat") {
-      setLayout(newChat);
+      setLayout((current) =>
+        activeWorkspace(current).root.kind === "split"
+          ? splitFocused(current, "row")
+          : newChat(current),
+      );
       return;
     }
     if (shortcut === "toggleSidebar") {

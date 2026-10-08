@@ -14,6 +14,8 @@ export type PaneNode = {
   taskId: string | null;
   // Saved so the pane and sidebar can name the task before the work list loads.
   title?: string;
+  // An empty main view showing Today's briefing instead of a new chat.
+  today?: true;
 };
 export type LayoutNode =
   | PaneNode
@@ -210,7 +212,10 @@ export function newChat(state: LayoutState): LayoutState {
   return {
     workspaces: state.workspaces.map((w) =>
       w.id === main.id
-        ? { ...w, root: { ...pane, taskId: null, title: undefined } }
+        ? {
+            ...w,
+            root: { ...pane, taskId: null, title: undefined, today: undefined },
+          }
         : w,
     ),
     activeWorkspaceId: main.id,
@@ -219,6 +224,19 @@ export function newChat(state: LayoutState): LayoutState {
 }
 
 // A new chat from a pane in a split takes that pane's place; from anywhere else it clears the main view.
+// Today's briefing takes the main view, with its composer; a new chat gives the view back.
+export function showToday(state: LayoutState): LayoutState {
+  const cleared = newChat(state);
+  return {
+    ...cleared,
+    workspaces: cleared.workspaces.map((w) =>
+      w.id === cleared.activeWorkspaceId && w.root.kind === "pane"
+        ? { ...w, root: { ...w.root, today: true } }
+        : w,
+    ),
+  };
+}
+
 export function newChatIn(state: LayoutState, paneId: string): LayoutState {
   const workspace = workspaceOf(state, paneId);
   if (!workspace || workspace.root.kind === "pane") return newChat(state);
@@ -229,7 +247,7 @@ export function newChatIn(state: LayoutState, paneId: string): LayoutState {
             ...w,
             root: mapPanes(w.root, (pane) =>
               pane.id === paneId
-                ? { ...pane, taskId: null, title: undefined }
+                ? { ...pane, taskId: null, title: undefined, today: undefined }
                 : pane,
             ),
             focusedPaneId: paneId,

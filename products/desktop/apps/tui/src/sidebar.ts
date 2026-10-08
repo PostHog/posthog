@@ -5,6 +5,7 @@ import {
   newChat,
   openTask,
   panes,
+  showToday,
 } from "./layout";
 import { LEGACY_PREFIX } from "./localChats";
 
@@ -198,13 +199,17 @@ export function sidebarRows({
     };
   };
 
-  // Today comes first, standing for the main view while it has no chat. Split workspaces follow, each followed by a gap.
-  // All tasks comes last: single tasks the page does not hold, then the whole list. A split task shows in both places;
-  // its row under All tasks jumps to its pane.
+  // Today and New chat come first: each names the main view when it shows that, and opens it there otherwise.
+  // Split workspaces follow, each followed by a gap. All tasks comes last: single tasks the page does not hold,
+  // then the whole list. A split task shows in both places; its row under All tasks jumps to its pane.
   const today: SidebarRow & { kind: "today" } = { kind: "today", paneId: null };
+  const newChatRow = taskRow(null, null, false) as SidebarRow & {
+    kind: "task";
+  };
   const rows: SidebarRow[] = [
     { kind: "heading", label: "Work" },
     today,
+    newChatRow,
     { kind: "gap" },
   ];
   const singlePaneOf = new Map<string, string>();
@@ -213,8 +218,11 @@ export function sidebarRows({
     const workspacePanes = panes(workspace.root);
     if (workspacePanes.length === 1) {
       const [pane] = workspacePanes;
-      if (pane.taskId === null) today.paneId = pane.id;
-      else if (listed.has(pane.taskId)) singlePaneOf.set(pane.taskId, pane.id);
+      if (pane.taskId === null) {
+        if (pane.today) today.paneId = pane.id;
+        else newChatRow.paneId = pane.id;
+      } else if (listed.has(pane.taskId))
+        singlePaneOf.set(pane.taskId, pane.id);
       // Shown once the list has loaded, so loading never lists tasks by saved name alone.
       else if (work.tasks !== null) {
         unlisted.push(taskRow(pane.taskId, pane.id, false, pane.title));
@@ -282,10 +290,12 @@ export function activateRow(
 ): LayoutState | "viewMore" {
   switch (row.kind) {
     case "today":
-      return row.paneId ? focusPane(layout, row.paneId) : newChat(layout);
+      return row.paneId ? focusPane(layout, row.paneId) : showToday(layout);
     case "task":
       if (row.paneId) return focusPane(layout, row.paneId);
-      return row.taskId ? openTask(layout, row.taskId, row.title) : layout;
+      return row.taskId
+        ? openTask(layout, row.taskId, row.title)
+        : newChat(layout);
     case "workspace": {
       const workspace = layout.workspaces.find((w) => w.id === row.workspaceId);
       return workspace ? focusPane(layout, workspace.focusedPaneId) : layout;
