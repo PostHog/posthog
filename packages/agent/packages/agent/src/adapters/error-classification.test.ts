@@ -145,9 +145,30 @@ describe("sanitizeAgentErrorCause", () => {
       "upstream_request_rejected",
       "router rejected request",
     ],
+    [
+      '{"error":{"message":"model \\"gpt-x\\" is not allowed","type":"invalid_request_error"}}',
+      "upstream_request_rejected",
+      'model "gpt-x" is not allowed',
+    ],
+    [
+      `{"error":{"message":"${"x".repeat(250)}","type":"invalid_request_error"}}`,
+      "upstream_request_rejected",
+      "x".repeat(200),
+    ],
     ["agent process exited", "agent_error", "agent process exited"],
   ] as const)("sanitizes %j as %j", (message, classification, expected) => {
     expect(sanitizeAgentErrorCause(message, classification)).toBe(expected);
+  });
+
+  it("keeps a rejected request cause when sanitized again", () => {
+    const once = sanitizeAgentErrorCause(
+      '{"error":{"message":"router rejected request","type":"invalid_request_error","param":null,"code":"bad_request"}}',
+      "upstream_request_rejected",
+    );
+
+    expect(sanitizeAgentErrorCause(once, "upstream_request_rejected")).toBe(
+      once,
+    );
   });
 
   it("limits an unclassified cause before persistence", () => {

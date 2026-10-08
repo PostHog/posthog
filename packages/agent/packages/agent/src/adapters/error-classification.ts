@@ -127,10 +127,21 @@ export function sanitizeAgentErrorCause(
     return classification;
   }
   if (classification === "upstream_request_rejected") {
-    const bodyMessage = text.match(/"message"\s*:\s*"([^"]{1,200})"/);
-    return bodyMessage ? bodyMessage[1] : classification;
+    if (!text.startsWith("{")) {
+      return text.slice(0, 200);
+    }
+    return (rejectedRequestMessage(text) ?? classification).slice(0, 200);
   }
   return text.slice(0, 400);
+}
+
+function rejectedRequestMessage(body: string): string | undefined {
+  try {
+    const message = JSON.parse(body)?.error?.message;
+    return typeof message === "string" ? message : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
