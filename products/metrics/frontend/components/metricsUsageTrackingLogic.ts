@@ -243,7 +243,9 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             }
         },
         setDisplayType: ({ displayType }) => {
-            posthog.capture('metrics viewer display type changed', { display_type: displayType })
+            if (!values.isRestoringFromUrl) {
+                posthog.capture('metrics viewer display type changed', { display_type: displayType })
+            }
         },
         setReduce: ({ reduce }) => {
             posthog.capture('metrics viewer value reducer changed', {
