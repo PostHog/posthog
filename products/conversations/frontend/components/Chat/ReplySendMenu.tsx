@@ -43,7 +43,9 @@ export function ComposerHeader({
                     <span className="ph-no-capture truncate text-secondary min-w-0">{detail}</span>
                 </Tooltip>
             ) : null}
-            {statusLabel ? <span className="ml-auto shrink-0 text-secondary">Ticket status: {statusLabel}</span> : null}
+            {statusLabel ? (
+                <span className="ml-auto shrink-0 text-secondary">{`Ticket status: ${statusLabel}`}</span>
+            ) : null}
         </div>
     )
 }
@@ -139,7 +141,7 @@ export function SendMenu({
                             {isPrivate ? 'Only your team will see this.' : audience}
                         </div>
                         {statusLabel ? (
-                            <div className="text-xs text-secondary">Ticket status is {statusLabel}.</div>
+                            <div className="text-xs text-secondary">{`Ticket status is ${statusLabel}.`}</div>
                         ) : null}
                     </div>
                     <div className="py-1">
