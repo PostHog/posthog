@@ -94,6 +94,18 @@ class TestFunnelsDashboardFilters(BaseTest):
         assert runner.query.dateRange.date_from == "all"
         assert runner.query.compareFilter == CompareFilter(compare=False)
 
+    def test_all_time_strip_does_not_leak_into_finite_range_tile_sharing_the_filter(self) -> None:
+        shared_filter = DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w"))
+        all_time_runner = self._runner(date_from="all")
+        finite_runner = self._runner(date_from="-14d")
+
+        all_time_runner.apply_dashboard_filters(shared_filter)
+        finite_runner.apply_dashboard_filters(shared_filter)
+
+        assert all_time_runner.query.compareFilter == CompareFilter(compare=False, compare_to="-4w")
+        assert finite_runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+        assert shared_filter.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+
 
 class TestFunnelsSeriesCustomNames(BaseTest):
     @parameterized.expand(

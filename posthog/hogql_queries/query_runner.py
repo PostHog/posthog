@@ -3375,7 +3375,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # "All time" has no earlier period to compare against, so no query kind should run a
             # previous-period comparison once the resolved range is "all" - regardless of whether
             # `compare` was already set before this call or just arrived via `dashboard_filter`.
-            self.query.compareFilter.compare = False
+            self.query.compareFilter = self.query.compareFilter.model_copy(update={"compare": False})
 
         self.__post_init__()
 
