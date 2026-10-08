@@ -1,9 +1,11 @@
 from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Iterable, Sequence
 from datetime import datetime, time, timedelta
+from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F
 
 from posthog.dataclasses import frozen
@@ -38,6 +40,9 @@ class LifecycleResult:
     assets_reconciled: int
 
 
+OutcomeBatches = Sequence[tuple[SuggestionOutcome, Sequence[WarehouseSuggestion]]]
+
+
 @frozen
 class Reopened:
     reproposed: tuple[WarehouseSuggestion, ...]
@@ -55,15 +60,15 @@ def apply_run(
     expired = _expire(context, fingerprints, now)
     surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else []
     assets_reconciled = _reconcile_assets(context)
-    for outcome, rows in (
+    outcomes: OutcomeBatches = (
         (SuggestionOutcome.CREATED, created),
         (SuggestionOutcome.REPROPOSED, reopened.reproposed),
         (SuggestionOutcome.REVIVED, reopened.revived),
         (SuggestionOutcome.AUTO_RESOLVED, auto_resolved),
         (SuggestionOutcome.EXPIRED, expired),
         (SuggestionOutcome.SURFACED, surfaced),
-    ):
-        report_outcomes(outcome, rows, team=team)
+    )
+    transaction.on_commit(partial(_report_all, outcomes, team))
     return LifecycleResult(
         created=len(created),
         reproposed=len(reopened.reproposed),
@@ -73,6 +78,11 @@ def apply_run(
         surfaced=len(surfaced),
         assets_reconciled=assets_reconciled,
     )
+
+
+def _report_all(outcomes: "OutcomeBatches", team: "Team") -> None:
+    for outcome, rows in outcomes:
+        report_outcomes(outcome, rows, team=team)
 
 
 def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSuggestion]:
@@ -101,9 +111,14 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
             revived.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
             reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
-    suggestions.filter(id__in=[row.id for row in reproposed]).update(reproposed_count=F("reproposed_count") + 1)
-    suggestions.filter(id__in=[row.id for row in (*reproposed, *revived)]).update(surfaced_at=None)
-    return Reopened(reproposed=tuple(reproposed), revived=tuple(revived))
+    reproposed_ids = [row.id for row in reproposed]
+    revived_ids = [row.id for row in revived]
+    suggestions.filter(id__in=reproposed_ids).update(reproposed_count=F("reproposed_count") + 1)
+    suggestions.filter(id__in=[*reproposed_ids, *revived_ids]).update(surfaced_at=None)
+    return Reopened(
+        reproposed=tuple(suggestions.filter(id__in=reproposed_ids)),
+        revived=tuple(suggestions.filter(id__in=revived_ids)),
+    )
 
 
 def _earns_reproposal(row: WarehouseSuggestion, draft: SuggestionDraft, rules: LifecycleRules) -> bool:

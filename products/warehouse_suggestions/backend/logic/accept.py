@@ -29,6 +29,7 @@ from ..facade.contracts import (
 )
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from ..models import WarehouseSuggestion
+from .analytics import SuggestionOutcome, report_outcomes
 from .payloads import payload_from_json
 from .suggestions import HUMAN_TRANSITIONS, transition_to
 
@@ -124,15 +125,17 @@ def accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptO
     try:
         return _accept(team_id, suggestion_id, request)
     except SuggestionSubjectGoneError:
-        _resolve_quietly(team_id, suggestion_id)
+        resolved = _resolve_quietly(team_id, suggestion_id)
+        if resolved is not None:
+            report_outcomes(SuggestionOutcome.AUTO_RESOLVED, [resolved], team=request.team)
         raise
 
 
-def _resolve_quietly(team_id: int, suggestion_id: UUID) -> None:
+def _resolve_quietly(team_id: int, suggestion_id: UUID) -> WarehouseSuggestion | None:
     try:
-        transition_to(suggestion_id, team_id, WarehouseSuggestionStatus.AUTO_RESOLVED, user_id=None)
+        return transition_to(suggestion_id, team_id, WarehouseSuggestionStatus.AUTO_RESOLVED, user_id=None)
     except (SuggestionAlreadyDecidedError, WarehouseSuggestion.DoesNotExist):
-        return
+        return None
 
 
 def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
