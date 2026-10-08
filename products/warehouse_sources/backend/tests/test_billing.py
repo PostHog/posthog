@@ -34,17 +34,19 @@ class TestWarehouseRowsBilling(BaseTest):
         billable: bool = True,
         team_id: int | None = None,
         destination_ids: list[str] | None = None,
+        source: ExternalDataSource | None = None,
     ) -> ExternalDataJob:
-        source = ExternalDataSource.objects.create(
-            team_id=team_id or self.team.pk,
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            status="Completed",
-            source_type="Postgres",
-        )
-        # created_at is auto_now_add, so it can only be set after the insert.
-        ExternalDataSource.objects.filter(id=source.id).update(created_at=source_created_at)
-        source.refresh_from_db()
+        if source is None:
+            source = ExternalDataSource.objects.create(
+                team_id=team_id or self.team.pk,
+                source_id=str(uuid.uuid4()),
+                connection_id=str(uuid.uuid4()),
+                status="Completed",
+                source_type="Postgres",
+            )
+            # created_at is auto_now_add, so it can only be set after the insert.
+            ExternalDataSource.objects.filter(id=source.id).update(created_at=source_created_at)
+            source.refresh_from_db()
         return ExternalDataJob.objects.create(
             team_id=team_id or self.team.pk,
             pipeline=source,
@@ -75,9 +77,12 @@ class TestWarehouseRowsBilling(BaseTest):
             totals[(job.team_id, usage_key)] = totals.get((job.team_id, usage_key), 0) + rows
         return totals
 
-    def _collector_billed_by_source(self) -> dict[str, int]:
+    def _collector_billed_by_source(self, begin: datetime | None = None, end: datetime | None = None) -> dict[str, int]:
+        jobs = ExternalDataJob.objects.select_related("pipeline").filter(team_id=self.team.pk)
+        if begin is not None and end is not None:
+            jobs = jobs.filter(finished_at__gte=begin, finished_at__lt=end)
         totals: dict[str, int] = {}
-        for job in ExternalDataJob.objects.select_related("pipeline").filter(team_id=self.team.pk):
+        for job in jobs:
             billed = billed_usage_for_job(job)
             if billed is not None and billed[0] == ROWS_SYNCED_USAGE_KEY:
                 totals[str(job.pipeline_id)] = totals.get(str(job.pipeline_id), 0) + billed[1]
@@ -109,6 +114,19 @@ class TestWarehouseRowsBilling(BaseTest):
         assert self._collector_totals() == expected
         assert self._billed_by_source() == self._collector_billed_by_source()
         assert sum(self._billed_by_source().values()) == 400
+
+    def test_billed_rows_by_source_keep_a_new_sources_first_week_free_across_a_month(self) -> None:
+        begin = datetime(2026, 3, 1, 0, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 4, 1, 0, 0, 0, tzinfo=UTC)
+        created_at = begin + timedelta(days=1)
+        free_job = self._job(source_created_at=created_at, rows=100, finished_at=created_at + timedelta(days=2))
+        source = free_job.pipeline
+        self._job(source_created_at=created_at, source=source, rows=200, finished_at=created_at + timedelta(days=10))
+        self._job(source_created_at=created_at, source=source, rows=400, finished_at=created_at + timedelta(days=20))
+        self._job(source_created_at=created_at, source=source, rows=800, finished_at=end)
+
+        assert self._billed_by_source(begin, end) == self._collector_billed_by_source(begin, end)
+        assert self._billed_by_source(begin, end) == {str(source.id): 600}
 
     def test_collector_and_report_agree_during_the_free_period(self) -> None:
         begin = FREE_PERIOD_START

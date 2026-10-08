@@ -50,8 +50,8 @@ def billed_usage_for_job(job: ExternalDataJob) -> tuple[str, int] | None:
 def _usage_key(finished_at: datetime, source_created_at: datetime) -> str:
     # The period queries measure a source's age against the period end; this measures it
     # against the job's own finish, the same way the quota meter in `row_tracking` does.
-    # The two disagree only for a source created in the up-to-24h band around the seven-day
-    # mark, which the report resolves in the customer's favour.
+    # The two disagree only for jobs that finish on the day a source turns seven days old,
+    # before that moment: the report bills them, and this treats them as free.
     if FREE_PERIOD_START <= finished_at < FREE_PERIOD_END:
         return FREE_HISTORICAL_ROWS_SYNCED_USAGE_KEY
     if source_created_at >= finished_at - FREE_HISTORICAL_WINDOW:
@@ -106,14 +106,16 @@ def get_rows_synced_by_source(
 def get_billed_rows_synced_by_source(
     team_id: int, source_ids: Collection[UUID], begin: datetime, end: datetime
 ) -> dict[str, int]:
-    """Rows each source bills on the `rows_synced` meter in the period.
+    """Rows each source bills on the `rows_synced` meter in the period, end excluded.
 
     Classifies each job by its own finish time, like `billed_usage_for_job`, so a source's
-    first week stays free for the whole week even when the period ends later.
+    first week stays free for the whole week even when the period ends later. On the day a
+    source turns seven days old, the nightly report bills that day's earlier jobs, which
+    this counts as free, so it can under-count a source by up to a day and never over-counts.
     """
     jobs = (
         _completed_billable_jobs(begin, end)
-        .filter(team_id=team_id, pipeline_id__in=source_ids)
+        .filter(team_id=team_id, pipeline_id__in=source_ids, finished_at__lt=end)
         .exclude(finished_at__gte=FREE_PERIOD_START, finished_at__lt=FREE_PERIOD_END)
         .exclude(pipeline__created_at__gte=F("finished_at") - FREE_HISTORICAL_WINDOW)
     )

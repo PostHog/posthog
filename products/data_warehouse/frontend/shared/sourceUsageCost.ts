@@ -5,9 +5,15 @@ import type { BillingProductV2Type } from '~/types'
 // Tiered pricing and the free allowance apply to the organization total, so this is an average-price estimate.
 export function estimateSourceCostsUsd(
     billableRowsBySource: Record<string, number>,
-    syncedRowsProduct: Pick<BillingProductV2Type, 'current_amount_usd' | 'current_usage'> | null | undefined
+    syncedRowsProduct:
+        | Pick<BillingProductV2Type, 'current_amount_usd' | 'current_amount_usd_before_addons' | 'current_usage'>
+        | null
+        | undefined
 ): Record<string, number> | null {
-    const amountUsd = parseFloat(syncedRowsProduct?.current_amount_usd ?? '')
+    // Add-ons bill on their own meters, so only the base amount is synced-rows spend.
+    const amountUsd = parseFloat(
+        syncedRowsProduct?.current_amount_usd_before_addons ?? syncedRowsProduct?.current_amount_usd ?? ''
+    )
     if (Number.isNaN(amountUsd)) {
         return null
     }

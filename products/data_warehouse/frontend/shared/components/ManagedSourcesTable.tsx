@@ -127,9 +127,9 @@ export function ManagedSourcesTable(): JSX.Element {
                     ...(showUsageColumns && sourceUsageById
                         ? [
                               {
-                                  title: 'Billed rows this period',
+                                  title: 'Billable rows this period',
                                   key: 'billable_rows',
-                                  tooltip: `Rows synced since ${billingPeriodStart ?? 'the start of this billing period'} that count toward your bill. Every sync counts its rows again, so a table that fully refreshes daily is billed for its rows each day. Free historical syncs are not included.`,
+                                  tooltip: `Rows synced since ${billingPeriodStart ?? 'the start of this billing period'} that count toward your bill. Every sync counts its rows again, so a table that fully refreshes daily counts its rows each day. Free historical syncs are not included. Your free allowance applies to your organization's total, so these rows may cost nothing.`,
                                   render: function RenderBillableRows(_: unknown, source: { id: string }) {
                                       const usage = sourceUsageById[source.id]
                                       return usage ? usage.billableRows.toLocaleString() : '-'
@@ -143,7 +143,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                   title: 'Estimated cost this period',
                                   key: 'estimated_cost',
                                   tooltip:
-                                      "This source's share of your organization's synced rows bill so far this period, based on its billed rows. Your free allowance and volume pricing apply to the organization total, so removing a source may not reduce the bill by this amount. Rounded to the nearest dollar.",
+                                      "This source's share of your organization's synced rows bill so far this period, based on its billable rows. Your free allowance and volume pricing apply to the organization total, so removing a source may not reduce the bill by this amount. Rows synced by sources deleted this period stay on the bill but don't appear here. Rounded to the nearest dollar.",
                                   render: function RenderEstimatedCost(_: unknown, source: { id: string }) {
                                       const costUsd = sourceUsageById[source.id]?.costUsd
                                       if (costUsd === null || costUsd === undefined) {
