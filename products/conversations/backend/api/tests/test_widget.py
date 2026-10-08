@@ -13,8 +13,10 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.auth import WidgetAuthentication
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamPollThrottle
+from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
 from products.conversations.backend.models import SigningSecret, Ticket
@@ -74,6 +76,7 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @covers_authentication(WidgetAuthentication)
     def test_create_message_creates_ticket(self):
         response = self.client.post(
             "/api/conversations/v1/widget/message",

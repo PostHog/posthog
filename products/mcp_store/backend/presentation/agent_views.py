@@ -84,7 +84,7 @@ class GatewayAgentAuthentication(ActivityCredentialMixin, BaseAuthentication):
 
     activity_credential_type = "gateway_agent"
 
-    def authenticate(self, request: Request) -> tuple[None, GatewayAgentPrincipal] | None:
+    def authenticate(self, request: Request) -> tuple[Any, GatewayAgentPrincipal] | None:
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             return None

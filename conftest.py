@@ -5,7 +5,7 @@ import atexit
 import warnings
 import contextlib
 from collections.abc import Generator, Iterable, Iterator
-from functools import cache, update_wrapper
+from functools import update_wrapper
 from pathlib import Path
 
 import pytest
@@ -233,36 +233,6 @@ def _report_subtest_failures_as_test_failures() -> None:
         del pytest_unittest.TestCaseFunction.addSubTest
 
 
-def _check_authentication_principals() -> None:
-    # Check where DRF stores the result, because a view can replace request.user later.
-    from rest_framework.authentication import BaseAuthentication  # noqa: PLC0415 — deferred until pytest_configure
-    from rest_framework.request import Request  # noqa: PLC0415 — deferred until pytest_configure
-
-    from posthog.test.authentication_principals import (  # noqa: PLC0415 — deferred until pytest_configure
-        is_concrete,
-        principal_types,
-    )
-
-    authenticate = Request._authenticate
-    cached_principal_types = cache(principal_types)
-
-    def checked_authenticate(self):
-        authenticate(self)
-        authenticator = self.successful_authenticator
-        # DRF's force_authenticate() uses ForcedAuthentication, which is not a BaseAuthentication.
-        if not isinstance(authenticator, BaseAuthentication):
-            return
-        authentication_class = type(authenticator)
-        principals = cached_principal_types(authentication_class)
-        if is_concrete(principals) and not isinstance(self.user, tuple(principals)):
-            raise AssertionError(
-                f"{authentication_class.__qualname__}.authenticate() returned a {type(self.user).__name__}, "
-                f"but its return annotation allows only {sorted(t.__name__ for t in principals)}."
-            )
-
-    Request._authenticate = checked_authenticate  # type: ignore[method-assign]
-
-
 def pytest_configure(config) -> None:
     _report_subtest_failures_as_test_failures()
     _cache_reverse_rel_identity()
@@ -270,7 +240,9 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
-    _check_authentication_principals()
+    from posthog.test import authentication_checks  # noqa: PLC0415 — deferred until pytest_configure
+
+    authentication_checks.install()
     if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
         from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
             EventsSchemaRecorder,
@@ -387,3 +359,14 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
 
     monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
     monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())
+
+
+@pytest.fixture(autouse=True)
+def _check_authentication(request):
+    from posthog.test import authentication_checks  # noqa: PLC0415
+
+    authentication_checks.start_test()
+    yield
+    marker = request.node.get_closest_marker("covers_authentication")
+    if problems := authentication_checks.finish_test(marker.args if marker else ()):
+        pytest.fail("\n".join(problems))

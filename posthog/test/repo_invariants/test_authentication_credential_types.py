@@ -26,10 +26,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.schemas.generators import EndpointEnumerator
 from rest_framework.views import APIView
 
-from posthog.models import User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin, DeclaredCredentialType
-from posthog.test.authentication_principals import is_concrete, principal_types
-from posthog.test.user_credentials import USER_CREDENTIALS
 
 REPO_ROOT = Path(__file__).parents[3]
 SCANNED_ROOTS = ("posthog", "ee", "products", "common")
@@ -152,30 +149,26 @@ def test_every_credential_type_has_a_declaring_class() -> None:
     )
 
 
-def test_every_authentication_class_names_the_principal_it_returns() -> None:
-    violations = []
-    for cls in _owned_classes():
-        principals = principal_types(cls)
-        if not is_concrete(principals):
-            violations.append(f"{_dotted_name(cls)}.authenticate() returns {principals or 'no annotated tuple'}")
+def _classes_named_in_covers_authentication_markers() -> set[str]:
+    names: set[str] = set()
+    for root in SCANNED_ROOTS:
+        for path in (REPO_ROOT / root).rglob("test_*.py"):
+            if SKIPPED_DIRS.intersection(path.parts):
+                continue
+            source = path.read_text(encoding="utf-8", errors="ignore")
+            if "covers_authentication" not in source:
+                continue
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.Call) and _base_name(node.func) == "covers_authentication":
+                    names.update(_base_name(arg) for arg in node.args)
+    return names
 
-    assert not violations, (
-        "Annotate authenticate() with the concrete type of the principal it returns, such as "
-        "`tuple[User, None] | None` or `tuple[InternalAPIUser, None]`, so the tests can tell whether it "
-        "resolves a real User.\n" + "\n".join(violations)
-    )
 
+def test_every_authentication_class_has_a_covering_test() -> None:
+    covered = _classes_named_in_covers_authentication_markers()
+    uncovered = sorted(_dotted_name(cls) for cls in _owned_classes() if cls.__name__ not in covered)
 
-def test_every_user_authentication_class_has_a_credential() -> None:
-    user_classes = {
-        _dotted_name(cls)
-        for cls in _owned_classes()
-        if any(isinstance(principal, type) and issubclass(principal, User) for principal in principal_types(cls))
-    }
-    credentials = set(USER_CREDENTIALS)
-
-    assert user_classes == credentials, (
-        "Every class whose authenticate() returns a User needs a credential in `USER_CREDENTIALS` in "
-        f"posthog/test/user_credentials.py. Missing: {sorted(user_classes - credentials)}. "
-        f"Not a user class: {sorted(credentials - user_classes)}."
+    assert not uncovered, (
+        "Mark one test that authenticates a request through each of these classes with "
+        "`@covers_authentication(<class>)` from posthog.test.authentication_checks:\n" + "\n".join(uncovered)
     )

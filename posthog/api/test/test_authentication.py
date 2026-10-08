@@ -68,7 +68,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.user_credentials import USER_CREDENTIALS
+from posthog.test.authentication_checks import covers_authentication
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -837,41 +837,6 @@ class TestDevLoginAPI(APIBaseTest):
     def test_dev_login_hidden_when_not_debug(self):
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-
-class TestUserAuthenticationClassesRefuseInactiveAndBlockedUsers(APIBaseTest):
-    def _authenticate(self, path: str, request: Request) -> tuple[object, Exception | None]:
-        try:
-            result = import_string(path)().authenticate(request)
-        except Exception as error:
-            return None, error
-        return (result[0] if result else None), None
-
-    @parameterized.expand(sorted(USER_CREDENTIALS))
-    def test_authenticates_an_active_user(self, path: str) -> None:
-        user, error = self._authenticate(path, USER_CREDENTIALS[path](self))
-
-        assert user == self.user, error
-
-    @parameterized.expand(sorted(USER_CREDENTIALS))
-    def test_refuses_an_inactive_user(self, path: str) -> None:
-        request = USER_CREDENTIALS[path](self)
-        User.objects.filter(pk=self.user.pk).update(is_active=False)
-
-        user, _error = self._authenticate(path, request)
-
-        assert user is None
-
-    @parameterized.expand(sorted(USER_CREDENTIALS))
-    def test_refuses_a_blocked_account(self, path: str) -> None:
-        request = USER_CREDENTIALS[path](self)
-
-        with patch("posthog.auth.security_access_refused", return_value=True):
-            user, error = self._authenticate(path, request)
-
-        assert user is None
-        if isinstance(error, AuthenticationFailed):
-            assert error.get_codes() == "access_blocked"
 
 
 class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
@@ -2480,6 +2445,7 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.team.save()
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
+    @covers_authentication(TeamSecretTokenAuthentication)
     def test_authenticate_with_valid_secret_api_key_in_header(self):
         # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
@@ -2694,6 +2660,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
         return Request(wsgi_request)
 
+    @covers_authentication(ProjectSecretAPIKeyAuthentication)
     def test_authenticate_with_valid_psak_in_header(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(self._request_with_header(self.token))
@@ -2853,6 +2820,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             scope="openid profile",
         )
 
+    @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
         wsgi_request = self.factory.get(
             "/",
