@@ -589,6 +589,7 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("customer_analytics", "TeamCustomerAnalyticsConfig"),
         ("tasks", "Task"),
+        ("workflows", "TeamWorkflowsConfig"),
     }
 )
 
