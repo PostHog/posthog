@@ -14,8 +14,10 @@ from parameterized import parameterized
 from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
+from posthog.test.authentication_checks import covers_authentication
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
+from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
@@ -44,6 +46,7 @@ class TestAccountRequests(ProvisioningTestBase):
         assert data["type"] == "error"
         assert data["error"]["code"] == "unauthorized"
 
+    @covers_authentication(ProvisioningAuthentication)
     def test_new_user_returns_oauth_type_with_code(self):
         res = self._post_account_request(self._account_request_payload())
         assert res.status_code == 200

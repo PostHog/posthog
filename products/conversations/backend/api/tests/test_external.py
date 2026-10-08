@@ -16,7 +16,9 @@ from rest_framework.test import APIClient
 from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.authentication_checks import covers_authentication
 
+from products.conversations.backend.api.external import ExternalTicketProjectSecretAPIKeyAuthentication
 from products.conversations.backend.api.ticket_actions import _truncate_bytes
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
@@ -50,6 +52,7 @@ class TestExternalTicketAPI(BaseTest):
 
     # -- Authentication ---------------------------------------------------
 
+    @covers_authentication(ExternalTicketProjectSecretAPIKeyAuthentication)
     def test_get_accepts_project_secret_api_key_with_support_ticket_read_scope(self):
         response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -13,10 +13,14 @@ from rest_framework.test import APIClient
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.utils import generate_random_token_secret
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.test.authentication_checks import covers_authentication
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import CustomPropertyValue
-from products.customer_analytics.backend.presentation.views.internal import CUSTOMER_ANALYTICS_ACCOUNTS_PURPOSE
+from products.customer_analytics.backend.presentation.views.internal import (
+    CUSTOMER_ANALYTICS_ACCOUNTS_PURPOSE,
+    CustomerAnalyticsAccountJWTAuthentication,
+)
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 
 # Signed with this route's key but carrying another surface's audience — a token minted for a
@@ -52,6 +56,7 @@ class TestInternalAccountAPI(APIBaseTest):
     def _bearer(token: str) -> dict:
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
+    @covers_authentication(CustomerAnalyticsAccountJWTAuthentication)
     def test_get_returns_account_for_minted_token(self):
         response = self.client.get(self.url, data={"external_id": "acme-1"}, **self._headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)

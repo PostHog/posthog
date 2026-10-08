@@ -42,7 +42,7 @@ class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = TASKS_CREATE_PURPOSE
 
     # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[InternalAPIUser, Any]:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
         user, _ = super()._authenticate_claims(request, claims)
         # The workflow is identified by the verified token, never by the request body, so a
         # token minted for one workflow can't create tasks attributed to another.

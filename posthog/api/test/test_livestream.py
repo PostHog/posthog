@@ -7,9 +7,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.api.livestream import LivestreamAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -100,6 +102,7 @@ class TestLivestreamAuthorization(APIBaseTest):
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
         )
 
+    @covers_authentication(LivestreamAuthentication)
     def test_lists_the_properties_hidden_from_the_user(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
