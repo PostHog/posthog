@@ -3,10 +3,9 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
-import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -15,7 +14,6 @@ import {
     CurrencyCode,
     MarketingAnalyticsSearchMetrics,
     MarketingAnalyticsSearchQuery,
-    MarketingAnalyticsSearchQueryResponse,
     MarketingAnalyticsSearchRow,
 } from '~/queries/schema/schema-general'
 
@@ -23,7 +21,13 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
-import { SEARCH_PERFORMANCE_QUERY_KEY, SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
+import {
+    SEARCH_PERFORMANCE_QUERY_KEY,
+    SEARCH_PLATFORM_LABELS,
+    SearchMetrics,
+    searchPerformanceRowKey,
+} from './searchPerformance'
+import { searchPerformanceTableLogic } from './searchPerformanceTableLogic'
 
 export function SearchPerformanceTable({
     query,
@@ -40,16 +44,23 @@ export function SearchPerformanceTable({
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
 }): JSX.Element {
-    const logic = dataNodeLogic({
-        query,
-        key: queryKey,
-        dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    })
-    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
-    const { loadData } = useActions(logic)
-    const searchResponse = response as MarketingAnalyticsSearchQueryResponse | undefined
-    const rows = searchResponse?.results ?? []
-    const goals = query.includePostHogConversions ? (searchResponse?.posthogConversionGoals ?? []) : []
+    const logic = searchPerformanceTableLogic({ query, queryKey })
+    const {
+        searchResponse,
+        responseLoading,
+        responseError,
+        responseErrorObject,
+        queryId,
+        baseDataNodeProps,
+        rows,
+        goals,
+        conversionsLoading,
+        conversionsError,
+        conversionsErrorObject,
+        conversionsQueryId,
+        conversionsResponse,
+    } = useValues(logic)
+    const { loadData, loadConversions } = useActions(logic)
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
     const hasOrganicSources = query.sources.some((source) => source.sourceType === 'GoogleSearchConsole')
     const metricKeys: (keyof MarketingAnalyticsSearchMetrics)[] =
@@ -74,31 +85,46 @@ export function SearchPerformanceTable({
         )
     }
     return (
-        <BindLogic logic={dataNodeLogic} props={logic.props}>
+        <BindLogic logic={dataNodeLogic} props={baseDataNodeProps}>
             <div className="flex flex-wrap items-center gap-2 py-2">
                 <Reload />
                 <ElapsedTime />
             </div>
-            {query.includePostHogConversions && !responseLoading && searchResponse && (
-                <LemonBanner
-                    type="info"
-                    action={
-                        goals.length === 0
-                            ? {
-                                  children: 'Configure conversion goals',
-                                  to: urls.settings('environment-marketing-analytics'),
-                              }
-                            : undefined
-                    }
-                >
-                    {goals.length === 0
-                        ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions by landing page.'
-                        : `PostHog conversions use ${searchResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution, matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.`}
-                    {searchResponse.posthogConversionsWarning && (
-                        <p className="mb-0 mt-1">{searchResponse.posthogConversionsWarning}</p>
-                    )}
-                </LemonBanner>
-            )}
+            {query.includePostHogConversions &&
+                !responseLoading &&
+                searchResponse &&
+                (conversionsLoading ? (
+                    <div className="flex items-center gap-2 py-2 text-secondary" role="status">
+                        <Spinner className="text-xl" />
+                        <span>Loading PostHog conversions…</span>
+                    </div>
+                ) : conversionsError ? (
+                    <MarketingQueryError
+                        message="Could not load PostHog conversions. Your search data is still available."
+                        queryId={conversionsErrorObject?.queryId ?? conversionsQueryId}
+                        onRetry={() => loadConversions('force_async')}
+                        loading={conversionsLoading}
+                    />
+                ) : conversionsResponse ? (
+                    <LemonBanner
+                        type="info"
+                        action={
+                            goals.length === 0
+                                ? {
+                                      children: 'Configure conversion goals',
+                                      to: urls.settings('environment-marketing-analytics'),
+                                  }
+                                : undefined
+                        }
+                    >
+                        {goals.length === 0
+                            ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions by landing page.'
+                            : `PostHog conversions use ${conversionsResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution, matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.`}
+                        {conversionsResponse.posthogConversionsWarning && (
+                            <p className="mb-0 mt-1">{conversionsResponse.posthogConversionsWarning}</p>
+                        )}
+                    </LemonBanner>
+                ) : null)}
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"
@@ -110,7 +136,7 @@ export function SearchPerformanceTable({
                 dataSource={responseLoading ? [] : rows}
                 loading={responseLoading}
                 loadingSkeletonRows={10}
-                rowKey={(row) => JSON.stringify([row.keyword, row.page, row.platform, row.matchType, row.currency])}
+                rowKey={searchPerformanceRowKey}
                 key={JSON.stringify(query)}
                 pagination={{ pageSize: 10, useUrl: false, showPageSelector: true }}
                 scrollToTopOnPageChange={false}
@@ -253,6 +279,9 @@ export function SearchPerformanceTable({
                                 (a.posthogConversions?.find((value) => value.id === goal.id)?.[metric] ?? -1) -
                                 (b.posthogConversions?.find((value) => value.id === goal.id)?.[metric] ?? -1),
                             render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
+                                if (conversionsLoading) {
+                                    return <LemonSkeleton className="h-4 w-16 ml-auto" />
+                                }
                                 const conversion = row.posthogConversions?.find((value) => value.id === goal.id)
                                 const value = conversion?.[metric]
                                 const money = metric === 'costPerConversion'

@@ -1,6 +1,10 @@
 import { dayjs } from 'lib/dayjs'
 
-import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchSource } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsSearchQuery,
+    MarketingAnalyticsSearchSource,
+    MarketingAnalyticsSearchRow,
+} from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 export type SearchPlatform = MarketingAnalyticsSearchSource['sourceType']
@@ -132,4 +136,14 @@ export function selectedSearchSources(sources: ExternalDataSource[], selectedIds
     const searchSources = sources.filter((source) => SEARCH_SOURCE_TYPES.includes(source.source_type))
     const selected = searchSources.filter((source) => selectedIds.includes(source.id))
     return selectedIds.length > 0 ? selected : searchSources
+}
+
+export function searchPerformanceRowKey(row: MarketingAnalyticsSearchRow): string {
+    return JSON.stringify([
+        row.keyword ?? null,
+        row.page ?? null,
+        row.platform,
+        row.matchType ?? null,
+        row.currency ?? null,
+    ])
 }

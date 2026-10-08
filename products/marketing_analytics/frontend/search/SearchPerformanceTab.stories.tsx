@@ -13,7 +13,7 @@ import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-ana
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { Mocks } from '~/mocks/utils'
+import { MockSignature, Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     AttributionMode,
@@ -714,4 +714,84 @@ export const PostHogConversionsNarrow: Story = {
             </div>
         ),
     ],
+}
+
+function conversionLoadingMock(state: 'loading' | 'error'): MockSignature {
+    return async (info) => {
+        const { query } = (await info.request.clone().json()) as { query: MarketingAnalyticsSearchQuery }
+        if (query.includePostHogConversions) {
+            if (state === 'loading') {
+                return new Promise(() => {})
+            }
+            return [500, { detail: 'Could not calculate conversions', query_id: 'example-posthog-conversion-query' }]
+        }
+        const resolver = MOCKS.post!['/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/']
+        return typeof resolver === 'function' ? resolver(info) : resolver
+    }
+}
+
+async function showPostHogConversionColumns(canvasElement: HTMLElement): Promise<void> {
+    teamLogic.actions.loadCurrentTeamSuccess({
+        ...teamLogic.values.currentTeam!,
+        marketing_analytics_config: {
+            conversion_goals: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    conversion_goal_id: 'purchase',
+                    conversion_goal_name: 'Purchases',
+                    schema_map: {},
+                },
+            ],
+        },
+    })
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+    await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
+    await expect(
+        (await canvas.findAllByRole('cell', { name: /https:\/\/example.com\/product-analytics/ }))[0]
+    ).toBeVisible()
+}
+
+export const PostHogConversionsLoading: Story = {
+    ...PostHogConversions,
+    parameters: {
+        ...PostHogConversions.parameters,
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': conversionLoadingMock('loading'),
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await showPostHogConversionColumns(canvasElement)
+        await expect(within(canvasElement).findByText('Loading PostHog conversions…')).resolves.toBeVisible()
+    },
+}
+
+export const PostHogConversionsError: Story = {
+    ...PostHogConversions,
+    parameters: {
+        ...PostHogConversions.parameters,
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': conversionLoadingMock('error'),
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await showPostHogConversionColumns(canvasElement)
+        await expect(
+            within(canvasElement).findByText('Could not load PostHog conversions. Your search data is still available.')
+        ).resolves.toBeVisible()
+        await expect(within(canvasElement).findByText('example-posthog-conversion-query')).resolves.toBeVisible()
+    },
 }
