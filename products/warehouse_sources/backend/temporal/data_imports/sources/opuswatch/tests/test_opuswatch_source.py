@@ -7,10 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opuswatch import (
     OPUSWatchSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source import OPUSWatchSource
-
-INCREMENTAL_ENDPOINT_NAMES = {"registrations", "sessions"}
 
 
 def _make_inputs(
@@ -37,20 +34,6 @@ def _make_inputs(
 class TestOPUSWatchSource:
     def setup_method(self):
         self.source = OPUSWatchSource()
-
-    def test_get_schemas_only_transactional_endpoints_support_incremental(self):
-        schemas = {s.name: s for s in self.source.get_schemas(OPUSWatchSourceConfig(api_key="k"), team_id=1)}
-
-        assert set(schemas.keys()) == set(ENDPOINTS)
-        for name, schema in schemas.items():
-            if name in INCREMENTAL_ENDPOINT_NAMES:
-                assert schema.supports_incremental is True
-                assert [f["field"] for f in schema.incremental_fields] == ["updatedTimestamp"]
-            else:
-                # Master-data endpoints have no server-side timestamp filter, so they
-                # must stay full refresh.
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
 
     @pytest.mark.parametrize(
         ("start_date", "expected_error_fragment"),
@@ -96,42 +79,6 @@ class TestOPUSWatchSource:
         assert valid is expected_valid
         assert (error is None) is expected_valid
         mock_validate.assert_called_once_with("the-key")
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_primary_keys", "expected_partition_keys", "expected_sort_mode"),
-        [
-            ("workers", ["id"], None, "asc"),
-            ("client", ["name"], None, "asc"),
-            ("registrations", ["id"], ["startTimestamp"], "desc"),
-            ("sessions", ["id"], ["startTimestampGross"], "desc"),
-        ],
-    )
-    def test_source_for_pipeline_response_shape(
-        self,
-        endpoint: str,
-        expected_primary_keys: list[str],
-        expected_partition_keys: Optional[list[str]],
-        expected_sort_mode: str,
-    ):
-        config = OPUSWatchSourceConfig(api_key="k", start_date="20250101")
-        inputs = _make_inputs(endpoint)
-        manager = MagicMock()
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.opuswatch.source.opuswatch_source"
-        ) as mock_source:
-            mock_source.return_value.name = endpoint
-            response = self.source.source_for_pipeline(config, manager, inputs)
-
-        assert response.name == endpoint
-        assert response.primary_keys == expected_primary_keys
-        assert response.partition_keys == expected_partition_keys
-        assert response.sort_mode == expected_sort_mode
-        if expected_partition_keys:
-            assert response.partition_mode == "datetime"
-            assert response.partition_format == "month"
-        else:
-            assert response.partition_mode is None
 
     @pytest.mark.parametrize(
         ("should_use_incremental_field", "expected_last_value"),

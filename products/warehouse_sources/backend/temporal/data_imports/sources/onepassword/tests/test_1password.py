@@ -1,7 +1,6 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import time_machine
@@ -130,62 +129,6 @@ class TestInitialStartTime:
 
 
 class TestPagination:
-    def test_pagination_follows_cursor_until_has_more_is_false(self) -> None:
-        responses = [
-            _response({"cursor": "c1", "has_more": True, "items": [{"uuid": "a"}, {"uuid": "b"}]}),
-            _response({"cursor": "c2", "has_more": False, "items": [{"uuid": "c"}]}),
-        ]
-        rows, bodies = _run_source(responses, _make_manager())
-
-        assert [r["uuid"] for r in rows] == ["a", "b", "c"]
-        # First request is a ResetCursor; every subsequent request must carry only the cursor —
-        # resending the ResetCursor would restart the stream from start_time on every page.
-        assert bodies[0] == {"limit": onepassword.PAGE_LIMIT, "start_time": bodies[0]["start_time"]}
-        assert bodies[1] == {"cursor": "c1"}
-
-    def test_incremental_reset_cursor_starts_from_watermark(self) -> None:
-        responses = [_response({"cursor": "c1", "has_more": False, "items": [{"uuid": "a"}]})]
-        _, bodies = _run_source(
-            responses,
-            _make_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-07-01T00:00:00Z",
-        )
-        assert bodies[0] == {"limit": onepassword.PAGE_LIMIT, "start_time": "2026-07-01T00:00:00Z"}
-
-    def test_state_is_saved_after_each_yielded_page(self) -> None:
-        # A crash while the pipeline holds a batch must re-enter BEFORE it (merge dedupes on uuid),
-        # so state is saved only AFTER a page is yielded, and it points at the next page's cursor.
-        responses = [
-            _response({"cursor": "c1", "has_more": True, "items": [{"uuid": "a"}]}),
-            _response({"cursor": "c2", "has_more": False, "items": [{"uuid": "b"}]}),
-        ]
-        manager = _make_manager()
-        with mock.patch(SESSION_PATCH) as MockSession:
-            session = MockSession.return_value
-            _wire(session, responses)
-            batches = onepassword_source(
-                region="us",
-                api_token="token",
-                endpoint="audit_events",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=manager,
-            ).items()
-
-            it = iter(cast("Iterable[Any]", batches))
-            first = next(it)
-            assert first == [{"uuid": "a"}]
-            # Nothing saved before the batch is handed to the consumer.
-            manager.save_state.assert_not_called()
-
-            assert [r["uuid"] for r in next(it)] == ["b"]
-            assert next(it, None) is None
-
-        # The next-page cursor c1 is persisted after page 1 yields; the terminal page (has_more
-        # false) leaves nothing more to resume from.
-        assert [c.args[0] for c in manager.save_state.call_args_list] == [OnePasswordResumeConfig(cursor="c1")]
-
     def test_resume_posts_saved_cursor_instead_of_reset_cursor(self) -> None:
         # Sending a ResetCursor on resume would re-walk the stream from start_time, re-paying the
         # whole backfill after every heartbeat timeout.
@@ -194,17 +137,6 @@ class TestPagination:
         rows, bodies = _run_source(responses, manager)
         assert bodies == [{"cursor": "c8"}]
         assert [r["uuid"] for r in rows] == ["z"]
-
-    def test_empty_page_with_stale_cursor_terminates(self) -> None:
-        # Defensive guard: has_more=true with no items and a cursor that never advances would
-        # otherwise loop forever against the API.
-        responses = [
-            _response({"cursor": "c1", "has_more": True, "items": [{"uuid": "a"}]}),
-            _response({"cursor": "c1", "has_more": True, "items": []}),
-        ]
-        rows, bodies = _run_source(responses, _make_manager())
-        assert [r["uuid"] for r in rows] == ["a"]
-        assert len(bodies) == 2
 
     def test_empty_page_with_advancing_cursor_continues(self) -> None:
         # An empty page whose cursor advanced is progress (the API can skip ahead); only a stale

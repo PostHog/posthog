@@ -20,6 +20,7 @@ from posthog.dags import (
     person_pg_cleanup_drain,
     postgres_to_clickhouse_etl,
     property_definitions,
+    warehouse_object_reads_daily,
 )
 
 from . import loggers, resources
@@ -56,6 +57,7 @@ defs = dagster.Definitions(
         data_deletion_requests.verify_queued_deletion_requests_job,
         data_deletion_requests.auto_approve_deletion_requests_job,
         part_breaker.break_oversized_parts,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_job,
     ],
     schedules=[
         export_query_log_archive_to_s3.query_log_archive_export_schedule,
@@ -69,6 +71,7 @@ defs = dagster.Definitions(
         backups.incremental_non_sharded_backup_schedule,
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_schedule,
         # The schedule's team IDs name EU teams. The same IDs name other teams in US.
         *([deletes.eu_monthly_old_events_cleanup_schedule] if settings.CLOUD_DEPLOYMENT == "EU" else []),
     ],

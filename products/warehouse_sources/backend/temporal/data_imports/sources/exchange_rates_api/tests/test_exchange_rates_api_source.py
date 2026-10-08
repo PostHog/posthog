@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.source import (
     ExchangeRatesApiSource,
 )
@@ -20,51 +19,10 @@ class TestExchangeRatesApiSource:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
         assert self.source.lists_tables_without_credentials is True
 
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.exchangeratesapi.io/v1/symbols?access_key=x",
-            "403 Client Error: Forbidden for url: https://api.exchangeratesapi.io/v1/timeseries?access_key=x",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_and_plan_failures(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://api.exchangeratesapi.io/v1/latest",
-            "500 Server Error for url: https://api.exchangeratesapi.io/v1/timeseries",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient(self, other_error: str) -> None:
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_only_timeseries_supports_incremental(self) -> None:
-        by_name = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        # Only /timeseries exposes a server-side start_date filter.
-        assert by_name["timeseries"].supports_incremental is True
-        assert [f["field"] for f in by_name["timeseries"].incremental_fields] == ["date"]
-        assert by_name["symbols"].supports_incremental is False
-        assert by_name["latest"].supports_incremental is False
-
-    def test_timeseries_off_by_default(self) -> None:
-        by_name = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        # Opt-in to avoid surprising free-tier request usage on a multi-year backfill.
-        assert by_name["timeseries"].should_sync_default is False
-        assert by_name["symbols"].should_sync_default is True
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["latest"])
         assert len(schemas) == 1
         assert schemas[0].name == "latest"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

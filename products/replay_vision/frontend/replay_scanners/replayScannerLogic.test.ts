@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,6 +21,7 @@ import {
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
+    leaveScannerEditor,
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
@@ -1516,12 +1518,22 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('leaveScannerEditor', () => {
+        it.each([
+            ['the saved scanner’s editor is open', 'scanner-a', urls.replayVision('scanner-a')],
+            ['another scanner’s editor is open', 'scanner-b', urls.replayVisionScannerConfigure('scanner-b')],
+        ])('when %s', (_, openScannerId, expectedPathname) => {
+            router.actions.push(urls.replayVisionScannerConfigure(openScannerId))
+            leaveScannerEditor('scanner-a', urls.replayVision('scanner-a'))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
+        })
+    })
+
     describe('shouldGuardScannerNavigation', () => {
         const scannerId = 'abc-123'
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
-        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
         const base = {
             hasUnsavedChanges: true,
@@ -1546,11 +1558,17 @@ describe('replayScannerLogic', () => {
             ['out to an unrelated scene', { ...base, nextPathname: '/insights' }, true],
             ['closing the tab (no next location)', { ...base, nextPathname: undefined }, true],
             [
+                'browser back to the previous step',
+                { ...base, currentPathname: triggers, browserPathname: `/project/123${configure}` },
+                false,
+            ],
+            ['browser back out to the detail page', { ...base, browserPathname: detail }, true],
+            ['closing the tab while the window still shows the step', { ...base, browserPathname: configure }, true],
+            [
                 'over to a different scanner’s editor',
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
                 true,
             ],
-            ['out from the self-driving step', { ...base, currentPathname: selfDriving, nextPathname: detail }, true],
             // The router stores pathnames with the `/project/:id` prefix; `urls.*` are unprefixed.
             [
                 'out to settings from a project-prefixed URL',

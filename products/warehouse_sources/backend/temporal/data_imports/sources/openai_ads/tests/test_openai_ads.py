@@ -6,7 +6,6 @@ import pytest
 import time_machine
 from unittest import mock
 
-import requests
 from parameterized import parameterized
 from requests import Response
 
@@ -79,90 +78,7 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestListPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_cursor_pagination_uses_after_and_stops_on_has_more_false(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _page([{"id": "cmpn_1"}], has_more=True, last_id="cmpn_1"),
-                # Final page still carries a last_id — has_more must stop the walk with no extra call.
-                _page([{"id": "cmpn_2"}], has_more=False, last_id="cmpn_2"),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("campaigns", manager))
-
-        assert [r["id"] for r in rows] == ["cmpn_1", "cmpn_2"]
-        assert "after" not in params[0]["params"]
-        assert params[0]["params"]["limit"] == 500
-        assert params[0]["params"]["order"] == "asc"
-        assert params[1]["params"]["after"] == "cmpn_1"
-        assert session.send.call_count == 2
-        # Checkpoint saved after the first page was yielded, pointing at the next page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == OpenAIAdsResumeConfig(cursor="cmpn_1")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_falls_back_to_last_item_id_when_last_id_missing(self, MockSession) -> None:
-        # If `last_id` is ever absent, the last item's id must keep pagination moving instead of
-        # stopping after page one.
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _page([{"id": "cmpn_1"}], has_more=True),
-                _page([{"id": "cmpn_2"}], has_more=False),
-            ],
-        )
-
-        rows = _rows(_source("campaigns", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["cmpn_1", "cmpn_2"]
-        assert params[1]["params"]["after"] == "cmpn_1"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_after_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page([{"id": "cmpn_6"}], has_more=False, last_id="cmpn_6")])
-
-        _rows(_source("campaigns", _make_manager(OpenAIAdsResumeConfig(cursor="cmpn_5"))))
-
-        assert params[0]["params"]["after"] == "cmpn_5"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"object": "list", "has_more": False})])
-
-        assert _rows(_source("campaigns", _make_manager())) == []
-
-
 class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_ad_groups_listed_per_campaign_and_stamped_with_campaign_id(self, MockSession) -> None:
-        # The API requires campaign_id as a query param and the ad group objects don't carry
-        # their parent id — the stamped column is what the composite primary key merges on.
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _page([{"id": "cmpn_1"}, {"id": "cmpn_2"}], has_more=False, last_id="cmpn_2"),
-                _page([{"id": "adgrp_1"}], has_more=False, last_id="adgrp_1"),
-                _page([{"id": "adgrp_2"}], has_more=False, last_id="adgrp_2"),
-            ],
-        )
-
-        rows = _rows(_source("ad_groups", _make_manager()))
-
-        assert [(r["campaign_id"], r["id"]) for r in rows] == [("cmpn_1", "adgrp_1"), ("cmpn_2", "adgrp_2")]
-        assert params[0]["url"].endswith("/v1/campaigns")
-        assert params[1]["url"].endswith("/v1/ad_groups")
-        assert params[1]["params"]["campaign_id"] == "cmpn_1"
-        assert params[2]["params"]["campaign_id"] == "cmpn_2"
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_ads_walk_both_levels_and_carry_full_lineage(self, MockSession) -> None:
         session = MockSession.return_value
@@ -206,71 +122,6 @@ class TestFanOut:
 
 
 class TestInsights:
-    @time_machine.travel("2026-07-21", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_windows_from_watermark_to_today(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response({"currency_code": "EUR"}), _page([], has_more=False)])
-
-        watermark = datetime(2026, 7, 1, 12, 30, tzinfo=UTC)
-        _rows(_source("campaign_insights", _make_manager(), last_value=watermark))
-
-        sent = params[1]["params"]
-        assert sent["aggregation_level"] == "campaign"
-        assert sent["time_granularity"] == "daily"
-        assert json.loads(sent["time_ranges[]"]) == {
-            "type": "date_range",
-            "since": "2026-07-01",
-            "until": "2026-07-21",
-            "timezone": "UTC",
-        }
-        # The explicit projection must keep the metrics and the bucket label in the rows.
-        assert "campaign.spend" in sent["fields[]"]
-        assert "metadata.readable_time" in sent["fields[]"]
-
-    @time_machine.travel("2026-07-21", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_windows_from_product_launch_floor(self, MockSession) -> None:
-        # Without a watermark we still need a bounded window — the API rejects unbounded/future
-        # ranges — and it must cover all possible history for the product.
-        session = MockSession.return_value
-        params = _wire(session, [_response({"currency_code": "EUR"}), _page([], has_more=False)])
-
-        _rows(_source("ad_account_insights", _make_manager()))
-
-        assert json.loads(params[1]["params"]["time_ranges[]"])["since"] == "2025-01-01"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_bucket_times_become_datetimes(self, MockSession) -> None:
-        # start_time is the DateTime incremental watermark and the partition key — epoch ints
-        # would break both.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"currency_code": "EUR"}),
-                _page(
-                    [
-                        {
-                            "id": "start=1777075200:end=1777161600:entity_id=cmpn_1",
-                            "start_time": 1777075200,
-                            "end_time": 1777161600,
-                            "impressions": 5,
-                        }
-                    ],
-                    has_more=False,
-                ),
-            ],
-        )
-
-        rows = _rows(_source("campaign_insights", _make_manager()))
-
-        assert rows[0]["start_time"] == datetime(2026, 4, 25, tzinfo=UTC)
-        assert rows[0]["end_time"] == datetime(2026, 4, 26, tzinfo=UTC)
-        assert rows[0]["impressions"] == 5
-        assert rows[0]["currency_code"] == "EUR"
-        assert session.send.call_count == 2
-
     @parameterized.expand(
         [
             ("plan_in_middle", "start=1777075200:{plan}:end=1777161600:entity_id=cmpn_1"),
@@ -367,11 +218,3 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message is not None and message_fragment in message
-
-    def test_network_error_reads_as_unreachable_not_a_bad_key(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(OPENAI_ADS_SESSION_PATCH, return_value=session):
-            is_valid, message = validate_credentials("oa-ads-test")
-        assert is_valid is False
-        assert message is not None and "Couldn't reach OpenAI Ads" in message

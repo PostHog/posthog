@@ -421,6 +421,10 @@ def _reviewer_environment(run: ReviewRun, gateway: AIGatewayConfig) -> dict[str,
         "AI_GATEWAY_URL": gateway.url,
         **NETWORK_RESTRICTED_AGENT_ENV,
     }
+    # The ops switch to the engine's Claude rollback reviewer, set on the worker. It is not a secret.
+    engine = os.environ.get("STAMPHOG_REVIEWER_ENGINE", "").strip()
+    if engine:
+        env["STAMPHOG_REVIEWER_ENGINE"] = engine
     return {**env, **_engine_analytics_environment(_hosted_analytics_properties(run))}
 
 
@@ -2278,6 +2282,20 @@ _VERDICT_HEADLINES: dict[str, str] = {
 }
 
 
+_PATH_DENY_GATES = frozenset({"deny-list", "tier"})
+
+
+def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
+    """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
+
+    A deny on migrations alone is excluded: it lifts once the `Migration risk` check passes.
+    """
+    gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
+    failed = {g.get("gate") for g in gates if not g.get("passed", True)}
+    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
+    return bool(failed) and failed <= _PATH_DENY_GATES and deny_categories != ["migrations"]
+
+
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
     """The review body: the outcome in words, what to do next, then whatever the engine rendered.
 
@@ -2289,7 +2307,13 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     prepended to both, so the outcome is stated whichever one is available.
     """
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
-    if relabel_label:
+    if _only_a_human_can_approve(parsed):
+        headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
+        if relabel_label:
+            headline += (
+                f"\n\nRe-adding the `{relabel_label}` label gives the same result unless the changed files change."
+            )
+    elif relabel_label:
         headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
     return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()

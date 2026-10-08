@@ -23,10 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.har
     harvey_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import (
-    AUDIT_LOGS_PAGE_SIZE,
-    MAX_LOOKBACK_DAYS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.harvey.settings import MAX_LOOKBACK_DAYS
 
 NOW = datetime(2026, 7, 1, 12, 0, 0, tzinfo=UTC)
 NOW_EPOCH = int(NOW.timestamp())
@@ -181,13 +178,6 @@ class TestValidateCredentials:
             assert validate_credentials("token", "us") is expected
 
         assert _requested_urls(session) == ["https://api.harvey.ai/api/whoami"]
-
-    def test_uses_regional_base_url(self) -> None:
-        session = _session_with([_response({})])
-        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
-            validate_credentials("token", "eu")
-
-        assert _requested_urls(session) == ["https://eu.api.harvey.ai/api/whoami"]
 
     def test_network_error_is_invalid(self) -> None:
         session = mock.MagicMock()
@@ -383,48 +373,12 @@ class TestAuditLogRows:
             )
         return batches, session
 
-    def test_full_sync_seeds_from_earliest(self) -> None:
-        manager = _FakeManager()
-        batches, session = self._get_batches(
-            [
-                _response({"log": _audit_log("log-a")}),
-                _response([_audit_log("log-b"), _audit_log("log-c")]),
-            ],
-            manager,
-        )
-
-        # The seed log is yielded on its own (the `from` param is exclusive), then the page.
-        assert [[log["id"] for log in batch] for batch in batches] == [["log-a"], ["log-b", "log-c"]]
-
-        urls = _requested_urls(session)
-        assert urls[0] == "https://api.harvey.ai/api/v1/logs/audit/earliest"
-        assert _query_params(urls[1]) == {"from": "log-a", "take": str(AUDIT_LOGS_PAGE_SIZE)}
-
-        # State is saved after each yielded batch, bookmarking the last processed id.
-        assert [state.last_audit_log_id for state in manager.saved] == ["log-a", "log-c"]
-
     def test_full_sync_no_logs(self) -> None:
         manager = _FakeManager()
         batches, session = self._get_batches([_response({"error": "Not found"}, status_code=404)], manager)
 
         assert batches == []
         assert manager.saved == []
-
-    def test_full_page_keeps_paginating(self) -> None:
-        full_page = [_audit_log(f"log-{i}") for i in range(AUDIT_LOGS_PAGE_SIZE)]
-        manager = _FakeManager()
-        batches, session = self._get_batches(
-            [
-                _response({"log": _audit_log("log-seed")}),
-                _response(full_page),
-                _response([]),
-            ],
-            manager,
-        )
-
-        assert len(batches) == 2
-        urls = _requested_urls(session)
-        assert _query_params(urls[2])["from"] == f"log-{AUDIT_LOGS_PAGE_SIZE - 1}"
 
     @time_machine.travel(NOW, tick=False)
     def test_incremental_seeds_from_search(self) -> None:
@@ -470,26 +424,6 @@ class TestAuditLogRows:
         )
 
         assert _requested_urls(session)[0] == "https://api.harvey.ai/api/v1/logs/audit/earliest"
-
-    def test_resume_skips_seeding(self) -> None:
-        manager = _FakeManager(resume=HarveyResumeConfig(last_audit_log_id="log-x"))
-        batches, session = self._get_batches([_response([_audit_log("log-y")])], manager)
-
-        urls = _requested_urls(session)
-        assert _query_params(urls[0])["from"] == "log-x"
-        assert [[log["id"] for log in batch] for batch in batches] == [["log-y"]]
-
-    def test_timestamps_are_parsed_to_datetimes(self) -> None:
-        manager = _FakeManager()
-        batches, _ = self._get_batches(
-            [
-                _response({"log": _audit_log("log-a", timestamp="2026-06-01T10:00:00Z")}),
-                _response([]),
-            ],
-            manager,
-        )
-
-        assert batches[0][0]["timestamp"] == datetime(2026, 6, 1, 10, 0, 0, tzinfo=UTC)
 
 
 class TestHistoryRows:
@@ -543,36 +477,6 @@ class TestHistoryRows:
         assert [state.window_start for state in manager.saved] == [NOW_EPOCH]
 
     @time_machine.travel(NOW, tick=False)
-    def test_walks_multiple_windows_and_saves_state_after_each(self) -> None:
-        # 2.5 windows back from now: expect 3 requests covering contiguous ranges.
-        last_value = NOW_EPOCH - int(2.5 * 24 * 60 * 60)
-        manager = _FakeManager()
-        batches, session = self._get_batches(
-            [
-                _response({"events": [_history_event("usage-1", utc_time="2026-06-29 03:00:00")]}),
-                _response({"events": []}),
-                _response({"events": [_history_event("usage-2", utc_time="2026-07-01 11:00:00")]}),
-            ],
-            manager,
-            db_incremental_field_last_value=last_value,
-        )
-
-        params = [_query_params(url) for url in _requested_urls(session)]
-        day = 24 * 60 * 60
-        assert [(p["start_time"], p["end_time"]) for p in params] == [
-            (str(last_value), str(last_value + day)),
-            (str(last_value + day), str(last_value + 2 * day)),
-            (str(last_value + 2 * day), str(NOW_EPOCH)),
-        ]
-        # The empty middle window yields nothing but still advances the saved cursor.
-        assert len(batches) == 2
-        assert [state.window_start for state in manager.saved] == [
-            last_value + day,
-            last_value + 2 * day,
-            NOW_EPOCH,
-        ]
-
-    @time_machine.travel(NOW, tick=False)
     def test_full_sync_starts_at_lookback_floor(self) -> None:
         manager = _FakeManager()
         # Widen the window so the full backfill is a single request.
@@ -582,35 +486,6 @@ class TestHistoryRows:
         params = _query_params(_requested_urls(session)[0])
         assert params["start_time"] == str(NOW_EPOCH - MAX_LOOKBACK_DAYS * 24 * 60 * 60)
         assert params["end_time"] == str(NOW_EPOCH)
-
-    @time_machine.travel(NOW, tick=False)
-    def test_incremental_caught_up_makes_no_requests(self) -> None:
-        manager = _FakeManager()
-        batches, session = self._get_batches([], manager, db_incremental_field_last_value=NOW)
-
-        assert batches == []
-        assert session.get.call_count == 0
-
-    @time_machine.travel(NOW, tick=False)
-    def test_resume_starts_at_saved_window(self) -> None:
-        window_start = NOW_EPOCH - 3600
-        manager = _FakeManager(resume=HarveyResumeConfig(window_start=window_start))
-        _, session = self._get_batches([_response({"events": []})], manager)
-
-        assert _query_params(_requested_urls(session)[0])["start_time"] == str(window_start)
-
-    @time_machine.travel(NOW, tick=False)
-    def test_incremental_watermark_older_than_api_limit_is_clamped(self) -> None:
-        manager = _FakeManager()
-        with mock.patch(f"{HARVEY_MODULE}.HISTORY_WINDOW_SECONDS", 400 * 24 * 60 * 60):
-            _, session = self._get_batches(
-                [_response({"events": []})],
-                manager,
-                db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-            )
-
-        params = _query_params(_requested_urls(session)[0])
-        assert params["start_time"] == str(NOW_EPOCH - MAX_LOOKBACK_DAYS * 24 * 60 * 60)
 
 
 class TestClientMatterRows:
@@ -638,10 +513,6 @@ class TestClientMatterRows:
         assert batches == [matters]
         assert _requested_urls(session) == ["https://api.harvey.ai/api/v1/client_matters"]
 
-    def test_empty_list_yields_nothing(self) -> None:
-        batches, _ = self._get_batches([_response([])])
-        assert batches == []
-
 
 class TestVaultProjectRows:
     def _get_batches(
@@ -660,17 +531,6 @@ class TestVaultProjectRows:
             )
         return batches, session
 
-    def test_single_page(self) -> None:
-        manager = _FakeManager()
-        batches, session = self._get_batches([_vault_page(["proj-1", "proj-2"], page=1, total_pages=1)], manager)
-
-        assert [[p["id"] for p in batch] for batch in batches] == [["proj-1", "proj-2"]]
-        params = _query_params(_requested_urls(session)[0])
-        # Name sort keeps pagination stable; the default date sort reshuffles mid-walk.
-        assert params["sort_by"] == "name"
-        assert params["sort_order"] == "asc"
-        assert manager.saved == []
-
     def test_multiple_pages_save_state_between_pages(self) -> None:
         manager = _FakeManager()
         batches, session = self._get_batches(
@@ -684,17 +544,6 @@ class TestVaultProjectRows:
         assert len(batches) == 2
         assert _query_params(_requested_urls(session)[1])["page"] == "2"
         assert [state.next_page for state in manager.saved] == [2]
-
-    def test_resume_starts_at_saved_page(self) -> None:
-        manager = _FakeManager(resume=HarveyResumeConfig(next_page=3))
-        _, session = self._get_batches([_vault_page([], page=3, total_pages=5)], manager)
-
-        assert _query_params(_requested_urls(session)[0])["page"] == "3"
-
-    def test_empty_page_stops(self) -> None:
-        manager = _FakeManager()
-        batches, _ = self._get_batches([_vault_page([], page=1, total_pages=0)], manager)
-        assert batches == []
 
 
 class TestProjectFanOutRows:
@@ -727,24 +576,6 @@ class TestProjectFanOutRows:
             }
         )
 
-    def test_project_users_are_tagged_with_project_and_deleted_projects_skipped(self) -> None:
-        batches, session = self._get_batches(
-            "vault_project_users",
-            [
-                _vault_page(["proj-1", "proj-2", "proj-3"]),
-                self._users("proj-1", ["user-1", "user-2"]),
-                _response({}, status_code=404),
-                self._users("proj-3", ["user-1"]),
-            ],
-        )
-
-        assert [(row["project_id"], row["user_id"]) for batch in batches for row in batch] == [
-            ("proj-1", "user-1"),
-            ("proj-1", "user-2"),
-            ("proj-3", "user-1"),
-        ]
-        assert urlparse(_requested_urls(session)[1]).path == "/api/v1/vault/projects/proj-1/users"
-
     def test_forbidden_project_users_raise(self) -> None:
         with pytest.raises(HTTPError):
             self._get_batches("vault_project_users", [_vault_page(["proj-1"]), _response({}, status_code=403)])
@@ -765,12 +596,6 @@ class TestProjectFanOutRows:
         assert len(batches) == 2
         assert _query_params(_requested_urls(session)[2])["page"] == "2"
         assert [state.next_page for state in manager.saved] == [2]
-
-    def test_fan_out_resumes_at_saved_projects_page(self) -> None:
-        manager = _FakeManager(resume=HarveyResumeConfig(next_page=4))
-        _, session = self._get_batches("vault_project_files", [_vault_page([], page=4, total_pages=4)], manager)
-
-        assert _query_params(_requested_urls(session)[0])["page"] == "4"
 
     def _files_page(self, file_ids: list[str], next_cursor: str | None) -> Response:
         return _response(

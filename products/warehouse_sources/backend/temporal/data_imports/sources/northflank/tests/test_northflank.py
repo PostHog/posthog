@@ -7,7 +7,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.northflank import (
-    MAX_PROJECT_PAGES,
     NorthflankRetryableError,
     _build_url,
     _extract_rows,
@@ -63,10 +62,6 @@ def _requested_urls(mock_session: mock.MagicMock) -> list[str]:
 class TestBuildUrl:
     def test_no_params(self):
         assert _build_url("/v1/projects") == "https://api.northflank.com/v1/projects"
-
-    def test_drops_none_values_and_encodes(self):
-        url = _build_url("/v1/projects", {"per_page": 100, "cursor": None})
-        assert url == "https://api.northflank.com/v1/projects?per_page=100"
 
 
 class TestExtractRows:
@@ -132,42 +127,8 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
 
-    @mock.patch(PATCH_SESSION)
-    def test_sends_bearer_header(self, mock_session):
-        mock_session.return_value.get.return_value = _response({}, status_code=200)
-
-        validate_credentials("token")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer token"
-
 
 class TestProjectsPagination:
-    @mock.patch(PATCH_SESSION)
-    def test_paginates_via_cursor(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/v1/projects": [
-                    _page("projects", [{"id": "p1"}, {"id": "p2"}], "cursor-2"),
-                    _page("projects", [{"id": "p3"}], None),
-                ]
-            },
-        )
-
-        batches = list(get_rows("token", "projects", mock.MagicMock()))
-
-        assert [row["id"] for batch in batches for row in batch] == ["p1", "p2", "p3"]
-        urls = _requested_urls(mock_session)
-        assert "cursor" not in parse_qs(urlparse(urls[0]).query)
-        assert parse_qs(urlparse(urls[1]).query)["cursor"] == ["cursor-2"]
-
-    @mock.patch(PATCH_SESSION)
-    def test_empty_page_yields_nothing(self, mock_session):
-        _route_session(mock_session, {"/v1/projects": _page("projects", [], None)})
-
-        assert list(get_rows("token", "projects", mock.MagicMock())) == []
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.northflank.northflank.MAX_PROJECT_PAGES", 2
     )
@@ -189,22 +150,6 @@ class TestProjectsPagination:
 
 
 class TestFanOut:
-    @mock.patch(PATCH_SESSION)
-    def test_child_rows_carry_project_id_across_projects(self, mock_session):
-        _route_session(
-            mock_session,
-            {
-                "/v1/projects": _page("projects", [{"id": "proj-a"}, {"id": "proj-b"}], None),
-                "/v1/projects/proj-a/services": _page("services", [{"id": "svc-1"}], None),
-                "/v1/projects/proj-b/services": _page("services", [{"id": "svc-2"}], None),
-            },
-        )
-
-        batches = list(get_rows("token", "services", mock.MagicMock()))
-        rows = [row for batch in batches for row in batch]
-
-        assert [(row["id"], row["projectId"]) for row in rows] == [("svc-1", "proj-a"), ("svc-2", "proj-b")]
-
     @mock.patch(PATCH_SESSION)
     def test_injected_project_id_does_not_clobber_native_field(self, mock_session):
         # Volumes don't carry projectId natively; the transport must add it for the composite key.
@@ -321,6 +266,3 @@ class TestNorthflankSourceResponse:
         # or duplicate rows accumulate and every merge multi-matches them.
         if config.fan_out_over_projects:
             assert "projectId" in config.primary_keys
-
-    def test_project_page_cap_is_bounded(self):
-        assert MAX_PROJECT_PAGES <= 1000

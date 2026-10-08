@@ -2,8 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -65,7 +66,7 @@ from familiarity import (
     familiarity_from_facts,
 )
 from gates import POLICY, assign_tier, dependency_manifests_without_lockfile, substantive_size
-from gateway import REVIEWER_MODEL
+from gateway import SUMMARY_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
     CommitProvenance,
@@ -567,7 +568,7 @@ def pregate(context: dict) -> dict:
     if "commit_messages" in context:
         pipeline.provenance = _context_provenance(context, pipeline.pr)
     folder_policies_known = context.get("folder_policies_known") is True
-    outcome = {"final": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
+    outcome = {"final": False, "needs_summary": False, "summary_model": SUMMARY_MODEL, "result": None}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()

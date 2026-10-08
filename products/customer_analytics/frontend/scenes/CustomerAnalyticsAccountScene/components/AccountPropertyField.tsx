@@ -51,13 +51,8 @@ export function AccountPropertyField({
     // Keep the data-attr stable for existing selectors and autocapture.
     return (
         <div className="flex flex-col gap-1 min-w-0" data-attr="account-property-row">
-            <div className="flex items-center gap-1 min-w-0 min-h-7">
-                <span className="text-xs text-secondary truncate">{property.definition.name}</span>
-                {provenance ? (
-                    <Tooltip title={provenance.title}>
-                        <span className="flex items-center text-secondary text-xs">{provenance.icon}</span>
-                    </Tooltip>
-                ) : null}
+            <div className="flex items-center gap-2 min-w-0 min-h-7">
+                <span className="min-w-0 text-xs text-secondary truncate">{property.definition.name}</span>
                 {editable && !editing ? (
                     <LemonButton
                         size="xsmall"
@@ -65,9 +60,14 @@ export function AccountPropertyField({
                         tooltip="Edit value"
                         aria-label={`Edit ${property.definition.name}`}
                         onClick={onEdit}
-                        className="ml-auto"
+                        className="shrink-0"
                         data-attr="account-property-edit"
                     />
+                ) : null}
+                {provenance ? (
+                    <Tooltip title={provenance.title}>
+                        <span className="flex shrink-0 items-center text-secondary text-xs">{provenance.icon}</span>
+                    </Tooltip>
                 ) : null}
             </div>
             {editing && editable ? (

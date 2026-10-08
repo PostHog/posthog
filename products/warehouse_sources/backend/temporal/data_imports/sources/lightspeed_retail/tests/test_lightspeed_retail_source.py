@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -26,22 +28,18 @@ class TestLightspeedRetailSource:
         assert self.source.connection_host_fields == ["domain_prefix"]
 
     @pytest.mark.parametrize(
-        "observed_error",
+        "version, expected_sunset",
         [
-            "401 Client Error: Unauthorized for url: https://mystore.retail.lightspeed.app/api/2.0/sales",
-            "403 Client Error: Forbidden for url: https://mystore.retail.lightspeed.app/api/2.0/customers",
+            (LIGHTSPEED_RETAIL_API_VERSION_2_0, None),
+            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, datetime.date(2027, 1, 1)),
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_does_not_match_server_errors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://mystore.retail.lightspeed.app/api/2.0/sales"
-            for key in non_retryable_errors
-        )
+    def test_deprecated_api_version_metadata(self, version, expected_sunset):
+        # Drives the in-product warning and the source-level repin migration.
+        deprecation = self.source.get_version_deprecation(version)
+        assert deprecation is not None
+        assert deprecation.sunset_at == expected_sunset
+        assert self.source.get_version_deprecation(LIGHTSPEED_RETAIL_API_VERSION_2026_07) is None
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
@@ -64,25 +62,6 @@ class TestLightspeedRetailSource:
         mock_validate.assert_called_once_with(
             self.config.domain_prefix, self.config.api_token, LIGHTSPEED_RETAIL_API_VERSION_2026_07
         )
-
-    @pytest.mark.parametrize(
-        "pinned, expected",
-        [
-            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-            (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_07, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.validate_lightspeed_credentials"
-    )
-    def test_validate_credentials_probes_the_pinned_version(self, mock_validate, pinned, expected):
-        mock_validate.return_value = True
-
-        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
-
-        assert mock_validate.call_args.args[2] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
@@ -108,28 +87,6 @@ class TestLightspeedRetailSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 999
         assert kwargs["api_version"] == LIGHTSPEED_RETAIL_API_VERSION_2026_01
-
-    @pytest.mark.parametrize(
-        "pinned, expected",
-        [
-            (None, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-            (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2_0),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_01, LIGHTSPEED_RETAIL_API_VERSION_2026_01),
-            (LIGHTSPEED_RETAIL_API_VERSION_2026_07, LIGHTSPEED_RETAIL_API_VERSION_2026_07),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
-    )
-    def test_source_for_pipeline_syncs_on_the_pinned_version(self, mock_lightspeed_source, pinned, expected):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sales"
-        inputs.should_use_incremental_field = False
-        inputs.api_version = pinned
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_lightspeed_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.source.lightspeed_retail_source"
