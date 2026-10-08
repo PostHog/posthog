@@ -423,7 +423,8 @@ describe("App", () => {
 
   it.each([
     ["the pane under the pointer", 0, "right"],
-    ["the focused pane when the pointer report is stale", 1_000, "left"],
+    ["the pane under the pointer after a slow repaint", 400, "right"],
+    ["the focused pane when the pointer report is stale", 5_000, "left"],
   ])("drops a file into %s", async (_, reportAge, expected) => {
     const split = splitFocused(initialLayout(), "row");
     const [left, right] = paneIds(activeWorkspace(split).root);
