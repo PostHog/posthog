@@ -438,6 +438,18 @@ class TestMCPToolsAPI(APIBaseTest):
                 "You may retry with adjusted inputs.",
                 expected_error_code="s3_error",
             ),
+            param(
+                "deferred_compatibility_rejection",
+                None,
+                "Function 'greatest' expects 2 arguments, found 3",
+                None,
+                "Tool failed: MaxToolRetryableError: Function 'greatest' expects 2 arguments, found 3\n\n"
+                "<hogql_compatibility_hint>\n"
+                "`greatest` takes exactly 2 arguments in HogQL, unlike ClickHouse. Nest two-argument calls "
+                "instead: greatest(x1, greatest(x2, x3)).\n"
+                "</hogql_compatibility_hint>. You may retry with adjusted inputs.",
+                query_args={"query": "SELECT greatest(1, 2, 3)", "connectionId": "example-connection"},
+            ),
             (
                 "polling_error",
                 ConnectionError("Query status unavailable"),
@@ -462,6 +474,7 @@ class TestMCPToolsAPI(APIBaseTest):
         _mock_sleep: AsyncMock,
         *,
         expected_error_code: str | None = None,
+        query_args: dict[str, str] | None = None,
     ) -> None:
         mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_status.side_effect = polling_error
@@ -475,7 +488,7 @@ class TestMCPToolsAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
-            {"args": {"query": "SELECT 1"}},
+            {"args": query_args or {"query": "SELECT 1"}},
             format="json",
         )
 
