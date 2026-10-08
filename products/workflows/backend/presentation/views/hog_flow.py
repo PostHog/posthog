@@ -3,11 +3,11 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import timedelta
 from time import monotonic
-from typing import Any, NamedTuple, Optional, cast
+from typing import Any, NamedTuple, Optional, TypeVar, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -79,7 +79,6 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
-from posthog.models.integration import Integration
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
@@ -142,6 +141,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListQuery,
     WorkflowNotFound,
     WorkflowProposalRecord,
+    WorkflowRef,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
     WorkflowScheduleNotFound,
@@ -154,6 +154,7 @@ from products.workflows.backend.facade.email_design import (
     render_email_design_html,
 )
 from products.workflows.backend.facade.email_health import (
+    email_domain_sharers,
     fetch_aws_tenant_reputation,
     fetch_email_totals_by_source,
     fetch_isp_metrics,
@@ -162,6 +163,7 @@ from products.workflows.backend.facade.email_health import (
     pause_requires_staff,
     resume_email_sending,
     team_email_sending_allowance,
+    verified_email_domains,
 )
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus, WorkflowProposalStatus
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
@@ -222,6 +224,7 @@ from products.workflows.backend.facade.workflows import (
     WORKFLOW_FIELD_FILTER_PARAMS,
     WORKFLOW_TYPES,
     get_workflow,
+    get_workflow_ref,
     list_workflows,
 )
 from products.workflows.backend.facade.writes import (
@@ -263,6 +266,8 @@ from products.workflows.backend.presentation.views.message_assets import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_LookupResult = TypeVar("_LookupResult", Workflow, WorkflowRef)
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -2111,25 +2116,11 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
     survives that check but is still shared gets said so, because its counts describe more email
     than this project sent.
     """
-    domains = list(
-        dict.fromkeys(
-            domain
-            for domain in Integration.objects.filter(team_id=team.id, kind="email", config__verified=True)
-            .order_by("id")
-            .values_list("config__domain", flat=True)
-            if domain
-        )
-    )
+    domains = verified_email_domains(team_id=team.id)
     if not domains:
         return IspDomains(readable=(), withheld=(), shared=())
 
-    sharers: dict[str, set[int]] = {domain: set() for domain in domains}
-    for domain, sharer_id in (
-        Integration.objects.filter(kind="email", config__verified=True, config__domain__in=domains)
-        .exclude(team_id=team.id)
-        .values_list("config__domain", "team_id")
-    ):
-        sharers[domain].add(sharer_id)
+    sharers = email_domain_sharers(team_id=team.id, domains=domains)
 
     if not any(sharers.values()):
         return IspDomains(readable=tuple(domains), withheld=(), shared=())
@@ -4159,7 +4150,7 @@ class HogFlowViewSet(
         `hog_flow_version` with the version appended to the id, which is what makes "before and
         after this change" answerable at all. The unversioned read keys batch and broadcast runs on
         the run instead, so it is not the sum of the versions."""
-        hog_flow = self.get_object()
+        hog_flow = self._workflow_ref()
         param_serializer = HogFlowVersionMetricsRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
@@ -4384,9 +4375,16 @@ class HogFlowViewSet(
 
     def _workflow(self) -> Workflow:
         """The workflow in the URL, or 404 when the team has none with that id, or 403 below the required level."""
+        return self._checked_lookup(get_workflow)
+
+    def _workflow_ref(self) -> WorkflowRef:
+        """The same lookup and access check as _workflow, for an action that only needs the workflow's identity."""
+        return self._checked_lookup(get_workflow_ref)
+
+    def _checked_lookup(self, lookup: Callable[..., _LookupResult]) -> _LookupResult:
         user_access_control, required_level = self._object_access()
         try:
-            return get_workflow(
+            return lookup(
                 team_id=self.team_id,
                 workflow_id=self.kwargs["pk"],
                 user_access_control=user_access_control,
@@ -4421,7 +4419,7 @@ class HogFlowViewSet(
         Because rerun replays historical event/person/group data, it requires
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
-        hog_flow = self.get_object()
+        hog_flow = self._workflow_ref()
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -4465,9 +4463,9 @@ class HogFlowViewSet(
         # which is safe because the service JWT pins team + flow and the sweep filters on both, so
         # an id that never belonged to this team matches nothing.
         try:
-            hog_flow = self.get_object()
+            hog_flow = self._workflow_ref()
             hog_flow_id = str(hog_flow.id)
-        except Http404:
+        except exceptions.NotFound:
             hog_flow = None
             # The row is gone, so get_object's per-object access check never ran. Require
             # project-wide workflow editor access instead - without this, a member whose editor
@@ -4534,7 +4532,9 @@ class HogFlowViewSet(
             ac_resource_type=self.scope_object,
         )
 
-    def _report_workflow_action(self, event: str, instance: HogFlow, extra_properties: Optional[dict] = None) -> None:
+    def _report_workflow_action(
+        self, event: str, instance: HogFlow | WorkflowRef, extra_properties: Optional[dict] = None
+    ) -> None:
         # report_user_action injects source and MCP-client properties from the request, so usage is
         # attributable per channel (web builder vs MCP vs raw API). Capture must never break the request.
         try:
@@ -4809,7 +4809,7 @@ class HogFlowViewSet(
 
         return Response(self.get_serializer(instance).data)
 
-    def _require_audience_confirm_token(self, request: Request, hog_flow: HogFlow) -> None:
+    def _require_audience_confirm_token(self, request: Request, hog_flow: WorkflowRef) -> None:
         """Only meaningful for triggers that fan out to a person audience; see _trigger_has_audience."""
         confirm_token = request.data.get("confirm_token")
         if not confirm_token:
@@ -4838,8 +4838,7 @@ class HogFlowViewSet(
         # trigger's filters; request filters are never forwarded), so the token must sign exactly
         # that - a token minted for other filters, or for an audience edited since the preview,
         # forces a re-preview of the real recipient set.
-        filters = (hog_flow.trigger or {}).get("filters") or {}
-        if previewed != _audience_confirm_value(self.team_id, filters):
+        if previewed != _audience_confirm_value(self.team_id, hog_flow.trigger_filters):
             raise exceptions.ValidationError(
                 {
                     "confirm_token": (
@@ -5003,8 +5002,8 @@ class HogFlowViewSet(
     def revisions(self, request: Request, *args, **kwargs):
         # Version history: one snapshot per live-content change, newest first. Content is fetched
         # per-version via the detail endpoint — the list stays light.
-        instance = self.get_object()
-        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.pk)))
+        instance = self._workflow_ref()
+        page = self.paginate_queryset(cast(Sequence[Any], _RevisionPages(instance.id)))
         return self.get_paginated_response(HogFlowRevisionBasicSerializer(page, many=True).data)
 
     @extend_schema(
@@ -5013,8 +5012,8 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)")
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
-        instance = self.get_object()
-        revision = get_revision(hog_flow_id=instance.pk, version=int(version or 0))
+        instance = self._workflow_ref()
+        revision = get_revision(hog_flow_id=instance.id, version=int(version or 0))
         if revision is None:
             raise exceptions.NotFound("No such revision for this workflow.")
         return Response(HogFlowRevisionSerializer(revision).data)
@@ -5228,11 +5227,13 @@ class HogFlowViewSet(
         proposal = self._get_proposal_or_404(instance, proposal_id)
         return Response(WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data)
 
-    def _get_proposal_or_404(self, hog_flow: HogFlow, proposal_id: Optional[str]) -> WorkflowProposalRecord:
+    def _get_proposal_or_404(
+        self, hog_flow: HogFlow | WorkflowRef, proposal_id: Optional[str]
+    ) -> WorkflowProposalRecord:
         parsed = _parse_uuid_or_none(proposal_id)
         if parsed is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
-        proposal = get_proposal(team_id=self.team_id, hog_flow_id=hog_flow.pk, proposal_id=parsed)
+        proposal = get_proposal(team_id=self.team_id, hog_flow_id=hog_flow.id, proposal_id=parsed)
         if proposal is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
         return proposal
@@ -5337,13 +5338,13 @@ class HogFlowViewSet(
         Comparing two windows is not a controlled experiment; that is what the A/B step is for.
         """
         self._require_self_optimising_enabled()
-        instance = self.get_object()
+        instance = self._workflow_ref()
         proposal = self._get_proposal_or_404(instance, proposal_id)
         # The read below goes to ClickHouse, which refuses an untagged query.
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
         return Response(
             WorkflowProposalOutcomeSerializer(
-                proposal_outcome(team_id=self.team_id, hog_flow_id=instance.pk, proposal_id=proposal.id)
+                proposal_outcome(team_id=self.team_id, hog_flow_id=instance.id, proposal_id=proposal.id)
             ).data
         )
 
@@ -5565,7 +5566,7 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
     def invocation_results(self, request: Request, *args, **kwargs):
-        obj = self.get_object()
+        obj = self._workflow_ref()
         tag_invocation_results_query(self.function_kind)
 
         param_serializer = HogInvocationResultsRequestSerializer(data=request.query_params)
@@ -5603,7 +5604,7 @@ class HogFlowViewSet(
         Count invocations matching the same filters as the list endpoint,
         without its 500-row cap.
         """
-        obj = self.get_object()
+        obj = self._workflow_ref()
         tag_invocation_results_query(self.function_kind)
 
         param_serializer = HogInvocationResultsFiltersSerializer(data=request.query_params)
@@ -5641,7 +5642,7 @@ class HogFlowViewSet(
         filter_backends=[],
     )
     def invocation_result(self, request: Request, *args, **kwargs):
-        obj = self.get_object()
+        obj = self._workflow_ref()
         tag_invocation_results_query(self.function_kind)
 
         data = fetch_hog_invocation_result(
@@ -5661,7 +5662,7 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
     def assets(self, request: Request, *args, **kwargs):
-        obj = self.get_object()
+        obj = self._workflow_ref()
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
 
         param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
@@ -5698,7 +5699,7 @@ class HogFlowViewSet(
     @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
     def asset_content(self, request: Request, *args, **kwargs):
         # Ownership-check the HogFlow first so other teams' assets can't be probed.
-        obj = self.get_object()
+        obj = self._workflow_ref()
 
         param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
@@ -6041,7 +6042,7 @@ class HogFlowViewSet(
     @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
-            hog_flow = self.get_object()
+            hog_flow = self._workflow_ref()
         except (Http404, exceptions.NotFound):
             # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
             # missing workflow becomes a friendly 404.
@@ -6074,7 +6075,7 @@ class HogFlowViewSet(
                 status=serializer.validated_data.get("status"),
                 # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
                 # caller-supplied filters are never what actually runs.
-                filters=(hog_flow.trigger or {}).get("filters") or {},
+                filters=hog_flow.trigger_filters,
             )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
@@ -6105,7 +6106,7 @@ class HogFlowViewSet(
         workflow workers. Steps that already executed, like sent messages, are not
         undone. Already-finished batch runs are left untouched.
         """
-        hog_flow = self.get_object()
+        hog_flow = self._workflow_ref()
 
         try:
             batch_job = get_batch_job(
@@ -6167,14 +6168,16 @@ class HogFlowViewSet(
     # generated schema matches the actual response shape.
     @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
     def schedules(self, request: Request, *args, **kwargs):
-        hog_flow = self.get_object()
+        hog_flow = self._workflow_ref()
 
         if request.method == "POST":
             # A schedule on a batch trigger is a recurring batch dispatch - without this, an agent
             # could sidestep the batch_jobs token gate by scheduling the send instead. Same scoping:
             # the web builder keeps its own confirm UI, headless callers stay token-free. A schedule
             # trigger runs once per firing with no person audience, so there is nothing to size.
-            if get_event_source(request) in AGENT_EVENT_SOURCES and trigger_has_audience(hog_flow.trigger):
+            if get_event_source(request) in AGENT_EVENT_SOURCES and trigger_has_audience(
+                {"type": hog_flow.trigger_type}
+            ):
                 # A draft's trigger can still be edited after the audience was sized, so a schedule
                 # staged on a draft could fire on a broadened audience once enabled. Same rule the
                 # MCP tool enforces, applied at the API boundary.
@@ -6209,7 +6212,7 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["PATCH", "DELETE"], url_path="schedules/(?P<schedule_id>[^/.]+)")
     def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):
-        hog_flow = self.get_object()
+        hog_flow = self._workflow_ref()
         try:
             schedule = get_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule_id)
         except WorkflowScheduleNotFound:
@@ -6252,12 +6255,12 @@ class HogFlowViewSet(
         after a timed-out request): a repeat with the same key returns the first call's result
         instead of firing a second AI task. Without the header, every call fires a new run.
         """
-        hog_flow = self.get_object()
+        hog_flow = self._workflow_ref()
 
         if hog_flow.status != HogFlow.State.ACTIVE:
             raise exceptions.ValidationError("Workflow must be active to run. Enable it first.")
 
-        trigger_type = (hog_flow.trigger or {}).get("type")
+        trigger_type = hog_flow.trigger_type
         if trigger_type != "schedule":
             raise exceptions.ValidationError(
                 f"Only workflows with a 'schedule' trigger can be run this way (this one has '{trigger_type}')."
@@ -6266,7 +6269,7 @@ class HogFlowViewSet(
         serializer = HogFlowRunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        variables = {var.get("key"): var.get("default") for var in hog_flow.variables or []}
+        variables = cast(dict[str, object], {var.get("key"): var.get("default") for var in hog_flow.variables or []})
         variables.update(serializer.validated_data["variables"])
         if len(json.dumps(variables)) > HOG_FLOW_VARIABLES_MAX_BYTES:
             raise exceptions.ValidationError("Total size of variable overrides must be less than 5KB")

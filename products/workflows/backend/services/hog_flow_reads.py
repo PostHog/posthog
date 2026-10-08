@@ -21,6 +21,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListQuery,
     WorkflowNotFound,
     WorkflowPage,
+    WorkflowRef,
 )
 from products.workflows.backend.facade.enums import WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
@@ -43,8 +44,44 @@ def get_workflow(
     """The team's workflow, or WorkflowNotFound, or WorkflowAccessDenied when the reader's level for
     it is below `required_level`. Pass None for both access arguments to skip the check, as a
     service credential does."""
+    flow = _checked_flow(team_id, workflow_id, user_access_control, required_level, created_by=True)
+    return _to_workflow(flow, user_access_control, template_cache={}, with_schedules=True)
+
+
+def get_workflow_ref(
+    *,
+    team_id: int,
+    workflow_id: UUID | str,
+    user_access_control: "UserAccessControl | None",
+    required_level: str | None,
+) -> WorkflowRef:
+    """The same lookup and access check as get_workflow, for an action that only needs the workflow's
+    identity and dispatch settings."""
+    flow = _checked_flow(team_id, workflow_id, user_access_control, required_level, created_by=False)
+    trigger = flow.trigger if isinstance(flow.trigger, dict) else {}
+    return WorkflowRef(
+        id=flow.id,
+        team_id=flow.team_id,
+        name=flow.name,
+        status=flow.status,
+        version=flow.version,
+        trigger_type=trigger.get("type"),
+        trigger_filters=trigger.get("filters") or {},
+        variables=flow.variables,
+    )
+
+
+def _checked_flow(
+    team_id: int,
+    workflow_id: UUID | str,
+    user_access_control: "UserAccessControl | None",
+    required_level: str | None,
+    *,
+    created_by: bool,
+) -> HogFlow:
+    queryset = HogFlow.objects.select_related("created_by") if created_by else HogFlow.objects.all()
     try:
-        flow = HogFlow.objects.select_related("created_by").get(team_id=team_id, pk=workflow_id)
+        flow = queryset.get(team_id=team_id, pk=workflow_id)
     except (HogFlow.DoesNotExist, ValidationError, ValueError):
         # ValidationError and ValueError fire when the id is not a parseable UUID.
         raise WorkflowNotFound()
@@ -57,7 +94,7 @@ def get_workflow(
         )
     ):
         raise WorkflowAccessDenied(required_level)
-    return _to_workflow(flow, user_access_control, template_cache={}, with_schedules=True)
+    return flow
 
 
 # The query parameters the field filter set reads. The view passes these through as they arrived.
