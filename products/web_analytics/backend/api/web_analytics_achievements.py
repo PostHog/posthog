@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
@@ -164,6 +165,16 @@ def _collect_pending(rows: list[WebAnalyticsAchievementProgress], user_id: int) 
 class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     serializer_class = AchievementsListResponseSerializer
+
+    def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
+        if isinstance(request.successful_authenticator, SessionAuthentication) and self.action in {
+            "record_visit",
+            "acknowledge_celebration",
+            "record_interaction",
+            "preferences",
+        }:
+            return ["web_analytics:read"]
+        return None
 
     @extend_schema(
         operation_id="web_analytics_achievements_overview",
