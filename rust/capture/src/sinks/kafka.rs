@@ -314,20 +314,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 .increment(1);
                 Destination::Custom(topic)
             }
-            Address::Lane { pipeline, lane } => match Destination::for_lane(pipeline, lane) {
-                Some(output) => output,
-                // A pair `resolve` never produces: no output backs it, so
-                // the event goes to the dlq — preserved and replayable —
-                // instead of being processed through a lane with the wrong
-                // semantics. Loud, because reaching this arm means a change
-                // made the pair producible without giving it an output.
-                None => {
-                    debug_assert!(false, "no output backs ({pipeline:?}, {lane:?})");
-                    error!("no output backs ({pipeline:?}, {lane:?}), publishing to the dlq");
-                    dlq_reroute_effects(&mut headers, "unbacked_lane");
-                    Destination::Dlq
-                }
-            },
+            Address::Lane(lane) => Destination::for_lane(lane),
         };
 
         let partition_key = match decision.ordering {
@@ -606,19 +593,13 @@ impl<P: KafkaProducer + 'static> PublishPrepared for KafkaSinkBase<P> {
             .into_iter()
             .map(|event| {
                 let uuid = event.uuid;
-                let ack = match Destination::for_address(event.address) {
-                    Some(destination) => self.send(
-                        &destination,
-                        event.partition_key,
-                        event.ordering,
-                        event.payload,
-                        event.headers,
-                    ),
-                    None => {
-                        error!("no output backs the event's address, dropping it");
-                        Err(CaptureError::NonRetryableSinkError)
-                    }
-                };
+                let ack = self.send(
+                    &Destination::for_address(event.address),
+                    event.partition_key,
+                    event.ordering,
+                    event.payload,
+                    event.headers,
+                );
                 (uuid, ack)
             })
             .collect();
@@ -3262,7 +3243,9 @@ mod tests {
         use super::*;
         use crate::ordering::OrderingGuarantee;
         use crate::outputs::{PreparedEvent, PublishPrepared};
-        use crate::pipeline::{Address, Lane, Pipeline};
+        use crate::pipeline::{
+            Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane,
+        };
         use crate::sinks::kafka::KafkaSinkBase;
         use crate::sinks::producer::MockKafkaProducer;
         use crate::sinks::sink::{Outcome, SinkResult};
@@ -3300,10 +3283,7 @@ mod tests {
 
         fn analytics_main() -> PreparedEvent {
             prepared(
-                Address::Lane {
-                    pipeline: Pipeline::Analytics,
-                    lane: Lane::Main,
-                },
+                Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main)),
                 OrderingGuarantee::PerDistinctId,
             )
         }
@@ -3330,39 +3310,39 @@ mod tests {
 
         #[rstest]
         #[case::analytics_main(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Analytics, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            EventInput { address: Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main)), ordering: OrderingGuarantee::PerDistinctId },
             ExpectedRecord { topic: "events_plugin_ingestion", keyed: true },
         )]
         #[case::analytics_overflow_spread(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Analytics, lane: Lane::Overflow }, ordering: OrderingGuarantee::None },
+            EventInput { address: Address::Lane(PipelineLane::Analytics(AnalyticsLane::Overflow)), ordering: OrderingGuarantee::None },
             ExpectedRecord { topic: "events_plugin_ingestion_overflow", keyed: false },
         )]
         #[case::analytics_historical(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Analytics, lane: Lane::Historical }, ordering: OrderingGuarantee::PerDistinctId },
+            EventInput { address: Address::Lane(PipelineLane::Analytics(AnalyticsLane::Historical)), ordering: OrderingGuarantee::PerDistinctId },
             ExpectedRecord { topic: "events_plugin_ingestion_historical", keyed: true },
         )]
         #[case::ai_main(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Ai, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            EventInput { address: Address::Lane(PipelineLane::Ai(AiLane::Main)), ordering: OrderingGuarantee::PerDistinctId },
             ExpectedRecord { topic: "ai_events", keyed: true },
         )]
         #[case::ai_overflow(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Ai, lane: Lane::Overflow }, ordering: OrderingGuarantee::None },
+            EventInput { address: Address::Lane(PipelineLane::Ai(AiLane::Overflow)), ordering: OrderingGuarantee::None },
             ExpectedRecord { topic: "ai_events_overflow", keyed: false },
         )]
         #[case::heatmaps(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Heatmaps, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            EventInput { address: Address::Lane(PipelineLane::Heatmaps(BasicLane::Main)), ordering: OrderingGuarantee::PerDistinctId },
             ExpectedRecord { topic: "heatmaps", keyed: true },
         )]
         #[case::warnings(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Warnings, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            EventInput { address: Address::Lane(PipelineLane::Warnings(BasicLane::Main)), ordering: OrderingGuarantee::PerDistinctId },
             ExpectedRecord { topic: "client_ingestion_warning", keyed: true },
         )]
         #[case::error_tracking(
-            EventInput { address: Address::Lane { pipeline: Pipeline::ErrorTracking, lane: Lane::Main }, ordering: OrderingGuarantee::PerDistinctId },
+            EventInput { address: Address::Lane(PipelineLane::ErrorTracking(BasicLane::Main)), ordering: OrderingGuarantee::PerDistinctId },
             ExpectedRecord { topic: "error_tracking_events", keyed: true },
         )]
         #[case::replay_overflow(
-            EventInput { address: Address::Lane { pipeline: Pipeline::Replay, lane: Lane::Overflow }, ordering: OrderingGuarantee::PerSession },
+            EventInput { address: Address::Lane(PipelineLane::Replay(SessionReplayLane::Overflow)), ordering: OrderingGuarantee::PerSession },
             ExpectedRecord { topic: "replay_overflow", keyed: true },
         )]
         #[case::dlq(
@@ -3457,29 +3437,6 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn prepared_event_on_an_unbacked_lane_fails_without_producing() {
-            let producer = MockKafkaProducer::new();
-            let sink = KafkaSinkBase::with_producer(producer.clone(), test_outputs());
-            let unbacked = prepared(
-                Address::Lane {
-                    pipeline: Pipeline::Heatmaps,
-                    lane: Lane::Overflow,
-                },
-                OrderingGuarantee::PerDistinctId,
-            );
-
-            let results = sink
-                .publish_prepared(vec![unbacked, analytics_main()])
-                .await;
-
-            assert_eq!(
-                outcomes(&results),
-                vec![Some("NonRetryableSinkError".to_string()), None]
-            );
-            assert_eq!(producer.get_records().len(), 1);
-        }
-
-        #[tokio::test]
         async fn prepared_event_publishes_through_its_targets_producer() {
             let ingestion = Arc::new(MockKafkaProducer::new());
             let ai = Arc::new(MockKafkaProducer::new());
@@ -3490,10 +3447,7 @@ mod tests {
                 replay_envelope_compression: EnvelopeCompression::None,
             };
             let ai_event = prepared(
-                Address::Lane {
-                    pipeline: Pipeline::Ai,
-                    lane: Lane::Main,
-                },
+                Address::Lane(PipelineLane::Ai(AiLane::Main)),
                 OrderingGuarantee::PerDistinctId,
             );
 

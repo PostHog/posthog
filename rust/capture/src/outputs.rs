@@ -232,7 +232,7 @@ impl OutputRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::{Lane, Pipeline};
+    use crate::pipeline::{AnalyticsLane, PipelineLane};
     use crate::sinks::test_sink::MockSink;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
@@ -307,10 +307,7 @@ mod tests {
         let event = test_event().event;
         PreparedEvent {
             uuid: Uuid::now_v7(),
-            address: Address::Lane {
-                pipeline: Pipeline::Analytics,
-                lane: Lane::Main,
-            },
+            address: Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main)),
             partition_key: event.key(),
             ordering: OrderingGuarantee::PerDistinctId,
             payload: bytes::Bytes::from_static(b"{}"),

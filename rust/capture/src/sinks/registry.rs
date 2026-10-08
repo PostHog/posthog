@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::config::OutputsConfig;
-use crate::pipeline::{Address, Lane, Pipeline};
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
 use crate::producers::ProducerName;
 
 /// Which configured output a routing decision selects, named by pipeline and
@@ -48,40 +48,26 @@ impl Destination {
         Destination::AiMain,
     ];
 
-    /// `None` marks a pair [`pipeline::resolve`] never produces: no output
-    /// backs it.
-    ///
-    /// [`pipeline::resolve`]: crate::pipeline::resolve
-    pub(crate) fn for_lane(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
-        // Every pair is spelled out so that a new lane, or a change making an
-        // unbacked pair reachable, has to visit this match instead of being
-        // absorbed by a wildcard. Step 13 of OUTPUTS_REFACTOR_PLAN.md types
-        // lanes per pipeline so such pairs cannot be built; drop the `None`
-        // arms and this note then.
-        match (pipeline, lane) {
-            (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
-            (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
-            (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
-            (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
-            (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
-            (Pipeline::Ai, Lane::Historical) => None,
-            (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
-            (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
-            (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
-            (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
-            (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
-            (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
-            (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
-            (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
-            (Pipeline::Replay, Lane::Historical) => None,
+    pub(crate) fn for_lane(lane: PipelineLane) -> Destination {
+        match lane {
+            PipelineLane::Analytics(AnalyticsLane::Main) => Destination::AnalyticsMain,
+            PipelineLane::Analytics(AnalyticsLane::Overflow) => Destination::AnalyticsOverflow,
+            PipelineLane::Analytics(AnalyticsLane::Historical) => Destination::AnalyticsHistorical,
+            PipelineLane::Ai(AiLane::Main) => Destination::AiMain,
+            PipelineLane::Ai(AiLane::Overflow) => Destination::AiOverflow,
+            PipelineLane::Warnings(BasicLane::Main) => Destination::ClientWarningsMain,
+            PipelineLane::Heatmaps(BasicLane::Main) => Destination::HeatmapsMain,
+            PipelineLane::ErrorTracking(BasicLane::Main) => Destination::ErrorTrackingMain,
+            PipelineLane::Replay(SessionReplayLane::Main) => Destination::SessionReplayMain,
+            PipelineLane::Replay(SessionReplayLane::Overflow) => Destination::SessionReplayOverflow,
         }
     }
 
-    pub(crate) fn for_address(address: Address) -> Option<Destination> {
+    pub(crate) fn for_address(address: Address) -> Destination {
         match address {
-            Address::Lane { pipeline, lane } => Self::for_lane(pipeline, lane),
-            Address::Dlq => Some(Destination::Dlq),
-            Address::Custom(topic) => Some(Destination::Custom(topic)),
+            Address::Lane(lane) => Self::for_lane(lane),
+            Address::Dlq => Destination::Dlq,
+            Address::Custom(topic) => Destination::Custom(topic),
         }
     }
 
