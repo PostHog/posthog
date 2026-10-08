@@ -28,9 +28,6 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
                 name="API errors",
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
-                threshold_count=10,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=10,
             )
 
@@ -68,10 +65,12 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         result = self._announcement()
 
         assert result is not None
+        assert result.configuration_id == str(self.configuration.id)
         assert result.alert_name == "API errors"
         assert [t.kind for t in result.transitions] == [AlertEventKind.FIRING]
         transition = result.transitions[0]
         assert transition.episode_started_at == FIRING
+        assert transition.occurred_at == OCCURRED
         assert transition.value == 300.0
         # The snapshots are what let a message state what its own check measured, however long
         # after the check it is rendered.
@@ -82,6 +81,25 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         insert_events(self.team.id, [self._row(kind=AlertEventKind.CHECK)])
 
         assert self._announcement() is None
+
+    def test_a_held_check_comes_back_only_for_a_group_whose_firing_moved(self) -> None:
+        insert_events(
+            self.team.id,
+            [
+                self._row(grouping_key="checkout", kind=AlertEventKind.CHECK),
+                self._row(grouping_key="search", kind=AlertEventKind.CHECK),
+            ],
+        )
+
+        result = announcement(
+            self.team.id,
+            str(self.configuration.id),
+            "eval-1",
+            incident_grouping_keys=["checkout"],
+        )
+
+        assert result is not None
+        assert [(t.grouping_key, t.kind) for t in result.transitions] == [("checkout", AlertEventKind.CHECK)]
 
     def test_every_group_that_announced_gets_its_own_transition(self) -> None:
         insert_events(

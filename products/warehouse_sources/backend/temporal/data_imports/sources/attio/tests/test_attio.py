@@ -80,7 +80,7 @@ class TestAttioResume:
             rows = [row for page in cast(Iterable[list[dict[str, Any]]], response.items()) for row in page]
         return sent, rows
 
-    @pytest.mark.parametrize("endpoint", ["companies", "people", "deals"])
+    @pytest.mark.parametrize("endpoint", ["companies", "people", "deals", "notes", "tasks"])
     def test_fresh_run_stages_next_offset_after_each_page(self, endpoint: str) -> None:
         limit = ATTIO_ENDPOINTS[endpoint].page_size
         manager = _make_manager()
@@ -98,17 +98,7 @@ class TestAttioResume:
         ]
         manager.load_state.assert_not_called()
 
-    @pytest.mark.parametrize("endpoint", ["companies", "notes"])
-    def test_single_short_page_stages_nothing(self, endpoint: str) -> None:
-        manager = _make_manager()
-
-        sent, rows = self._drive(endpoint, manager, [_page(endpoint, 0, 2)])
-
-        assert [request["offset"] for request in sent] == [0]
-        assert len(rows) == 2
-        manager.save_state.assert_not_called()
-
-    @pytest.mark.parametrize("endpoint", ["companies", "people"])
+    @pytest.mark.parametrize("endpoint", ["companies", "people", "lists", "notes", "tasks", "workspace_members"])
     def test_resumed_run_starts_from_saved_offset(self, endpoint: str) -> None:
         limit = ATTIO_ENDPOINTS[endpoint].page_size
         manager = _make_manager(AttioResumeConfig(offset=2 * limit))
@@ -119,16 +109,6 @@ class TestAttioResume:
         assert [request["offset"] for request in sent] == [2 * limit, 3 * limit]
         assert rows[0][ATTIO_ENDPOINTS[endpoint].primary_key] == f"row-{2 * limit}"
         assert [call.args[0] for call in manager.save_state.call_args_list] == [AttioResumeConfig(offset=3 * limit)]
-
-    @pytest.mark.parametrize("endpoint", ["lists", "notes", "tasks", "workspace_members"])
-    def test_get_endpoint_ignores_offset_checkpoint(self, endpoint: str) -> None:
-        manager = _make_manager(AttioResumeConfig(offset=ATTIO_ENDPOINTS[endpoint].page_size))
-
-        sent, _ = self._drive(endpoint, manager, [_page(endpoint, 0, 1)])
-
-        assert sent[0]["offset"] == 0
-        manager.load_state.assert_not_called()
-        manager.save_state.assert_not_called()
 
     def test_resumed_query_keeps_sort_order_in_body(self) -> None:
         # Offsets only line up across runs when every run asks for the same order.

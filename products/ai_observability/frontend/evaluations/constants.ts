@@ -28,7 +28,7 @@ export function numericOutputConfigError(config: EvaluationOutputConfig, require
         return 'Enter finite numbers for the score bounds, step, and threshold.'
     }
     if (requiresBounds && (min == null || max == null || min >= max)) {
-        return 'System One numeric evaluations require a minimum score below the maximum score.'
+        return 'Numeric evaluations with decision models require a minimum score below the maximum score.'
     }
     if (min != null && max != null && min > max) {
         return 'Minimum must be less than or equal to maximum.'

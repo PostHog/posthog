@@ -13,6 +13,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 
 
@@ -25,8 +26,10 @@ def deliver(
     evaluation_key: str,
     target: AlertDestinationData,
     announcement: EvaluationAnnouncement,
+    incident_action: IncidentAction | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
+    busy = 0
 
     for transition in announcement.transitions:
         key = _thread_key(
@@ -41,7 +44,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition),
+                message=build_message(announcement, transition, incident_action=incident_action),
                 in_reply_to=None,
             )
             continue
@@ -49,8 +52,10 @@ def deliver(
         try:
             claim = thread_store.claim(key, evaluation_key)
         except ThreadBusy:
-            # Another attempt of this send is still posting. Leaving it is what stops the two
-            # of them putting the same message in the channel twice.
+            # Another attempt may still be posting, so sending now could put the same message
+            # in the channel twice. The holder may also have died, and then its claim frees
+            # this thread only when it goes stale. The caller waits and runs the send again.
+            busy += 1
             continue
         if claim is None:
             continue
@@ -61,13 +66,16 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition),
+                message=build_message(announcement, transition, incident_action=incident_action),
                 in_reply_to=claim.handle,
             )
         except Exception:
             thread_store.release(claim)
             raise
         thread_store.delivered(claim, sent)
+
+    if busy:
+        raise ThreadBusy(f"{busy} of {len(announcement.transitions)} threads are held by another send")
 
 
 def _send(

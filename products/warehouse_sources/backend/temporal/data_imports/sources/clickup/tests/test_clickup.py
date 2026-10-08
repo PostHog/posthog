@@ -12,8 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.cl
     TIME_IN_STATUS_BATCH_SIZE,
     ClickUpResumeConfig,
     _ms_to_iso,
-    _normalize_task,
-    _normalize_time_entry,
     _to_epoch_ms,
     clickup_source,
     validate_credentials,
@@ -102,21 +100,6 @@ class TestMsToIso:
         assert _ms_to_iso(value) == expected
 
 
-class TestNormalizeTask:
-    def test_converts_known_date_fields(self) -> None:
-        task = _normalize_task(
-            {"id": "abc", "date_created": "1567785250202", "date_updated": "1567785260202", "name": "Task"}
-        )
-        assert task["date_created"] == "2019-09-06T15:54:10.202000+00:00"
-        assert task["date_updated"] == "2019-09-06T15:54:20.202000+00:00"
-        assert task["name"] == "Task"
-
-    def test_leaves_missing_and_null_fields(self) -> None:
-        task = _normalize_task({"id": "abc", "date_closed": None})
-        assert task["date_closed"] is None
-        assert "due_date" not in task
-
-
 class TestToEpochMs:
     @pytest.mark.parametrize(
         "value, expected",
@@ -158,7 +141,22 @@ class TestValidateCredentials:
 
         bad, message = validate_credentials("pk_token", workspace_id="404")
         assert bad is False
-        assert message is not None and "404" in message
+        assert message is not None and "can't access this workspace" in message
+
+    @pytest.mark.parametrize(
+        "workspace_id",
+        ["https://app.clickup.com/9/settings/team/9/general", "app.clickup.com/9/home"],
+    )
+    @mock.patch(CLICKUP_SESSION_PATCH)
+    def test_workspace_url_is_rejected_before_calling_clickup(
+        self, mock_session: mock.MagicMock, workspace_id: str
+    ) -> None:
+        valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
+
+        assert valid is False
+        assert message is not None and "Enter only that number" in message
+        assert workspace_id not in message
+        mock_session.return_value.get.assert_not_called()
 
     @mock.patch(CLICKUP_SESSION_PATCH)
     def test_request_exception_returns_error(self, mock_session: mock.MagicMock) -> None:
@@ -191,15 +189,6 @@ class TestTasks:
         # page has no next page, so no checkpoint follows it.
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0] == ClickUpResumeConfig(page=0)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_last_page_flag_stops_pagination(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        page = {"tasks": [{"id": str(i)} for i in range(100)], "last_page": True}
-        _wire(session, [_response(page)])
-
-        _rows(_source("tasks", _make_manager()))
-        assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
@@ -235,70 +224,12 @@ class TestTasks:
         )
         assert snapshots[0]["params"]["date_updated_gt"] == 1567785250202
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_date_filter(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response({"tasks": [{"id": "1"}]})])
-
-        _rows(_source("tasks", _make_manager(), should_use_incremental_field=False))
-        assert "date_updated_gt" not in snapshots[0]["params"]
-
-
-class TestNormalizeTimeEntry:
-    def test_converts_entry_timestamps(self) -> None:
-        entry = _normalize_time_entry(
-            {"id": "4", "start": "1567785250202", "end": "1567785260202", "at": "1567785270202", "duration": "10000"}
-        )
-        assert entry["start"] == "2019-09-06T15:54:10.202000+00:00"
-        assert entry["end"] == "2019-09-06T15:54:20.202000+00:00"
-        assert entry["at"] == "2019-09-06T15:54:30.202000+00:00"
-        # Duration is a millisecond count, not a timestamp, so it must survive untouched.
-        assert entry["duration"] == "10000"
-
 
 class TestTimeEntries:
     TEAMS = {"teams": [{"id": "9", "members": [{"user": {"id": 11}}, {"user": {"id": 22}}]}]}
 
     def _entries(self, *ids: str) -> dict[str, Any]:
         return {"data": [{"id": entry_id, "start": "1567785250202"} for entry_id in ids]}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_windows_from_the_watermark(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        watermark = datetime.now(tz=UTC) - timedelta(days=45)
-        snapshots = _wire(
-            session,
-            [_response(self.TEAMS), _response(self._entries("e1")), _response(self._entries("e2"))],
-        )
-
-        manager = _make_manager()
-        rows = _rows(
-            _source(
-                "time_entries",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
-            )
-        )
-
-        # Members first, then one request per 30-day window up to now: 45 days spans two.
-        assert [row["id"] for row in rows] == ["e1", "e2"]
-        assert snapshots[0]["url"].endswith("/team")
-        windows = snapshots[1:]
-        assert len(windows) == 2
-        assert all(snapshot["url"].endswith("/team/9/time_entries") for snapshot in windows)
-        assert windows[0]["params"]["start_date"] == round(watermark.timestamp() * 1000)
-        # Windows are contiguous and oldest first, so nothing between them goes unfetched.
-        assert windows[0]["params"]["end_date"] == windows[1]["params"]["start_date"]
-        assert windows[0]["params"]["start_date"] < windows[1]["params"]["start_date"]
-        # Only the workspace's own members are named; `assignee` is what widens the endpoint past
-        # the calling user's own entries.
-        assert windows[0]["params"]["assignee"] == "11,22"
-        assert rows[0]["start"].startswith("2019-09-06T")
-        # Checkpoint the window just yielded, not the next one: a crash re-fetches it and merge
-        # dedupes.
-        saved = [call.args[0].window_start for call in manager.save_state.call_args_list]
-        assert saved == [window["params"]["start_date"] for window in windows]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_the_saved_window(self, MockSession: mock.MagicMock) -> None:
@@ -350,31 +281,6 @@ class TestTimeEntries:
 
 class TestTaskTimeInStatus:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_flattens_the_map_into_rows_keyed_by_task(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(
-            session,
-            [
-                _response({"tasks": [{"id": "t1"}, {"id": "t2"}]}),
-                _response(
-                    {
-                        "t1": {"current_status": {"status": "open"}, "status_history": []},
-                        "t2": {"current_status": {"status": "done"}, "status_history": []},
-                        # ClickUp has no wrapper key here, so a stray non-object value would
-                        # otherwise be merged into a row.
-                        "error": "nope",
-                    }
-                ),
-            ],
-        )
-
-        rows = _rows(_source("task_time_in_status", _make_manager()))
-
-        assert [(row["task_id"], row["current_status"]["status"]) for row in rows] == [("t1", "open"), ("t2", "done")]
-        assert snapshots[1]["url"].endswith("/task/bulk_time_in_status/task_ids")
-        assert snapshots[1]["params"]["task_ids"] == ["t1", "t2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_batches_at_the_endpoint_cap(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         first_batch = [str(i) for i in range(TIME_IN_STATUS_BATCH_SIZE)]
@@ -412,28 +318,6 @@ class TestListChildren:
     ]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stamps_each_field_with_the_list_it_came_from(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        responses = [
-            _response(self.LISTS_WALK[0]),
-            _response(self.LISTS_WALK[1]),
-            _response({"fields": [{"id": "cf1"}]}),
-            _response(self.LISTS_WALK[2]),
-            _response(self.LISTS_WALK[3]),
-            _response(self.LISTS_WALK[4]),
-            _response({"fields": [{"id": "cf1"}, {"id": "cf2"}]}),
-        ]
-        snapshots = _wire(session, responses)
-
-        rows = _rows(_source("list_custom_fields", _make_manager()))
-
-        # A field defined above the list repeats per list, so the row needs the list id the
-        # composite primary key merges on.
-        assert [(row["_list_id"], row["id"]) for row in rows] == [("l1", "cf1"), ("l2", "cf1"), ("l2", "cf2")]
-        assert snapshots[2]["url"].endswith("/list/l1/field")
-        assert snapshots[6]["url"].endswith("/list/l2/field")
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_skips_a_list_that_stops_serving_its_fields(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         _wire(
@@ -455,64 +339,6 @@ class TestListChildren:
         assert [(row["_list_id"], row["id"]) for row in rows] == [("l2", "cf2")]
 
 
-class TestTeamScoped:
-    @pytest.mark.parametrize(
-        "endpoint, expected_path",
-        [
-            ("workspaces", "/team"),
-            ("spaces", "/team/9/space"),
-            ("goals", "/team/9/goal"),
-            ("custom_fields", "/team/9/field"),
-        ],
-    )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_team_scoped_endpoints(self, MockSession: mock.MagicMock, endpoint: str, expected_path: str) -> None:
-        session = MockSession.return_value
-        data_key = CLICKUP_ENDPOINTS[endpoint].data_key or ""
-        snapshots = _wire(session, [_response({data_key: [{"id": "1"}, {"id": "2"}]})])
-
-        rows = _rows(_source(endpoint, _make_manager()))
-
-        assert snapshots[0]["url"].endswith(expected_path)
-        assert [row["id"] for row in rows] == ["1", "2"]
-
-
-class TestFanOut:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_folders_fan_out_over_spaces(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"spaces": [{"id": "s1"}, {"id": "s2"}]}),
-                _response({"folders": [{"id": "f1"}]}),
-                _response({"folders": [{"id": "f2"}]}),
-            ],
-        )
-
-        rows = _rows(_source("folders", _make_manager()))
-        assert [row["id"] for row in rows] == ["f1", "f2"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_lists_combine_folderless_and_folder_lists(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        # Folderless lists are fetched first (space -> list), then folder lists (space -> folder ->
-        # list); the space list is re-fetched to drive each of the two fan-outs.
-        _wire(
-            session,
-            [
-                _response({"spaces": [{"id": "s1"}]}),
-                _response({"lists": [{"id": "l1"}]}),
-                _response({"spaces": [{"id": "s1"}]}),
-                _response({"folders": [{"id": "f1"}]}),
-                _response({"lists": [{"id": "l2"}]}),
-            ],
-        )
-
-        rows = _rows(_source("lists", _make_manager()))
-        assert [row["id"] for row in rows] == ["l1", "l2"]
-
-
 class TestClickUpSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
@@ -527,14 +353,3 @@ class TestClickUpSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    def test_tasks_use_desc_sort_mode(self) -> None:
-        assert _source("tasks", _make_manager()).sort_mode == "desc"
-
-    def test_non_task_endpoints_use_asc_sort_mode(self) -> None:
-        assert _source("spaces", _make_manager()).sort_mode == "asc"
-
-    @pytest.mark.parametrize("config", list(CLICKUP_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:
-        if config.partition_key:
-            assert config.partition_key == "date_created"

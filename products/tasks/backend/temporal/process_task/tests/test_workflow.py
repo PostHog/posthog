@@ -136,6 +136,25 @@ def _build_context(
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("marker", [None, "scout_trial", "scout_trial_judge"])
+async def test_private_trial_workflow_keeps_metrics_without_analytics(
+    monkeypatch: pytest.MonkeyPatch, marker: str | None
+) -> None:
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(
+        github_integration_id=None, state={marker: {"version": 1}} if marker else {}
+    )
+    execute = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
+
+    await workflow_instance._track_workflow_event("sandbox_started", {"task_id": "task-id"})
+
+    execute.assert_awaited_once()
+    assert execute.call_args.args[0] == track_workflow_event
+    assert execute.call_args.args[1].capture_analytics is (marker is None)
+
+
 def test_activity_error_properties_includes_failed_activity_context():
     error = ActivityError(
         "Activity task timed out",
@@ -1431,16 +1450,41 @@ async def test_first_agent_activity_signal_is_recorded_once(monkeypatch):
     schedule.assert_called_once_with("agent_first_activity_observed")
 
 
-async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkeypatch):
+async def test_boot_milestone_signal_before_context_is_dropped(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    schedule = Mock()
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+
+    await workflow_instance.agent_activity_observed()
+    await workflow_instance.agent_command_dispatched()
+
+    schedule.assert_not_called()
+    assert workflow_instance._first_agent_activity_recorded is False
+    assert workflow_instance._first_command_dispatched_recorded is False
+
+
+@pytest.mark.parametrize(
+    ("agent_ready_at", "since_agent_ready_ms"),
+    [
+        (datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC), 1_000),
+        (None, None),
+    ],
+)
+async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(
+    monkeypatch, agent_ready_at, since_agent_ready_ms
+):
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = _build_context(github_integration_id=123)
     workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
     workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
-    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    workflow_instance._agent_ready_at = agent_ready_at
     workflow_instance._boot_path = "overlap"
     workflow_instance._image_source = "base_image"
     track = AsyncMock()
     monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    record_histogram = Mock()
+    monkeypatch.setattr(process_task_workflow_module, "record_agent_boot_milestone_ms", record_histogram)
     monkeypatch.setattr(
         process_task_workflow_module.workflow,
         "now",
@@ -1458,8 +1502,9 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "task_id": "task-id",
             "sandbox_id": "sandbox-123",
             "elapsed_ms": 21_000,
-            "since_agent_ready_ms": 1_000,
+            "since_agent_ready_ms": since_agent_ready_ms,
             "boot_path": "overlap",
+            "runtime": "gvisor",
             "image_source": "base_image",
             "origin_product": None,
             "mode": "background",
@@ -1470,6 +1515,25 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
             "transport": "sse",
             "prewarmed": False,
         },
+    )
+    if since_agent_ready_ms is None:
+        # The milestone beat readiness: the sample waits for the ready stamp and clamps to zero.
+        record_histogram.assert_not_called()
+        workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 25, tzinfo=UTC)
+        workflow_instance._flush_boot_milestones_before_ready()
+        workflow_instance._flush_boot_milestones_before_ready()
+        expected_sample_ms = 0
+    else:
+        expected_sample_ms = since_agent_ready_ms
+    record_histogram.assert_called_once_with(
+        expected_sample_ms,
+        milestone="agent_first_command_dispatched",
+        origin_product=None,
+        boot_path="overlap",
+        runtime="gvisor",
+        sandbox_backend="modal",
+        runtime_adapter=None,
+        prewarmed=False,
     )
 
 

@@ -47,8 +47,11 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
-/** The served probability a model sort orders by, or null when the report has no score for that head. */
+/** The served probability a model sort orders by, or null when the report has no score for that head or the score is stale. */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
+    if (report.ranking?.stale) {
+        return null
+    }
     const score = report.ranking?.scores[RANKING_SORT_HEADS[field].head]
     return typeof score === 'number' ? score : null
 }

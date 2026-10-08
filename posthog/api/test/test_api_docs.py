@@ -39,6 +39,19 @@ def _thing_viewset(operation_id: str, *, org_paths_are_not_duplicates: bool) -> 
     return ThingViewSet
 
 
+class _RequestDependentScopesViewSet(viewsets.ViewSet):
+    scope_object = "project"
+    request_dependent_scope_actions = frozenset({"retrieve"})
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer})
+    def list(self, request: Request) -> Response:
+        return Response({"ok": True})
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer}, extensions={"x-product": "core"})
+    def retrieve(self, request: Request, id: str) -> Response:
+        return Response({"ok": True})
+
+
 class TestAPIDocsSchema(APIBaseTest):
     @parameterized.expand([("duplicate", False, True), ("not_a_duplicate", True, False)])
     def test_org_path_sharing_a_project_suffix(self, _name: str, opted_out: bool, deprecated: bool) -> None:
@@ -80,6 +93,17 @@ class TestAPIDocsSchema(APIBaseTest):
         with mock.patch.dict(os.environ, codegen_env):
             codegen_schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
         assert "/api/x_internal_marker/" in codegen_schema["paths"]
+
+    def test_request_dependent_scope_marker_covers_only_listed_actions(self) -> None:
+        patterns = [
+            path("api/request_dependent/", _RequestDependentScopesViewSet.as_view({"get": "list"})),
+            path("api/request_dependent/<str:id>/", _RequestDependentScopesViewSet.as_view({"get": "retrieve"})),
+        ]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        assert "x-request-dependent-scopes" not in schema["paths"]["/api/request_dependent/"]["get"]
+        assert schema["paths"]["/api/request_dependent/{id}/"]["get"]["x-request-dependent-scopes"] is True
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()

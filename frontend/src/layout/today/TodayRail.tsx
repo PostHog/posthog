@@ -1,42 +1,25 @@
 import { useActions, useValues } from 'kea'
-import { ComponentProps } from 'react'
+import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
-import {
-    IconBook,
-    IconChat,
-    IconGridMasonry,
-    IconHome,
-    IconSearch,
-    IconSidebarClose,
-    IconSidebarOpen,
-    IconWrench,
-} from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { isMac } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { TODAY_RAIL_ITEMS } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
-const RAIL_ITEMS: { pane: TodayRailPane; label: string; icon: JSX.Element }[] = [
-    { pane: 'home', label: 'Home', icon: <IconHome /> },
-    { pane: 'spaces', label: 'Spaces', icon: <IconChat /> },
-    { pane: 'views', label: 'Views', icon: <IconGridMasonry /> },
-    { pane: 'library', label: 'Library', icon: <IconBook /> },
-    { pane: 'tools', label: 'Tools', icon: <IconWrench /> },
-]
-
-function RailUtility({
-    label,
-    children,
-    ...props
-}: { label: string; children: JSX.Element } & ComponentProps<typeof Button>): JSX.Element {
+const RailUtility = forwardRef<
+    HTMLButtonElement,
+    { label: string; children: JSX.Element; shortcut?: string } & ComponentPropsWithoutRef<typeof Button>
+>(function RailUtility({ label, children, shortcut, ...props }, ref): JSX.Element {
     return (
         <Tooltip>
             <TooltipTrigger
@@ -44,19 +27,23 @@ function RailUtility({
                 render={
                     <Button
                         variant="default"
-                        size="icon-lg"
+                        size="icon"
                         aria-label={label}
-                        className="relative text-muted-foreground [&_svg]:size-5"
+                        className="relative size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
                         {...props}
+                        ref={ref}
                     />
                 }
             >
                 {children}
             </TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
+            <TooltipContent side="right">
+                {label}
+                {shortcut && <Kbd>{shortcut}</Kbd>}
+            </TooltipContent>
         </Tooltip>
     )
-}
+})
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
@@ -68,19 +55,17 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] px-1 pt-1.5 pb-2"
+            className="flex shrink-0 flex-col items-center gap-3 pt-2.5 pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <div className="mb-1 flex size-9 items-center justify-center" aria-hidden>
-                <Logomark className="h-auto w-6" />
-            </div>
-            {RAIL_ITEMS.map(({ pane, label, icon }) => (
+            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
                     key={pane}
                     label={label}
                     icon={icon}
                     active={activePane === pane}
+                    to={railPaneHref(pane)}
                     onClick={() => pickPane(pane)}
                     dataAttr={`today-rail-${pane}`}
                 />
@@ -116,6 +101,7 @@ export function TodayRail(): JSX.Element {
                 </RailUtility>
                 <RailUtility
                     label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
+                    shortcut={isMac() ? '⌘B' : 'Ctrl+B'}
                     data-attr="today-rail-toggle-sidebar"
                     onClick={toggleSidebar}
                 >

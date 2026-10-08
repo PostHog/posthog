@@ -486,18 +486,20 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIsNone(data["churned_at"])
         self.assertIsNone(data["ignored_at"])
 
-    def test_create_with_churned_at(self):
+    @parameterized.expand([("churned_at",), ("ignored_at",)])
+    def test_create_with_status_date(self, field: str) -> None:
         response = self.client.post(
             self.endpoint_base,
-            {"name": "Former customer", "churned_at": "2026-08-01T12:30:00Z"},
+            {"name": "Former customer", field: "2026-08-01T12:30:00Z"},
             format="json",
         )
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
-        self.assertEqual(response.json()["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertEqual(response.json()[field], "2026-08-01T12:30:00Z")
         account = Account.objects.unscoped().get(id=response.json()["id"])  # nosemgrep: idor-lookup-without-team
-        assert account.churned_at is not None
-        self.assertEqual(account.churned_at.isoformat(), "2026-08-01T12:30:00+00:00")
+        status_date = getattr(account, field)
+        assert status_date is not None
+        self.assertEqual(status_date.isoformat(), "2026-08-01T12:30:00+00:00")
 
     def test_list(self):
         a1 = self._create_account(name="Account 1")
@@ -543,6 +545,23 @@ class TestAccountViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
+
+    def test_list_inactive_last_puts_churned_and_ignored_accounts_after_active_ones(self) -> None:
+        self._create_account(name="A churned", churned_at=timezone.now())
+        self._create_account(name="B ignored", ignored_at=timezone.now())
+        self._create_account(name="C active")
+        self._create_account(name="D active")
+
+        response = self.client.get(
+            self.endpoint_base,
+            data={"include_churned": "true", "include_ignored": "true", "inactive_last": "true", "ordering": "name"},
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(
+            [account["name"] for account in response.json()["results"]],
+            ["C active", "D active", "A churned", "B ignored"],
+        )
 
     def test_retrieve(self):
         ignored_at = timezone.now()
@@ -760,33 +779,24 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(account.properties.sfdc_id, "001xx")
         self.assertEqual(account.properties.website_domain, "acme.example")
 
-    def test_update_does_not_accept_ignored_at(self):
-        ignored_at = timezone.now()
-        account = self._create_account(ignored_at=ignored_at)
-
-        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"ignored_at": None}, format="json")
-
-        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        account.refresh_from_db()
-        self.assertEqual(account.ignored_at, ignored_at)
-
-    def test_update_and_clear_churned_at(self):
+    @parameterized.expand([("churned_at",), ("ignored_at",)])
+    def test_update_and_clear_status_date(self, field: str) -> None:
         account = self._create_account()
         url = f"{self.endpoint_base}{account.id}/"
 
-        response = self.client.patch(url, {"churned_at": "2026-08-02T09:00:00Z"}, format="json")
+        response = self.client.patch(url, {field: "2026-08-02T09:00:00Z"}, format="json")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        self.assertEqual(response.json()[field], "2026-08-02T09:00:00Z")
         account.refresh_from_db()
-        self.assertEqual(account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+        self.assertEqual(getattr(account, field).isoformat(), "2026-08-02T09:00:00+00:00")
 
-        response = self.client.patch(url, {"churned_at": None}, format="json")
+        response = self.client.patch(url, {field: None}, format="json")
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
-        self.assertIsNone(response.json()["churned_at"])
+        self.assertIsNone(response.json()[field])
         account.refresh_from_db()
-        self.assertIsNone(account.churned_at)
+        self.assertIsNone(getattr(account, field))
 
     @parameterized.expand(
         [
@@ -3915,6 +3925,43 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
         self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
+
+    @time_machine.travel("2026-08-10T12:00:00Z", tick=False)
+    def test_list_collapses_upcoming_occurrences_of_a_recurring_series(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-recurring")
+
+        def occurrence(start: str, status: str = "confirmed") -> Meeting:
+            return Meeting.objects.unscoped().create(
+                team=self.team,
+                account=account,
+                ical_uid="uid-weekly",
+                recurrence_instance_id=start,
+                start_time=start,
+                status=status,
+                title="Weekly sync",
+            )
+
+        past_1 = occurrence("2026-08-03T15:00:00Z")
+        past_2 = occurrence("2026-08-06T15:00:00Z")
+        occurrence("2026-08-13T15:00:00Z", status="cancelled")
+        next_up = occurrence("2026-08-20T15:00:00Z")
+        occurrence("2026-08-27T15:00:00Z")
+        one_off = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-one-off", start_time="2026-09-01T15:00:00Z"
+        )
+
+        payload = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/").json()
+
+        self.assertEqual(payload["count"], 4)
+        self.assertEqual(
+            [(m["id"], m["is_recurring"]) for m in payload["results"]],
+            [
+                (str(one_off.id), False),
+                (str(next_up.id), True),
+                (str(past_2.id), True),
+                (str(past_1.id), True),
+            ],
+        )
 
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")

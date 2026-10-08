@@ -8,6 +8,7 @@ import {
     IconCopy,
     IconExpand,
     IconInfo,
+    IconLetter,
     IconRefresh,
     IconSend,
     IconTrash,
@@ -64,12 +65,18 @@ import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
+import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
-import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
+import {
+    cohortBroadcastDisabledReason,
+    createCohortDataNodeLogicKey,
+    urlForCohortBroadcast,
+    urlForCohortWorkflow,
+} from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 
@@ -240,6 +247,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -300,6 +308,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             menuItem
                         >
                             <IconSend /> Message this cohort
+                        </ButtonPrimitive>
+
+                        <ButtonPrimitive
+                            onClick={() => {
+                                if (typeof cohort.id !== 'number') {
+                                    return
+                                }
+                                captureMessageAudienceClicked('cohort', 'broadcast')
+                                router.actions.push(urlForCohortBroadcast({ id: cohort.id, name: cohort.name }))
+                            }}
+                            disabledReasons={broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}}
+                            data-attr={`${RESOURCE_TYPE}-send-broadcast`}
+                            tooltip="Send a one-time email to everyone in this cohort"
+                            menuItem
+                        >
+                            <IconLetter /> Send a broadcast
                         </ButtonPrimitive>
 
                         <SceneAddToNotebookDropdownMenu

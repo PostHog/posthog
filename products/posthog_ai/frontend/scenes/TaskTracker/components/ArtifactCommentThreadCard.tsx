@@ -6,6 +6,7 @@ import { Badge, Button, Text, cn } from '@posthog/quill-primitives'
 
 import { ArtifactCommentThread, threadAnchorLabel } from '../artifactComments'
 import { TaskArtifactCommentsLogicProps, taskArtifactCommentsLogic } from '../taskArtifactCommentsLogic'
+import { taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactCommentComposer } from './ArtifactCommentComposer'
 import { ArtifactCommentThreadEntries } from './ArtifactCommentThreadEntries'
 
@@ -19,6 +20,7 @@ export function ArtifactCommentThreadCard({
 }): JSX.Element {
     const { activeThreadId, writing, drafts } = useValues(taskArtifactCommentsLogic(logicProps))
     const { activateThread, replyToThread, setDraft } = useActions(taskArtifactCommentsLogic(logicProps))
+    const { todayPhone } = useValues(taskRunArtifactsLogic({ taskId: logicProps.taskId }))
     const ref = useRef<HTMLElement>(null)
     const rootId = thread.root.id
     const active = activeThreadId === rootId
@@ -98,6 +100,7 @@ export function ArtifactCommentThreadCard({
                         placeholder="Reply"
                         submitLabel="Reply"
                         rows={1}
+                        showShortcut={!todayPhone}
                         dataAttr="task-artifact-comment-reply"
                     />
                 </div>

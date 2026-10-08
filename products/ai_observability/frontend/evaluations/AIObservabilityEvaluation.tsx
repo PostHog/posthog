@@ -103,6 +103,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnableReason,
         modelSelectionRequired,
         numericBoundsRequired,
+        usesDecisionModel,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -141,9 +142,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-        evaluation.id &&
-        evaluation.model_configuration?.provider !== 'system_one'
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id && !usesDecisionModel
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -612,9 +611,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </LemonField.Pure>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {isSessionTarget
-                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for generations that have an $ai_session_id property.'
                                                             : evaluation.target === 'trace'
-                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              ? 'Runs once per trace on all of its events together, after it settles. Only fires for generations that have an $ai_trace_id property.'
                                                               : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
                                                     {isAggregateTarget && (
@@ -950,7 +949,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 function EvaluationModelPicker(): JSX.Element {
     const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation } =
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation, usesDecisionModel } =
         useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
@@ -988,13 +987,13 @@ function EvaluationModelPicker(): JSX.Element {
                             data-attr="evaluation-model-selector"
                         />
                         <ByokModelPickerNotice forEvaluation />
-                        {evaluation?.model_configuration?.provider === 'system_one' && (
+                        {evaluation && usesDecisionModel && (
                             <p className="text-sm text-muted mt-2">
                                 {evaluation.output_type === 'categorical'
-                                    ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+                                    ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
                                     : evaluation.output_type === 'numeric'
-                                      ? 'This judge estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
-                                      : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                      ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+                                      : 'This decision model returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (
