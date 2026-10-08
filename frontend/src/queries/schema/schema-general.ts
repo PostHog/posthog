@@ -4866,6 +4866,9 @@ export type MetricsAggregation =
     | 'increase'
     | 'histogram_quantile'
 
+/** Counter-aware transform applied to each series before any aggregation */
+export type MetricsRangeFunction = 'rate' | 'increase'
+
 export interface MetricsQueryFilter {
     key: string
     op: MetricsFilterOp
@@ -4882,7 +4885,10 @@ export interface MetricsQueryClause {
     /** Alias a formula refers to (e.g. "a"); must be unique within the query */
     name: string
     metricName: string
-    aggregation: MetricsAggregation
+    /** Omit to get one line per series (at most 100), without combining them */
+    aggregation?: MetricsAggregation
+    /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+    rangeFunction?: MetricsRangeFunction
     /** Series identity includes the OTel type — one name can exist as e.g. both a
      * counter and a gauge — so a clause pins it to avoid blending distinct series. */
     metricType?: MetricsOtelType
