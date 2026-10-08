@@ -5964,6 +5964,12 @@ class HogQLNotice(BaseModel):
     fix: str | None = None
     message: str
     start: int | None = None
+    url: str | None = Field(
+        default=None,
+        description=(
+            "An https page with more detail about the notice. The editor links to it from the notice's hover."
+        ),
+    )
 
 
 class HogQLPropertyFilter(BaseModel):

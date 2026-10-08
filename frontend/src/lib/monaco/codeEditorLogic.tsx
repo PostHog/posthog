@@ -234,6 +234,12 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
                                 ? error.fix.slice('ai_prompt:'.length)
                                 : undefined,
+                            // Monaco renders the marker message as plain text.
+                            // The `code` field is the only marker field that Monaco renders as a link.
+                            code:
+                                error.url && props.monaco
+                                    ? { value: 'Learn more', target: props.monaco.Uri.parse(error.url) }
+                                    : undefined,
                         }
                     }
 
