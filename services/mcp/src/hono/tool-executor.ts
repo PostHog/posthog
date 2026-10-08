@@ -1,4 +1,5 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
+import { randomUUID } from 'node:crypto'
 
 import type { PreparedToolCall } from '@posthog/mcp-analytics'
 
@@ -862,9 +863,10 @@ export class ToolExecutor {
      */
     private async callRunCodeTool(
         params: Record<string, unknown> | undefined,
-        state: ResolvedState,
+        callState: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
+        const state: ResolvedState = { ...callState, codeRunId: randomUUID() }
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = runCodeSchema.safeParse(toolArgs)
         if (!validation.success) {

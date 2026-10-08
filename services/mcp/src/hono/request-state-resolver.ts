@@ -64,6 +64,8 @@ export interface ResolvedState {
     gatewayToolsEnabled: boolean
     distinctId: string
     renderUiEnabled: boolean
+    /** Set while a `run_code` script runs, so its own event and every call it makes share one id. */
+    codeRunId?: string
 }
 
 // ─── Pure helpers ───

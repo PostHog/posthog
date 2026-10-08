@@ -70,6 +70,7 @@ function buildBaseProperties(
         ...(requestContext.mcpConversationId ? { $mcp_conversation_id: requestContext.mcpConversationId } : {}),
         $mcp_consumer: clientIdentity.mcpConsumer,
         $mcp_mode: requestContext.mode,
+        ...(state.codeRunId ? { mcp_code_run_id: state.codeRunId } : {}),
         $mcp_region: requestContext.region,
         $mcp_auth_method: requestContext.authMethod,
         // Which kind of caller minted this token — scout, research run, implementation run, or
