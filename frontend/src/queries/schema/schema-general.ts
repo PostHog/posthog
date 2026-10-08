@@ -5871,7 +5871,7 @@ export interface ExperimentApiMetric {
     retention_window_end?: integer
     retention_window_unit?: FunnelConversionWindowTimeUnit
     start_handling?: 'first_seen' | 'last_seen'
-    /** Break the metric results down by up to 3 event or person properties. */
+    /** Break the metric results down by up to 3 event, person, session or group properties. */
     breakdownFilter?: ExperimentApiBreakdownFilter
     /** For funnel metrics with breakdowns: which step the breakdown value is read from.
      *  'all_events' is not supported for experiment funnels. */

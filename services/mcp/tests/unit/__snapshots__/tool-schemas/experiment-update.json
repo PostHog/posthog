@@ -6011,7 +6011,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Break the metric results down by up to 3 event or person properties."
+                                "description": "Break the metric results down by up to 3 event, person, session or group properties."
                             },
                             "completion_event": {
                                 "anyOf": [
@@ -7838,7 +7838,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "Break the metric results down by up to 3 event or person properties."
+                                "description": "Break the metric results down by up to 3 event, person, session or group properties."
                             },
                             "completion_event": {
                                 "anyOf": [

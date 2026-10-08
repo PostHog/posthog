@@ -18355,7 +18355,7 @@ class ExperimentApiMetric(BaseModel):
     )
     breakdownFilter: ExperimentApiBreakdownFilter | None = Field(
         default=None,
-        description=("Break the metric results down by up to 3 event or person properties."),
+        description=("Break the metric results down by up to 3 event, person, session or group properties."),
     )
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."

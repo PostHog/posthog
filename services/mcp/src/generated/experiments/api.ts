@@ -4681,7 +4681,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('Break the metric results down by up to 3 event or person properties.'),
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -5796,7 +5798,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('Break the metric results down by up to 3 event or person properties.'),
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -10806,7 +10810,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('Break the metric results down by up to 3 event or person properties.'),
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -11921,7 +11927,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('Break the metric results down by up to 3 event or person properties.'),
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -16910,7 +16918,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('Break the metric results down by up to 3 event or person properties.'),
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({
@@ -18025,7 +18035,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('Break the metric results down by up to 3 event or person properties.'),
+                                .describe(
+                                    'Break the metric results down by up to 3 event, person, session or group properties.'
+                                ),
                             completion_event: zod
                                 .union([
                                     zod.object({

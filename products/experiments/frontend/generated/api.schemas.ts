@@ -2210,7 +2210,7 @@ export interface ExperimentApiMetricApi {
     breakdownAttributionType?: ExperimentApiBreakdownAttributionTypeApi | null
     /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
     breakdownAttributionValue?: number | null
-    /** Break the metric results down by up to 3 event or person properties. */
+    /** Break the metric results down by up to 3 event, person, session or group properties. */
     breakdownFilter?: ExperimentApiBreakdownFilterApi | null
     /** For retention metrics: completion event. */
     completion_event?: ExperimentApiEventSourceApi | null
