@@ -106,36 +106,40 @@ describe('workflowLogic publish', () => {
         let logic: ReturnType<typeof workflowLogic.build>
         let getCalls: number
         let previewDraftAt: string
+        let duringPreview: () => void
 
         beforeEach(async () => {
+            duringPreview = () => {}
             jest.mocked(openPublishConfirmDialog).mockClear()
             getCalls = 0
+            const serverWorkflow = (draftAt: string): HogFlow => ({
+                ...makeWorkflow([functionStep('a', 'Old')], [functionStep('a', 'New')]),
+                updated_at: draftAt,
+                draft_updated_at: draftAt,
+            })
             useMocks({
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': () => {
                         getCalls += 1
-                        return [
-                            200,
-                            {
-                                ...makeWorkflow([functionStep('a', 'Old')], [functionStep('a', 'New')]),
-                                updated_at: DRAFT_AT,
-                                draft_updated_at: DRAFT_AT,
-                            },
-                        ]
+                        return [200, serverWorkflow(DRAFT_AT)]
                     },
                     '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
                 },
+                patch: { '/api/environments/:team_id/hog_flows/:id/': () => [200, serverWorkflow(NEWER_DRAFT_AT)] },
                 post: {
-                    '/api/environments/:team_id/hog_flows/:id/publish/': () => [
-                        200,
-                        {
-                            published: false,
-                            in_flight_runs: 0,
-                            draft_updated_at: previewDraftAt,
-                            confirm_token: 'token',
-                            impact: null,
-                        },
-                    ],
+                    '/api/environments/:team_id/hog_flows/:id/publish/': () => {
+                        duringPreview()
+                        return [
+                            200,
+                            {
+                                published: false,
+                                in_flight_runs: 0,
+                                draft_updated_at: previewDraftAt,
+                                confirm_token: 'token',
+                                impact: null,
+                            },
+                        ]
+                    },
                 },
             })
             initKeaTests()
@@ -159,8 +163,16 @@ describe('workflowLogic publish', () => {
             expect(getCalls).toBe(1)
         })
 
-        it('waits instead of reloading when the editor saved after the preview read the draft', async () => {
-            previewDraftAt = OLDER_DRAFT_AT
+        it.each([
+            ['the editor saved after the preview read the draft', OLDER_DRAFT_AT, () => {}],
+            [
+                'the user edited while the preview loaded',
+                DRAFT_AT,
+                () => logic.actions.setWorkflowValue('name', 'Edited during the preview'),
+            ],
+        ])('waits instead of opening the dialog or reloading when %s', async (_, draftAt, edit) => {
+            previewDraftAt = draftAt
+            duringPreview = edit
 
             await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
 

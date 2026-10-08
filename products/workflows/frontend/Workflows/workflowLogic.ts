@@ -4044,29 +4044,34 @@ export const workflowLogic = kea<workflowLogicType>([
             if (cache.disposables.isDisposed) {
                 return
             }
+            // The editor stays editable while the preview loads. The preview read the draft before those
+            // edits and their auto-save, so the dialog would publish an older draft. A reload would drop
+            // the edits too, so wait for the save instead of treating it as an outside edit.
+            if (values.hasUnsavedChanges && !autoSaveCanFlush(values)) {
+                lemonToast.info('Save your changes first, then publish.')
+                return
+            }
+            const stagedWorkflow = values.originalWorkflow
+            const ownSaveInFlight =
+                values.hasUnsavedChanges ||
+                values.originalWorkflowLoading ||
+                ((cache.saveContexts as SaveContext[] | undefined) ?? []).length > 0
+            const editorIsAhead =
+                !!stagedWorkflow?.draft_updated_at &&
+                !!preview.draft_updated_at &&
+                dayjs(stagedWorkflow.draft_updated_at).isAfter(dayjs(preview.draft_updated_at))
+            if (ownSaveInFlight || editorIsAhead) {
+                lemonToast.info('Your latest edits are still saving. Publish again in a moment.')
+                return
+            }
+            if (values.isSyncingExternalEdit) {
+                lemonToast.info('The workflow is still saving or loading. Publish again in a moment.')
+                return
+            }
             // The token covers the draft the preview read. When another tab or an agent staged a newer
             // draft than this editor holds, the editor and the dialog would show a draft Publish does not
             // promote, so load the newer draft for review first.
-            const stagedWorkflow = values.originalWorkflow
             if (!stagedWorkflow || !isSameTimestamp(preview.draft_updated_at, stagedWorkflow.draft_updated_at)) {
-                // This editor's own auto-save can land while the preview loads. A reload then would drop
-                // edits typed since that save, so wait for the save instead of treating it as an outside edit.
-                if (values.hasUnsavedChanges && !autoSaveCanFlush(values)) {
-                    lemonToast.info('Save your changes first, then publish.')
-                    return
-                }
-                const ownSaveInFlight =
-                    values.hasUnsavedChanges ||
-                    values.originalWorkflowLoading ||
-                    ((cache.saveContexts as SaveContext[] | undefined) ?? []).length > 0
-                const editorIsAhead =
-                    !!stagedWorkflow?.draft_updated_at &&
-                    !!preview.draft_updated_at &&
-                    dayjs(stagedWorkflow.draft_updated_at).isAfter(dayjs(preview.draft_updated_at))
-                if (ownSaveInFlight || editorIsAhead) {
-                    lemonToast.info('Your latest edits are still saving. Publish again in a moment.')
-                    return
-                }
                 lemonToast.warning('The staged changes were updated elsewhere. Review them, then publish again.')
                 syncWithServerCopy(values, actions)
                 return
