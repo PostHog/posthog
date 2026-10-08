@@ -74,8 +74,8 @@ tools:
             least N times over the last M days') is unsupported; reject it and explain why. Keep each workflow small,
             about 30 steps. Above 50 steps the response carries an _agentNote: propose splitting the workflow instead of
             growing it, as the building-workflows skill describes.
-        hooks: workflows/workflowSizeHooks
         ui_app: workflow
+        hooks: workflows/workflowSizeHooks
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
         enabled: true
@@ -110,8 +110,8 @@ tools:
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
             running. Above 50 steps the response carries an _agentNote: offer the user to split the workflow, as the
             building-workflows skill describes.
-        hooks: workflows/workflowSizeHooks
         ui_app: workflow
+        hooks: workflows/workflowSizeHooks
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
