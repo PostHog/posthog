@@ -54,6 +54,11 @@ pub struct CatalogHandle {
     current_generation: AtomicU64,
     /// Signature of the last stored catalog, to detect a no-op refresh.
     current_signature: AtomicU64,
+    /// Sequence number of the last refresh that started its Postgres read.
+    refreshes_started: AtomicU64,
+    /// Sequence number of the last refresh whose snapshot is stored. Unlike the generation, this
+    /// advances on a no-op refresh too.
+    refreshed_through: AtomicU64,
 }
 
 impl CatalogHandle {
@@ -70,6 +75,8 @@ impl CatalogHandle {
             cascade_enabled,
             current_generation: AtomicU64::new(0),
             current_signature: AtomicU64::new(0),
+            refreshes_started: AtomicU64::new(0),
+            refreshed_through: AtomicU64::new(0),
         }
     }
 
@@ -89,6 +96,22 @@ impl CatalogHandle {
     /// should treat every team as having no realtime cohorts.
     pub fn is_loaded(&self) -> bool {
         self.loaded.load(Ordering::Acquire)
+    }
+
+    /// Stamp for [`Self::refreshed_since`]: the sequence number of the last refresh that started.
+    pub fn refresh_stamp(&self) -> u64 {
+        self.refreshes_started.load(Ordering::Acquire)
+    }
+
+    /// True once a refresh that started after `stamp` was taken has stored its snapshot. Read this
+    /// before [`Self::load_full`]: the release store then guarantees the loaded snapshot is at least
+    /// that fresh.
+    pub fn refreshed_since(&self, stamp: u64) -> bool {
+        self.refreshed_through.load(Ordering::Acquire) > stamp
+    }
+
+    fn begin_refresh(&self) -> u64 {
+        self.refreshes_started.fetch_add(1, Ordering::AcqRel) + 1
     }
 
     /// Resolve once the first refresh has succeeded; immediate if it already has.
@@ -111,7 +134,17 @@ impl CatalogHandle {
         handle
     }
 
+    /// Store `catalog` as a completed refresh (test seam).
+    #[cfg(test)]
+    pub(crate) fn store_for_test(&self, catalog: FilterCatalog) {
+        self.store(catalog);
+    }
+
     fn store(&self, catalog: FilterCatalog) {
+        self.store_refresh(catalog, self.begin_refresh());
+    }
+
+    fn store_refresh(&self, catalog: FilterCatalog, refresh_seq: u64) {
         // Advance the generation only on a content change (`INITIAL` is the first store); a no-op
         // refresh reuses it so memo entries stay valid.
         let signature = catalog_signature(&catalog);
@@ -130,6 +163,7 @@ impl CatalogHandle {
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
         self.catalog.store(Arc::new(catalog));
+        self.refreshed_through.store(refresh_seq, Ordering::Release);
         self.loaded.store(true, Ordering::Release);
         self.loaded_notify.notify_waiters();
     }
@@ -154,6 +188,9 @@ impl CatalogHandle {
     }
 
     async fn refresh_inner(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
+        // Take the sequence number before the read, so a write that lands during the read does not
+        // count as seen.
+        let refresh_seq = self.begin_refresh();
         let mut rows = load_realtime_cohorts(pool).await?;
         let fetched_rows = rows.len();
         retain_allowlisted(&mut rows, &self.allowlist);
@@ -165,12 +202,15 @@ impl CatalogHandle {
             );
         }
         let cascade_enabled = self.cascade_enabled;
-        self.build_and_store(move || build_catalog_from_rows(rows, cascade_enabled))
-            .await
+        self.build_and_store(refresh_seq, move || {
+            build_catalog_from_rows(rows, cascade_enabled)
+        })
+        .await
     }
 
     async fn build_and_store(
         &self,
+        refresh_seq: u64,
         build: impl FnOnce() -> FilterCatalog + Send + 'static,
     ) -> Result<CatalogStats, CatalogRefreshError> {
         let catalog = tokio::task::spawn_blocking(move || {
@@ -185,7 +225,7 @@ impl CatalogHandle {
             teams: catalog.team_count(),
             unique_conditions: catalog.total_unique_conditions(),
         };
-        self.store(catalog);
+        self.store_refresh(catalog, refresh_seq);
         Ok(stats)
     }
 }
@@ -348,7 +388,7 @@ mod tests {
         let handle = CatalogHandle::new();
         let runtime_thread = std::thread::current().id();
         let stats = handle
-            .build_and_store(move || {
+            .build_and_store(handle.begin_refresh(), move || {
                 assert_ne!(std::thread::current().id(), runtime_thread);
                 FilterCatalog::from_teams([(TeamId(7), team_with_one_behavioral())])
             })
@@ -360,7 +400,7 @@ mod tests {
         let snapshot = handle.load_full();
 
         let error = handle
-            .build_and_store(|| panic!("catalog build failed"))
+            .build_and_store(handle.begin_refresh(), || panic!("catalog build failed"))
             .await
             .unwrap_err();
         assert!(matches!(error, CatalogRefreshError::Build(error) if error.is_panic()));
@@ -399,6 +439,24 @@ mod tests {
             team_with_one_behavioral(),
         )]));
         assert_eq!(handle.load().generation(), Generation(1));
+    }
+
+    #[test]
+    fn refreshed_since_counts_only_a_refresh_that_started_after_the_stamp() {
+        let handle = CatalogHandle::new();
+        let in_flight = handle.begin_refresh();
+        let stamp = handle.refresh_stamp();
+        handle.store_refresh(FilterCatalog::new(), in_flight);
+        assert!(
+            !handle.refreshed_since(stamp),
+            "a refresh whose read began before the stamp can miss a newer write",
+        );
+
+        handle.store(FilterCatalog::new());
+        assert!(
+            handle.refreshed_since(stamp),
+            "a no-op refresh still counts"
+        );
     }
 
     #[test]
