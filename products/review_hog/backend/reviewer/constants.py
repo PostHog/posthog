@@ -79,18 +79,10 @@ REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
 # (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
 FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
 
-# While the switch is on, a Flash PR above either limit falls back to the pipeline. Both limits count
-# only the reviewable files that fetch keeps. The single-agent design reviews a PR of any size (larger
-# lens parts, a trimmed main diff), so turning the switch off sends every Flash PR to it.
-FLASH_LARGE_PR_FALLBACK_TO_PIPELINE = True
-FLASH_SINGLE_AGENT_MAX_CHANGED_LINES = 2500
-FLASH_SINGLE_AGENT_MAX_FILES = 40
-
 # Why a turn runs on its design. The review-started event reports it next to the design.
 REVIEW_DESIGN_REASON_FULL_MODE = "full_mode"
 REVIEW_DESIGN_REASON_DEFAULT = "default"
 REVIEW_DESIGN_REASON_KILL_SWITCH = "kill_switch"
-REVIEW_DESIGN_REASON_SIZE_FALLBACK = "size_fallback"
 
 
 @frozen
@@ -99,19 +91,18 @@ class ReviewDesignChoice:
     reason: str
 
 
-def select_review_design(
-    review_mode: str, *, changed_lines: int, changed_files: int, kill_switch_on: bool
-) -> ReviewDesignChoice:
-    """The design one turn runs on: the single agent for a Flash turn, unless the size fallback sends it back."""
+def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDesignChoice:
+    """The design one turn runs on: the single agent for a Flash turn of any size, the pipeline otherwise.
+
+    The single agent reviews a large PR in larger lens parts with a trimmed main diff, so PR size never
+    sends a Flash turn to the pipeline.
+    """
     if review_mode != REVIEW_MODE_FLASH:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
     if kill_switch_on:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
     if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
         return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
-    too_large = changed_lines > FLASH_SINGLE_AGENT_MAX_CHANGED_LINES or changed_files > FLASH_SINGLE_AGENT_MAX_FILES
-    if FLASH_LARGE_PR_FALLBACK_TO_PIPELINE and too_large:
-        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_SIZE_FALLBACK)
     return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
 
 

@@ -709,8 +709,6 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # The flag is read here, never in the workflow, so a replay reads the recorded choice.
     design_choice = select_review_design(
         input.review_mode,
-        changed_lines=sum(f.additions + f.deletions for f in pr_files),
-        changed_files=len(pr_files),
         kill_switch_on=input.review_mode == REVIEW_MODE_FLASH and flash_pipeline_kill_switch_on(input.team_id),
     )
     logger.info("Turn runs on the %s design (%s)", design_choice.design, design_choice.reason)

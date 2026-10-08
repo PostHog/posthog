@@ -293,13 +293,12 @@ optional `suggestion_code` posts as a GitHub suggestion block only when the inli
 range. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
 
-While `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE` is on, a Flash PR over 2,500 changed lines or 40 files (reviewable files
-only) falls back to the **pipeline design** (`reviewhog-flash-1-1`), the steps below. The
-`reviewhog-flash-pipeline-kill-switch` feature flag (organization-keyed, read in the fetch activity by
-`reviewer/feature_flags.py`) moves Flash turns back to the pipeline without a deploy; a flag evaluation error reads as
-off. `FLASH_DESIGN_DEFAULT` is the code default. Full turns always run the pipeline. `reviewhog_review_started` reports
-the choice as `review_design` and its cause as `review_design_reason` (`full_mode`, `default`, `kill_switch`,
-`size_fallback`).
+A Flash turn of any size runs the single-agent design. The **pipeline design** (`reviewhog-flash-1-1`), the steps
+below, runs a Flash turn only when the `reviewhog-flash-pipeline-kill-switch` feature flag is on (organization-keyed,
+read in the fetch activity by `reviewer/feature_flags.py`). The flag moves Flash turns back to the pipeline without a
+deploy; a flag evaluation error reads as off. `FLASH_DESIGN_DEFAULT` is the code default. Full turns always run the
+pipeline. `reviewhog_review_started` reports the choice as `review_design` and its cause as `review_design_reason`
+(`full_mode`, `default`, `kill_switch`).
 
 ### Step-by-step (as orchestrated by `ReviewPRWorkflow`)
 
