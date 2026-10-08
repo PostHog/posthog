@@ -1114,6 +1114,39 @@ mod tests {
     }
 
     #[test]
+    fn a_hot_keys_backlog_leaves_in_capped_runs_while_other_keys_keep_moving() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = packing_batcher(2, Duration::ZERO, 2, now);
+        let (batcher, effects) = batcher.on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("hot", &[1, 2, 3, 4, 5, 6]), run("other", &[10])],
+        );
+        assert_eq!(
+            effects.sends.iter().map(shape).collect::<Vec<_>>(),
+            vec![vec![("hot", vec![1, 2])], vec![("other", vec![10])]]
+        );
+
+        let (failed, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, failed, FailureCause::Fault, messages);
+        let retry_at = now + FAULT_DELAY;
+        let (mut batcher, effects) = batcher.on_wakeup(retry_at, &workers);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("hot", vec![1, 2])]);
+
+        let mut request = effects.sends[0].request;
+        for expected in [vec![3, 4], vec![5, 6]] {
+            let effects;
+            (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, request, 2);
+            assert_eq!(shape(&effects.sends[0]), vec![("hot", expected)]);
+            request = effects.sends[0].request;
+        }
+    }
+
+    #[test]
     fn the_pack_budget_starts_when_a_slot_frees_not_when_messages_arrive() {
         let now = Instant::now();
         let budget = Duration::from_millis(30);

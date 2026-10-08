@@ -940,4 +940,27 @@ mod tests {
             vec![("a", vec![1], false), ("c", vec![3], false)]
         );
     }
+
+    #[test]
+    fn a_push_past_the_run_cap_starts_a_new_segment_and_runs_leave_in_order() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new(RunCap {
+            messages: NonZeroUsize::new(2),
+            bytes: None,
+        });
+        let messages = |offsets: &[i64]| offsets.iter().map(|&o| message("a", 0, o)).collect();
+        queues.push(key("a"), 0, messages(&[1, 2, 3]), now);
+        queues.push(key("a"), 0, messages(&[4, 5]), now);
+        assert_eq!(queues.keys[&key("a")].segments.len(), 3);
+
+        for expected in [vec![1, 2], vec![3, 4], vec![5]] {
+            assert_eq!(
+                claimed(&take_all(&mut queues, now)),
+                vec![("a", expected, false)]
+            );
+            queues
+                .settle(&key("a"), Vec::new(), None, now)
+                .expect("claimed");
+        }
+    }
 }
