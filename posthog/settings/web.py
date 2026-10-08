@@ -1265,6 +1265,10 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
+# IdPs issue ID-JAGs for immediate use (5 minutes is typical); the cap leaves headroom above that.
+ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS: int = get_from_env(
+    "ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS", 60 * 10, type_cast=int
+)
 ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
