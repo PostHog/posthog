@@ -5006,15 +5006,15 @@ Note: The spec has 365 paths. PostHog's `projects` table maps to /api/v1/session
 
 ## Lattice — gaps
 
-Today (6): `departments`, `feedbacks`, `goals`, `review_cycles`, `updates`, `users`
+Today (10): `departments`, `feedbacks`, `goal_updates`, `goals`, `review_cycles`, `reviewees`, `reviews`, `tags`, `updates`, `users`
 
 Diffed against: <https://developers.lattice.com/reference>
 
-- [ ] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
-- [ ] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
-- [ ] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
+- [x] `GET /v1/reviewCycle/{id}/reviews (also /v1/reviewee/{id}/reviews)` — the actual performance reviews - the core analytical object of the review cycles already synced (high)
+- [x] `GET /v1/reviewCycle/{id}/reviewees` — membership table mapping users to review cycles, needed for participation and completion analysis (high)
+- [x] `GET /v1/goals/updates (and /v1/goals/{id}/updates)` — goal progress history - the state/transition trail behind the goals table; distinct from the synced 'updates' resource (high)
 - [ ] `GET /v1/user/{id}/tasks` — task records tied to goals and users, commonly wanted for follow-through analysis (medium)
-- [ ] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
+- [x] `GET /v1/tags` — lookup resolving tag ids that appear on goals, users and feedback (medium)
 - [ ] `GET /v1/user/{id}/customAttributes (+ /v1/customAttribute/{id}, /v1/customAttributeValue/{id})` — custom HR attributes per user plus the lookup that decodes their ids - the main segmentation dimension (medium)
 - [ ] `GET /v1/question/{id} and /v1/questionRevision/{id}` — lookup resolving question ids carried on reviews and feedback (fetch-by-id only, no list endpoint) (low)
 - [ ] `GET /v1/competency/{id}` — competency lookup referenced by review questions and ratings (low)
