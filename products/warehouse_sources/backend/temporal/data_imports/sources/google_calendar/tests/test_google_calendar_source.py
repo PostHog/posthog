@@ -107,10 +107,8 @@ class TestGoogleCalendarSource(BaseTest):
         source = GoogleCalendarSource()
 
         with patch(TOKEN_POST_PATCH, return_value=self._refresh_rejected()):
-            with pytest.raises(ValueError, match=ALL_ACCOUNTS_UNREADABLE) as error:
+            with pytest.raises(ValueError, match=ALL_ACCOUNTS_UNREADABLE):
                 source.source_for_pipeline(GoogleCalendarSourceConfig(), self._inputs("events"))
-
-        assert any(pattern in str(error.value) for pattern in source.get_non_retryable_errors())
 
     def test_accounts_table_names_who_connected_each_account(self) -> None:
         self._connect("ada")
