@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.c
     REPORTING_EVENTS_UNAVAILABLE_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
     RESPONSE_TOO_SLOW_ERROR,
+    RETRYABLE_API_ERROR,
     ChatwootResumeConfig,
     chatwoot_source,
     create_webhook as create_chatwoot_webhook,
@@ -180,6 +181,17 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
             HTTP_NOT_ALLOWED_ERROR: "The Chatwoot host must use HTTPS. Please update the instance URL to use https://.",
             RESPONSE_TOO_LARGE_ERROR: "Chatwoot returned a response that was too large to process. Please contact support if this persists.",
             RESPONSE_TOO_SLOW_ERROR: "Chatwoot took too long to send a response. Check that the instance URL points at a healthy Chatwoot server, then try again.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # _fetch_json raises this on a 429 or 5xx only after its own backoff runs out, and Temporal
+        # then retries the activity. The fault is on the customer's Chatwoot server, so log it at
+        # warning instead of opening an error tracking issue.
+        return {RETRYABLE_API_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            RETRYABLE_API_ERROR: "Your Chatwoot server kept returning errors (rate limit or server error) after several retries. Check that your Chatwoot instance is healthy and reachable. The sync will run again on its next schedule.",
         }
 
     def get_schemas(
