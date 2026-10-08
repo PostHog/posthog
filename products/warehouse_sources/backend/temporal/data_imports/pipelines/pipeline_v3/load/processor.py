@@ -110,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
@@ -1144,6 +1145,20 @@ def _process_message_reported(
                 batch_index=export_signal.batch_index,
             )
             return
+
+        if export_signal.sync_type == "incremental" and export_signal.cdc_write_mode is None:
+            rebuild = TableRebuildRun(schema.sync_type_config)
+            if any(rebuild.replaces(run_uuid) for run_uuid, _ in members):
+                if constituents is not None:
+                    raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
+                logger.info(
+                    "rebuild_batch_of_replaced_attempt_skipped",
+                    team_id=export_signal.team_id,
+                    external_data_schema_id=export_signal.schema_id,
+                    run_uuid=export_signal.run_uuid,
+                    batch_index=export_signal.batch_index,
+                )
+                return
 
         with timer.step("idempotency_check"):
             if constituents is not None:

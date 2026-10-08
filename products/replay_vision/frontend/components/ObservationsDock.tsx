@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
@@ -20,6 +21,7 @@ import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { LIMIT_REACHED_TOOLTIP } from '../replay_scanners/scannerCopy'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { currentReturnPath } from '../utils/breadcrumbs'
 import {
     BUILT_IN_SUMMARY_LABEL,
     dockObservations,
@@ -248,6 +250,7 @@ function ObservationsDockContent({
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const returnPath = currentReturnPath(useValues(router).location)
     const seekToTime = (ms: number): void => {
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
@@ -350,6 +353,7 @@ function ObservationsDockContent({
                                 onSeek={seekToTime}
                                 onRetry={() => retryObservation(observation.id)}
                                 retrying={retryingObservationIds.includes(observation.id)}
+                                returnPath={returnPath}
                             />
                         ))
                     )}

@@ -25,7 +25,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership, Team, User
 
 from products.signals.backend.artefact_schemas import (
     Commit,
@@ -102,6 +102,7 @@ class Command(BaseCommand):
 
         team = self._get_team(options["team_id"])
         user_id = self._resolve_user_id(team, options["user_id"])
+        user_uuid = str(User.objects.values_list("uuid", flat=True).get(id=user_id))
         fixtures = self._load_fixtures()
         count = options["count"] or len(fixtures)
 
@@ -116,7 +117,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  · {report.status:<13} {result.title[:70]} ({name})")
 
             self._add_extra_log_artefacts(team.id, str(report.id), repository, index)
-            self._add_suggested_reviewers(team.id, str(report.id), repository, index)
+            self._add_suggested_reviewers(team.id, str(report.id), repository, index, user_uuid)
             if options["with_runs"]:
                 self._seed_task_run(team, user_id, report, repository, index)
             created += 1
@@ -244,7 +245,9 @@ class Command(BaseCommand):
             attribution=ArtefactAttribution.system(),
         )
 
-    def _add_suggested_reviewers(self, team_id: int, report_id: str, repository: str, index: int) -> None:
+    def _add_suggested_reviewers(
+        self, team_id: int, report_id: str, repository: str, index: int, user_uuid: str
+    ) -> None:
         # Reviewers are normally derived from finding commit hashes via GitHub, which won't resolve
         # locally — so seed them directly. Counts vary (1..7) so some reports exercise the list-overflow.
         reviewer_count = 1 + (index % 7)
@@ -265,6 +268,8 @@ class Command(BaseCommand):
             )
             for i in range(reviewer_count)
         ]
+        # The seeding user leads the list, so the reports reach their Today home, which shows only reports naming them.
+        entries.insert(0, SuggestedReviewerEntry(user_uuid=user_uuid, reason="Owns the affected surface."))
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
