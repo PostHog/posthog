@@ -253,7 +253,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   otherwise void the cap. P2 and then P3 findings fill the slots left under the cap. This reverses the earlier rule
   that dropped every P3: a P3 posts when the turn has room for it.
 - **Publishing.** Every kept finding posts inline. `review_priorities_for` and the status comment's low-priority list
-  are removed.
+  are removed. Both designs now publish the same way, so the publish path, its inputs, and the standalone
+  `publish_review` command no longer carry the design.
 - **Dropped findings.** Every finding that dedup or the cap drops persists as a `dropped_finding` artefact with its
   disposition, what it repeats, its rank and the cap, so a later analysis and a judge pass can measure what each rule
   costs. A new artefact type, not a disposition column on `issue_finding`, because every reader of `issue_finding`
@@ -314,7 +315,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
   prompt files, the dedup prompt, the stage pins, and its arm. Events carry `review_design`
   and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
-- **Superseded.** The arm, the P3 status-comment list, and the fixed size fallback changed in the 2026-10-08 entry above.
+- **Superseded.** The arm, the P3 status-comment list, the fixed size fallback, and the republish design read changed in
+  the 2026-10-08 entry above.
 - **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
   stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the
   accept-as-found note as the validator note. The standalone `publish_review` command reads the turn's design from its

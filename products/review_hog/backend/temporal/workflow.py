@@ -688,7 +688,6 @@ class ReviewPRWorkflow:
                     urgency_threshold=acting.urgency_threshold,
                     # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
                     will_publish=publishes_to_pr,
-                    review_design=review_design,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -712,7 +711,6 @@ class ReviewPRWorkflow:
                         urgency_threshold=acting.urgency_threshold,
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
-                        review_design=review_design,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

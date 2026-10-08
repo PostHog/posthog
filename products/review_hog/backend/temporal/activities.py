@@ -424,7 +424,6 @@ class BuildBodyInput:
     # idle write to publish so the report never reads at-rest with the post still in flight.
     # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
     will_publish: bool = False
-    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @dataclass(frozen=False)
@@ -440,7 +439,6 @@ class PublishInput:
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
-    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @dataclass
@@ -1659,7 +1657,6 @@ def _publish(input: PublishInput) -> PublishResult:
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
         review_mode=input.review_mode,
-        review_design=input.review_design,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(

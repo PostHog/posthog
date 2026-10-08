@@ -12,7 +12,6 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import (
     LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     PRIORITY_LABELS,
-    REVIEW_DESIGN_PIPELINE,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
@@ -83,7 +82,6 @@ def publish_persisted_review(
     urgency_threshold: IssuePriority,
     installation_id: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
-    review_design: str = REVIEW_DESIGN_PIPELINE,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 

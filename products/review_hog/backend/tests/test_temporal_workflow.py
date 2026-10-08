@@ -335,7 +335,6 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="build_body_activity")
     async def build_body(input: BuildBodyInput) -> None:
         threshold_calls.append(("body", input.urgency_threshold))
-        _saw_design("body", input.review_design)
         finalize_will_publish.append(input.will_publish)
         return None
 
@@ -343,7 +342,6 @@ async def _run_full_review_pr_workflow(
     async def publish_act(input: PublishInput) -> PublishResult:
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
-        _saw_design("publish", input.review_design)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
 
@@ -694,7 +692,7 @@ async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_a
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == [7]
-    assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "body", "publish", "track")}
+    assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "track")}
 
 
 @pytest.mark.asyncio
