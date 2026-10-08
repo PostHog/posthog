@@ -4,25 +4,25 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
-from django.db import transaction
-
 from posthog.dataclasses import frozen
 
 from products.data_catalog.backend.facade.api import certifications_for_team, certify, deprecate, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import (
     MaterializationFailedError,
+    MaterializationForbiddenError,
     MaterializationRefusedError,
     SavedQueryNotFoundError,
     enable_saved_query_materialization,
     get_saved_query_summary,
 )
-from products.warehouse_sources.backend.facade.api import all_queryable_table_names
+from products.warehouse_sources.backend.facade.api import get_queryable_table
 
 from ..facade.contracts import (
     AcceptFailedError,
     MaterializePayload,
     RefreshIntervalRefusedError,
+    SubjectEditAccessRequiredError,
     SuggestionAlreadyDecidedError,
     SuggestionPayload,
     SuggestionSubjectGoneError,
@@ -98,6 +98,8 @@ class MaterializeAcceptor(Acceptor):
             )
         except SavedQueryNotFoundError:
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        except MaterializationForbiddenError:
+            raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
         except MaterializationRefusedError as error:
             raise RefreshIntervalRefusedError(str(error))
         except MaterializationFailedError as error:
@@ -134,18 +136,18 @@ def _resolve_quietly(team_id: int, suggestion_id: UUID) -> None:
 
 
 def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
-    with transaction.atomic():
-        suggestion = WarehouseSuggestion.objects.for_team(team_id).select_for_update().get(id=suggestion_id)
-        status = WarehouseSuggestionStatus(suggestion.status)
-        if status == WarehouseSuggestionStatus.ACCEPTED:
-            return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
-        if status != WarehouseSuggestionStatus.PROPOSED:
-            raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
-        kind = WarehouseSuggestionKind(suggestion.kind)
-        if not _subject_exists(suggestion):
-            raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind(suggestion.subject_kind))
-        payload = payload_from_json(kind, suggestion.payload_version, suggestion.payload)
-        created_asset = ACCEPTORS[kind].accept(suggestion, payload, request)
+    suggestion = WarehouseSuggestion.objects.for_team(team_id).get(id=suggestion_id)
+    status = WarehouseSuggestionStatus(suggestion.status)
+    if status == WarehouseSuggestionStatus.ACCEPTED:
+        return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
+    if status != WarehouseSuggestionStatus.PROPOSED:
+        raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
+    if not _subject_exists(suggestion):
+        raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind(suggestion.subject_kind))
+    kind = WarehouseSuggestionKind(suggestion.kind)
+    payload = payload_from_json(kind, suggestion.payload_version, suggestion.payload)
+    created_asset = ACCEPTORS[kind].accept(suggestion, payload, request)
+    try:
         accepted = transition_to(
             suggestion.id,
             team_id,
@@ -154,12 +156,17 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
             created_asset=created_asset,
             transitions=HUMAN_TRANSITIONS,
         )
-        return AcceptOutcome(suggestion=accepted, newly_accepted=True)
+    except SuggestionAlreadyDecidedError:
+        current = WarehouseSuggestion.objects.for_team(team_id).get(id=suggestion_id)
+        if current.status != WarehouseSuggestionStatus.ACCEPTED:
+            raise
+        return AcceptOutcome(suggestion=current, newly_accepted=False)
+    return AcceptOutcome(suggestion=accepted, newly_accepted=True)
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:
     if suggestion.subject_kind == WarehouseSuggestionSubjectKind.TABLE:
-        return suggestion.subject_id in all_queryable_table_names(suggestion.team_id)
+        return get_queryable_table(suggestion.subject_id, suggestion.team_id) is not None
     return get_saved_query_summary(suggestion.team_id, suggestion.subject_id) is not None
 
 

@@ -1,12 +1,13 @@
 from dataclasses import replace
 from uuid import UUID
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
@@ -45,29 +46,38 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
 }
 
 
+def create_view_in_dag(team: Team, user: User) -> DataWarehouseSavedQuery:
+    view = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        name="orders",
+        query={"kind": "HogQLQuery", "query": "SELECT timestamp, event FROM events"},
+        created_by=user,
+    )
+    Node.objects.create(
+        team=team,
+        dag=DAG.objects.create(team=team, name=f"posthog_{team.id}"),
+        name="orders",
+        saved_query=view,
+        type=NodeType.VIEW,
+    )
+    return view
+
+
+def suggest(team_id: int, view_id: UUID, kind: WarehouseSuggestionKind) -> WarehouseSuggestion:
+    draft = make_draft(fingerprint=f"{kind}:orders", subject_id=view_id)
+    return ingest_surfaced(team_id, replace(draft, kind=kind, payload=PAYLOADS[kind]))
+
+
 class TestAcceptSuggestion(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch(FLAG, return_value=True))
         self.enterContext(patch.object(DataWarehouseSavedQuery, "schedule_materialization"))
         self.url = f"/api/projects/{self.team.id}/warehouse_suggestions"
-        self.view = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="orders",
-            query={"kind": "HogQLQuery", "query": "SELECT timestamp, event FROM events"},
-            created_by=self.user,
-        )
-        Node.objects.create(
-            team=self.team,
-            dag=DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}"),
-            name="orders",
-            saved_query=self.view,
-            type=NodeType.VIEW,
-        )
+        self.view = create_view_in_dag(self.team, self.user)
 
     def _suggest(self, kind: WarehouseSuggestionKind) -> WarehouseSuggestion:
-        draft = make_draft(fingerprint=f"{kind}:orders", subject_id=self.view.id)
-        return ingest_surfaced(self.team.id, replace(draft, kind=kind, payload=PAYLOADS[kind]))
+        return suggest(self.team.id, self.view.id, kind)
 
     def _accept(self, suggestion_id: UUID, body: dict | None = None) -> dict:
         response = self.client.post(f"{self.url}/{suggestion_id}/accept/", body or {})
@@ -147,3 +157,26 @@ class TestAcceptSuggestion(APIBaseTest):
         assert WarehouseSuggestion.objects.for_team(self.team.id).get(id=suggestion.id).status == (
             WarehouseSuggestionStatus.AUTO_RESOLVED
         )
+
+
+class TestAcceptOutsideATransaction(NonAtomicAPIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch(FLAG, return_value=True))
+        self.enterContext(patch("products.data_modeling.backend.schedule.get_v2_saved_query_ids", return_value=set()))
+        self.enterContext(patch.object(DataWarehouseSavedQuery, "_start_immediate_materialization"))
+        self.view = create_view_in_dag(self.team, self.user)
+
+    def test_a_failed_first_schedule_keeps_the_materialize_suggestion_open(self) -> None:
+        suggestion = suggest(self.team.id, self.view.id, WarehouseSuggestionKind.MATERIALIZE)
+
+        with patch(
+            "products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules",
+            side_effect=RuntimeError("temporal is down"),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/warehouse_suggestions/{suggestion.id}/accept/")
+
+        suggestion.refresh_from_db()
+        self.view.refresh_from_db()
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.json()
+        assert (suggestion.status, self.view.is_materialized) == (WarehouseSuggestionStatus.PROPOSED, False)
