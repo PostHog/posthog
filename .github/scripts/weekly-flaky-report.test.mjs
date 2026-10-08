@@ -64,7 +64,7 @@ describe('weekly flaky report', () => {
         assert.ok(table)
         assert.deepEqual(
             table.rows[0].map((tableCell) => tableCell.text),
-            ['test', 'runner', 'owner', 'quarantine', 'PRs', 'failed runs', 'recovered runs', 'logs']
+            ['test', 'runner', 'owner', 'quarantine', 'PRs', 'failed runs', 'passed on retry', 'logs']
         )
         // The edit-workflow context block may still render when Actions env vars are set;
         // only the action footer has to be gone.

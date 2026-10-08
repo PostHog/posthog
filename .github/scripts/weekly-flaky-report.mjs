@@ -485,28 +485,12 @@ function flakyTable(rows) {
                 cell('quarantine'),
                 cell('PRs'),
                 cell('failed runs'),
-                cell('recovered runs'),
+                cell('passed on retry'),
                 cell('logs'),
             ],
             ...rows,
         ],
     }
-}
-
-const COLUMN_LEGEND = {
-    type: 'context',
-    elements: [
-        {
-            type: 'mrkdwn',
-            text: [
-                '*Failed runs* counts each CI run where the test failed, including runs that a quarantine kept green.',
-                '*Recovered runs* counts each run where the same commit failed and passed the test.',
-                '*Quarantine* shows the Trunk repair deadline (fix by), a missed deadline (overdue since), or the quarantine start date (since). Yes means quarantined with no date available. Quarantine continues until removed. Flagged means Trunk lists the test but CI failures are not masked. A fraction counts masked cluster members.',
-                'A count with a + covers several tests in one file and is a minimum.',
-                'Tests with only expected failures (xfail), including file quarantines, are omitted.',
-            ].join(' '),
-        },
-    ],
 }
 
 const teamLabel = (owner) => owner.replace(/^team-/, '')
@@ -516,12 +500,11 @@ function buildThreadSliceBlocks({ owner, rows }, note) {
     return [
         { type: 'section', text: { type: 'mrkdwn', text: `*${teamLabel(owner)}* _(${note})_` } },
         flakyTable(rows),
-        COLUMN_LEGEND,
     ]
 }
 
 function reportBlocks(title, rows, footerLinks) {
-    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: title } }, flakyTable(rows), COLUMN_LEGEND]
+    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: title } }, flakyTable(rows)]
     if (footerLinks.length > 0) {
         blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: footerLinks.join(' · ') }] })
     }
