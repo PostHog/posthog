@@ -6,7 +6,7 @@ from typing import Any
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.facade.contracts import CreatedTaskDTO
+from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
 
 from .models import PlaygroundChat, PlaygroundTurn
 from .sandbox import (
@@ -18,6 +18,7 @@ from .sandbox import (
     load_sandbox_run,
     lock_owner_admission,
     open_sandbox_task_ids,
+    resume_sandbox_run,
     start_sandbox_run,
 )
 
@@ -64,7 +65,12 @@ def serialize_playground_chat(*, chat: PlaygroundChat, user_id: int) -> dict[str
 
 
 def serialize_playground_turn(turn: PlaygroundTurn, *, user_id: int) -> dict[str, Any]:
-    run = load_sandbox_run(task_id=str(turn.task_id), team_id=turn.team_id, user_id=user_id)
+    run = load_sandbox_run(
+        task_id=str(turn.task_id),
+        team_id=turn.team_id,
+        user_id=user_id,
+        run_id=None if turn.run_id is None else str(turn.run_id),
+    )
     return {
         "id": turn.id,
         "question": turn.question,
@@ -89,25 +95,54 @@ def ask_playground_chat(*, chat: PlaygroundChat, team: Team, user_id: int, quest
             raise SandboxRunLimitReached()
 
     def record_turn(created: CreatedTaskDTO) -> None:
+        run = created.latest_run
+        if run is None:
+            raise RuntimeError("Sandbox task was created without a run")
         last = PlaygroundTurn.objects.filter(chat=chat).order_by("-position").values_list("position", flat=True).first()
         PlaygroundTurn.objects.create(
             team_id=chat.team_id,
             chat=chat,
             question=question,
             task_id=created.task_id,
+            run_id=run.id,
             position=0 if last is None else last + 1,
         )
+        update_fields = ["updated_at"]
+        if chat.task_id is None:
+            chat.task_id = created.task_id
+            update_fields.append("task_id")
         if not chat.title:
             chat.title = _title_for(question)
-            chat.save(update_fields=["title", "updated_at"])
-        else:
-            chat.save(update_fields=["updated_at"])
+            update_fields.append("title")
+        chat.save(update_fields=update_fields)
 
-    start_sandbox_run(
-        team=team,
-        user_id=user_id,
-        question=question,
-        admit=admit_one_run_per_chat,
-        on_admitted=record_turn,
-    )
+    def remember_current_run(previous: TaskRunDTO) -> None:
+        PlaygroundTurn.objects.filter(chat=chat, task_id=previous.task_id, run_id__isnull=True).update(
+            run_id=previous.id
+        )
+
+    chat.refresh_from_db(fields=["task_id", "title"])
+    task_id = chat.task_id
+    if task_id is None:
+        task_id = (
+            PlaygroundTurn.objects.filter(chat=chat).order_by("-position").values_list("task_id", flat=True).first()
+        )
+    if task_id is None:
+        start_sandbox_run(
+            team=team,
+            user_id=user_id,
+            question=question,
+            admit=admit_one_run_per_chat,
+            on_admitted=record_turn,
+        )
+    else:
+        resume_sandbox_run(
+            team=team,
+            user_id=user_id,
+            task_id=task_id,
+            question=question,
+            admit=admit_one_run_per_chat,
+            on_admitted=record_turn,
+            before_create=remember_current_run,
+        )
     return serialize_playground_chat(chat=chat, user_id=user_id)
