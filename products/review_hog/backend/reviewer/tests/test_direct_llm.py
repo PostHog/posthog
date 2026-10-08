@@ -166,13 +166,14 @@ async def test_stage_labels_both_gateway_dialects() -> None:
     assert client.messages.stream.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "dedup"}
 
 
-def _openai_client(content: str, finish_reason: str) -> MagicMock:
+def _openai_client(content: str | None, finish_reason: str | None) -> MagicMock:
     choice = MagicMock(finish_reason=finish_reason)
     choice.message.content = content
     client = MagicMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
-    client.chat.completions.create = AsyncMock(return_value=MagicMock(choices=[choice]))
+    choices = [] if content is None else [choice]
+    client.chat.completions.create = AsyncMock(return_value=MagicMock(choices=choices))
     return client
 
 
@@ -196,11 +197,12 @@ async def _openai_call() -> IssueDeduplication:
         ('{"duplicates": [{"id": "1-1-1"}]}', "stop", None),
         ('{"duplicates": [', "stop", False),
         ('{"duplicates": [', "length", True),
+        (None, None, False),
     ],
-    ids=["valid", "invalid_json_retries", "truncated_fails_fast"],
+    ids=["valid", "invalid_json_retries", "truncated_fails_fast", "no_choices_retries"],
 )
 async def test_openai_oneshot_validates_its_reply_like_the_anthropic_path(
-    content: str, finish_reason: str, non_retryable: bool | None
+    content: str | None, finish_reason: str | None, non_retryable: bool | None
 ) -> None:
     # An unvalidated reply would reach dedup as a dict, and a raw ValidationError is too large for
     # Temporal's failure serialization. The call must also keep its stage label and strict schema.
@@ -208,6 +210,7 @@ async def test_openai_oneshot_validates_its_reply_like_the_anthropic_path(
 
     with patch(f"{_MODULE}.build_async_openai_client", return_value=client) as mock_get:
         if non_retryable is None:
+            assert content is not None
             assert await _openai_call() == IssueDeduplication.model_validate_json(content)
         else:
             with pytest.raises(ApplicationError) as exc_info:

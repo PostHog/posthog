@@ -156,6 +156,8 @@ async def run_oneshot_openai_review(
             )
         except openai.APIError as e:
             raise _compact_api_error(step_name, e) from None
+    if not response.choices:
+        raise ApplicationError(f"One-shot {step_name} returned no choices")
     choice = response.choices[0]
     if choice.finish_reason == "length" or not choice.message.content:
         raise ApplicationError(
