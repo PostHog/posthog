@@ -206,3 +206,9 @@ DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_M
 DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
 )
+
+# Consecutive configuration errors (bad credentials, unknown database, unreachable host) after which
+# PostHog pauses a destination instead of letting every scheduled run fail against it.
+DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES = get_from_env(
+    "DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES", 3, type_cast=int
+)

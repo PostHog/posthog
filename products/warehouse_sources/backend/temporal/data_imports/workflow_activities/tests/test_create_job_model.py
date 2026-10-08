@@ -15,10 +15,18 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSourceDestination,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NO_ACTIVE_DESTINATIONS_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     SourceOrSchemaDeletedError,
@@ -339,6 +347,34 @@ class TestCreateJobActivityStatusOrdering:
         )
 
         assert outputs.failed_runs_in_a_row == 4
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
+    @patch(f"{MODULE}.is_multi_destination_enabled", return_value=True)
+    def test_a_table_whose_every_destination_is_paused_fails_before_the_job_exists(
+        self, _mock_flag: MagicMock, _mock_lock: MagicMock, mock_activity: MagicMock, _mock_close: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        destination = ExternalDataDestination.objects.for_team(team.id).create(
+            team_id=team.id, type=ExternalDataDestination.Type.REDSHIFT, name="paused"
+        )
+        ExternalDataSourceDestination.objects.for_team(team.id).create(
+            team_id=team.id, source=schema.source, destination=destination, enabled=False
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=True
+                )
+            )
+
+        assert str(exc_info.value.cause) == NO_ACTIVE_DESTINATIONS_MESSAGE
+        assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
 
 
 @pytest.mark.django_db

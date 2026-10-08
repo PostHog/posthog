@@ -45,6 +45,20 @@ export interface SyncedSourceApi {
     via_table_override: boolean
 }
 
+/**
+ * * `healthy` - Healthy
+ * * `failing` - Failing
+ * * `paused` - Paused
+ */
+export type ExternalDataDestinationStatusEnumApi =
+    (typeof ExternalDataDestinationStatusEnumApi)[keyof typeof ExternalDataDestinationStatusEnumApi]
+
+export const ExternalDataDestinationStatusEnumApi = {
+    Healthy: 'healthy',
+    Failing: 'failing',
+    Paused: 'paused',
+} as const
+
 export interface ExternalDataDestinationApi {
     readonly id: string
     /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -79,6 +93,22 @@ export interface ExternalDataDestinationApi {
     readonly updated_at: string | null
     /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
     readonly synced_sources: readonly SyncedSourceApi[]
+    /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+     *
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused */
+    readonly status: ExternalDataDestinationStatusEnumApi
+    /**
+     * The last delivery error, safe to show to the user. Null if no delivery has failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /**
+     * When the last delivery error occurred.
+     * @nullable
+     */
+    readonly latest_error_at: string | null
 }
 
 export interface PaginatedExternalDataDestinationListApi {
@@ -124,6 +154,22 @@ export interface PatchedExternalDataDestinationApi {
     readonly updated_at?: string | null
     /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
     readonly synced_sources?: readonly SyncedSourceApi[]
+    /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+     *
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused */
+    readonly status?: ExternalDataDestinationStatusEnumApi
+    /**
+     * The last delivery error, safe to show to the user. Null if no delivery has failed.
+     * @nullable
+     */
+    readonly latest_error?: string | null
+    /**
+     * When the last delivery error occurred.
+     * @nullable
+     */
+    readonly latest_error_at?: string | null
 }
 
 export interface AddSourcesRequestApi {
