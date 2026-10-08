@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -16,7 +16,7 @@ def _datetime_field(name: str) -> IncrementalField:
 @dataclass
 class TwelveLabsEndpointConfig:
     name: str
-    # `path` may contain a `{index_id}` placeholder for fan-out endpoints.
+    # `path` may contain an `{index_id}` or `{asset_id}` placeholder for fan-out endpoints.
     path: str
     incremental_fields: list[IncrementalField]
     # Field to partition by. Must be a STABLE creation-time field so partitions don't rewrite
@@ -24,10 +24,13 @@ class TwelveLabsEndpointConfig:
     partition_key: Optional[str] = "created_at"
     primary_keys: list[str] = field(default_factory=lambda: ["_id"])
     should_sync_default: bool = True
-    # Fan out one paginated request per index (used by the videos endpoint, which is nested
-    # under an index). When True, `path` is a template with an `{index_id}` placeholder and the
-    # parent index id is injected into every row.
-    fan_out_over_indexes: bool = False
+    # Fan out one request per parent index or asset. `path` is then a template with the parent's
+    # placeholder, and the parent id is injected into every row.
+    fan_out_over: Optional[Literal["indexes", "assets"]] = None
+    # The child returns one object per parent instead of a paginated `data` list.
+    single_object: bool = False
+    # Extra static query params sent with every request to this endpoint.
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 # Twelve Labs list endpoints all use page-number pagination (page + page_limit, max 50) and expose
@@ -60,7 +63,24 @@ TWELVE_LABS_ENDPOINTS: dict[str, TwelveLabsEndpointConfig] = {
         incremental_fields=[],
         primary_keys=["index_id", "_id"],
         should_sync_default=False,
-        fan_out_over_indexes=True,
+        fan_out_over="indexes",
+    ),
+    # One transcription per video or audio asset, fetched with one request per asset. The endpoint
+    # has no list form and no time filter, so it ships as full refresh, which also picks up
+    # transcriptions that move from pending/processing to ready. Assets without a transcription 404
+    # and are skipped. Partitioned on the parent asset's creation time, the only stable timestamp.
+    # Word-level segmentation is left out: it multiplies row size for little analytical value over
+    # sentences and speaker turns. Off by default because of the per-asset API cost.
+    "asset_transcriptions": TwelveLabsEndpointConfig(
+        name="asset_transcriptions",
+        path="/assets/{asset_id}/transcription",
+        incremental_fields=[],
+        partition_key="asset_created_at",
+        primary_keys=["asset_id"],
+        should_sync_default=False,
+        fan_out_over="assets",
+        single_object=True,
+        params={"include": "sentences,utterances"},
     ),
 }
 
