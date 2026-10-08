@@ -45,7 +45,7 @@ Placeholder: `Search or ask PostHog AI… try is:dashboard`.
 
 Input controls, carried over from the current palette:
 
-- **Press Tab to ask AI** shows while Tab would ask AI: there is a query and the highlighted row is not a filter row. Clicking it does the same as Tab.
+- **Press Tab to ask AI** shows while Tab would ask AI: there is a query, no filter key, and the highlighted row is not a filter row. Clicking it does the same as Tab.
 - **Clear (×)** shows whenever there is text or a chip, and clears both.
 - **Cancel** closes the palette. It shows only with the `today-rail-nav` UI at narrow widths, where the footer hides, as in the current palette.
 
@@ -96,7 +96,9 @@ The input is always in exactly one mode, decided from the token under the cursor
   2. In-memory lists, filtered on every keystroke: **Products**, **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**.
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
   4. **Ask PostHog AI**.
-- With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
+- With any filter (a chip, or a valid `key:value` still being typed), only **Results** shows, because filters apply only to objects.
+- PostHog AI ignores filters, so it is not offered while there is a filter key in the input (a filter, or a `key:` whose value is being typed). Neither **Press Tab to ask AI** nor the **Ask PostHog AI** row shows, and Tab does not ask AI.
+- When a filtered search finds nothing, the list shows an empty state: "No results", with a **Clear search** outline button that clears the input and returns focus to it.
 
 ## Smart filters
 
@@ -159,17 +161,17 @@ These are the rules reviewers check. Breaking one is a bug.
 
 ## Keyboard
 
-| Key                     | Action                                                                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `↑` / `↓`               | Move highlight. Wraps at ends. Skips section headers.                                                                       |
-| `↵`                     | Filter key or value row: complete it. Result row: open it.                                                                  |
-| `⌘↵`                    | Open result in a new tab.                                                                                                   |
-| `Tab`                   | Highlighted key or value row: complete it. Any other row, with a query: ask PostHog AI. With neither, focus moves as usual. |
-| `Space`                 | After `key:value`, commits the chip.                                                                                        |
-| `⌫` at start of text    | First press selects the previous chip. Second press removes it.                                                             |
-| `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.                                           |
-| `←` / `→` at text edges | Move between chips.                                                                                                         |
-| `Esc`                   | Text in the input: clear it. Empty input: close the palette.                                                                |
+| Key                     | Action                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `↑` / `↓`               | Move highlight. Wraps at ends. Skips section headers.                                                                 |
+| `↵`                     | Filter key or value row: complete it. Result row: open it.                                                            |
+| `⌘↵`                    | Open result in a new tab.                                                                                             |
+| `Tab`                   | Key or value row: complete it. Other rows, with a query and no filter key: ask PostHog AI. Else focus moves as usual. |
+| `Space`                 | After `key:value`, commits the chip.                                                                                  |
+| `⌫` at start of text    | First press selects the previous chip. Second press removes it.                                                       |
+| `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.                                     |
+| `←` / `→` at text edges | Move between chips.                                                                                                   |
+| `Esc`                   | Text in the input: clear it. Empty input: close the palette.                                                          |
 
 ## Edge cases
 
@@ -178,7 +180,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Pasted query** (`is:flag createdBy:me checkout`): parse into chips immediately.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
-- **Ask PostHog AI**: always the last section in Search mode, with the raw input text (chips included as text) as the question.
+- **Ask PostHog AI**: always the last section in Search mode when there is no filter key, with the raw input text as the question.
 
 ## Out of scope for v1
 
@@ -194,3 +196,5 @@ Every step emits an event so we can see adoption and drop-off:
 - `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste)
 - `command k result opened` (section, position, has_filters, filter_keys, query_length)
 - `command k search abandoned` (closed with no result opened; last mode, had_filters)
+- `command k no results shown` (a filtered search found nothing; filter_keys)
+- `command k search cleared` (source: clear-button, escape, no-results; had_filters, filter_keys)

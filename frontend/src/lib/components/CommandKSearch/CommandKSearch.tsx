@@ -6,12 +6,13 @@ import { ScrollArea } from '@posthog/quill'
 import { CommandKSearchFooter } from './CommandKSearchFooter'
 import { COMMAND_K_LISTBOX_ID, CommandKSearchInput } from './CommandKSearchInput'
 import { commandKSearchLogic } from './commandKSearchLogic'
+import { CommandKSearchNoResults } from './CommandKSearchNoResults'
 import { rowDomId } from './CommandKSearchRow'
 import { CommandKSearchSection } from './CommandKSearchSection'
 
 /** Command K search with smart filters. The UX contract lives in COMMAND_K_SEARCH_UX.md next to this file. */
 export function CommandKSearch(): JSX.Element {
-    const { sections, highlightedRow } = useValues(commandKSearchLogic)
+    const { sections, highlightedRow, showNoResults } = useValues(commandKSearchLogic)
     const highlightedKey = highlightedRow?.key ?? null
 
     useEffect(() => {
@@ -56,6 +57,7 @@ export function CommandKSearch(): JSX.Element {
                         <CommandKSearchSection key={section.key} section={section} highlightedKey={highlightedKey} />
                     ))}
                 </div>
+                {showNoResults && <CommandKSearchNoResults />}
             </ScrollArea>
             <CommandKSearchFooter />
         </div>
