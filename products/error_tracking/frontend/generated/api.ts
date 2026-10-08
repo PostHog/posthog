@@ -89,6 +89,7 @@ import type {
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
+    LatestValidSymbolSetResponseApi,
     PaginatedErrorTrackingAlertListApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingBypassRuleListApi,
@@ -2079,4 +2080,18 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
             body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
         }
     )
+}
+
+export const getErrorTrackingSymbolSetsLatestValidRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/symbol_sets/latest_valid/`
+}
+
+export const errorTrackingSymbolSetsLatestValidRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LatestValidSymbolSetResponseApi> => {
+    return apiMutator<LatestValidSymbolSetResponseApi>(getErrorTrackingSymbolSetsLatestValidRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

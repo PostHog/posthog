@@ -685,7 +685,6 @@ const errorTrackingSymbolSetsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/symbol_sets/`,
             query: {
-                include_count: params.include_count,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,

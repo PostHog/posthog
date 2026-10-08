@@ -1,5 +1,3 @@
-from typing import Any
-
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, status, viewsets
@@ -181,10 +179,12 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
         choices=["created_at", "-created_at", "ref", "-ref", "last_used", "-last_used"],
         help_text="Sort order for symbol sets. Prefix with `-` for descending order.",
     )
-    include_count = serializers.BooleanField(
-        required=False,
-        default=True,
-        help_text="Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.",
+
+
+class LatestValidSymbolSetResponseSerializer(serializers.Serializer):
+    symbol_set = ErrorTrackingSymbolSetSerializer(
+        allow_null=True,
+        help_text="Newest symbol set with an uploaded source map, or null if none exists.",
     )
 
 
@@ -197,11 +197,6 @@ class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
 class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
-    def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
-        response_schema = super().get_paginated_response_schema(schema)
-        response_schema["properties"]["count"]["nullable"] = True
-        return response_schema
-
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
@@ -209,7 +204,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     pagination_class = ErrorTrackingSymbolSetPagination
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
-    scope_object_read_actions = ["list", "retrieve", "download"]
+    scope_object_read_actions = ["list", "retrieve", "latest_valid", "download"]
     scope_object_write_actions = [
         "bulk_check_upload",
         "bulk_start_upload",
@@ -239,10 +234,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 order_by=params.get("order_by"),
                 limit=limit,
                 offset=offset,
-                include_count=params["include_count"],
             ),
-            include_count=params["include_count"],
         )
+
+    @extend_schema(
+        responses={200: LatestValidSymbolSetResponseSerializer},
+        extensions={"x-internal": True},
+    )
+    @action(methods=["GET"], detail=False, parser_classes=[JSONParser])
+    def latest_valid(self, request: Request, *args, **kwargs) -> Response:
+        symbol_set = symbol_sets_facade.get_latest_valid_symbol_set(self.team.id)
+        return Response(LatestValidSymbolSetResponseSerializer({"symbol_set": symbol_set}).data)
 
     def retrieve(self, request: Request, *args, pk=None, **kwargs) -> Response:
         symbol_set = symbol_sets_facade.get_symbol_set(self.team.id, pk)

@@ -8,13 +8,10 @@ from rest_framework.response import Response
 
 # A facade fetcher takes (limit, offset) and returns (page_items, total_count).
 # limit is None when pagination is disabled, in which case the whole result set is returned.
-# total_count is None when the caller asked the facade to skip the count.
-FacadeFetcher = Callable[[int | None, int], tuple[list[Any], int | None]]
+FacadeFetcher = Callable[[int | None, int], tuple[list[Any], int]]
 
 
-def paginate_via_facade(
-    view: GenericAPIView, request: Request, fetch_page: FacadeFetcher, *, include_count: bool = True
-) -> Response:
+def paginate_via_facade(view: GenericAPIView, request: Request, fetch_page: FacadeFetcher) -> Response:
     """Render a DRF ``LimitOffsetPagination`` envelope from a facade function that pushes
     ``LIMIT``/``OFFSET``/``COUNT`` into SQL.
 
@@ -27,9 +24,6 @@ def paginate_via_facade(
 
     Reusable across product list views (releases, stack frames, spike events — and the symbol-set
     list once it is thinned).
-
-    With ``include_count=False`` the response ``count`` is ``null``. The helper fetches one extra row
-    instead, so the ``next`` link stays correct without a ``COUNT`` query.
     """
     paginator = view.paginator
     if not isinstance(paginator, LimitOffsetPagination):
@@ -42,21 +36,11 @@ def paginate_via_facade(
         return Response(view.get_serializer(items, many=True).data)
 
     offset = paginator.get_offset(request)
-    if include_count:
-        items, total = fetch_page(limit, offset)
-    else:
-        items, _total = fetch_page(limit + 1, offset)
-        has_next = len(items) > limit
-        items = items[:limit]
-        # The paginator derives the next link from the count. This count is past the page only when a next page exists.
-        total = offset + len(items) + int(has_next)
+    items, total = fetch_page(limit, offset)
     # Set the count/limit/offset/request the paginator would normally derive in paginate_queryset,
     # so get_paginated_response and the next/previous links resolve correctly.
     paginator.count = total
     paginator.limit = limit
     paginator.offset = offset
     paginator.request = request
-    response = paginator.get_paginated_response(view.get_serializer(items, many=True).data)
-    if not include_count:
-        response.data["count"] = None
-    return response
+    return paginator.get_paginated_response(view.get_serializer(items, many=True).data)

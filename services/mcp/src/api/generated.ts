@@ -60184,6 +60184,11 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LatestValidSymbolSetResponse {
+      /** Newest symbol set with an uploaded source map, or null if none exists. */
+      symbol_set: ErrorTrackingSymbolSet | null;
+    }
+
     /**
      * * `preserve` - preserve
      * * `two_column` - two_column
@@ -68887,8 +68892,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedErrorTrackingSymbolSetList {
-      /** @nullable */
-      count: number | null;
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -119478,10 +119482,6 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingSymbolSetsListParams = {
-    /**
-     * Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.
-     */
-    include_count?: boolean;
     /**
      * Number of results to return per page.
      */

@@ -2209,8 +2209,7 @@ export interface ErrorTrackingSymbolSetApi {
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
-    /** @nullable */
-    count: number | null
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -2329,6 +2328,11 @@ export type ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap = {
 export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
+}
+
+export interface LatestValidSymbolSetResponseApi {
+    /** Newest symbol set with an uploaded source map, or null if none exists. */
+    symbol_set: ErrorTrackingSymbolSetApi | null
 }
 
 export type ErrorTrackingAlertsListParams = {
@@ -2570,10 +2574,6 @@ export type ErrorTrackingSuppressionRulesListParams = {
 }
 
 export type ErrorTrackingSymbolSetsListParams = {
-    /**
-     * Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.
-     */
-    include_count?: boolean
     /**
      * Number of results to return per page.
      */
