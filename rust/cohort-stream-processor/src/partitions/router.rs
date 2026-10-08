@@ -371,6 +371,7 @@ impl PartitionRouter {
     /// Drop the sender for `partition`, signalling the worker to shut down. Idempotent.
     pub fn remove_partition(&self, partition: i32) {
         if self.channels.remove(&partition).is_some() {
+            zero_channel_depth(partition);
             self.emit_active_gauge();
         }
     }
@@ -378,7 +379,11 @@ impl PartitionRouter {
     /// Drop every sender and terminally close the router. All later `add_partition` calls refuse.
     pub fn clear(&self) {
         self.closed.store(true, Ordering::SeqCst);
+        let partitions: Vec<i32> = self.channels.iter().map(|entry| *entry.key()).collect();
         self.channels.clear();
+        for partition in partitions {
+            zero_channel_depth(partition);
+        }
         self.emit_active_gauge();
     }
 
@@ -603,6 +608,12 @@ impl PartitionRouter {
     }
 }
 
+/// The live lane's depth is only sampled on send, so without this a revoked partition keeps its
+/// last depth.
+fn zero_channel_depth(partition: i32) {
+    gauge!(PARTITION_CHANNEL_DEPTH, "partition" => partition.to_string()).set(0.0);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,6 +786,35 @@ mod tests {
 
         assert_eq!(tags(&rx1.live.try_recv().unwrap()), vec![100]);
         assert!(rx1.live.try_recv().is_err());
+    }
+
+    #[test]
+    fn revoking_a_partition_zeroes_its_channel_depth() {
+        for clear in [false, true] {
+            let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+            let handle = recorder.handle();
+            let router = PartitionRouter::new(16);
+            let _inbox = router.add_partition(5).unwrap();
+
+            metrics::with_local_recorder(&recorder, || {
+                router.try_route_batch(vec![(5, event(1))]);
+                assert!(handle
+                    .render()
+                    .contains("partition_channel_depth{partition=\"5\"} 1"));
+                if clear {
+                    router.clear();
+                } else {
+                    router.remove_partition(5);
+                }
+            });
+
+            assert!(
+                handle
+                    .render()
+                    .contains("partition_channel_depth{partition=\"5\"} 0"),
+                "clear={clear}: a revoked partition must not keep its last depth",
+            );
+        }
     }
 
     #[tokio::test]

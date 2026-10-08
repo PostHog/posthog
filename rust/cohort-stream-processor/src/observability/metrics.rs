@@ -233,11 +233,13 @@ pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "tokio_idle_blocking_threads";
 /// Tasks waiting for a blocking thread (gauge).
 pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
 
-/// Partitions with a live worker channel registered on the router (gauge).
+/// Partitions with a live worker channel registered on the router (gauge). Each pod reports its
+/// own value, so this is the owned-partition count per pod.
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 /// Messages dropped while routing (no live worker), labelled by `reason` (counter).
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
-/// Sub-batches queued in a partition worker's live lane, labelled by `partition` (gauge).
+/// Sub-batches queued in a partition worker's live lane, labelled by `partition` (gauge). A revoke
+/// zeroes the series.
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 /// Events held back because a partition worker's live lane was full, labelled by `partition`
 /// (counter). Backpressure, not loss: the partition is paused and its events redispatch once the
@@ -430,6 +432,10 @@ pub const SWEEP_READ_CHUNK_BYTES: &str = "sweep_read_chunk_bytes";
 /// across ticks means eviction is not keeping up with the wave, which the evicted counter alone
 /// cannot show.
 pub const SWEEP_QUEUE_LAG_SECONDS: &str = "sweep_queue_lag_seconds";
+/// Keys in a partition's eviction queue, labelled by `partition` (gauge). Set on each sweep request
+/// and batch, and zeroed when the worker exits. The queue lives in memory, so a climb here shows
+/// up as pod memory.
+pub const SWEEP_QUEUE_KEYS: &str = "sweep_queue_keys";
 /// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter).
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
 /// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter).
