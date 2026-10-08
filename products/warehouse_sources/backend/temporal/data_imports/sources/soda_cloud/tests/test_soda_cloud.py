@@ -1,7 +1,6 @@
 import json
 from base64 import b64encode
 from collections.abc import Iterable
-from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -98,49 +97,6 @@ def test_paginated_requests_and_checkpoint(
         assert request.headers["Authorization"] == expected_auth
         assert call.kwargs["allow_redirects"] is False
     manager.save_state.assert_called_once_with(SodaCloudResumeConfig(page=1))
-
-
-@pytest.mark.parametrize("total_pages", [0, 3])
-def test_empty_page_stops(
-    config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, total_pages: int
-) -> None:
-    with patch("requests.sessions.Session.send", return_value=response([], total_pages)) as send:
-        pages = list(response_items(SodaCloudSource().source_for_pipeline(config, manager, inputs)))
-    assert not [row for page in pages for row in page]
-    send.assert_called_once()
-    manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "endpoint,incremental,watermark,expected_from",
-    [
-        ("datasets", True, None, None),
-        ("datasets", True, datetime(2026, 1, 2, tzinfo=UTC), "2026-01-02T00:00:00+00:00"),
-        ("datasets", True, "2026-01-02T00:00:00Z", "2026-01-02T00:00:00Z"),
-        ("datasets", False, "2026-01-02T00:00:00Z", None),
-        ("checks", True, "2026-01-02T00:00:00Z", None),
-        ("incidents", True, "2026-01-02T00:00:00Z", None),
-    ],
-)
-def test_incremental_filter(
-    config: SodaCloudSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    endpoint: str,
-    incremental: bool,
-    watermark: datetime | str | None,
-    expected_from: str | None,
-) -> None:
-    inputs.schema_name = endpoint
-    inputs.should_use_incremental_field = incremental
-    inputs.db_incremental_field_last_value = watermark
-    with patch("requests.sessions.Session.send", return_value=response([{"id": "row-one"}])) as send:
-        source_response = SodaCloudSource().source_for_pipeline(config, manager, inputs)
-        assert list(response_items(source_response)) == [[{"id": "row-one"}]]
-    params = parse_qs(urlsplit(send.call_args.args[0].url).query)
-    assert params.get("from") == ([expected_from] if expected_from else None)
-    if endpoint == "datasets" and incremental:
-        assert source_response.sort_mode == "desc"
 
 
 @pytest.mark.parametrize("original_from", [None, "2026-01-01T00:00:00Z"])

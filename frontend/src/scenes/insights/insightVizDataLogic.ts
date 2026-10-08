@@ -177,7 +177,21 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
 ]
+
+/** The parts a proportion bar draws: one per result row, leaving out a previous period saved with compare on. */
+function proportionBarPartCount(query: InsightQueryNode, insightData: Record<string, any> | null): number | undefined {
+    const result = insightData?.result
+    if (
+        !isTrendsQuery(query) ||
+        query.trendsFilter?.display !== ChartDisplayType.ActionsProportionBar ||
+        !Array.isArray(result)
+    ) {
+        return undefined
+    }
+    return result.reduce((count: number, row) => (row?.compare_label === 'previous' ? count : count + 1), 0)
+}
 
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type
 // to the keys shared by every insight kind, dropping fields like samplingFactor that only some have
@@ -893,7 +907,8 @@ export interface insightVizDataLogicMeta {
                 | TrendsQuery
                 | WebOverviewQuery
                 | WebStatsTableQuery
-                | null
+                | null,
+            insightData: Record<string, any>
         ) => boolean | null | undefined
         legendPosition: (
             querySource:
@@ -1640,7 +1655,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return false
                 }
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
-                    return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
+                    return (
+                        display !== ChartDisplayType.WorldMap &&
+                        display !== ChartDisplayType.CalendarHeatmap &&
+                        display !== ChartDisplayType.ActionsProportionBar
+                    )
                 }
                 // Funnel compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes.
                 // FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
@@ -1878,7 +1897,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource: InsightQueryNode | null) => (querySource ? getAnnotationsScope(querySource) : null),
         ],
         showLegend: [
-            (s) => [s.querySource],
+            (s) => [s.querySource, s.insightData],
             (
                 q:
                     | FunnelsQuery
@@ -1889,8 +1908,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | null
                     | import('~/queries/schema/schema-general').PathsQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
-                    | import('~/queries/schema/schema-general').WebStatsTableQuery
-            ) => (q ? getShowLegend(q) : null),
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                insightData: Record<string, any> | null
+            ) => (q ? getShowLegend(q, proportionBarPartCount(q, insightData)) : null),
         ],
         legendPosition: [
             (s) => [s.querySource],

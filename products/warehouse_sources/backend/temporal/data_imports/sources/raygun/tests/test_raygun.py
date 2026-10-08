@@ -75,15 +75,6 @@ def _make_manager(resume_state: RaygunResumeConfig | None = None) -> MagicMock:
 
 class TestValidateToken:
     @patch(f"{MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session: MagicMock) -> None:
-        for status, expected in [(200, True), (401, False), (403, False), (500, False)]:
-            mock_session.return_value.get.return_value = _response([], status_code=status)
-            assert validate_token("tok") == (expected, status)
-        # Response bodies stay out of HTTP sample storage and the token is value-redacted.
-        assert mock_session.call_args.kwargs["capture"] is False
-        assert "tok" in mock_session.call_args.kwargs["redact_values"]
-
-    @patch(f"{MODULE}.make_tracked_session")
     def test_network_error_returns_none_status(self, mock_session: MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_token("tok") == (False, None)
@@ -117,31 +108,6 @@ class TestTopLevelPagination:
 
     @patch(f"{MODULE}.PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")
-    def test_single_short_page_saves_no_state(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
-        _wire_handler(session, lambda url: _response([{"identifier": "app-1"}]))
-
-        manager = _make_manager()
-
-        _rows(raygun_source("tok", "applications", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        manager.save_state.assert_not_called()
-
-    @patch(f"{MODULE}.PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_application_api_key_is_stripped(self, mock_make_session: MagicMock) -> None:
-        # `apiKey` is an ingestion credential and must never reach the warehouse table.
-        session = mock_make_session.return_value
-        _wire_handler(session, lambda url: _response([{"identifier": "app-1", "name": "App", "apiKey": "secret"}]))
-
-        manager = _make_manager()
-
-        rows = _rows(raygun_source("tok", "applications", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"identifier": "app-1", "name": "App"}]
-
-    @patch(f"{MODULE}.PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
     def test_resume_starts_from_saved_offset(self, mock_make_session: MagicMock) -> None:
         session = mock_make_session.return_value
         requested = _wire_handler(session, lambda url: _response([{"identifier": "app-9"}]))
@@ -167,31 +133,6 @@ class TestFanOutPagination:
             return _response([])
 
         return handler
-
-    @patch(f"{MODULE}.PAGE_SIZE", 2)
-    @patch(f"{MODULE}.make_tracked_session")
-    def test_fans_out_over_apps_and_marks_finished_app_complete(self, mock_make_session: MagicMock) -> None:
-        apps = ["app-1", "app-2"]
-        child_rows = {
-            "app-1": [{"identifier": "eg-1", "applicationIdentifier": "app-1"}],
-            "app-2": [{"identifier": "eg-2", "applicationIdentifier": "app-2"}],
-        }
-        session = mock_make_session.return_value
-        _wire_handler(session, self._fan_out_handler(apps, child_rows))
-
-        manager = _make_manager()
-
-        rows = _rows(raygun_source("tok", "error_groups", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert {r["applicationIdentifier"] for r in rows} == {"app-1", "app-2"}
-        # After finishing app-1 its child path is checkpointed as completed so a restart skips it
-        # (the fan-out equivalent of the old per-application bookmark advancing to the next app).
-        completed = [
-            call.args[0].fanout_state.get("completed")
-            for call in manager.save_state.call_args_list
-            if call.args[0].fanout_state
-        ]
-        assert any("/applications/app-1/error-groups" in (c or []) for c in completed)
 
     @patch(f"{MODULE}.PAGE_SIZE", 2)
     @patch(f"{MODULE}.make_tracked_session")

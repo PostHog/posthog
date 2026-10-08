@@ -126,6 +126,9 @@ export function BIToolbar(): JSX.Element {
             />
             <LemonDivider vertical />
             <BIDateControls />
+            {config.comparisonPeriod && (
+                <span className="text-xs text-secondary">Comparison window of this reference range</span>
+            )}
             <LemonDivider vertical />
             <LemonButton
                 size="small"

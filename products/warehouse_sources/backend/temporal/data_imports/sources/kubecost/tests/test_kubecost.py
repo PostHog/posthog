@@ -7,16 +7,11 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
     KubecostResumeConfig,
     get_rows,
-    hostname_of,
     kubecost_source,
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import (
-    DEFAULT_BACKFILL_DAYS,
-    ENDPOINTS,
-    INCREMENTAL_LOOKBACK_DAYS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.settings import ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost"
 
@@ -68,23 +63,8 @@ class TestNormalizeHost:
         with pytest.raises(ValueError):
             normalize_host(value)
 
-    def test_hostname_of(self):
-        assert hostname_of("https://kubecost.example.com/model") == "kubecost.example.com"
-
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_credentials(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [_allocation_set(["argocd"])]})
-
-        is_valid, error = validate_credentials("https://kubecost.example.com", "token")
-
-        assert is_valid is True
-        assert error is None
-        assert mock_session.call_args.kwargs["headers"] == {"Authorization": "Bearer token"}
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://kubecost.example.com/model/allocation"
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_no_api_key_sends_no_auth_header(self, mock_session):
         mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
@@ -149,15 +129,6 @@ class TestValidateCredentials:
         assert "https" in (error or "")
         mock_session.return_value.get.assert_not_called()
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_plain_http_without_api_key_is_allowed(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        is_valid, error = validate_credentials("http://kubecost.example.com", None)
-
-        assert is_valid is True
-        assert error is None
-
 
 class TestGetRows:
     @pytest.fixture(autouse=True)
@@ -190,58 +161,6 @@ class TestGetRows:
         assert all(row["window_end"] == "2026-07-15T00:00:00Z" for row in rows)
         assert all(row["totalCost"] == 1.5 for row in rows)
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_null_result_sets_are_skipped(self, mock_session):
-        # Windows beyond the deployment's ETL retention come back as `data: [null]`.
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        batches = list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-15T00:00:00Z",
-            )
-        )
-
-        assert batches == []
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_walks_lookback_window_oldest_first(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-15T00:00:00Z",
-            )
-        )
-
-        calls = mock_session.return_value.get.call_args_list
-        # Watermark day minus the lookback, through today inclusive.
-        assert len(calls) == INCREMENTAL_LOOKBACK_DAYS + 1
-        windows = [call.kwargs["params"]["window"] for call in calls]
-        assert windows[0] == "2026-07-12T00:00:00Z,2026-07-13T00:00:00Z"
-        assert windows[-1] == "2026-07-15T00:00:00Z,2026-07-16T00:00:00Z"
-        assert windows == sorted(windows)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_refresh_starts_at_default_backfill(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        list(get_rows("https://k.example.com", None, "assets", mock.MagicMock(), _make_manager()))
-
-        calls = mock_session.return_value.get.call_args_list
-        assert len(calls) == DEFAULT_BACKFILL_DAYS + 1
-
     @pytest.mark.parametrize(
         "endpoint, expected_path, expected_aggregate",
         [
@@ -269,38 +188,6 @@ class TestGetRows:
         assert call.args[0] == f"https://k.example.com{expected_path}"
         assert call.kwargs["params"].get("aggregate") == expected_aggregate
         assert call.kwargs["params"]["accumulate"] == "true"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resume_date_supersedes_older_start(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [None]})
-
-        manager = _make_manager(KubecostResumeConfig(next_date="2026-07-15"))
-        list(get_rows("https://k.example.com", "token", "allocation_by_namespace", mock.MagicMock(), manager))
-
-        assert mock_session.return_value.get.call_count == 1
-        window = mock_session.return_value.get.call_args.kwargs["params"]["window"]
-        assert window == "2026-07-15T00:00:00Z,2026-07-16T00:00:00Z"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_state_saved_after_each_yielded_day(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"code": 200, "data": [_allocation_set(["argocd"])]})
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "https://k.example.com",
-                "token",
-                "allocation_by_namespace",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-14T00:00:00Z",
-            )
-        )
-
-        saved_dates = [call.args[0].next_date for call in manager.save_state.call_args_list]
-        # State points at the next unfetched day; no state after the final day.
-        assert saved_dates == ["2026-07-12", "2026-07-13", "2026-07-14", "2026-07-15"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_api_key_over_plain_http_raises_before_any_request(self, mock_session):

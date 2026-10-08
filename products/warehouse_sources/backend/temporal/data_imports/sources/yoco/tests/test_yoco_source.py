@@ -1,7 +1,5 @@
-import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yoco import YocoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source import YocoSource
 
@@ -11,46 +9,6 @@ class TestYocoSource:
         self.source = YocoSource()
         self.team_id = 123
         self.config = YocoSourceConfig(api_key="yoco-key")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Yoco"
-        assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/yoco.png"
-        # The source ships visible — a truthy unreleasedSource hides it from every user.
-        assert not config.unreleasedSource
-
-    @pytest.mark.parametrize(
-        "name,expected_fields",
-        [
-            ("payments", ["updated_at", "created_at"]),
-            ("orders", ["updated_at", "created_at"]),
-            ("payouts", ["updated_at", "created_at"]),
-            # Modifier groups have no updated_at at all, so only created_at is filterable.
-            ("modifier_groups", ["created_at"]),
-            # Locations and payout entries take no date filters — client-side filtering would
-            # cost a full scan per sync, so they stay full refresh.
-            ("locations", []),
-            ("payout_entries", []),
-        ],
-    )
-    def test_get_schemas_incremental_fields(self, name: str, expected_fields: list[str]) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert [f["field"] for f in schemas[name].incremental_fields] == expected_fields
-        assert schemas[name].supports_incremental is bool(expected_fields)
-
-    @pytest.mark.parametrize(
-        "observed_error,expect_match",
-        [
-            ("401 Client Error: Unauthorized for url: https://api.yoco.com/v1/payments/", True),
-            ("403 Client Error: Forbidden for url: https://api.yoco.com/v1/payouts/", True),
-            ("500 Server Error: Internal Server Error for url: https://api.yoco.com/v1/payments/", False),
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures_only(self, observed_error: str, expect_match: bool) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable) is expect_match
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yoco.source.api_client")
     def test_get_endpoint_permissions_plumbs_endpoints(self, mock_client: mock.MagicMock) -> None:

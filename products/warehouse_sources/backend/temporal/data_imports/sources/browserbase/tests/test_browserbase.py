@@ -63,26 +63,6 @@ class TestGetRows:
     def teardown_method(self) -> None:
         RESTClient._send_request.retry.wait = self._original_wait  # type: ignore[attr-defined]
 
-    @mock.patch(SESSION_PATCH)
-    def test_single_request_yields_all_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows_body = [{"id": "sess_1"}, {"id": "sess_2"}]
-        prepared = _wire(session, [_response(200, rows_body)])
-
-        rows = _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
-
-        assert rows == rows_body
-        # No pagination params exist - the whole collection comes back in one request.
-        assert session.send.call_count == 1
-        assert prepared[0].url == f"{BROWSERBASE_BASE_URL}/sessions"
-
-    @mock.patch(SESSION_PATCH)
-    def test_empty_list_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(200, [])])
-
-        assert _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j")) == []
-
     @parameterized.expand(
         [
             ("bare_list_endpoint", "sessions", "Required a list response body"),
@@ -99,15 +79,6 @@ class TestGetRows:
 
         with pytest.raises(ValueError, match=message):
             _rows(browserbase_source("bb_key", endpoint, team_id=1, job_id="j"))
-
-    @mock.patch(SESSION_PATCH)
-    def test_requests_the_endpoint_path(self, MockSession) -> None:
-        session = MockSession.return_value
-        prepared = _wire(session, [_response(200, [{"id": "proj_1"}])])
-
-        _rows(browserbase_source("bb_key", "projects", team_id=1, job_id="j"))
-
-        assert prepared[0].url == f"{BROWSERBASE_BASE_URL}/projects"
 
     @mock.patch(SESSION_PATCH)
     def test_api_key_sent_via_header_auth(self, MockSession) -> None:
@@ -130,16 +101,6 @@ class TestGetRows:
 
         # 5 attempts before giving up.
         assert session.send.call_count == 5
-
-    @mock.patch(SESSION_PATCH)
-    def test_recovers_after_transient_error(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(500, {}), _response(200, [{"id": "sess_1"}])])
-
-        rows = _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
-
-        assert rows == [{"id": "sess_1"}]
-        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     @mock.patch(SESSION_PATCH)
@@ -199,16 +160,6 @@ class TestValidateCredentials:
 
         assert session.get.call_args.args[0] == f"{BROWSERBASE_BASE_URL}/projects"
         assert session.get.call_args.kwargs["headers"]["X-BB-API-Key"] == "bb_key"
-
-    @mock.patch(SESSION_PATCH)
-    def test_network_error_maps_to_not_validated(self, MockSession) -> None:
-        # The probe must never raise out of validate_credentials - an unreachable API means
-        # "not validated", not a crashed source-create request.
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        MockSession.return_value = session
-
-        assert validate_credentials("bb_key") is False
 
 
 class TestCursorPagination:

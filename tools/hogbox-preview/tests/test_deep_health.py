@@ -141,7 +141,7 @@ class OverrideTemporalParityTest(unittest.TestCase):
         stack = PostHogPreviewStack(backend)
         stack.write_override()
         override = backend.files[f"{stack.repo_dir}/{stack.OVERRIDE}"]
-        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 2)
+        self.assertEqual(override.count(f"SECRET_KEY={stack.secret_key}"), 3)
 
     def test_worker_pins_the_image(self):
         # dev-full's worker carries `build: .` — an unpinned image turns
@@ -163,7 +163,7 @@ class OverrideTemporalParityTest(unittest.TestCase):
     def test_both_services_force_the_local_warehouse_path(self):
         # A preview runs DEBUG=0, so USE_LOCAL_SETUP has to be forced or every
         # warehouse path reaches for real AWS creds instead of the stack's MinIO.
-        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 2)
+        self.assertEqual(self._override().count("USE_LOCAL_SETUP=1"), 3)
 
     def test_temporal_server_started_with_deps_but_not_the_worker(self):
         # The server must be listening before web schedules; the worker imports

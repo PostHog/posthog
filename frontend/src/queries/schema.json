@@ -5111,7 +5111,6 @@
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
                 "marketing_suggest_utm_mappings",
-                "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
@@ -5408,83 +5407,24 @@
             "type": "object"
         },
         "AssistantTrendsDisplayType": {
-            "anyOf": [
-                {
-                    "const": "Auto",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsLineGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsBar",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsUnstackedBar",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsAreaGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsLineGraphCumulative",
-                    "type": "string"
-                },
-                {
-                    "const": "BoldNumber",
-                    "type": "string"
-                },
-                {
-                    "const": "Metric",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsPie",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsDonut",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsBarValue",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsTable",
-                    "type": "string"
-                },
-                {
-                    "const": "WorldMap",
-                    "type": "string"
-                },
-                {
-                    "const": "CalendarHeatmap",
-                    "type": "string"
-                },
-                {
-                    "const": "TwoDimensionalHeatmap",
-                    "type": "string"
-                },
-                {
-                    "const": "BoxPlot",
-                    "type": "string"
-                },
-                {
-                    "const": "SlopeGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ScatterPlot",
-                    "type": "string"
-                },
-                {
-                    "not": {}
-                }
-            ]
+            "enum": [
+                "ActionsLineGraph",
+                "ActionsBar",
+                "ActionsUnstackedBar",
+                "ActionsAreaGraph",
+                "ActionsLineGraphCumulative",
+                "SlopeGraph",
+                "BoxPlot",
+                "Metric",
+                "BoldNumber",
+                "ActionsBarValue",
+                "ActionsPie",
+                "ActionsDonut",
+                "ActionsTable",
+                "WorldMap",
+                "CalendarHeatmap"
+            ],
+            "type": "string"
         },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
@@ -5562,29 +5502,9 @@
                     "type": "number"
                 },
                 "display": {
+                    "$ref": "#/definitions/AssistantTrendsDisplayType",
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
-                    "enum": [
-                        "Auto",
-                        "ActionsLineGraph",
-                        "ActionsBar",
-                        "ActionsUnstackedBar",
-                        "ActionsAreaGraph",
-                        "ActionsLineGraphCumulative",
-                        "BoldNumber",
-                        "Metric",
-                        "ActionsPie",
-                        "ActionsDonut",
-                        "ActionsBarValue",
-                        "ActionsTable",
-                        "WorldMap",
-                        "CalendarHeatmap",
-                        "TwoDimensionalHeatmap",
-                        "BoxPlot",
-                        "SlopeGraph",
-                        "ScatterPlot"
-                    ],
-                    "type": "string"
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `SlopeGraph` - net change from the first to the last interval, one line per series. `BoxPlot` - quartiles of a numeric `math_property` for each interval. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsDonut` - total value donut chart; same use as `ActionsPie`. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then."
                 },
                 "formulaNodes": {
                     "description": "Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.",
@@ -6144,6 +6064,22 @@
             "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
             "type": "string"
         },
+        "BICategoryGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "values"],
+            "type": "object"
+        },
         "BIConditionGroup": {
             "additionalProperties": false,
             "properties": {
@@ -6182,6 +6118,11 @@
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter"
                 },
+                "comparisonPeriod": {
+                    "description": "Explore only the comparison window, using dateRange as its reference window.",
+                    "enum": ["previous", null],
+                    "type": ["string", "null"]
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -6204,6 +6145,18 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
+                },
+                "localFields": {
+                    "description": "Reusable expressions owned by this worksheet only.",
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
@@ -6289,6 +6242,9 @@
                 "id": {
                     "type": "string"
                 },
+                "localDefinition": {
+                    "$ref": "#/definitions/BILocalFieldDefinition"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -6349,6 +6305,53 @@
                 "custom"
             ],
             "type": "string"
+        },
+        "BILocalFieldDefinition": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "groups": {
+                            "items": {
+                                "$ref": "#/definitions/BICategoryGroup"
+                            },
+                            "type": "array"
+                        },
+                        "kind": {
+                            "const": "groups",
+                            "type": "string"
+                        },
+                        "other": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "expression", "groups", "other"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "expression": {
+                            "type": "string"
+                        },
+                        "kind": {
+                            "const": "bins",
+                            "type": "string"
+                        },
+                        "origin": {
+                            "type": "number"
+                        },
+                        "width": {
+                            "type": "number"
+                        }
+                    },
+                    "required": ["kind", "expression", "width", "origin"],
+                    "type": "object"
+                }
+            ]
         },
         "BIQueryLimit": {
             "enum": [100, 1000, 10000, 50000],
@@ -6413,6 +6416,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
@@ -17606,6 +17613,7 @@
                 "Metric",
                 "ActionsPie",
                 "ActionsDonut",
+                "ActionsProportionBar",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
@@ -17640,7 +17648,7 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest.",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
@@ -27576,7 +27584,6 @@
                 "default_icon_type",
                 "dashboard",
                 "llm_analytics",
-                "ai_gateway",
                 "product_analytics",
                 "revenue_analytics",
                 "revenue_analytics_metadata",
@@ -29405,7 +29412,7 @@
             "type": "string"
         },
         "HedgehogActorSkinOption": {
-            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost", "pig"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -41422,7 +41429,6 @@
         "ProductKey": {
             "enum": [
                 "actions",
-                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",

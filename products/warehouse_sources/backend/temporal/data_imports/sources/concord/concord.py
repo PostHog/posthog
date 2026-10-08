@@ -9,6 +9,9 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
+    BoundaryCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -337,6 +340,7 @@ def _iter_events_windows(
     # Rows of the first window already emitted in a prior run; skip them so a resume doesn't re-walk
     # the whole (up to 7-day) window. Only the window we resume on carries a non-zero skip.
     skip = start_row_offset
+    window_checkpoint = BoundaryCheckpoint(batcher, manager)
     while window_start <= today:
         window_end = min(window_start + timedelta(days=EVENTS_WINDOW_DAYS), today)
         params = {"start": window_start.isoformat(), "end": window_end.isoformat()}
@@ -360,7 +364,8 @@ def _iter_events_windows(
         # day. We don't know whether Concord's `end` is inclusive or exclusive, and the overlap is
         # free: merge dedupes on the event id primary key, so no event can fall through the seam.
         next_start = window_end
-        manager.save_state(
+        # The batcher can hold rows of this window, and a cursor at the next window skips them.
+        yield from window_checkpoint.save(
             ConcordResumeConfig(
                 window_start_ms=int(datetime.combine(next_start, datetime.min.time(), tzinfo=UTC).timestamp() * 1000)
             )
