@@ -1885,6 +1885,10 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
 
 def selector_to_expr(selector_string: str):
     selector = Selector(selector_string, escape_slashes=False)
+    if selector.is_unsatisfiable():
+        # The id-only shortcut below skips the regex, so [id="a"][id="b"] would match every
+        # element with id "b". A selector that no element can satisfy matches no event.
+        return ast.Constant(value=False)
     exprs = []
     regex = build_selector_regex(selector)
     exprs.append(parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)}))
