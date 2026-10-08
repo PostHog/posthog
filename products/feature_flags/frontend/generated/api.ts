@@ -20,6 +20,7 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
+    CreateStaticCohortForFlagResponseApi,
     DependentFlagApi,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
@@ -783,15 +784,15 @@ export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: str
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
-    })
+): Promise<CreateStaticCohortForFlagResponseApi> => {
+    return apiMutator<CreateStaticCohortForFlagResponseApi>(
+        getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {

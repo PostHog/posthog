@@ -3903,6 +3903,13 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
         self.data = {"version": version}
 
 
+class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
+    cohort = CohortSerializer(
+        read_only=True,
+        help_text="The new static cohort. It fills with the people the flag matches in the background, so it starts with is_calculating true.",
+    )
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -5620,6 +5627,7 @@ class FeatureFlagViewSet(
 
         return Response({"affected": result.affected, "total": result.total})
 
+    @extend_schema(request=None, responses={201: CreateStaticCohortForFlagResponseSerializer})
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
         feature_flag = self.get_object()

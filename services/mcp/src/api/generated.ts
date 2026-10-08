@@ -25890,6 +25890,11 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface CreateStaticCohortForFlagResponse {
+      /** The new static cohort. It fills with the people the flag matches in the background, so it starts with is_calculating true. */
+      readonly cohort: Cohort;
+    }
+
     /**
      * * `try_next` - try_next
      * * `consider` - consider
