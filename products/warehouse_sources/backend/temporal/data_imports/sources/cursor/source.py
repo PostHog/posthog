@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
     ANALYTICS_PLAN_MESSAGE,
     CURSOR_BASE_URL,
+    ENTERPRISE_PLAN_ERROR,
     KEY_FORBIDDEN_MESSAGE,
     KEY_REJECTED_MESSAGE,
     CursorResumeConfig,
@@ -80,11 +81,10 @@ You need a Cursor team plan (Business or Enterprise). A team admin can create an
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            f"401 Client Error: Unauthorized for url: {CURSOR_BASE_URL}/analytics/": ANALYTICS_PLAN_MESSAGE,
-            f"403 Client Error: Forbidden for url: {CURSOR_BASE_URL}/analytics/": ANALYTICS_PLAN_MESSAGE,
+            ENTERPRISE_PLAN_ERROR: ANALYTICS_PLAN_MESSAGE,
             # An invalid or revoked Admin API key surfaces as a requests HTTPError when `_fetch`
             # calls `raise_for_status()`. Retrying can never satisfy a credential problem, so stop
-            # the sync. The job keeps the first match, so the Analytics API entries sit above these.
+            # the sync. Match the stable status text and base host, not the per-request path.
             f"401 Client Error: Unauthorized for url: {CURSOR_BASE_URL}": KEY_REJECTED_MESSAGE,
             f"403 Client Error: Forbidden for url: {CURSOR_BASE_URL}": KEY_FORBIDDEN_MESSAGE,
         }

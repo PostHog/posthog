@@ -34,6 +34,14 @@ class CursorRetryableError(Exception):
     pass
 
 
+class CursorPlanError(requests.HTTPError):
+    pass
+
+
+ENTERPRISE_PLAN_ERROR = "Cursor Enterprise plan required"
+_ENTERPRISE_PLAN_MARKER = "member of an enterprise team"
+
+
 @dataclasses.dataclass
 class CursorResumeConfig:
     # Start (epoch ms) of the window being processed when the sync was interrupted.
@@ -93,6 +101,17 @@ def _make_session(api_key: str) -> requests.Session:
     )
 
 
+def _is_plan_rejection(response: requests.Response) -> bool:
+    if response.status_code not in (401, 403):
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    message = body.get("message") if isinstance(body, dict) else None
+    return isinstance(message, str) and _ENTERPRISE_PLAN_MARKER in message.lower()
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -129,6 +148,8 @@ def _fetch(
 
     if not response.ok:
         logger.error(f"Cursor API error: status={response.status_code}, body={response.text}, url={url}")
+        if _is_plan_rejection(response):
+            raise CursorPlanError(f"{ENTERPRISE_PLAN_ERROR} for url: {url}", response=response)
         response.raise_for_status()
 
     return response.json()

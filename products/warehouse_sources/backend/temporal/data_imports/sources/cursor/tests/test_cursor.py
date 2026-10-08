@@ -6,9 +6,12 @@ import pytest
 from unittest import mock
 
 import requests
+import responses
 from parameterized import parameterized
 from tenacity import wait_none
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor import cursor
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import (
@@ -22,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cur
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.settings import CURSOR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
 
 DAY_MS = 24 * 60 * 60 * 1000
 WINDOW_MS = cursor.MAX_WINDOW_DAYS * DAY_MS
@@ -59,6 +63,18 @@ def _manager(resume_state: CursorResumeConfig | None = None) -> mock.Mock:
 
 def _batches(source: SourceResponse) -> Iterator[list[dict[str, Any]]]:
     return iter(cast(Iterable[list[dict[str, Any]]], source.items()))
+
+
+CURSOR_PLAN_REJECTION = {
+    "code": "error",
+    "message": "You must be a member of an enterprise team to access this resource",
+}
+
+
+def _resolve_friendly_error(error: Exception) -> str | None:
+    errors = {**Any_Source_Errors, **CursorSource().get_non_retryable_errors()}
+    message = f"{type(error).__name__}: {error}"
+    return next((friendly for key, friendly in errors.items() if error_message_matches(message, [key])), None)
 
 
 class TestCursorTransport:
@@ -140,6 +156,71 @@ class TestCursorTransport:
             cursor._fetch(session, "GET", "https://api.cursor.com/teams/members", mock.Mock())
 
         assert session.request.call_count == 1
+
+    @parameterized.expand(
+        [
+            (
+                "plan_rejection_on_analytics",
+                "dau",
+                401,
+                CURSOR_PLAN_REJECTION,
+                cursor.CursorPlanError,
+                cursor.ANALYTICS_PLAN_MESSAGE,
+            ),
+            (
+                "plan_rejection_as_forbidden",
+                "ai_code_commits",
+                403,
+                CURSOR_PLAN_REJECTION,
+                cursor.CursorPlanError,
+                cursor.ANALYTICS_PLAN_MESSAGE,
+            ),
+            (
+                "rejected_key_on_analytics",
+                "dau",
+                401,
+                {"code": "error", "message": "Invalid API key"},
+                requests.HTTPError,
+                cursor.KEY_REJECTED_MESSAGE,
+            ),
+            (
+                "rejected_key_with_non_json_body",
+                "members",
+                401,
+                "Unauthorized",
+                requests.HTTPError,
+                cursor.KEY_REJECTED_MESSAGE,
+            ),
+            (
+                "forbidden_key_on_admin_api",
+                "members",
+                403,
+                {"code": "error", "message": "Forbidden"},
+                requests.HTTPError,
+                cursor.KEY_FORBIDDEN_MESSAGE,
+            ),
+        ]
+    )
+    def test_rejected_request_resolves_to_the_message_for_its_cause(
+        self,
+        _name: str,
+        endpoint: str,
+        status: int,
+        body: dict[str, str] | str,
+        raised: type[requests.HTTPError],
+        expected: str,
+    ) -> None:
+        config = CURSOR_ENDPOINTS[endpoint]
+        with responses.RequestsMock() as mocked:
+            if isinstance(body, dict):
+                mocked.add(config.method, f"{cursor.CURSOR_BASE_URL}{config.path}", status=status, json=body)
+            else:
+                mocked.add(config.method, f"{cursor.CURSOR_BASE_URL}{config.path}", status=status, body=body)
+            with pytest.raises(requests.HTTPError) as excinfo:
+                list(_batches(cursor_source("key_test", endpoint, mock.Mock(), _manager())))
+
+        assert type(excinfo.value) is raised
+        assert _resolve_friendly_error(excinfo.value) == expected
 
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Cursor endpoint"):
