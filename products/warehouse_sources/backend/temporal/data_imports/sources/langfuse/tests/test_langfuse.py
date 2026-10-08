@@ -429,7 +429,7 @@ class TestGetRows:
         # streaming unique large ids must be cut off at the budget rather than grow worker memory.
         manager = self._manager()
         with (
-            mock.patch.object(langfuse_module, "MAX_PARENT_ID_BYTES", 10),
+            mock.patch.object(langfuse_module, "MAX_PARENT_ID_BYTES", 100),
             pytest.raises(langfuse_module.LangfuseResponseTooLargeError) as exc,
         ):
             self._run(

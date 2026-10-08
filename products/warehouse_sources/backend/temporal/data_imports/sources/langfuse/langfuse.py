@@ -49,6 +49,8 @@ MAX_PAGES_PER_RUN = 50_000
 # Parent ids are all held in memory before the first child row is yielded, so cap what a hostile host
 # can make a worker retain. Real queue ids are short cuids; this allows far more than any real project.
 MAX_PARENT_ID_BYTES = 16 * 1024 * 1024
+# Rough per-id cost of the str object and set slot, so many short ids count against the budget too.
+PARENT_ID_OVERHEAD_BYTES = 64
 
 DEFAULT_HOST = "https://cloud.langfuse.com"
 HOST_NOT_ALLOWED_ERROR = "Langfuse host is not allowed"
@@ -342,7 +344,7 @@ def _list_parent_ids(
         for item in items:
             parent_id = str(item["id"]) if item.get("id") else None
             if parent_id is not None and parent_id not in ids:
-                retained_bytes += len(parent_id.encode())
+                retained_bytes += PARENT_ID_OVERHEAD_BYTES + len(parent_id.encode())
                 if retained_bytes > MAX_PARENT_ID_BYTES:
                     raise LangfuseResponseTooLargeError(
                         f"{RESPONSE_LIMIT_ERROR}: {config.name} ids exceeded {MAX_PARENT_ID_BYTES} bytes"
