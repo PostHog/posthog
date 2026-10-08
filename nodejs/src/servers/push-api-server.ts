@@ -28,6 +28,8 @@ export type PushApiConfig = {
     PUSH_API_DRY_RUN: boolean
     /** Comma-separated ISO country codes answered 403, the same list Django reads. */
     BLOCKED_GEOIP_REGIONS: string
+    /** Comma-separated keys the managed reverse proxy signs the client IP with, the same as Django's. */
+    MANAGED_PROXY_SIGNING_KEYS: string
 }
 
 export function getDefaultPushApiConfig(): PushApiConfig {
@@ -37,6 +39,7 @@ export function getDefaultPushApiConfig(): PushApiConfig {
         SECRET_KEY: '',
         PUSH_API_DRY_RUN: false,
         BLOCKED_GEOIP_REGIONS: '',
+        MANAGED_PROXY_SIGNING_KEYS: '',
     }
 }
 
@@ -140,14 +143,17 @@ export class PushApiServer implements NodeServer {
             return createRegionBlockCheck([], undefined)
         }
         const geoip = await new GeoIPService(this.config.MMDB_FILE_LOCATION).get()
-        // An unreadable database places no address, which lets every request through, as Django does.
+        // An unreadable database places no address, which would let every blocked region through.
         if (!geoip.city('8.8.8.8')) {
-            logger.error('push-api could not load the GeoIP database, so blocked regions are not enforced', {
-                location: this.config.MMDB_FILE_LOCATION,
-            })
+            const message = 'push-api could not load the GeoIP database, so blocked regions are not enforced'
+            if (isProdEnv()) {
+                throw new Error(message)
+            }
+            logger.error(message, { location: this.config.MMDB_FILE_LOCATION })
         }
         logger.info('push-api blocks registrations from regions', { countries })
-        return createRegionBlockCheck(countries, geoip)
+        const signingKeys = this.config.MANAGED_PROXY_SIGNING_KEYS.split(',').map((key) => key.trim())
+        return createRegionBlockCheck(countries, geoip, signingKeys)
     }
 
     private listen(handler: (req: any, res: any) => Promise<void>): Promise<Server> {
