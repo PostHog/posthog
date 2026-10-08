@@ -27,6 +27,16 @@ describe('organizationLogic', () => {
         expect(Boolean(logic.values.projectCreationForbiddenReason)).toBe(blocked)
     })
 
+    test('unknown server type keeps project creation available', () => {
+        window.POSTHOG_APP_CONTEXT = {
+            current_user: { organization: MOCK_DEFAULT_ORGANIZATION },
+        } as unknown as AppContext
+        initKeaTests()
+        logic = organizationLogic()
+
+        expect(logic.values.projectCreationForbiddenReason).toBeNull()
+    })
+
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {
             window.POSTHOG_APP_CONTEXT = { current_user: { organization: { id: 'WXYZ' } } } as unknown as AppContext
