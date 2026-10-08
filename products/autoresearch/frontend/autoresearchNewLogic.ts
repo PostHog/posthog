@@ -402,6 +402,21 @@ export interface autoresearchNewLogicMeta {
             newPipeline: NewPipelineFormValues,
             resolvedTemplate: ResolvedTemplateApi | null
         ) => boolean
+        readiness: (validation: ValidatePipelineResponseApi | null) => Readiness | null
+        readinessChecks: (validation: ValidatePipelineResponseApi | null) => ReadinessCheck[]
+        startTrainingDisabledReason: (
+            resolvedTemplateLoading: boolean,
+            isNewPipelineSubmitting: boolean,
+            submitIntent: SubmitIntent,
+            validationFailed: boolean,
+            validationLoading: boolean,
+            validation: ValidatePipelineResponseApi | null
+        ) => string | undefined
+        saveDraftDisabledReason: (
+            resolvedTemplateLoading: boolean,
+            isNewPipelineSubmitting: boolean,
+            submitIntent: SubmitIntent
+        ) => string | undefined
     }
 }
 
