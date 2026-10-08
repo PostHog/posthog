@@ -33,7 +33,7 @@ import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesL
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { templateTypeForListType } from './Workflows/workflowTypeFilters'
-import { WorkflowsLibrary } from './WorkflowsLibrary'
+import { WorkflowsTemplates } from './WorkflowsTemplates'
 
 // pinned: URL path segments under /workflows - renaming breaks bookmarks
 const WORKFLOW_SCENE_TABS = [
@@ -164,11 +164,11 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
-type WorkflowsTopTab = 'workflows' | 'library' | 'messaging-setup'
+type WorkflowsTopTab = 'workflows' | 'templates' | 'messaging-setup'
 
 function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
     if (tab === 'templates' || tab === 'library') {
-        return 'library'
+        return 'templates'
     }
     return isMessagingSetupTab(tab) ? 'messaging-setup' : 'workflows'
 }
@@ -255,13 +255,13 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     tabs={[
                         workflowsTab,
                         {
-                            label: 'Library',
-                            key: 'library',
-                            link: urls.workflows('templates'),
-                            content: <WorkflowsLibrary tab={currentTab === 'library' ? 'library' : 'templates'} />,
+                            label: 'Templates',
+                            key: 'templates',
+                            link: urls.workflows('library'),
+                            content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
                         },
                         {
-                            label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging setup',
+                            label: guidedOnboardingEnabled ? <MessagingSetupTabLabel /> : 'Messaging',
                             key: 'messaging-setup',
                             link: urls.workflows('channels'),
                             content: (

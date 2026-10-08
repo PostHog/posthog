@@ -10,7 +10,7 @@ import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 export const MESSAGING_NAV_TAB_KEYS = ['library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type MessagingNavTabKey = (typeof MESSAGING_NAV_TAB_KEYS)[number]
 
-/** The tabs that configure sending. The new navigation groups them under one "Messaging setup" tab. */
+/** The tabs that configure sending. The new navigation groups them under one "Messaging" tab. */
 export const MESSAGING_SETUP_TAB_KEYS = ['channels', 'opt-outs', 'suppression', 'reputation'] as const
 export type MessagingSetupTabKey = (typeof MESSAGING_SETUP_TAB_KEYS)[number]
 

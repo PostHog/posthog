@@ -20,7 +20,7 @@ export interface MessagingSetupProps {
     linkFor: (tab: MessagingNavTabKey) => string
 }
 
-/** The sending setup tabs behind one "Messaging setup" tab, with a side menu that keeps each tab's own URL. */
+/** The sending setup tabs behind one "Messaging" tab, with a side menu that keeps each tab's own URL. */
 export function MessagingSetup({ tab, linkFor }: MessagingSetupProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
@@ -31,7 +31,7 @@ export function MessagingSetup({ tab, linkFor }: MessagingSetupProps): JSX.Eleme
             <div className="flex flex-col gap-4 @min-[48rem]/main-content:flex-row">
                 <nav
                     className="flex flex-row flex-wrap gap-1 shrink-0 @min-[48rem]/main-content:flex-col @min-[48rem]/main-content:w-52"
-                    aria-label="Messaging setup"
+                    aria-label="Messaging"
                 >
                     {MESSAGING_SETUP_TAB_KEYS.map((key) => (
                         <LemonButton

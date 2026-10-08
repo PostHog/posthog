@@ -21,7 +21,6 @@ import { MessagingTabActions } from '../MessagingTabActions'
 import {
     MESSAGING_NAV_TAB_KEYS,
     MESSAGING_TAB_CONTENT,
-    MESSAGING_TAB_LABELS,
     MessagingNavTabKey,
     isMessagingSetupTab,
     messagingNavTabs,
@@ -91,13 +90,13 @@ export function BroadcastsScene(): JSX.Element {
                     tabs={[
                         broadcastsTab,
                         {
-                            label: MESSAGING_TAB_LABELS.library,
+                            label: 'Templates',
                             key: 'library',
                             link: urls.broadcasts('library'),
                             content: MESSAGING_TAB_CONTENT.library,
                         },
                         {
-                            label: 'Messaging setup',
+                            label: 'Messaging',
                             key: 'messaging-setup',
                             link: urls.broadcasts('channels'),
                             content: (

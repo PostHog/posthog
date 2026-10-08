@@ -6,7 +6,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import type { MessagingSetupTabKey } from '../messagingTabs'
 import { workflowsSetupGuideLogic } from './workflowsSetupGuideLogic'
 
-/** The setup state of one Messaging setup menu item: done, or what is still open. */
+/** The setup state of one Messaging menu item: done, or what is still open. */
 export function MessagingSetupMenuStatus({ tab }: { tab: MessagingSetupTabKey }): JSX.Element | null {
     const { steps } = useValues(workflowsSetupGuideLogic)
 
