@@ -27282,16 +27282,6 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
-    export interface DashboardCollaborator {
-      readonly id: string;
-      readonly dashboard_id: number;
-      readonly user: UserBasic;
-      level: RestrictionLevelEnum;
-      readonly added_at: string;
-      readonly updated_at: string;
-      user_uuid: string;
-    }
-
     /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
