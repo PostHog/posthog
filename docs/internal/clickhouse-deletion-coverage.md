@@ -153,10 +153,12 @@ The copy writes each shard's matching rows to S3 with the named keys dropped and
 That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
 `DeletionTarget.accepts_property_rewrite` marks each table the job sweeps, and the gate refuses while a table without it holds rows a request names.
 
-`person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
-Because the table can no longer hold person properties, only the event-`properties` half of a request applies here.
-`DeletionTarget.stores_person_properties` is `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
-That is accurate for rows written since the producer stopped sending `person_properties` (2026-09-05, #95693), and a deliberate blind spot for whatever a row written before then still carries: those values are out of reach until the row's TTL passes.
+`group0..group4_properties` no longer exist on the table: no Insight or Hog function used them as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them. Event `properties` and `person_id` are still sent.
+`person_properties` is on the table again, so test-account filters can read person properties off the row the way they do on `events`.
+The column defaults to `'{}'`, and every row reads `'{}'` until the producer sends the value.
+`DeletionTarget.stores_person_properties` is still `False` on `FLAG_EVALUATIONS`, so the job drops the `person_properties` half for this table, and a request that names only person properties does not touch it.
+That is accurate only while every row reads `'{}'`.
+`stores_person_properties` has to turn on before or with the producer change, or a person-property removal skips real values on this table and still reports success.
 
 #### Typed columns
 

@@ -324,7 +324,10 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      inserted_at DateTime64(6, 'UTC')
+      person_properties String,
+      person_created_at DateTime64(3),
+      inserted_at DateTime64(6, 'UTC'),
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
   -- The block and batch sizes are an order of magnitude below the precalculated
@@ -2087,7 +2090,10 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      person_properties String DEFAULT '{}',
+      person_created_at DateTime64(3),
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       , $group_0 String COMMENT 'column_materializer::$group_0'
       , $group_1 String COMMENT 'column_materializer::$group_1'
@@ -2123,6 +2129,8 @@
       distinct_id,
       created_at,
       person_id,
+      if(empty(person_properties), '{}', person_properties) AS person_properties,
+      person_created_at,
       -- inserted_at is the time this view processes the row, as in the native-JSON
       -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
       -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
@@ -2130,6 +2138,7 @@
       -- forward and the replication happen after this stamp, so those readers still
       -- need a buffer.
       now64() AS inserted_at,
+      person_mode,
       _timestamp,
       _offset,
       _partition
@@ -2738,7 +2747,10 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      inserted_at DateTime64(6, 'UTC')
+      person_properties String,
+      person_created_at DateTime64(3),
+      inserted_at DateTime64(6, 'UTC'),
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_flag_evaluations_test', kafka_group_name = 'clickhouse_flag_evaluations', kafka_format = 'JSONEachRow')
   -- The block and batch sizes are an order of magnitude below the precalculated
@@ -7834,7 +7846,10 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      person_properties String DEFAULT '{}',
+      person_created_at DateTime64(3),
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       , $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -10428,7 +10443,10 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      person_properties String DEFAULT '{}',
+      person_created_at DateTime64(3),
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       
   , _timestamp DateTime
@@ -13653,7 +13671,10 @@
       distinct_id String,
       created_at DateTime64(6, 'UTC'),
       person_id UUID,
-      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp
+      person_properties String DEFAULT '{}',
+      person_created_at DateTime64(3),
+      inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+      person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
       , $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'

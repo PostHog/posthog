@@ -1756,9 +1756,19 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "$group_0" {
       type    = "String"
@@ -5693,9 +5703,19 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type    = "String"
+      default = "'{}'"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     column "$group_0" {
       type    = "String"

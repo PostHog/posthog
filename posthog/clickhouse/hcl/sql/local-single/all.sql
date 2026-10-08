@@ -475,7 +475,10 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  inserted_at DateTime64(6, 'UTC')
+  person_properties String,
+  person_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC'),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_groups (
   group_type_index UInt8,
@@ -2233,7 +2236,10 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
   $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
@@ -3961,7 +3967,10 @@ CREATE TABLE posthog.writable_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -4862,7 +4871,7 @@ CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_event
   _timestamp,
   _offset
 FROM posthog.sharded_events;
-CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, inserted_at DateTime64(3), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), inserted_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   event,
   properties,
@@ -4871,7 +4880,10 @@ CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_ev
   distinct_id,
   created_at,
   person_id,
+  if(empty(person_properties), '{}', person_properties) AS person_properties,
+  person_created_at,
   now64() AS inserted_at,
+  person_mode,
   _timestamp,
   _offset,
   _partition
@@ -6653,7 +6665,10 @@ CREATE TABLE posthog.flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',
   $group_2 String COMMENT 'column_materializer::$group_2',
