@@ -12,6 +12,7 @@ import re
 import json
 import asyncio
 import logging
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     FLASH_PROMPT_DIFF_MAX_CHARS,
     SINGLE_AGENT_SOURCE,
@@ -242,6 +244,55 @@ def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_co
         ],
         cap=cap,
         lens_part_count=lens_part_count,
+    )
+
+
+# How the completed event names each session: `main`, or the lens name in snake case.
+_SESSION_NAMES = {
+    SINGLE_AGENT_SOURCE: "main",
+    **{lens.source: name.replace("-", "_") for name, lens in FLASH_LENSES.items()},
+}
+
+
+@frozen
+class FlashTurnStats:
+    """A single-agent turn's findings from dedup to the cap, for the completed event."""
+
+    cap: int
+    lens_part_count: int
+    reviewable_lines: int
+    # Per session: the findings that entered dedup, and how many of them the session itself rated P0/P1.
+    candidates: dict[str, int]
+    must_fix: dict[str, int]
+    after_dedup: int
+    # Per disposition: the findings dedup and the cap dropped.
+    dropped: dict[str, int]
+    kept: int
+
+
+def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
+    """Count a turn's findings per session and per drop reason.
+
+    Must-fix counts read `reported_priority`, because a dedup survivor can be raised above what its
+    session reported.
+    """
+    per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
+    must_fix = dict(per_session)
+    for issue in candidates:
+        session = _SESSION_NAMES.get(issue.source_perspective or "", issue.source_perspective or "unknown")
+        per_session[session] = per_session.get(session, 0) + 1
+        if issue.reported_priority in ("P0", "P1"):
+            must_fix[session] = must_fix.get(session, 0) + 1
+    cut = sum(1 for drop in selection.dropped if drop.disposition == "cap")
+    return FlashTurnStats(
+        cap=selection.cap,
+        lens_part_count=selection.lens_part_count,
+        reviewable_lines=reviewable_lines,
+        candidates=per_session,
+        must_fix=must_fix,
+        after_dedup=len(selection.kept) + cut,
+        dropped=dict(Counter(drop.disposition for drop in selection.dropped)),
+        kept=len(selection.kept),
     )
 
 

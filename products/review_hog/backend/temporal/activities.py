@@ -145,8 +145,10 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
     FlashSelection,
+    FlashTurnStats,
     SingleAgentPrompt,
     dedupe_flash_findings,
+    flash_turn_stats,
     issues_from_review,
     lens_prompt_path,
     load_core_prompt,
@@ -403,6 +405,8 @@ class DedupResult:
     # reload issue content from the finding rows (unbounded issue JSON would foreseeably hit
     # Temporal's ~2 MiB payload cap on large PRs).
     issue_ids: list[str]
+    # A single-agent turn's finding counts, which the workflow hands to the completed event.
+    flash_stats: FlashTurnStats | None = None
 
 
 @dataclass(frozen=False)
@@ -468,6 +472,17 @@ class AppendCodeReviewArtefactInput:
 
 
 @frozen
+class FlashSessionStats:
+    """How a single-agent turn's sandbox sessions went, as the workflow saw them."""
+
+    # Lens sessions that failed for another reason than their timeout, and the ones that timed out.
+    lens_failures: int
+    lens_timeouts: int
+    # The longest session, main or lens, from its start to its result or failure.
+    slowest_session_seconds: float
+
+
+@frozen
 class TrackReviewCompletedInput:
     """One `reviewhog_review_completed` analytics event per finalized review turn."""
 
@@ -488,6 +503,9 @@ class TrackReviewCompletedInput:
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     marker: ReviewHogMarker | None = None
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # Single-agent turns only.
+    flash_turn: FlashTurnStats | None = None
+    flash_sessions: FlashSessionStats | None = None
 
 
 @frozen
@@ -1362,8 +1380,10 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
     flash_selection: FlashSelection | None = None
+    flash_stats: FlashTurnStats | None = None
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if single_agent:
+            lens_plan = plan_lens_chunks(snapshot.pr_files)
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1373,10 +1393,11 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 prior_findings=prior_findings,
                 branch=input.branch,
                 repository=input.repository,
-                lens_part_count=len(plan_lens_chunks(snapshot.pr_files).chunks),
+                lens_part_count=len(lens_plan.chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = flash_selection.kept
+            flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
         else:
             outcome = await deduplicate_issues(
                 team_id=input.team_id,
@@ -1426,7 +1447,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             run_index=input.run_index,
         )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
-    return DedupResult(issue_ids=issue_ids)
+    return DedupResult(issue_ids=issue_ids, flash_stats=flash_stats)
 
 
 # --- Validate (per-chunk warm-session fan-out) -----------------------------------------------------
@@ -1713,6 +1734,41 @@ def _pr_size_properties(snapshot: "PRSnapshotArtefact | None") -> dict[str, int 
     }
 
 
+def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionStats | None) -> dict[str, object]:
+    """A single-agent turn's finding funnel and session health; empty for a pipeline turn.
+
+    The must-fix share per session watches for priority inflation, which the must-fix ceiling only
+    bounds. Cost is not here: it lands per session on `$ai_generation`, by `ai_stage`.
+    """
+    properties: dict[str, object] = {}
+    if turn is not None:
+        properties.update(
+            {
+                "flash_cap": turn.cap,
+                "flash_lens_parts": turn.lens_part_count,
+                "flash_reviewable_lines": turn.reviewable_lines,
+                "flash_candidates": turn.candidates,
+                "flash_must_fix": turn.must_fix,
+                "flash_must_fix_share": {
+                    session: round(turn.must_fix.get(session, 0) / count, 2) if count else None
+                    for session, count in turn.candidates.items()
+                },
+                "flash_after_dedup": turn.after_dedup,
+                "flash_dropped": turn.dropped,
+                "flash_kept": turn.kept,
+            }
+        )
+    if sessions is not None:
+        properties.update(
+            {
+                "flash_lens_failures": sessions.lens_failures,
+                "flash_lens_timeouts": sessions.lens_timeouts,
+                "flash_slowest_session_seconds": sessions.slowest_session_seconds,
+            }
+        )
+    return properties
+
+
 def _track_review_started(input: TrackReviewStartedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
@@ -1810,6 +1866,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
             "reviewhog_version": input.marker.version if input.marker is not None else None,
             "reviewhog_fingerprint": input.marker.fingerprint if input.marker is not None else None,
+            **_flash_event_properties(input.flash_turn, input.flash_sessions),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

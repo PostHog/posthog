@@ -424,6 +424,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     per-finding `reviewhog_finding_outcome`, carry routing properties from `reviewer/telemetry.py`: the tier,
     reviewer configuration, validator and resolver pins, and review mode when known.
     Flash turn events name the Flash arm in both seats.
+    A single-agent turn's completed event also carries its finding funnel and session health: `flash_cap`,
+    `flash_lens_parts`, `flash_reviewable_lines`, per session (`main` or a lens name) `flash_candidates`,
+    `flash_must_fix` (P0/P1 as the session reported them) and `flash_must_fix_share`, then `flash_after_dedup`,
+    `flash_dropped` per disposition, `flash_kept`, `flash_lens_failures`, `flash_lens_timeouts`, and
+    `flash_slowest_session_seconds`. The dedup activity returns the counts on `DedupResult.flash_stats`, and the
+    workflow measures the sessions in workflow time. Cost stays on `$ai_generation`, per `ai_stage`.
     Flash finding outcomes use the mode and model configurations saved in the finding's `validation_context`,
     so later changes to the Flash defaults do not relabel an earlier finding.
     Full finding outcomes retain the report's arm at classification time; tier and resolver labels remain report-level and module-level values.

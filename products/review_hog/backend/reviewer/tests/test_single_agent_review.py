@@ -5,12 +5,13 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import FLASH_LENSES, SINGLE_AGENT_SOURCE
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashDuplicateIssue, FlashIssueDeduplication
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
     FlashSelection,
     SingleAgentPrompt,
     compose_flash_findings,
     dedupe_flash_findings,
+    flash_turn_stats,
 )
 
 _MODULE = "products.review_hog.backend.reviewer.tools.single_agent_review"
@@ -280,3 +281,28 @@ class TestDedupeFlashFindings:
         assert (drop.issue.id, drop.disposition, recorded) == ("2002-1-1", disposition, duplicate_of)
         # The dedup can only name an earlier finding it was shown with its key.
         assert all(_PRIOR_KEY in call.kwargs["prompt"] for call in mock_llm.call_args_list)
+
+
+def test_turn_stats_count_every_candidate_once_per_session() -> None:
+    # The completed event's funnel only reads true when every finding that entered dedup is either
+    # kept or dropped once, under the session that raised it. Must-fix counts follow what the
+    # session reported, so a survivor raised by dedup cannot inflate them.
+    main = _issue("2000-1-1", IssuePriority.MUST_FIX).model_copy(update={"reported_priority": "P3"})
+    lens = _issue("2002-1-1", IssuePriority.MUST_FIX, _LENS_SOURCE).model_copy(update={"reported_priority": "P1"})
+    cut = _issue("2002-1-2", IssuePriority.CONSIDER, _LENS_SOURCE).model_copy(update={"reported_priority": "P3"})
+    selection = FlashSelection(
+        kept=[main],
+        dropped=[
+            DroppedIssue(issue=lens, disposition="dedup_anchor", duplicate_of=main),
+            DroppedIssue(issue=cut, disposition="cap", rank=2),
+        ],
+        cap=4,
+        lens_part_count=1,
+    )
+
+    stats = flash_turn_stats([main, lens, cut], selection, reviewable_lines=120)
+
+    assert stats.candidates == {"main": 1, "performance_reliability": 0, "contracts_security": 2}
+    assert stats.must_fix == {"main": 0, "performance_reliability": 0, "contracts_security": 1}
+    assert (stats.after_dedup, stats.kept, stats.dropped) == (2, 1, {"dedup_anchor": 1, "cap": 1})
+    assert sum(stats.candidates.values()) == stats.kept + sum(stats.dropped.values())

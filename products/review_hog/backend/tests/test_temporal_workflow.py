@@ -29,11 +29,13 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
+from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
+    FlashSessionStats,
     GenerateSchemasInput,
     LensReviewInput,
     LoadBlindSpotsInput,
@@ -78,6 +80,16 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 _REVIEW_URL = "https://github.com/o/r/pull/7#pullrequestreview-1"
+_FLASH_TURN_STATS = FlashTurnStats(
+    cap=4,
+    lens_part_count=1,
+    reviewable_lines=50,
+    candidates={"main": 2},
+    must_fix={"main": 1},
+    after_dedup=2,
+    dropped={},
+    kept=2,
+)
 
 
 @temporalio.workflow.defn(name="resolve-pr")
@@ -304,7 +316,8 @@ async def _run_full_review_pr_workflow(
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
-        return DedupResult(issue_ids=["1-1-1", "1-2-1"])
+        flash_stats = _FLASH_TURN_STATS if input.review_design == "single_agent" else None
+        return DedupResult(issue_ids=["1-1-1", "1-2-1"], flash_stats=flash_stats)
 
     @activity.defn(name="load_validation_skill_activity")
     async def load_validation(input: LoadValidationInput) -> LoadedValidationSkillDTO:
@@ -364,6 +377,7 @@ async def _run_full_review_pr_workflow(
     # in the workflow, so without these stubs deleting any of them would leave every test green.
     track_failed_calls: list[tuple[int, str | None]] = []
     track_completed_calls: list[tuple[int, str | None]] = []
+    track_flash_calls: list[tuple[FlashTurnStats | None, FlashSessionStats | None]] = []
     track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
@@ -376,6 +390,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        track_flash_calls.append((input.flash_turn, input.flash_sessions))
         _saw_design("track", input.review_design)
         marker_calls["track"] = input.marker
         return None
@@ -481,6 +496,7 @@ async def _run_full_review_pr_workflow(
         "status_capped_parts": status_capped_parts,
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
+        "track_flash": track_flash_calls,
         "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
@@ -693,6 +709,7 @@ async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
 ) -> None:
     # Lens sessions only add breadth, so losing every one of them must still publish the main
     # findings, while a turn without its main review must fail instead of posting a partial review.
+    # A lost lens session must still show on the completed event, or the turn reads as fully covered.
     recorded = await _run_full_review_pr_workflow(
         publish=True,
         review_mode="flash",
@@ -704,6 +721,11 @@ async def test_review_pr_workflow_single_agent_fails_only_on_the_main_session(
 
     assert recorded["failed"] is expect_failed
     assert recorded["publish"] == ([] if expect_failed else [7])
+    if not expect_failed:
+        [(turn, sessions)] = recorded["track_flash"]
+        assert turn == _FLASH_TURN_STATS
+        assert sessions is not None
+        assert (sessions.lens_failures, sessions.lens_timeouts) == (len(fail_lens_units), 0)
 
 
 @pytest.mark.asyncio

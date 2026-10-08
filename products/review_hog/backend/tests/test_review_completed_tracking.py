@@ -28,7 +28,9 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 from products.review_hog.backend.temporal.activities import (
+    FlashSessionStats,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
@@ -102,6 +104,8 @@ class TestTrackReviewCompleted(BaseTest):
         review_mode: str = REVIEW_MODE_FULL,
         flash_reasoning_effort: str = "medium",
         marker: ReviewHogMarker | None = None,
+        flash_turn: FlashTurnStats | None = None,
+        flash_sessions: FlashSessionStats | None = None,
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -114,6 +118,8 @@ class TestTrackReviewCompleted(BaseTest):
             review_mode=review_mode,
             flash_reasoning_effort=flash_reasoning_effort,
             marker=marker,
+            flash_turn=flash_turn,
+            flash_sessions=flash_sessions,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -191,6 +197,44 @@ class TestTrackReviewCompleted(BaseTest):
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
+
+    def test_single_agent_turn_reports_its_finding_funnel_and_sessions(self) -> None:
+        # The cap, the dedup calls, and the lens sessions are only measurable through these
+        # properties, and the must-fix share is how priority inflation shows up before the
+        # must-fix ceiling starts cutting.
+        report_id = self._review_report()
+        turn = FlashTurnStats(
+            cap=6,
+            lens_part_count=2,
+            reviewable_lines=900,
+            candidates={"main": 4, "performance_reliability": 0, "contracts_security": 3},
+            must_fix={"main": 1, "performance_reliability": 0, "contracts_security": 3},
+            after_dedup=5,
+            dropped={"dedup_anchor": 2, "cap": 1},
+            kept=4,
+        )
+        sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5)
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(self._tracking_input(report_id, flash_turn=turn, flash_sessions=sessions))
+            _track_review_completed(self._tracking_input(report_id))
+
+        single_agent, pipeline = (call.kwargs["properties"] for call in capture.call_args_list)
+        assert {key: value for key, value in single_agent.items() if key.startswith("flash_")} == {
+            "flash_cap": 6,
+            "flash_lens_parts": 2,
+            "flash_reviewable_lines": 900,
+            "flash_candidates": {"main": 4, "performance_reliability": 0, "contracts_security": 3},
+            "flash_must_fix": {"main": 1, "performance_reliability": 0, "contracts_security": 3},
+            "flash_must_fix_share": {"main": 0.25, "performance_reliability": None, "contracts_security": 1.0},
+            "flash_after_dedup": 5,
+            "flash_dropped": {"dedup_anchor": 2, "cap": 1},
+            "flash_kept": 4,
+            "flash_lens_failures": 1,
+            "flash_lens_timeouts": 1,
+            "flash_slowest_session_seconds": 412.5,
+        }
+        assert not [key for key in pipeline if key.startswith("flash_")]
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
         # A turn whose pr_snapshot is unavailable must still count as a review — size props go

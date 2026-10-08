@@ -256,7 +256,12 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   `FLASH_LARGE_PR_FALLBACK_TO_PIPELINE` switch, the 2,500-line and 40-file limits, and the `size_fallback` reason are
   removed. The kill-switch flag still moves Flash turns to the pipeline.
 - **Telemetry.** Lens cost lands under `ai_stage=flash-lens-<lens>-c<part>`, dedup under `dedup`. The fingerprint hashes
-  the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits.
+  the lens prompt files, `lens_priority.md`, the Flash dedup pins, and the Flash limits. `reviewhog_review_completed`
+  carries the turn's finding funnel (candidates and must-fix count and share per session, after dedup, dropped per
+  disposition, kept, the cap and lens parts, reviewable lines) and session health (lens failures and timeouts, the
+  slowest session). The must-fix share per session is the early sign of priority inflation, before the must-fix
+  ceiling cuts anything. ReviewHog does not see the token counts or cost of a sandbox session, so the event carries
+  neither; cost stays on `$ai_generation`, per `ai_stage`.
 - **Known gaps.** Storage folds P0 and P1 into `must_fix`, so across sessions a lens P0 ties a main P1 and the main
   finding wins; within one session P0 still ranks first. `reported_priority` on the finding content (`Issue` and
   `ReviewIssueFinding`) keeps the reviewer's P0-P3, so a later analysis can still tell P0 from P1. The cap holds per turn, so a later push can post more.

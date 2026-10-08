@@ -115,6 +115,8 @@ class LensChunkPlan:
     chunks: list[list[str]]
     # The PR needed more than FLASH_LENS_MAX_CHUNKS parts at the normal size, so each part is larger.
     capped: bool
+    # The changed lines the plan sized the parts by: every file except the ones nobody authors by hand.
+    reviewable_lines: int
 
 
 def _pack_by_directory(pr_files: list[PRFile], line_budget: int) -> list[list[str]]:
@@ -162,10 +164,10 @@ def plan_lens_chunks(pr_files: list[PRFile]) -> LensChunkPlan:
     reviewable_lines = sum(_changed_lines(f) for f in reviewable)
     if reviewable_lines <= FLASH_LENS_CHUNK_MAX_LINES:
         whole_pr = [f.filename for f in pr_files]
-        return LensChunkPlan(chunks=[whole_pr] if whole_pr else [], capped=False)
+        return LensChunkPlan(chunks=[whole_pr] if whole_pr else [], capped=False, reviewable_lines=reviewable_lines)
     chunks = _pack_by_directory(reviewable, FLASH_LENS_CHUNK_MAX_LINES)
     if len(chunks) <= FLASH_LENS_MAX_CHUNKS:
-        return LensChunkPlan(chunks=chunks, capped=False)
+        return LensChunkPlan(chunks=chunks, capped=False, reviewable_lines=reviewable_lines)
     # Binary search: the whole PR in one part always fits, so `high` always packs into few enough parts.
     low = max(FLASH_LENS_CHUNK_MAX_LINES, math.ceil(reviewable_lines / FLASH_LENS_MAX_CHUNKS))
     high = reviewable_lines
@@ -175,7 +177,7 @@ def plan_lens_chunks(pr_files: list[PRFile]) -> LensChunkPlan:
             high = middle
         else:
             low = middle + 1
-    return LensChunkPlan(chunks=_pack_by_directory(reviewable, high), capped=True)
+    return LensChunkPlan(chunks=_pack_by_directory(reviewable, high), capped=True, reviewable_lines=reviewable_lines)
 
 
 def generate_chunking_prompt(
