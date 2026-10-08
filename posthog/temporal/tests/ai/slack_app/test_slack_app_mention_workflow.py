@@ -212,7 +212,7 @@ def _fake_activities(rec: _Recorder) -> list:
     async def classify_project_route(input: SlackAppProjectRouteInput) -> SlackAppProjectRoute | None:
         return rec.project_routes.get(input.event_text)
 
-    @activity.defn(name="route_slack_app_model_activity")
+    @activity.defn(name="classify_slack_app_model_router_activity")
     async def route_model(input: SlackAppModelRouterInput) -> SlackAppModelOverride | None:
         rec.router_inputs.append(input)
         return rec.routed_overrides.get(input.event_text, input.model_override)

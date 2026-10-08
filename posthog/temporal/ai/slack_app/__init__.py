@@ -14,6 +14,7 @@ from posthog.temporal.ai.slack_app.activities import (
     classify_message_is_agent_directed,
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
+    classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
@@ -33,7 +34,6 @@ from posthog.temporal.ai.slack_app.activities import (
     process_slack_app_fork_thread_activity,
     request_untagged_followup_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
-    route_slack_app_model_activity,
     run_posthog_slack_inbox_onboarding_activity,
 )
 from posthog.temporal.ai.slack_app.types import (
@@ -65,7 +65,7 @@ SLACK_APP_ACTIVITIES = [
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
     classify_slack_app_project_route_activity,
-    route_slack_app_model_activity,
+    classify_slack_app_model_router_activity,
     enforce_posthog_code_billing_quota_activity,
     post_posthog_code_no_repos_activity,
     post_posthog_code_repo_picker_activity,
@@ -125,6 +125,6 @@ __all__ = [
     "post_posthog_code_repo_picker_activity",
     "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
-    "route_slack_app_model_activity",
+    "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding_activity",
 ]

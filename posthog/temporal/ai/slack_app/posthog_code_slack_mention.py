@@ -17,6 +17,7 @@ from posthog.temporal.ai.slack_app import (
     cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
     classify_slack_app_model_override_activity,
+    classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
@@ -28,7 +29,6 @@ from posthog.temporal.ai.slack_app import (
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
     request_untagged_followup_confirmation_activity,
-    route_slack_app_model_activity,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -313,7 +313,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # the mention's own override whenever it does not route.
             if workflow.patched(_PATCH_ID_MODEL_ROUTER):
                 model_override = await _execute_posthog_code_activity(
-                    route_slack_app_model_activity,
+                    classify_slack_app_model_router_activity,
                     SlackAppModelRouterInput(
                         integration_id=inputs.integration_id,
                         slack_team_id=inputs.slack_team_id,

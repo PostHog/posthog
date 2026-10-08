@@ -35,7 +35,7 @@ MODEL_ROUTER_TIMEOUT_SECONDS = 5.0
 _QUESTION_ID = "model"
 
 
-def route_slack_app_model(
+def classify_slack_app_model_router(
     event_text: str,
     options: tuple[ModelRouterOption, ...],
     *,
@@ -55,7 +55,7 @@ def route_slack_app_model(
         ai_product="slack_app_routing",
         distinct_id=distinct_id,
         trace_id=trace_id,
-        properties={CLASSIFIER_PROPERTY: "model_router"},
+        properties={CLASSIFIER_PROPERTY: "slack_model_router"},
         timeout=MODEL_ROUTER_TIMEOUT_SECONDS,
     )
     result = client.decide(
@@ -77,7 +77,7 @@ def route_slack_app_model(
 
 @activity.defn
 @close_db_connections
-def route_slack_app_model_activity(input: SlackAppModelRouterInput) -> SlackAppModelOverride | None:
+def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) -> SlackAppModelOverride | None:
     """A model named in the mention always wins, because the author asked for it. An effort
     named alone still applies on top of the model the router picks.
     """
@@ -99,7 +99,7 @@ def route_slack_app_model_activity(input: SlackAppModelRouterInput) -> SlackAppM
 
     options = model_router_options(team_id=integration.team_id, user_id=user.id, distinct_id=user.distinct_id)
     try:
-        picked = route_slack_app_model(
+        picked = classify_slack_app_model_router(
             input.event_text,
             options,
             repository=input.repository,

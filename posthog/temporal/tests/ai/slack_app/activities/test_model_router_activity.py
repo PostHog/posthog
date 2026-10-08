@@ -9,7 +9,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.activities.model_router import route_slack_app_model_activity
+from posthog.temporal.ai.slack_app.activities.model_router import classify_slack_app_model_router_activity
 from posthog.temporal.ai.slack_app.types import SlackAppModelOverride, SlackAppModelRouterInput
 
 from products.slack_app.backend.models import SlackSettings
@@ -119,7 +119,7 @@ class TestRouteSlackAppModelActivity:
             patch(f"{MODULE}.build_system_one_client") as build_client,
             patch(f"{MODULE}.capture_slack_event"),
         ):
-            result = route_slack_app_model_activity(_input(integration, user, override))
+            result = classify_slack_app_model_router_activity(_input(integration, user, override))
 
         assert result == override
         build_client.assert_not_called()
@@ -142,7 +142,7 @@ class TestRouteSlackAppModelActivity:
             patch(f"{MODULE}.build_system_one_client", return_value=_client_picking_personal_default()),
             patch(f"{MODULE}.capture_slack_event"),
         ):
-            result = route_slack_app_model_activity(_input(integration, user, override))
+            result = classify_slack_app_model_router_activity(_input(integration, user, override))
 
         assert result == SlackAppModelOverride(model="gpt-6-sol", reasoning_effort=expected_effort)
 
@@ -155,7 +155,7 @@ class TestRouteSlackAppModelActivity:
             patch(f"{MODULE}.build_system_one_client", return_value=client),
             patch(f"{MODULE}.capture_slack_event"),
         ):
-            result = route_slack_app_model_activity(_input(integration, user))
+            result = classify_slack_app_model_router_activity(_input(integration, user))
 
         assert result is None
 
@@ -175,7 +175,7 @@ class TestRouteSlackAppModelActivity:
             patch(f"{MODULE}.build_system_one_client", return_value=client),
             patch(f"{MODULE}.capture_slack_event"),
         ):
-            route_slack_app_model_activity(_input(integration, user))
+            classify_slack_app_model_router_activity(_input(integration, user))
 
         request = client.decide.call_args.kwargs
         assert {"state": request["state"], "question": request["questions"]["model"].to_json()} == snapshot
