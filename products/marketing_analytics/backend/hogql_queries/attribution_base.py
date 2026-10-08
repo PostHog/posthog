@@ -60,6 +60,12 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
 
+    def additional_session_columns(self) -> set[str]:
+        return set()
+
+    def resolved_breakdown_expr(self) -> ast.Expr | None:
+        return None
+
     def get_query_settings(self) -> HogQLGlobalSettings:
         # Extra aggregation threads create more partial states and spill files for the same sessions.
         return HogQLGlobalSettings(

@@ -13053,6 +13053,18 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "posthogAttributionMode": {
+                    "$ref": "#/definitions/AttributionMode"
+                },
+                "posthogConversionGoals": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                    },
+                    "type": "array"
+                },
+                "posthogConversionsWarning": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -36339,6 +36351,44 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchConversion": {
+            "additionalProperties": false,
+            "properties": {
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "costPerConversion": {
+                    "type": ["number", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "previousConversions": {
+                    "type": ["number", "null"]
+                },
+                "previousCostPerConversion": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["conversions", "costPerConversion", "id", "name"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
@@ -36383,6 +36433,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includePostHogConversions": {
+                    "type": "boolean"
+                },
                 "keyword": {
                     "type": "string"
                 },
@@ -36393,6 +36446,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "normalizePageUrls": {
+                    "type": "boolean"
                 },
                 "page": {
                     "type": "string"
@@ -36434,6 +36490,18 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "posthogAttributionMode": {
+                    "$ref": "#/definitions/AttributionMode"
+                },
+                "posthogConversionGoals": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                    },
+                    "type": "array"
+                },
+                "posthogConversionsWarning": {
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36527,6 +36595,12 @@
                 },
                 "position": {
                     "type": ["number", "null"]
+                },
+                "posthogConversions": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                    },
+                    "type": "array"
                 },
                 "previous": {
                     "anyOf": [
@@ -44842,6 +44916,18 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "posthogAttributionMode": {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        "posthogConversionGoals": {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        "posthogConversionsWarning": {
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
