@@ -86,8 +86,23 @@ class TestComposeFlashFindings:
                 [_issue("m-p3", IssuePriority.CONSIDER), _issue("m-p2", IssuePriority.SHOULD_FIX)],
                 [_issue("l-p1", IssuePriority.MUST_FIX, _LENS_SOURCE)],
                 1,
-                ["l-p1", "m-p2"],
-                id="p3_dropped_and_a_lens_must_fix_ranks_first",
+                ["l-p1", "m-p2", "m-p3"],
+                id="p3_fills_a_free_slot_after_p2_and_a_lens_must_fix_ranks_first",
+            ),
+            pytest.param(
+                [_issue(f"m{n}", IssuePriority.MUST_FIX) for n in range(1, 4)]
+                + [_issue("m-p2", IssuePriority.SHOULD_FIX)],
+                [_issue(f"l{n}", IssuePriority.MUST_FIX, _LENS_SOURCE) for n in range(1, 4)],
+                1,
+                ["m1", "m2", "m3", "l1", "l2", "l3"],
+                id="must_fix_posts_past_the_cap_and_leaves_no_slot_for_p2",
+            ),
+            pytest.param(
+                [_issue(f"m{n}", IssuePriority.MUST_FIX) for n in range(1, 6)],
+                [_issue(f"l{n}", IssuePriority.MUST_FIX, _LENS_SOURCE) for n in range(1, 6)],
+                1,
+                ["m1", "m2", "m3", "m4", "m5", "l1", "l2", "l3"],
+                id="must_fix_stops_at_twice_the_cap",
             ),
             pytest.param(
                 [
@@ -116,8 +131,10 @@ class TestComposeFlashFindings:
     def test_keeps_the_highest_priority_findings_main_first_on_ties(
         self, main: list[Issue], lens: list[Issue], lens_part_count: int, expected_ids: list[str]
     ) -> None:
-        # A turn posts only what this keeps, so a P3 finding that outranks a P1, or a comment past the
-        # cap, reaches the PR as noise, and a large PR held to the one-part cap loses real findings.
+        # A turn posts only what this keeps. A must-fix finding cut by the cap never reaches the PR, a
+        # P3 that outranks a P1 or a comment past the cap is noise, a session that marks everything
+        # must-fix floods the PR without the ceiling, and a large PR held to the one-part cap loses
+        # real findings.
         kept = compose_flash_findings(main, lens, lens_part_count=lens_part_count)
         assert [issue.id for issue in kept] == expected_ids
 

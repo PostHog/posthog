@@ -223,13 +223,18 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   at medium, `run_oneshot_openai_review`; the pipeline's dedup pins are unchanged). The main findings dedup as before.
   The lens findings also dedup against the main findings as anchors: an anchor makes a colliding lens finding a
   candidate, and only candidates can drop, so a main finding never loses to a lens finding. `compose_flash_findings`
-  then keeps P0-P2 (`FLASH_POSTED_PRIORITIES`), highest first, main first on ties, at most
-  `flash_max_findings(parts)`: 4, plus 2 for each lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A
-  larger PR gets a few more comments because each extra part covers more code.
+  then ranks the findings highest first, main first on ties. The cap is `flash_max_findings(parts)`: 4, plus 2 for each
+  lens part past the first, up to 10 (4, 6, 8, 10 for 1-4 parts). A larger PR gets a few more comments because each
+  extra part covers more code.
   It runs before anything persists, because a persisted finding that never posts counts as already raised and would
   stay off the PR on every later turn.
-- **Publishing.** Every kept finding posts inline. With P3 gone, `review_priorities_for` and the status comment's
-  low-priority list are removed.
+- **Cap rule.** Must-fix (P0/P1) findings always post, outside the cap, so the cap never hides a
+  finding that blocks the merge. A hard ceiling of `FLASH_MUST_FIX_CAP_MULTIPLIER` (2) times the cap still bounds
+  them, because a lens prompt maps its skill's "Must fix" onto P1 and a session that marks everything must-fix would
+  otherwise void the cap. P2 and then P3 findings fill the slots left under the cap. This reverses the earlier rule
+  that dropped every P3: a P3 posts when the turn has room for it.
+- **Publishing.** Every kept finding posts inline. `review_priorities_for` and the status comment's low-priority list
+  are removed.
 - **Large PRs.** A diff over about 200K tokens (`FLASH_PROMPT_DIFF_MAX_CHARS`) shrinks to the reviewable files, then
   to the file list with a git command to read the changes. A PR past the lens part cap gets one line in the status
   comment, because a clean turn posts no review and a note in the review body would never show. A Flash turn never

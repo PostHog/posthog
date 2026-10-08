@@ -16,7 +16,7 @@ from pathlib import Path
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
-    FLASH_POSTED_PRIORITIES,
+    FLASH_MUST_FIX_CAP_MULTIPLIER,
     FLASH_PROMPT_DIFF_MAX_CHARS,
     SINGLE_AGENT_SOURCE,
     flash_max_findings,
@@ -202,16 +202,21 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
 
 
 def compose_flash_findings(main: list[Issue], lens: list[Issue], *, lens_part_count: int) -> list[Issue]:
-    """The findings a Flash turn keeps: posted priorities only, highest first, main review first on ties.
+    """The findings a Flash turn keeps, highest priority first and the main review first on ties.
 
-    The cut grows with the lens part count (`flash_max_findings`).
+    Every must-fix (P0 or P1) finding is kept outside the cap (`flash_max_findings`), up to
+    `FLASH_MUST_FIX_CAP_MULTIPLIER` times the cap. P2 and then P3 findings fill the slots the must-fix
+    findings leave under the cap.
 
     The caller persists only these. A persisted finding that never posts counts as already raised, so
     every later turn would keep it off the PR too.
     """
-    posted = [issue for issue in [*main, *lens] if issue.priority in FLASH_POSTED_PRIORITIES]
-    ranked = sorted(posted, key=lambda issue: priority_rank(issue.priority), reverse=True)
-    return ranked[: flash_max_findings(lens_part_count)]
+    cap = flash_max_findings(lens_part_count)
+    ranked = sorted([*main, *lens], key=lambda issue: priority_rank(issue.priority), reverse=True)
+    must_fix = [issue for issue in ranked if issue.priority == IssuePriority.MUST_FIX]
+    must_fix = must_fix[: FLASH_MUST_FIX_CAP_MULTIPLIER * cap]
+    others = [issue for issue in ranked if issue.priority != IssuePriority.MUST_FIX]
+    return [*must_fix, *others[: max(cap - len(must_fix), 0)]]
 
 
 async def dedupe_flash_findings(

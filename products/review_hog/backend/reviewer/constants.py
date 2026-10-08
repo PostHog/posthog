@@ -148,13 +148,14 @@ SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
 
-# A Flash turn posts P0-P2 findings only. Add `IssuePriority.CONSIDER` to post P3 findings too.
-FLASH_POSTED_PRIORITIES = frozenset({IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX})
 # The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
 # PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
 FLASH_MAX_FINDINGS_BASE = 4
 FLASH_MAX_FINDINGS_PER_EXTRA_PART = 2
 FLASH_MAX_FINDINGS_CEILING = 10
+# Must-fix findings post outside the cap. This multiple of the cap still bounds them, so a session that
+# marks everything P0 or P1 cannot flood the PR.
+FLASH_MUST_FIX_CAP_MULTIPLIER = 2
 
 
 def flash_max_findings(lens_part_count: int) -> int:
