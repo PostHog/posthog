@@ -1,10 +1,12 @@
 // The Usage tab renders these charts inline for flags without a usage dashboard. Event names,
-// property keys, breakdown, and math must stay identical to the saved-dashboard insight definitions
-// in posthog/helpers/dashboard_templates.py (create_feature_flag_dashboard and
-// add_enriched_insights_to_feature_flag_dashboard), so both surfaces report the same numbers.
+// property keys, breakdown, and math must stay identical to the insights on existing usage
+// dashboards, so that both surfaces report the same numbers. The test fixture in
+// products/feature_flags/backend/test/usage_dashboard_fixtures.py reproduces the total volume and
+// unique calls insights. The function add_enriched_insights_to_feature_flag_dashboard in
+// posthog/helpers/dashboard_templates.py adds the enriched insights.
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
-// rather than the template's fixed "day".
+// rather than the saved dashboards' fixed "day".
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'

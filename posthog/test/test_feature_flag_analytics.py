@@ -30,7 +30,6 @@ from posthog.helpers.dashboard_templates import (
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
-from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
@@ -47,6 +46,7 @@ from products.feature_flags.backend.flag_analytics import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
 
 
 class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
@@ -947,8 +947,8 @@ class TestEnrichedAnalytics(BaseTest):
         )
 
         # create usage dashboard for f1 and f3
-        _create_usage_dashboard(f1, self.user)
-        _create_usage_dashboard(f3, self.user)
+        create_usage_dashboard(f1, self.user)
+        create_usage_dashboard(f3, self.user)
 
         # create some enriched analytics events
         _create_event(
