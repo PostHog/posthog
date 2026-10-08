@@ -47,6 +47,20 @@ export function hiddenEventNames(
     return HIDDEN_EVENT_NAMES
 }
 
+/** The http or https link in the move notices flag's payload, or null while there is no announcement to link to. */
+export function moveAnnouncementUrl(payload: unknown): string | null {
+    const url = typeof payload === 'object' && payload !== null && 'url' in payload ? payload.url : null
+    if (typeof url !== 'string') {
+        return null
+    }
+    try {
+        const { protocol } = new URL(url)
+        return protocol === 'https:' || protocol === 'http:' ? url : null
+    } catch {
+        return null
+    }
+}
+
 /** The hidden events that a mode 0 action or cohort editor warns about. Empty until the move is announced. */
 export function eventsWithMoveNotice(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
