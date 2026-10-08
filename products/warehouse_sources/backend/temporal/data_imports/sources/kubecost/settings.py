@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -19,7 +21,7 @@ _WINDOW_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@frozen
 class KubecostEndpointConfig:
     name: str
     path: str

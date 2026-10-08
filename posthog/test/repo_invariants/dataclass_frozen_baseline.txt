@@ -736,7 +736,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/koyeb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/koyeb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/kubecost.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/kubecost/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/kustomer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kustomer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lacework/lacework.py
