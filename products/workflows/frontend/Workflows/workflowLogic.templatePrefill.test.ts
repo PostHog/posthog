@@ -4,7 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { HogFlow } from './hogflows/types'
-import { NEW_WORKFLOW, workflowLogic } from './workflowLogic'
+import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './workflowLogic'
 import { type WorkflowTriggerConfig } from './workflowTriggerPrefill'
 
 const template: HogFlow = {
@@ -12,11 +12,26 @@ const template: HogFlow = {
     id: 'template-1',
     name: 'Welcome email',
     trigger: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
-    actions: NEW_WORKFLOW.actions.map((action) =>
-        action.type === 'trigger'
-            ? { ...action, config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } } }
-            : action
-    ),
+    actions: [
+        ...NEW_WORKFLOW.actions.map((action): HogFlow['actions'][number] =>
+            action.type === 'trigger'
+                ? { ...action, config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } } }
+                : action
+        ),
+        {
+            id: 'welcome_delay',
+            type: 'delay',
+            name: 'Wait before welcoming',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '5m' },
+        },
+    ],
+    edges: [
+        { from: TRIGGER_NODE_ID, to: 'welcome_delay', type: 'continue' },
+        { from: 'welcome_delay', to: EXIT_NODE_ID, type: 'continue' },
+    ],
 }
 
 const linkedTrigger: WorkflowTriggerConfig = {
@@ -47,5 +62,9 @@ describe('workflowLogic template links', () => {
         expect(triggerAction?.config).toEqual(linkedTrigger)
         expect(logic.values.workflow.trigger).toEqual(linkedTrigger)
         expect(logic.values.workflow.name).toEqual('Welcome email')
+        expect(logic.values.workflow.actions.filter((action) => action.type !== 'trigger')).toEqual(
+            template.actions.filter((action) => action.type !== 'trigger')
+        )
+        expect(logic.values.workflow.edges).toEqual(template.edges)
     })
 })

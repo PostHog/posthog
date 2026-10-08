@@ -3171,7 +3171,6 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            // A link can pair a template with a trigger, e.g. a template opened on the recipient's own event
                             const templateTriggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                             return templateTriggerConfig
                                 ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
