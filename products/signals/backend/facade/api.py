@@ -40,6 +40,7 @@ from products.signals.backend.briefing_reports import (
     OpenReportCounts as OpenReportCounts,
     open_report_counts as open_report_counts,
     report_details as report_details,
+    report_ids_naming_user as report_ids_naming_user,
     reports_for_briefing as reports_for_briefing,
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation

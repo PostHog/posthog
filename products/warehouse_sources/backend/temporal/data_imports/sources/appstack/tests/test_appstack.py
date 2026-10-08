@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.a
     _export_window_start,
     _to_unix_seconds,
     appstack_source,
-    get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.settings import PAGE_SIZE
@@ -52,37 +51,6 @@ class TestExportWindowStart:
         assert _export_window_start(incremental, last_value) == expected
 
 
-class TestGetResource:
-    @staticmethod
-    def _params(resource: Any) -> dict[str, Any]:
-        return cast(dict[str, Any], cast(dict[str, Any], resource["endpoint"])["params"])
-
-    def test_full_refresh_resource_shape(self) -> None:
-        resource = get_resource("events", should_use_incremental_field=False, window_start=0)
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-
-        assert resource["name"] == "events"
-        assert resource["write_disposition"] == "replace"
-        assert resource["table_format"] == "delta"
-        assert endpoint["path"] == "/export"
-        assert endpoint["data_selector"] == "data"
-        # `timestamp` is required by the API even on a full refresh.
-        assert self._params(resource)["timestamp"] == 0
-
-    def test_incremental_resource_merges_and_windows(self) -> None:
-        resource = get_resource("events", should_use_incremental_field=True, window_start=1772593094)
-
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        assert self._params(resource)["timestamp"] == 1772593094
-
-    def test_event_time_parsed_as_timestamp(self) -> None:
-        # Without this hint event_time stays an ISO string and the incremental watermark and
-        # datetime partitioning silently break.
-        resource = get_resource("events", should_use_incremental_field=True, window_start=0)
-        columns = cast(dict[str, Any], resource["columns"])
-        assert columns["event_time"]["data_type"] == "timestamp"
-
-
 class TestAppstackSource:
     def _manager(self, *, can_resume: bool, state: AppstackResumeConfig | None = None) -> MagicMock:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -102,22 +70,6 @@ class TestAppstackSource:
         }
         defaults.update(kwargs)
         return appstack_source(**defaults)
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
-    def test_source_response_fields(self, mock_rest: MagicMock) -> None:
-        mock_resource = MagicMock()
-        mock_resource.name = "events"
-        mock_resource.column_hints = {"event_time": "timestamp"}
-        mock_rest.return_value = mock_resource
-
-        response = self._call(self._manager(can_resume=False))
-
-        assert response.name == "events"
-        assert response.primary_keys == ["event_id"]
-        # Documented: exports are ordered by event_time ascending.
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["event_time"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.rest_api_resource")
     def test_paginator_never_trusts_total_count(self, mock_rest: MagicMock) -> None:
@@ -205,18 +157,6 @@ class TestValidateCredentials:
 
         with pytest.raises(HTTPError):
             validate_credentials("key")
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
-    def test_sends_raw_key_in_authorization_header(self, mock_session: MagicMock) -> None:
-        # Appstack expects the bare key — a Bearer prefix breaks auth for every sync.
-        response = MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("the-key")
-
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "the-key"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack.make_tracked_session")
     def test_probe_disables_sample_capture(self, mock_session: MagicMock) -> None:

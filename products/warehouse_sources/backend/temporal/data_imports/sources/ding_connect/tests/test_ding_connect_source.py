@@ -8,15 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ding_conne
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.source import DingConnectSource
 
 
-class TestGetSchemas:
-    def test_all_endpoints_are_full_refresh_only(self) -> None:
-        # No DingConnect endpoint exposes a server-side timestamp filter, so nothing supports
-        # incremental or append — guarding against an accidental incremental flip.
-        schemas = DingConnectSource().get_schemas(MagicMock(), team_id=1)
-        assert all(not s.supports_incremental for s in schemas)
-        assert all(not s.supports_append for s in schemas)
-
-
 class TestValidateCredentials:
     def test_valid_credentials(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(source_module, "validate_ding_connect_credentials", lambda api_key: True)

@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -31,6 +31,7 @@ import type {
     ExperimentTypeEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 import { visionScannersCreate } from 'products/replay_vision/frontend/generated/api'
+import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 
 import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
@@ -536,16 +537,35 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     }
 
                     if (replayScannerCreationFailed) {
-                        lemonToast.error("Experiment created, but the Replay Vision scanner wasn't.", {
-                            button: {
-                                label: 'Set up scanner',
-                                action: () => router.actions.push(urls.replayVisionTemplates()),
-                            },
-                        })
+                        lemonToast.error(
+                            experimentScanners
+                                ? "Experiment created, but the experiment scanner wasn't."
+                                : "Experiment created, but the Replay Vision scanner wasn't.",
+                            {
+                                button: experimentScanners
+                                    ? {
+                                          label: 'Set up experiment scanner',
+                                          action: () =>
+                                              router.actions.push(
+                                                  combineUrl(
+                                                      urls.replayVisionScannerTemplate('new'),
+                                                      experimentScannerParams({
+                                                          experimentId: response.id as number,
+                                                          variantKey: null,
+                                                      })
+                                                  ).url
+                                              ),
+                                      }
+                                    : {
+                                          label: 'Set up scanner',
+                                          action: () => router.actions.push(urls.replayVisionTemplates()),
+                                      },
+                            }
+                        )
                     } else if (replayScannerId) {
                         lemonToast.success(
                             experimentScanners
-                                ? 'Experiment created. The Replay Vision scanner turns on when you launch the experiment.'
+                                ? 'Experiment created. The experiment scanner turns on when you launch the experiment.'
                                 : 'Experiment created. The Replay Vision scanner is off until you turn it on.',
                             {
                                 button: {

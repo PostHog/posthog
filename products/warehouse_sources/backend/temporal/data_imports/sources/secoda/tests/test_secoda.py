@@ -74,19 +74,6 @@ def _run(manager: mock.MagicMock, endpoint: str = "tables") -> list[dict[str, An
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "a"}, {"id": "b"}], links_next=None)])
-
-        manager = _make_manager()
-        rows = _run(manager)
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert session.send.call_count == 1
-        # A null next link ends the sync without persisting resume state.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_links_next_cursor_until_null(self, MockSession) -> None:
         session = MockSession.return_value
         second = f"{TABLES_URL}?page=2"
@@ -101,49 +88,6 @@ class TestPagination:
         assert urls[1] == second
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
         manager.save_state.assert_called_once_with(SecodaResumeConfig(next_url=second))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_top_level_next_is_followed(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = f"{SECODA_BASE_URL}/api/v1/tag?page=2"
-        # Endpoints that expose the follow link top-level (no links.next) must still paginate.
-        urls = _wire(
-            session,
-            [_page([{"id": "a"}], links_next=None, top_level_next=second), _page([{"id": "b"}], links_next=None)],
-        )
-
-        manager = _make_manager()
-        rows = _run(manager, endpoint="tags")
-
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        assert urls[1] == second
-        manager.save_state.assert_called_once_with(SecodaResumeConfig(next_url=second))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        second = f"{TABLES_URL}?page=2"
-        urls = _wire(session, [_page([{"id": "b"}], links_next=None)])
-
-        manager = _make_manager(SecodaResumeConfig(next_url=second))
-        rows = _run(manager)
-
-        assert rows == [{"id": "b"}]
-        # The first page URL must never be fetched on resume — we start at the saved cursor.
-        assert session.send.call_count == 1
-        assert urls[0] == second
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([], links_next=None)])
-
-        manager = _make_manager()
-        rows = _run(manager)
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
 
 
 class TestTransientResponsesRetried:

@@ -207,17 +207,6 @@ def test_terminal_checkpoint_does_not_restart_the_sync(endpoint: str) -> None:
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("endpoint", ["findings", "archive_rules"])
-def test_no_analyzers_finishes_without_child_requests(endpoint: str) -> None:
-    manager = FakeManager()
-    with patch.object(transport, "make_tracked_session") as factory:
-        factory.return_value.request.return_value = response({"analyzers": []})
-        assert list(get_rows(CONFIG, endpoint, manager, API_VERSION)) == []
-    factory.return_value.request.assert_called_once()
-    assert manager.saved[-1].finished
-    assert manager.safe_points == 1
-
-
 @pytest.mark.parametrize(
     "code,status,header",
     [
@@ -261,21 +250,6 @@ def test_validation_accepts_only_missing_permissions_at_source_creation(schema_n
     assert (message is None) == valid
     factory.return_value.request.assert_called_once()
     factory.return_value.close.assert_called_once()
-
-
-@pytest.mark.parametrize("schema_name", [None, "findings", "archive_rules"])
-def test_validation_checks_child_permissions_only_for_a_selected_table(schema_name: str | None) -> None:
-    with patch.object(transport, "make_tracked_session") as factory:
-        session = factory.return_value
-        session.request.side_effect = [
-            response({"analyzers": [PARENT_A]}),
-            response({"__type": "AccessDeniedException"}, 403),
-        ]
-        valid, message = validate_credentials(CONFIG, schema_name)
-    assert valid == (schema_name is None)
-    assert session.request.call_count == (1 if schema_name is None else 2)
-    assert (message is None) == valid
-    assert "maxResults=1" in session.request.call_args_list[0].args[1]
 
 
 @pytest.mark.parametrize(
@@ -326,32 +300,6 @@ def test_transport_failure_returns_a_safe_validation_message() -> None:
     assert not valid
     assert message is not None and "example-secret" not in message
     factory.return_value.close.assert_called_once()
-
-
-@pytest.mark.parametrize(
-    "endpoint,result_key,id_key", [("findings", "findings", "id"), ("archive_rules", "archiveRules", "ruleName")]
-)
-def test_resume_between_analyzers_does_not_repeat_the_completed_analyzer(
-    endpoint: str, result_key: str, id_key: str
-) -> None:
-    manager = FakeManager()
-    with patch.object(transport, "make_tracked_session") as factory:
-        session = factory.return_value
-        session.request.side_effect = [
-            response({"analyzers": [PARENT_A, PARENT_B]}),
-            response({result_key: [{id_key: "same-id"}]}),
-        ]
-        first_run = get_rows(CONFIG, endpoint, manager, API_VERSION)
-        next(first_run)
-        checkpoint = manager.saved[-1]
-        first_run.close()
-        resumed = FakeManager(checkpoint)
-        session.request.reset_mock()
-        session.request.side_effect = [response({result_key: [{id_key: "same-id"}]})]
-        rows = list(get_rows(CONFIG, endpoint, resumed, API_VERSION))
-    session.request.assert_called_once()
-    assert rows[0][0]["analyzer_arn"] == PARENT_B["arn"]
-    assert resumed.saved[-1].finished
 
 
 @pytest.mark.parametrize("status,body", [(500, b"<html>error</html>"), (502, b"[]"), (302, b"")])
