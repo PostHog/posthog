@@ -205,7 +205,9 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
     issues = []
     ranked = sorted(review.findings, key=lambda finding: finding.priority)
     for number, finding in enumerate(ranked, start=1):
-        line_end = finding.line_end if finding.line_end is not None and finding.line_end != finding.line_start else None
+        # GitHub rejects an inline comment whose end line is before its start line with a 422.
+        line_end = finding.line_end if finding.line_end is not None and finding.line_end > finding.line_start else None
+        reversed_range = finding.line_end is not None and finding.line_end < finding.line_start
         issues.append(
             Issue(
                 id=f"{pass_number}-{chunk_id}-{number}",
@@ -215,7 +217,8 @@ def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id:
                 issue=finding.body,
                 # The body ends with the fix direction, so there is no separate suggestion text.
                 suggestion="",
-                suggestion_code=finding.suggestion_code or None,
+                # A reversed range does not say which lines the suggestion replaces, so it would post on the wrong ones.
+                suggestion_code=None if reversed_range else finding.suggestion_code or None,
                 priority=_STORED_PRIORITY[finding.priority],
                 reported_priority=finding.priority,
                 is_directly_related_to_changes=True,

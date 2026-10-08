@@ -500,6 +500,15 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
             SingleAgentFinding(
                 title="Guard the empty list", priority="P1", file="a.py", line_start=4, body="b", suggestion_code="x"
             ),
+            SingleAgentFinding(
+                title="Close the file",
+                priority="P2",
+                file="a.py",
+                line_start=12,
+                line_end=7,
+                body="b",
+                suggestion_code="y",
+            ),
         ]
     )
     mock_review = AsyncMock(return_value=review)
@@ -524,10 +533,12 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
     assert mock_review.call_args.kwargs["github_read_access"] is True
     [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
     assert key == expected_key
-    # The stored priority folds P0 and P1 together, so the P level must ride along or it is lost.
+    # The stored priority folds P0 and P1 together, so the P level must ride along or it is lost. GitHub
+    # rejects a reversed line range, so that finding keeps its start line and loses its suggestion.
     assert [
         (i.priority, i.reported_priority, i.lines, i.suggestion_code, i.source_perspective) for i in persisted.issues
     ] == [
         (IssuePriority.MUST_FIX, "P1", [LineRange(start=4)], "x", expected_source),
+        (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
         (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
     ]
