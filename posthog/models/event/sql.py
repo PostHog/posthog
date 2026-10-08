@@ -67,7 +67,7 @@ def json_property_presence_expr(column: str, prop: str) -> str:
 
     Mirrors the HogQL resolver's JSONHas lowering, with the materialized-column rule that an empty
     value is absent: a declared path is present when it is not null and not empty; a dynamic path
-    is present when its scalar read is a non-empty string or its sub-object holds a non-empty value.
+    is present when its scalar read is a non-empty string or its sub-object holds any value.
     ClickHouse's JSONHas() cannot be used directly on a JSON-typed column — it does not see typed
     paths or nested objects there.
     """
