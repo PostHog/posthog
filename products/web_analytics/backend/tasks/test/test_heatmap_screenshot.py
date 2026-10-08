@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
-from celery.exceptions import SoftTimeLimitExceeded
+from celery.exceptions import Retry, SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -91,24 +91,82 @@ class TestHeatmapScreenshotTask(APIBaseTest):
             block_consent_modals=block_consent_modals,
         )
 
+    @parameterized.expand([(401, 0), (403, 0), (404, 0), (429, 3), (503, 3)])
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
-    def test_a_captured_error_page_fails_the_heatmap_instead_of_being_stored(self, mock_browserless: MagicMock) -> None:
-        # The render is a valid JPEG of the host's error page, so without the page status this looked
-        # like a healthy heatmap and the user was shown a picture of a 429.
+    def test_a_captured_error_page_fails_the_heatmap_instead_of_being_stored(
+        self, status: int, retries: int, mock_browserless: MagicMock
+    ) -> None:
         resp = _make_response(_jpeg(b"err"))
-        resp.headers = {"content-type": "image/png", "x-response-code": "429"}
+        resp.headers = {"content-type": "image/png", "x-response-code": str(status)}
         mock_browserless.return_value = resp
 
         heatmap = self._make_heatmap()
-        with self.assertRaises(PageHttpStatusError):
-            generate_heatmap_screenshot(heatmap.id)
+        generate_heatmap_screenshot.push_request(called_directly=False, retries=retries)
+        try:
+            with (
+                patch.object(generate_heatmap_screenshot, "retry", side_effect=AssertionError("Unexpected retry")),
+                self.assertRaises(PageHttpStatusError) as raised,
+            ):
+                generate_heatmap_screenshot.run(heatmap.id)
+        finally:
+            generate_heatmap_screenshot.pop_request()
 
+        assert raised.exception.status_code == status
         heatmap.refresh_from_db()
         assert heatmap.status == SavedHeatmap.Status.FAILED
-        assert "429" in (heatmap.exception or "")
+        assert str(status) in (heatmap.exception or "")
         assert "example.com" in (heatmap.exception or "")
         assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
+        assert len(self.captured_events) == 1
+        assert self.captured_events[0]["properties"]["page_status"] == status
+        assert self.captured_events[0]["properties"]["failure_type"] == "page_http_status"
+
+    @parameterized.expand([408, 429, 500, 503])
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
+    def test_transient_page_error_recovers_without_repeating_completed_widths(
+        self, status: int, mock_browserless: MagicMock
+    ) -> None:
+        error_response = _make_response(_jpeg(b"error"))
+        error_response.headers["x-response-code"] = str(status)
+        mock_browserless.side_effect = [
+            _make_response(_jpeg(b"320")),
+            error_response,
+            _make_response(_jpeg(b"768")),
+        ]
+        heatmap = self._make_heatmap(target_widths=[320, 768])
+        generate_heatmap_screenshot.push_request(called_directly=False, retries=0)
+        try:
+            with (
+                patch.object(generate_heatmap_screenshot, "retry", side_effect=Retry()) as retry,
+                self.assertRaises(Retry),
+            ):
+                generate_heatmap_screenshot.run(heatmap.id)
+        finally:
+            generate_heatmap_screenshot.pop_request()
+
+        assert 15 <= retry.call_args.kwargs["countdown"] <= 30
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.PROCESSING
+        assert self.captured_events == []
+        assert {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)} == {320: _jpeg(b"320")}
+
+        generate_heatmap_screenshot.push_request(called_directly=False, retries=1)
+        try:
+            generate_heatmap_screenshot.run(heatmap.id)
+        finally:
+            generate_heatmap_screenshot.pop_request()
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.COMPLETED
+        assert {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)} == {
+            320: _jpeg(b"320"),
+            768: _jpeg(b"768"),
+        }
+        assert [call.kwargs["json"]["viewport"]["width"] for call in mock_browserless.call_args_list] == [320, 768, 768]
+        assert len(self.captured_events) == 1
+        assert self.captured_events[0]["properties"]["success"] is True
 
     @parameterized.expand(["remove", "rotate"])
     @override_settings(**BROWSERLESS_SETTINGS)
