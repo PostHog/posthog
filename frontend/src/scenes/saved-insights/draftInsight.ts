@@ -20,11 +20,11 @@ const KNOWN_NODE_KINDS = new Set<string>(Object.values(NodeKind))
 
 /**
  * Whether a stored query is complete enough for the scenes that render and restore a draft.
- * Nothing schema checks local storage or a URL, so this is the boundary that screens the three
- * shapes the readers cannot survive: an unknown kind, which indexes no metadata and renders no
- * icon; a wrapper node that lost the `source` holding the query that runs; and a `series` of a
- * shape the readers cannot iterate. The editor and the readers share this, so the editor cannot
- * persist a value the readers would throw away.
+ * Nothing schema checks local storage, so this is the boundary that screens three shapes: an
+ * unknown kind, which no reader can render or restore; a wrapper node that lost the `source`
+ * holding the query that runs; and a `series` that the readers cannot iterate, which throws.
+ * The editor and the readers share this, so the editor cannot persist a value the readers
+ * would throw away.
  */
 export function isRestorableDraftQuery(query: unknown): query is Node<Record<string, any>> {
     const node = query as Node<Record<string, any>> | null
