@@ -440,7 +440,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 beginWrite(update, settled)
             }
 
-            // Cleared for every entry decided, including ignored and unchanged ones.
             update.needs_write = false
         }
         return { decided, waiting, settle, settled }

@@ -89,7 +89,6 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
 }
 
 export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
-    // The view: the base, then the write out, then the lanes still pending.
     const finalProperties = { ...personUpdate.properties }
     const lanes = personUpdate.in_flight ? [personUpdate.in_flight.lanes, personUpdate] : [personUpdate]
     for (const lane of lanes) {
