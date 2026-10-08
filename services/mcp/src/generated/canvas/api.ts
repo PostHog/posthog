@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 26 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -309,6 +309,18 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemM
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemNameMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemDescriptionMax = 400
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemVerbMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsItemMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsMax = 16
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax = 20
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -460,6 +472,65 @@ export const CanvasesDraftCreateBody = () => zod
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
+                            operations: zod
+                                .array(
+                                    zod
+                                        .object({
+                                            name: zod
+                                                .string()
+                                                .max(
+                                                    canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemNameMax
+                                                )
+                                                .describe(
+                                                    "Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'."
+                                                ),
+                                            description: zod
+                                                .string()
+                                                .max(
+                                                    canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemDescriptionMax
+                                                )
+                                                .describe(
+                                                    'What invoking the operation does for a person, in one or two sentences.'
+                                                ),
+                                            verb: zod
+                                                .string()
+                                                .max(
+                                                    canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemVerbMax
+                                                )
+                                                .describe(
+                                                    'Registered verb the operation runs; it must also be in capabilities.posthog.actions.'
+                                                ),
+                                            payload: zod
+                                                .record(zod.string(), zod.unknown())
+                                                .optional()
+                                                .describe(
+                                                    "Fixed verb arguments the operation always sends, keyed by the verb's payload fields."
+                                                ),
+                                            inputs: zod
+                                                .array(
+                                                    zod
+                                                        .string()
+                                                        .max(
+                                                            canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsItemMax
+                                                        )
+                                                )
+                                                .max(
+                                                    canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsMax
+                                                )
+                                                .optional()
+                                                .describe(
+                                                    'Payload fields the caller supplies at invoke time. Any other argument is refused.'
+                                                ),
+                                        })
+                                        .describe(
+                                            'One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies.'
+                                        )
+                                )
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax)
+                                .optional()
+                                .describe(
+                                    'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -567,6 +638,18 @@ export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax = 64
 export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemNameMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemDescriptionMax = 400
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemVerbMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemInputsItemMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemInputsMax = 16
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogOperationsMax = 20
+
 export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax = 20
@@ -656,6 +739,57 @@ export const CanvasesEditCreateBody = () => zod
                     agentRequests: zod
                         .boolean()
                         .default(canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault),
+                    operations: zod
+                        .array(
+                            zod
+                                .object({
+                                    name: zod
+                                        .string()
+                                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemNameMax)
+                                        .describe(
+                                            "Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'."
+                                        ),
+                                    description: zod
+                                        .string()
+                                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemDescriptionMax)
+                                        .describe(
+                                            'What invoking the operation does for a person, in one or two sentences.'
+                                        ),
+                                    verb: zod
+                                        .string()
+                                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemVerbMax)
+                                        .describe(
+                                            'Registered verb the operation runs; it must also be in capabilities.posthog.actions.'
+                                        ),
+                                    payload: zod
+                                        .record(zod.string(), zod.unknown())
+                                        .optional()
+                                        .describe(
+                                            "Fixed verb arguments the operation always sends, keyed by the verb's payload fields."
+                                        ),
+                                    inputs: zod
+                                        .array(
+                                            zod
+                                                .string()
+                                                .max(
+                                                    canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemInputsItemMax
+                                                )
+                                        )
+                                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogOperationsItemInputsMax)
+                                        .optional()
+                                        .describe(
+                                            'Payload fields the caller supplies at invoke time. Any other argument is refused.'
+                                        ),
+                                })
+                                .describe(
+                                    'One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies.'
+                                )
+                        )
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogOperationsMax)
+                        .optional()
+                        .describe(
+                            'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
+                        ),
                 }),
                 network: zod.object({
                     origins: zod
@@ -1109,6 +1243,59 @@ export const CanvasesLayoutPublishCreateBody = () => zod
     .describe('Payload for publishing a complete layout document.')
 
 /**
+ * List the operations the canvas's live version declares, each with its verb's registry metadata.
+ */
+export const CanvasesOperationsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Invoke one declared operation as the viewer.
+ *
+ * Runs the operation's verb with its declared payload plus the caller's `arguments`,
+ * through the same pipeline as a direct verb invoke.
+ */
+export const canvasesOperationsInvokePathOperationNameRegExp = new RegExp('^[a-z0-9-]+$')
+
+export const CanvasesOperationsInvokeParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    operation_name: zod.string().regex(canvasesOperationsInvokePathOperationNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CanvasesOperationsInvokeBody = () => zod
+    .object({
+        arguments: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe("Values for the operation's declared `inputs`. Keys outside `inputs` are refused."),
+    })
+    .describe('Payload for invoking one declared operation.')
+
+/**
+ * Publish the canvas's declared operations as a team skill agents can load.
+ *
+ * The skill name is stable per canvas, so republishing after a change creates a new version.
+ */
+export const CanvasesOperationsPublishSkillCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Make a draft version the canvas's live head.
  *
  * A draft whose build is ready goes live immediately, with no rebuild;
@@ -1183,6 +1370,18 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsIte
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemNameMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemDescriptionMax = 400
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemVerbMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsItemMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsMax = 16
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax = 20
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -1336,6 +1535,65 @@ export const CanvasesPublishCreateBody = () => zod
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
+                            operations: zod
+                                .array(
+                                    zod
+                                        .object({
+                                            name: zod
+                                                .string()
+                                                .max(
+                                                    canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemNameMax
+                                                )
+                                                .describe(
+                                                    "Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'."
+                                                ),
+                                            description: zod
+                                                .string()
+                                                .max(
+                                                    canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemDescriptionMax
+                                                )
+                                                .describe(
+                                                    'What invoking the operation does for a person, in one or two sentences.'
+                                                ),
+                                            verb: zod
+                                                .string()
+                                                .max(
+                                                    canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemVerbMax
+                                                )
+                                                .describe(
+                                                    'Registered verb the operation runs; it must also be in capabilities.posthog.actions.'
+                                                ),
+                                            payload: zod
+                                                .record(zod.string(), zod.unknown())
+                                                .optional()
+                                                .describe(
+                                                    "Fixed verb arguments the operation always sends, keyed by the verb's payload fields."
+                                                ),
+                                            inputs: zod
+                                                .array(
+                                                    zod
+                                                        .string()
+                                                        .max(
+                                                            canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsItemMax
+                                                        )
+                                                )
+                                                .max(
+                                                    canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsMax
+                                                )
+                                                .optional()
+                                                .describe(
+                                                    'Payload fields the caller supplies at invoke time. Any other argument is refused.'
+                                                ),
+                                        })
+                                        .describe(
+                                            'One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies.'
+                                        )
+                                )
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax)
+                                .optional()
+                                .describe(
+                                    'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -1626,6 +1884,18 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsIt
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemNameMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemDescriptionMax = 400
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemVerbMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsItemMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsMax = 16
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax = 20
+
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -1778,6 +2048,65 @@ export const CanvasesValidateCreateBody = () => zod
                                 .boolean()
                                 .default(
                                     canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault
+                                ),
+                            operations: zod
+                                .array(
+                                    zod
+                                        .object({
+                                            name: zod
+                                                .string()
+                                                .max(
+                                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemNameMax
+                                                )
+                                                .describe(
+                                                    "Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'."
+                                                ),
+                                            description: zod
+                                                .string()
+                                                .max(
+                                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemDescriptionMax
+                                                )
+                                                .describe(
+                                                    'What invoking the operation does for a person, in one or two sentences.'
+                                                ),
+                                            verb: zod
+                                                .string()
+                                                .max(
+                                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemVerbMax
+                                                )
+                                                .describe(
+                                                    'Registered verb the operation runs; it must also be in capabilities.posthog.actions.'
+                                                ),
+                                            payload: zod
+                                                .record(zod.string(), zod.unknown())
+                                                .optional()
+                                                .describe(
+                                                    "Fixed verb arguments the operation always sends, keyed by the verb's payload fields."
+                                                ),
+                                            inputs: zod
+                                                .array(
+                                                    zod
+                                                        .string()
+                                                        .max(
+                                                            canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsItemMax
+                                                        )
+                                                )
+                                                .max(
+                                                    canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsItemInputsMax
+                                                )
+                                                .optional()
+                                                .describe(
+                                                    'Payload fields the caller supplies at invoke time. Any other argument is refused.'
+                                                ),
+                                        })
+                                        .describe(
+                                            'One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies.'
+                                        )
+                                )
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogOperationsMax)
+                                .optional()
+                                .describe(
+                                    'Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.'
                                 ),
                         }),
                         network: zod.object({

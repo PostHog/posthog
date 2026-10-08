@@ -51,6 +51,31 @@ class TestCanvasSourceAdapter(SimpleTestCase):
     def test_valid_minimal_project_has_no_diagnostics(self):
         self.assertEqual(validate_source_project(project()), [])
 
+    def test_declared_operations_with_declared_verbs_validate(self):
+        candidate = project(
+            capabilities={
+                "posthog": {
+                    "actions": ["annotations.create", "feature_flags.enable"],
+                    "operations": [
+                        {
+                            "name": "mark-incident",
+                            "description": "Annotate the start of an incident.",
+                            "verb": "annotations.create",
+                            "payload": {"content": "Incident started"},
+                        },
+                        {
+                            "name": "enable-beta",
+                            "description": "Turn the beta flag on.",
+                            "verb": "feature_flags.enable",
+                            "inputs": ["flag_key"],
+                        },
+                    ],
+                },
+                "network": {"origins": []},
+            }
+        )
+        self.assertEqual(validate_source_project(candidate), [])
+
     def test_canvas_sdk_import_is_allowed_without_a_dependency_pin(self):
         # The SDK is platform-provided (inlined by the builder), so the import
         # must pass without an entry in the project's dependencies map.
@@ -121,6 +146,129 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "unregistered_declared_action",
                 project(capabilities={"posthog": {"actions": ["flags.delete"]}, "network": {"origins": []}}),
                 "action_not_registered",
+            ),
+            (
+                "operation_name_malformed",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["annotations.create"],
+                            "operations": [
+                                {"name": "Mark Incident", "description": "Mark it", "verb": "annotations.create"}
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                # An operation is a named entry point to a verb, so its verb must be one the canvas declares.
+                "operation_verb_undeclared",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["annotations.create"],
+                            "operations": [{"name": "file-task", "description": "File it", "verb": "tasks.create"}],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                "operation_duplicate_name",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["annotations.create"],
+                            "operations": [
+                                {"name": "mark", "description": "Mark it", "verb": "annotations.create"},
+                                {"name": "mark", "description": "Mark it again", "verb": "annotations.create"},
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                "operation_input_outside_payload_schema",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["annotations.create"],
+                            "operations": [
+                                {
+                                    "name": "mark",
+                                    "description": "Mark it",
+                                    "verb": "annotations.create",
+                                    "inputs": ["not_a_payload_field"],
+                                }
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                # A caller must not replace a value the author fixed.
+                "operation_field_both_fixed_and_input",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["annotations.create"],
+                            "operations": [
+                                {
+                                    "name": "mark",
+                                    "description": "Mark it",
+                                    "verb": "annotations.create",
+                                    "payload": {"content": "Incident started"},
+                                    "inputs": ["content"],
+                                }
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                # A bad fixed value fails at publish, not on every invoke.
+                "operation_fixed_value_the_verb_rejects",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["surveys.launch"],
+                            "operations": [
+                                {
+                                    "name": "launch",
+                                    "description": "Launch it",
+                                    "verb": "surveys.launch",
+                                    "payload": {"survey_id": "not-a-uuid"},
+                                }
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
+            ),
+            (
+                "operation_required_field_not_supplied",
+                project(
+                    capabilities={
+                        "posthog": {
+                            "actions": ["feature_flags.enable"],
+                            "operations": [
+                                {"name": "enable", "description": "Enable it", "verb": "feature_flags.enable"}
+                            ],
+                        },
+                        "network": {"origins": []},
+                    }
+                ),
+                "operation_invalid",
             ),
             (
                 "undeclared_connector_call",

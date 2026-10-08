@@ -20400,6 +20400,40 @@ export namespace Schemas {
       Shared: 'shared',
     } as const;
 
+    /**
+     * Fixed verb arguments the operation always sends, keyed by the verb's payload fields.
+     */
+    export type CanvasOperationDeclarationPayload = { [key: string]: unknown };
+
+    /**
+     * One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies.
+     */
+    export interface CanvasOperationDeclaration {
+      /**
+         * Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'.
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * What invoking the operation does for a person, in one or two sentences.
+         * @maxLength 400
+         */
+      description: string;
+      /**
+         * Registered verb the operation runs; it must also be in capabilities.posthog.actions.
+         * @maxLength 64
+         */
+      verb: string;
+      /** Fixed verb arguments the operation always sends, keyed by the verb's payload fields. */
+      payload?: CanvasOperationDeclarationPayload;
+      /**
+         * Payload fields the caller supplies at invoke time. Any other argument is refused.
+         * @maxItems 16
+         * @items.maxLength 64
+         */
+      inputs?: string[];
+    }
+
     export interface CanvasPostHogCapabilities {
       /**
          * @maxItems 100
@@ -20424,6 +20458,11 @@ export namespace Schemas {
          */
       actions?: string[];
       agentRequests?: boolean;
+      /**
+         * Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the operations endpoint and exported as a team skill.
+         * @maxItems 20
+         */
+      operations?: CanvasOperationDeclaration[];
     }
 
     export interface CanvasNetworkCapabilities {
@@ -21256,6 +21295,47 @@ export namespace Schemas {
     }
 
     /**
+     * One declared operation, paired with the metadata of the verb it runs.
+     */
+    export interface CanvasOperation {
+      /** The operation's declared name. */
+      name: string;
+      /** What the operation does, from the canvas's declaration. */
+      description: string;
+      /** The registered verb the operation runs. */
+      verb: string;
+      /** Payload fields the caller supplies in `arguments`. */
+      inputs: string[];
+      /** True when the verb disables or stops something. */
+      destructive: boolean;
+      /** True when the verb starts paid agent compute. */
+      starts_cloud_run: boolean;
+      /** API scopes a scoped credential needs to invoke this operation. */
+      required_scopes: string[];
+    }
+
+    /**
+     * Values for the operation's declared `inputs`. Keys outside `inputs` are refused.
+     */
+    export type CanvasOperationInvokeArguments = { [key: string]: unknown };
+
+    /**
+     * Payload for invoking one declared operation.
+     */
+    export interface CanvasOperationInvoke {
+      /** Values for the operation's declared `inputs`. Keys outside `inputs` are refused. */
+      arguments?: CanvasOperationInvokeArguments;
+    }
+
+    /**
+     * The operations a canvas's live version declares.
+     */
+    export interface CanvasOperationsResponse {
+      /** Declared operations, in declaration order. */
+      operations: CanvasOperation[];
+    }
+
+    /**
      * Payload for promoting a draft version to the canvas's live head.
      */
     export interface CanvasPromote {
@@ -21286,6 +21366,18 @@ export namespace Schemas {
     export interface CanvasPublishCurrentVersion {
       /** Current source version to publish. A changed head returns a 409 version_conflict. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * The team skill that documents a canvas's operations for agents.
+     */
+    export interface CanvasPublishSkillResponse {
+      /** Name of the team skill, stable per canvas. */
+      skill_name: string;
+      /** Version just published; republishing increments it. */
+      version: number;
+      /** The skill's one-line description. */
+      description: string;
     }
 
     /**

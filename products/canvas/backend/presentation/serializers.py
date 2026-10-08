@@ -226,6 +226,41 @@ class CanvasSourceAssetSerializer(serializers.Serializer):
     )
 
 
+class CanvasOperationDeclarationSerializer(serializers.Serializer):
+    """One named operation a canvas exposes to agents: a verb with a fixed payload and the inputs a caller supplies."""
+
+    name = serializers.CharField(
+        max_length=64, help_text="Operation name: lowercase letters, digits, and single hyphens, e.g. 'enable-beta'."
+    )
+    description = serializers.CharField(
+        max_length=400, help_text="What invoking the operation does for a person, in one or two sentences."
+    )
+    verb = serializers.CharField(
+        max_length=64, help_text="Registered verb the operation runs; it must also be in capabilities.posthog.actions."
+    )
+    payload = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Fixed verb arguments the operation always sends, keyed by the verb's payload fields.",
+    )
+    inputs = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=16,
+        help_text="Payload fields the caller supplies at invoke time. Any other argument is refused.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        overlap = sorted(set(attrs.get("payload") or {}) & set(attrs.get("inputs") or []))
+        if overlap:
+            raise serializers.ValidationError(
+                {"inputs": "A field is either fixed in payload or supplied in inputs, not both: " + ", ".join(overlap)}
+            )
+        return attrs
+
+
 class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
     insights = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)
     inlineQueries = serializers.BooleanField()
@@ -253,6 +288,17 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
         ),
     )
     agentRequests = serializers.BooleanField(required=False, default=False)
+    # Optional so projects published before operations exist unchanged.
+    operations = serializers.ListField(
+        child=CanvasOperationDeclarationSerializer(),
+        required=False,
+        default=list,
+        max_length=20,
+        help_text=(
+            "Named operations agents may invoke on this canvas, each bound to a declared verb. Listed by the "
+            "operations endpoint and exported as a team skill."
+        ),
+    )
 
 
 class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
@@ -340,6 +386,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
                 "state": [],
                 "actions": [],
                 "agentRequests": False,
+                "operations": [],
             },
             "network": {"origins": []},
             "connectors": [],
@@ -1147,6 +1194,47 @@ class CanvasActionsResponseSerializer(serializers.Serializer):
     """The action registry: every verb a canvas may declare and invoke."""
 
     actions = CanvasActionDefinitionSerializer(many=True, help_text="Registered verbs, sorted by name.")
+
+
+class CanvasOperationSerializer(serializers.Serializer):
+    """One declared operation, paired with the metadata of the verb it runs."""
+
+    name = serializers.CharField(help_text="The operation's declared name.")
+    description = serializers.CharField(help_text="What the operation does, from the canvas's declaration.")
+    verb = serializers.CharField(help_text="The registered verb the operation runs.")
+    inputs = serializers.ListField(
+        child=serializers.CharField(), help_text="Payload fields the caller supplies in `arguments`."
+    )
+    destructive = serializers.BooleanField(help_text="True when the verb disables or stops something.")
+    starts_cloud_run = serializers.BooleanField(help_text="True when the verb starts paid agent compute.")
+    required_scopes = serializers.ListField(
+        child=serializers.CharField(), help_text="API scopes a scoped credential needs to invoke this operation."
+    )
+
+
+class CanvasOperationsResponseSerializer(serializers.Serializer):
+    """The operations a canvas's live version declares."""
+
+    operations = CanvasOperationSerializer(many=True, help_text="Declared operations, in declaration order.")
+
+
+class CanvasOperationInvokeSerializer(serializers.Serializer):
+    """Payload for invoking one declared operation."""
+
+    arguments = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Values for the operation's declared `inputs`. Keys outside `inputs` are refused.",
+    )
+
+
+class CanvasPublishSkillResponseSerializer(serializers.Serializer):
+    """The team skill that documents a canvas's operations for agents."""
+
+    skill_name = serializers.CharField(help_text="Name of the team skill, stable per canvas.")
+    version = serializers.IntegerField(help_text="Version just published; republishing increments it.")
+    description = serializers.CharField(help_text="The skill's one-line description.")
 
 
 class CanvasActionInvokeSerializer(serializers.Serializer):

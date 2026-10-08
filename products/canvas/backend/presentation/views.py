@@ -85,9 +85,12 @@ from products.canvas.backend.presentation.serializers import (
     CanvasLayoutPublishResponseSerializer,
     CanvasLayoutPublishSerializer,
     CanvasLayoutWithComponentsResponseSerializer,
+    CanvasOperationInvokeSerializer,
+    CanvasOperationsResponseSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasPublishCurrentVersionSerializer,
+    CanvasPublishSkillResponseSerializer,
     CanvasReportErrorSerializer,
     CanvasRequestFixSerializer,
     CanvasRevertSerializer,
@@ -114,6 +117,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasViewResponseSerializer,
     canvas_url,
 )
+from products.skills.backend.facade import api as skills_facade
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
@@ -382,6 +386,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "comments",
         "comment",
         "actions",
+        "operations",
     ]
     scope_object_write_actions = [
         "create",
@@ -398,6 +403,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "request_fix",
         "set_state",
         "invoke_action",
+        "invoke_operation",
+        "publish_skill",
         "call_connector",
         "request_agent",
         "publish_layout",
@@ -410,7 +417,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         # not let a caller rotate canvases past the project-wide limits.
         if self.action == "set_state":
             return [*super().get_throttles(), CanvasStateWriteThrottle()]
-        if self.action == "invoke_action":
+        if self.action in ("invoke_action", "invoke_operation"):
             return [*super().get_throttles(), CanvasActionInvokeThrottle()]
         if self.action == "call_connector":
             return [*super().get_throttles(), CanvasConnectorCallThrottle()]
@@ -420,10 +427,25 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
         # to create tasks or annotations.
-        if getattr(view, "action", None) != "invoke_action":
+        action_name = getattr(view, "action", None)
+        if action_name == "invoke_operation":
+            return canvas_api.operation_verb_required_scopes(self._operation_verb_for_scopes(view))
+        if action_name != "invoke_action":
             return None
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
+
+    def _operation_verb_for_scopes(self, view: Any) -> str | None:
+        # Read the operation's verb once per request. invoke_operation runs only this verb, so a publish
+        # that rebinds the operation between the scope check and the invoke cannot run an unchecked verb.
+        if not hasattr(self, "_scope_checked_operation_verb"):
+            operation_name = view.kwargs.get("operation_name")
+            self._scope_checked_operation_verb = (
+                canvas_api.operation_verb(self.team_id, view.kwargs["pk"], operation_name)
+                if isinstance(operation_name, str)
+                else None
+            )
+        return self._scope_checked_operation_verb
 
     # Content writes. Every member who can see a canvas in a public space may
     # publish a new version of it; a canvas in a personal space is only visible
@@ -1877,6 +1899,171 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         )
         self._report_canvas_action("canvas action invoked", canvas, verb=verb)
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
+
+    @extend_schema(
+        operation_id="canvases_operations_retrieve",
+        responses={200: CanvasOperationsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="operations")
+    def operations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the operations the canvas's live version declares, each with its verb's registry metadata."""
+        canvas = self._canvas()
+        return Response(
+            CanvasOperationsResponseSerializer(
+                instance={"operations": canvas_api.list_operations(canvas.head_capabilities)}
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="canvases_operations_invoke",
+        request=CanvasOperationInvokeSerializer,
+        responses={
+            200: CanvasActionResultSerializer,
+            400: OpenApiResponse(
+                description="An argument outside the operation's inputs, or a payload the verb rejects."
+            ),
+            403: OpenApiResponse(
+                description="Actions are disabled for the team, the caller is a sandbox, or the viewer may not write."
+            ),
+            404: OpenApiResponse(description="The canvas declares no operation with this name."),
+            409: OpenApiResponse(
+                description="A publish changed the operation's verb during the request, or an approval policy took the change."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path=r"operations/(?P<operation_name>[a-z0-9-]+)/invoke")
+    def invoke_operation(
+        self, request: Request, *args: Any, operation_name: str | None = None, **kwargs: Any
+    ) -> Response:
+        """Invoke one declared operation as the viewer.
+
+        Runs the operation's verb with its declared payload plus the caller's `arguments`,
+        through the same pipeline as a direct verb invoke.
+        """
+        canvas = self._canvas()
+        user = self._state_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Canvas operations are invoked by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if canvas_actions_disabled(self.team.uuid):
+            return Response(
+                {"detail": "Canvas actions are disabled for this team."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        operation = canvas_api.find_operation(canvas.head_capabilities, str(operation_name))
+        if operation is None:
+            raise NotFound(f'This canvas declares no operation "{operation_name}".')
+        payload = CanvasOperationInvokeSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        verb = operation["verb"]
+        if hasattr(self, "_scope_checked_operation_verb") and self._scope_checked_operation_verb != verb:
+            return Response(
+                {"detail": f'The canvas changed operation "{operation_name}" during this request. Try again.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        try:
+            verb_payload = canvas_api.validate_action(
+                canvas.head_capabilities,
+                verb,
+                canvas_api.operation_payload(operation, payload.validated_data["arguments"]),
+            )
+            if canvas_api.action_starts_cloud_run(verb):
+                if access_response := code_access_required_response(request, self.organization):
+                    return access_response
+            result = canvas_api.execute_action(self.team_id, user.id, canvas.id, verb, verb_payload)
+        except CanvasRequestRejected as rejection:
+            return Response(rejection.body, status=rejection.status_code)
+        except ValueError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        self._log_canvas_activity(
+            canvas,
+            "operation_invoked",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(job_type="canvas_operation", job_id=operation["name"], payload={"verb": verb}),
+            ),
+        )
+        self._report_canvas_action("canvas operation invoked", canvas, operation=operation["name"], verb=verb)
+        return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
+
+    @extend_schema(
+        operation_id="canvases_operations_publish_skill_create",
+        request=None,
+        responses={
+            200: CanvasPublishSkillResponseSerializer,
+            403: OpenApiResponse(description="The caller is a sandbox; skills are published by people."),
+            409: OpenApiResponse(
+                description=(
+                    "The canvas's live version declares no operations, another skill already has the name, "
+                    "or a concurrent publish won."
+                )
+            ),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="operations/publish_skill",
+        required_scopes=["canvas:write", "llm_skill:write"],
+    )
+    def publish_skill(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish the canvas's declared operations as a team skill agents can load.
+
+        The skill name is stable per canvas, so republishing after a change creates a new version.
+        """
+        canvas = self._canvas()
+        user = self._state_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Skills are published by viewers; sandbox tokens cannot publish them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        operations = canvas_api.list_operations(canvas.head_capabilities)
+        if not operations:
+            return Response(
+                {"detail": "This canvas's live version declares no operations to publish."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        owner = canvas_api.operation_skill_owner(canvas)
+        # A renamed canvas keeps the skill it published first.
+        skill_name = skills_facade.find_skill_name(team_id=self.team_id, owner=owner) or (
+            canvas_api.operation_skill_name(canvas)
+        )
+        try:
+            skill = skills_facade.upsert_skill(
+                team_id=self.team_id,
+                user_id=user.id,
+                name=skill_name,
+                description=canvas_api.operation_skill_description(canvas, operations),
+                body=canvas_api.operation_skill_body(canvas, operations, canvas_url(canvas)),
+                metadata=owner,
+                owner=owner,
+            )
+        except skills_facade.SkillNameTaken:
+            return Response(
+                {"detail": f'The team already has a skill named "{skill_name}" that this canvas did not publish.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except skills_facade.SkillPublishConflict as conflict:
+            return Response({"detail": str(conflict)}, status=status.HTTP_409_CONFLICT)
+        self._log_canvas_activity(
+            canvas,
+            "skill_published",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(job_type="canvas_skill", job_id=skill.name, payload={"version": skill.version}),
+            ),
+        )
+        self._report_canvas_action(
+            "canvas skill published", canvas, skill_name=skill.name, version=skill.version, operations=len(operations)
+        )
+        return Response(
+            CanvasPublishSkillResponseSerializer(
+                instance={"skill_name": skill.name, "version": skill.version, "description": skill.description}
+            ).data
+        )
 
     @extend_schema(
         operation_id="canvases_connectors_retrieve",

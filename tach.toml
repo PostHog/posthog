@@ -1002,6 +1002,8 @@ depends_on = [
     "products.cohorts",
     "products.error_tracking",
     "products.surveys",
+    # Publishing a canvas's declared operations as a team skill (via the skills facade).
+    "products.skills",
 ]
 layer = "modules"
 
