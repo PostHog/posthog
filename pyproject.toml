@@ -719,10 +719,6 @@ ignore_imports = [
     # the facade.
     "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.message_templates",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow.hog_flow",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.hog_flow_revision",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.models.workflow_proposal",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.timing_reschedule",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.tasks.hog_flows",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
@@ -868,7 +864,6 @@ ignore_imports = [
     "products.logs.backend.facade.retention_views -> products.logs.backend.presentation.views.retention_api",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
-    "products.workflows.backend.facade.api -> products.workflows.backend.presentation.views.hog_flow",
     "products.billing_alerts.backend.facade.api -> rest_framework",
     "products.dashboards.backend.facade.api -> rest_framework",
     "products.experiments.backend.facade.api -> rest_framework",

@@ -345,6 +345,9 @@ class GenericJobAdapter:
     async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         return False
 
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        return
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],
