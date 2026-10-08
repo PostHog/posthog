@@ -1,5 +1,7 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api, { ApiError } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
@@ -66,6 +68,33 @@ describe('dataNodeLogic', () => {
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
+
+    it('does not resubmit a capacity-limited query after unmount', async () => {
+        jest.useFakeTimers()
+        const submit = jest
+            .spyOn(api, 'query')
+            .mockRejectedValueOnce(new ApiError('', 503, new Headers({ 'Retry-After': '5' })))
+            .mockResolvedValue({ results: [] })
+        mockedQuery.mockImplementationOnce(jest.requireActual('~/queries/query').performQuery)
+        try {
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 1' }),
+            })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(submit).toHaveBeenCalledTimes(1)
+            expect(logic.values.dataLoading).toBe(true)
+
+            logic.unmount()
+            await jest.advanceTimersByTimeAsync(20000)
+
+            expect(submit).toHaveBeenCalledTimes(1)
+        } finally {
+            submit.mockRestore()
+            jest.useRealTimers()
+        }
+    })
 
     it('calls query to fetch data', async () => {
         const results = {}
