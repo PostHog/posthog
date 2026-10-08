@@ -2,6 +2,7 @@ import dataclasses
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
+from clickhouse_driver.errors import UnknownTypeError
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -88,6 +89,34 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+
+
+def _decode_invalid_utf8(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, list):
+        return [_decode_invalid_utf8(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_decode_invalid_utf8(item) for item in value)
+    if isinstance(value, dict):
+        return {_decode_invalid_utf8(key): _decode_invalid_utf8(item) for key, item in value.items()}
+    return value
+
+
+def decode_invalid_utf8_strings(rows: list, types: list) -> list:
+    """Replace the `bytes` values that the ClickHouse driver returns for a String that is not valid UTF-8.
+
+    No JSON encoder accepts these values, so the query would fail when its result is cached or returned.
+    """
+    string_columns = [index for index, (_, column_type) in enumerate(types) if "String" in column_type]
+    if not string_columns:
+        return rows
+    return [
+        row
+        if all(row[column] is None or type(row[column]) is str for column in string_columns)
+        else _decode_invalid_utf8(row)
+        for row in rows
+    ]
 
 
 @frozen
@@ -953,6 +982,15 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                except UnknownTypeError as e:
+                    # The driver cannot read some column types, such as the AggregateFunction state that a `-State`
+                    # function returns. The message names only the column type.
+                    raise QueryError(
+                        f"The query returns a column that can't be read: {e.message}. If the column holds an "
+                        "aggregate state, use the plain aggregate function, or merge the state with the matching "
+                        "`-Merge` function (for example `argMinMerge`)."
+                    ) from e
+                self.results = decode_invalid_utf8_strings(self.results, self.types)
             except Exception as e:
                 if self.debug:
                     self.results = []
