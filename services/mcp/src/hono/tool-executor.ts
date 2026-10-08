@@ -953,10 +953,11 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
         return { errorType: error.errorType, ...(errorCode ? { errorCode } : {}) }
     }
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
-        return { errorType: 'missing_context' }
-    }
-    if (error instanceof PinnedContextSwitchError) {
+    if (
+        error instanceof MissingProjectContextError ||
+        error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError
+    ) {
         return { errorType: 'missing_context' }
     }
     if (error instanceof ToolInputValidationError) {

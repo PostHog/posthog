@@ -13,8 +13,7 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import type { Context, Env, SessionScopedState, State } from '@/tools/types'
-import type { PinnedActiveContext } from '@/tools/types'
+import type { Context, Env, PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getClientIpSigningKeys, getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
