@@ -15,6 +15,7 @@ from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIEr
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
     FALLBACK_BODY_MAX_CHARS,
+    SUGGESTION_CODE_MAX_CHARS,
     ReviewComment,
     _build_inline_comments,
     _format_issue_comment,
@@ -543,6 +544,27 @@ class TestFormatIssueComment:
         assert body.index("**Should fix**") < body.index(finding.body) < body.index("**Suggested fix**")
         assert "reason" not in body
         assert "<details>" not in body and "![" not in body
+
+    @parameterized.expand(
+        [
+            ("plain_code", "x = 1", "```"),
+            ("code_with_a_fence", 'DOC = """\n```python\nx = 1\n```\n"""', "````"),
+            ("code_with_a_longer_fence", "`````", "``````"),
+            ("code_over_the_size_cap", "x" * (SUGGESTION_CODE_MAX_CHARS + 1), None),
+        ]
+    )
+    def test_suggestion_block_holds_the_whole_code(self, _name: str, code: str, fence: str | None) -> None:
+        # A backtick run in the code would close a shorter fence early, and GitHub would offer a cut-off
+        # replacement. An oversized suggestion is skipped, but the finding still posts.
+        finding = _finding().model_copy(update={"suggestion": "", "suggestion_code": code})
+
+        body = _format_issue_comment(finding, _verdict(), with_suggestion_code=True)
+
+        assert finding.body in body
+        if fence is None:
+            assert "suggestion\n" not in body
+        else:
+            assert f"\n{fence}suggestion\n{code}\n{fence}\n" in body
 
     def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
         # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker

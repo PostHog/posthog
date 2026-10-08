@@ -312,7 +312,8 @@ accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_f
 finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. Findings publish
 inline; an
 optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
-range. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
+range and the code is at most `SUGGESTION_CODE_MAX_CHARS` long. The block's fence is longer than any backtick run in the
+code, so the code cannot close it early. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,

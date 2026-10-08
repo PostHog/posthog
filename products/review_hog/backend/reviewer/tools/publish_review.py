@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 # GitHub rejects a review body over 65,536 characters; the margin covers the closing line.
 FALLBACK_BODY_MAX_CHARS = 60_000
+# The reviewer only writes replacement code for a small fix, so a longer suggestion is a rewrite that
+# does not belong in a one-click suggestion. It also keeps the comment far below GitHub's 65,536 characters.
+SUGGESTION_CODE_MAX_CHARS = 4_000
 
 
 class ReviewComment(TypedDict, total=False):
@@ -269,6 +272,17 @@ def _finding_meta_line(priority: IssuePriority, category: str | None) -> str:
     return meta
 
 
+def _suggestion_block(code: str) -> str:
+    """A GitHub suggestion block with a fence longer than any backtick run in the code.
+
+    A run of three or more backticks in the code would otherwise close the block early, and GitHub would
+    offer only the code before it as the replacement.
+    """
+    longest_run = max((len(run) for run in re.findall(r"`+", code)), default=0)
+    fence = "`" * max(3, longest_run + 1)
+    return f"{fence}suggestion\n{code}\n{fence}"
+
+
 def _format_issue_comment(
     finding: ReviewIssueFinding, verdict: ValidationVerdict, *, with_suggestion_code: bool = False
 ) -> str:
@@ -278,14 +292,15 @@ def _format_issue_comment(
     reviews API returns it as `validator_note`. The title must stay the first line, because the
     outcome sweep (`find_finding_comment`) matches a finding to its comment by that line.
     A single-agent finding has no suggestion text, and may carry replacement code instead, which
-    `with_suggestion_code` posts as a GitHub suggestion block.
+    `with_suggestion_code` posts as a GitHub suggestion block up to `SUGGESTION_CODE_MAX_CHARS`.
     """
     priority = effective_priority(finding.priority, verdict.adjusted_priority)
     lines = [f"### {finding.title}", "", _finding_meta_line(priority, verdict.category), "", finding.body, ""]
     if finding.suggestion.strip():
         lines.extend(["**Suggested fix**", "", finding.suggestion, ""])
-    if with_suggestion_code and finding.suggestion_code is not None:
-        lines.extend(["```suggestion", finding.suggestion_code, "```", ""])
+    code = finding.suggestion_code
+    if with_suggestion_code and code is not None and len(code) <= SUGGESTION_CODE_MAX_CHARS:
+        lines.extend([_suggestion_block(code), ""])
     # Hidden marker so the resolution stage recognizes this as one of ReviewHog's own threads.
     lines.append(REVIEW_HOG_FINDING_MARKER)
     return "\n".join(lines)
