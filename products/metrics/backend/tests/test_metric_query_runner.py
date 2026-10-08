@@ -103,9 +103,10 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_fine_is_coarsened", dt.timedelta(days=2), "second_15", "second_30"),
+            ("too_fine_is_coarsened", dt.timedelta(days=2), "second_15", "minute_15"),
             ("fitting_interval_is_kept", dt.timedelta(hours=2), "second_15", "second_15"),
-            ("fifteen_seconds", dt.timedelta(hours=6), "second_15", "second_15"),
+            ("limit_is_kept", dt.timedelta(minutes=125), "second_15", "second_15"),
+            ("six_hours_is_coarsened", dt.timedelta(hours=6), "second_15", "minute"),
             ("thirty_minutes", dt.timedelta(days=2), "minute_30", "minute_30"),
         ]
     )
