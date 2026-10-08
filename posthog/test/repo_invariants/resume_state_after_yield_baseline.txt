@@ -43,7 +43,6 @@ appsignal/appsignal.py::_walk_aggregate_windows
 ashby/ashby.py::_fanned_out_pages
 automox/automox.py::_iter_fan_out_rows
 automox/automox.py::get_rows
-aviator/aviator.py::_get_fan_out_rows
 awin/awin.py::get_rows
 aws_budgets/aws_budgets.py::_budget_rows
 aws_budgets/aws_budgets.py::_fanout_rows
@@ -73,7 +72,6 @@ chatwoot/chatwoot.py::_get_reporting_event_rows
 chatwoot/chatwoot.py::get_rows
 checkmarx/checkmarx.py::_get_fan_out_rows
 checkmarx/checkmarx.py::get_rows
-checkout_com/payments.py::_get_rows
 checkout_com/reports.py::_report_file_rows
 circleci/circleci.py::get_rows
 circleci_insights/circleci_insights.py::_project_workflow_fan_out_rows
@@ -213,7 +211,6 @@ honeybadger/honeybadger.py::_get_project_rows
 honeycomb/honeycomb.py::_iter_board_views
 honeycomb/honeycomb.py::_iter_fan_out
 hubspot/hubspot.py::get_rows
-hubspot/hubspot.py::get_rows_via_search
 hubspot/hubspot.py::get_rows_via_search._process_results
 hyperspell/hyperspell.py::_get_list_rows
 hyperspell/hyperspell.py::get_rows
@@ -238,7 +235,6 @@ intercom/intercom.py::_conversation_parts_generator
 jamf_pro/jamf_pro.py::get_rows
 jellyfish/jellyfish.py::_get_fan_out_rows
 jellyfish/jellyfish.py::_get_month_windowed_rows
-jenkins/jenkins.py::_get_build_rows
 jumpcloud/jumpcloud.py::_get_event_rows
 jumpcloud/jumpcloud.py::_get_rest_rows
 klaus/klaus.py::_iter_endpoint_pages
