@@ -3642,9 +3642,9 @@ class WorkflowProposalSerializer(serializers.Serializer):
             return False
         # One revision read per base version, shared across the page.
         cache = self.context.setdefault("proposal_conflicts", {})
-        key = (hog_flow.pk, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
+        key = (hog_flow.id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = proposal_conflicts(team_id=hog_flow.team_id, hog_flow_id=hog_flow.pk, proposal_id=proposal.id)
+            cache[key] = proposal_conflicts(team_id=hog_flow.team_id, hog_flow_id=hog_flow.id, proposal_id=proposal.id)
         return bool(cache[key])
 
 

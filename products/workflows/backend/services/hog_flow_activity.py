@@ -87,12 +87,13 @@ def bulk_delete_archived_workflows(
     deletable = [
         flow for flow in candidates if user_access_control.check_access_level_for_object(flow, required_level="editor")
     ]
-    # Lock the rows so the audit entries match exactly what this call deletes (a concurrently removed row
-    # gets no entry), and share the delete's transaction so a failed delete rolls its audit rows back.
+    # Lock the rows so the audit entries match exactly what this call deletes (a row another request removes
+    # or restores first gets no entry), and share the delete's transaction so a failed delete rolls its audit
+    # rows back.
     with transaction.atomic():
         deleted_ids = set(
             HogFlow.objects.select_for_update()
-            .filter(team_id=team_id, id__in=[flow.id for flow in deletable])
+            .filter(team_id=team_id, id__in=[flow.id for flow in deletable], status=HogFlow.State.ARCHIVED)
             .values_list("id", flat=True)
         )
         HogFlow.objects.filter(team_id=team_id, id__in=deleted_ids).delete()
