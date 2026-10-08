@@ -20,6 +20,7 @@ from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
+from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
@@ -325,7 +326,12 @@ class _BaseEvalRun:
         # Errored cases (infra failures) are surfaced separately so they read as noise,
         # not as agent 0s dragging the averages.
         error_count = sum(1 for r in result.results if r.error is not None)
-        await self.ctx.reporter.record_summary(self.experiment_name, result.summary, error_count=error_count)
+        await self.ctx.reporter.record_summary(
+            self.experiment_name,
+            result.summary,
+            error_count=error_count,
+            trial_stats=trial_stats(result.results, trials=self.ctx.trials),
+        )
 
         if os.getenv("EXPORT_EVAL_RESULTS"):
             self._export_case_results(result)

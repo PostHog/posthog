@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
 from threading import Event
@@ -26,6 +27,7 @@ from products.posthog_ai.eval_harness.engines.types import (
 from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
+from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStats
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 
 
@@ -42,7 +44,9 @@ class _StubReporter:
     async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
         self.started.append((experiment_name, planned_cases))
 
-    async def record_summary(self, experiment_name: str, summary: Any, error_count: int) -> None:
+    async def record_summary(
+        self, experiment_name: str, summary: Any, error_count: int, trial_stats: Sequence[ScorerTrialStats] = ()
+    ) -> None:
         self.summaries.append((experiment_name, summary, error_count))
 
     async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
