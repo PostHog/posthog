@@ -119,6 +119,19 @@ _MOVE_REFUSALS = {
 }
 
 
+def _authored_model_answering_to(
+    team_id: int, name: str, exclude: DataWarehouseSavedQuery | None
+) -> DataWarehouseSavedQuery | None:
+    if not name.startswith("models."):
+        return None
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=name.removeprefix("models.")).exclude(
+        deleted=True
+    )
+    if exclude is not None:
+        candidates = candidates.exclude(pk=exclude.pk)
+    return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
+
+
 def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
     try:
         modeling_api.move_saved_query_to_dag(view.team_id, view.pk, dag.id)
@@ -768,6 +781,17 @@ class DataWarehouseSavedQuerySerializer(
             own_models_name = ".".join(own_chain) if own_chain is not None else None
 
         validate_saved_query_name(name)
+
+        # An authored model answers to `models.<its name>` for the whole team, and has_table hides models the
+        # caller is denied, so a denied caller could otherwise take that name over for everyone.
+        instance = self.instance if isinstance(self.instance, DataWarehouseSavedQuery) else None
+        owner = _authored_model_answering_to(self.context["team_id"], name, instance)
+        if owner is not None:
+            if self.context["database"].has_table(owner.name):
+                raise serializers.ValidationError(
+                    f"This name already refers to the model {owner.name}. Choose a different name."
+                )
+            raise serializers.ValidationError("A table or view with this name already exists. Choose a different name.")
 
         # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
