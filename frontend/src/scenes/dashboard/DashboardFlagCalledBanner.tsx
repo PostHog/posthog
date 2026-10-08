@@ -34,8 +34,9 @@ export function DashboardFlagCalledBanner(): JSX.Element | null {
             readsFlagCalls={affectedInsights.length > 0}
             className="mt-4 mb-2"
         >
-            <span>{pluralize(affectedInsights.length, 'insight')}</span> on this dashboard won't show feature flag calls
-            made after your organization's flag calls move out of the events table. Open each one to rebuild it:{' '}
+            Feature flag called feeds <span>{pluralize(affectedInsights.length, 'insight')}</span> on this dashboard.
+            Results for any period after your organization's flag calls move out of the events table are wrong. Open
+            each one to rebuild it:{' '}
             {/* Elements, not bare text, so page translation can't break list updates (react#11538). */}
             {affectedInsights.map((insight, index) => (
                 <span key={insight.short_id}>
