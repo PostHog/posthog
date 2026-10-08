@@ -50949,6 +50949,10 @@
                     "default": null,
                     "type": ["string", "null"]
                 },
+                "error_status_code": {
+                    "$ref": "#/definitions/integer",
+                    "description": "HTTP status of the error, when known."
+                },
                 "expiration_time": {
                     "format": "date-time",
                     "type": "string"
@@ -50983,6 +50987,11 @@
                     "$ref": "#/definitions/QueryScanSummary"
                 },
                 "results": {},
+                "retry_after": {
+                    "description": "Earliest time to retry after a transient error.",
+                    "format": "date-time",
+                    "type": "string"
+                },
                 "start_time": {
                     "description": "When was query execution task enqueued.",
                     "format": "date-time",

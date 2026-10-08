@@ -90,10 +90,10 @@ class ClickHouseAtCapacity(APIException):
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
 
-    def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
+    def __init__(self, detail: Optional[str] = None, code: Optional[str] = None, wait: Optional[int] = None) -> None:
         super().__init__(detail=detail, code=code)
         # Spread retries across requests while keeping a minimum recovery window.
-        self.wait = random.randint(30, 60)
+        self.wait = random.randint(30, 60) if wait is None else wait
 
 
 class QueryRanConcurrently(APIException):

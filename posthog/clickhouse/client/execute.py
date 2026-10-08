@@ -33,6 +33,11 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.limit import get_llm_analytics_rate_limiter
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
+from posthog.clickhouse.query_router import (
+    admission as router_admission,
+    classify as router_classify,
+    config as router_config,
+)
 from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
@@ -44,6 +49,7 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
 )
 from posthog.dataclasses import frozen
+from posthog.direct_query_cancellation import build_direct_query_cancellation_token, direct_query_cancellation_key
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
@@ -369,6 +375,43 @@ def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[i
         yield
 
 
+@frozen
+class _RouterTarget:
+    pool: router_config.Pool
+    query_class: router_config.QueryClass
+
+
+def _query_router_target(
+    *, workload: Workload, team_id: Optional[int], explicit_client: bool, tags: QueryTags, ch_user: ClickHouseUser
+) -> Optional[_RouterTarget]:
+    if router_config.get_settings().mode == router_config.RouterMode.OFF:
+        return None
+    pool = router_classify.pool_for(workload=workload, team_id=team_id, explicit_client=explicit_client)
+    query_class = router_classify.classify_query(tags, ch_user)
+    if pool is None or query_class is None:
+        return None
+    return _RouterTarget(pool=pool, query_class=query_class)
+
+
+@contextmanager
+def _query_router_slot(
+    target: Optional[_RouterTarget], *, team_id: Optional[int], tags: QueryTags
+) -> Iterator[Optional[router_admission.Admission]]:
+    if target is None:
+        yield None
+        return
+
+    router = router_admission.get_query_router()
+    cancellation_key = None
+    if team_id is not None and tags.client_query_id and tags.celery_task_id:
+        cancellation_token = build_direct_query_cancellation_token(tags.client_query_id, str(tags.celery_task_id))
+        cancellation_key = direct_query_cancellation_key(team_id, cancellation_token)
+    with router.admit(
+        pool=target.pool, query_class=target.query_class, team_id=team_id, cancellation_key=cancellation_key
+    ) as admission:
+        yield admission
+
+
 @patchable
 @trace_clickhouse_query_decorator
 def sync_execute(
@@ -560,10 +603,18 @@ def sync_execute(
             stacktrace="".join(traceback.format_stack()),
         )
 
+    router_target = _query_router_target(
+        workload=workload, team_id=team_id, explicit_client=sync_client is not None, tags=tags, ch_user=ch_user
+    )
+
     source_file, source_line = get_caller_source()
     query_log_tags = tags.model_copy(deep=True)
     query_log_tags.source_file = source_file
     query_log_tags.source_line = source_line
+    if router_target is not None:
+        # Set on the copy, because tags is the live context object and a later query in the same
+        # context that the router does not route would carry the class too.
+        query_log_tags.query_router_class = router_target.query_class.name.lower()
 
     settings = {
         **core_settings,
@@ -591,8 +642,13 @@ def sync_execute(
         ).inc()
         with (
             _llm_analytics_concurrency_slot(ch_user, team_id),
+            # Entered before the pool checkout so that a query waiting for admission holds no ClickHouse connection.
+            _query_router_slot(router_target, team_id=team_id, tags=tags) as admission,
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
+            if admission is not None and admission.outcome == router_admission.AdmissionOutcome.ADMITTED_AFTER_WAIT:
+                query_log_tags.query_router_wait_ms = admission.waited_ms
+                settings["log_comment"] = query_log_tags.to_json()
             query_info_before = getattr(client, "last_query", None)
             # Taken after the concurrency slot and the pool checkout, so the fallback does not count
             # the queue wait.

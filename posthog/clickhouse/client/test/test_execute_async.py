@@ -3,6 +3,7 @@ import uuid
 import datetime
 from typing import Any
 
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import MagicMock, patch
 
@@ -10,12 +11,15 @@ from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.query import QueryViewSet
 from posthog.api_queries_budget import QueryCost, record_request_query_cost
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -23,7 +27,7 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
@@ -72,18 +76,31 @@ class TestQueryStatusManager(SimpleTestCase):
         self.query_status.expiration_time = None  # We don't care about expiration time in this test
         self.assertEqual(self.manager.get_query_status(True), self.query_status)
 
-    def test_process_query_task_on_failure_marks_status_errored(self):
+    def test_process_query_task_on_failure_preserves_capacity_error_when_polled(self):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
 
-        process_query_task.on_failure(
-            exc=ClickHouseAtCapacity(),
-            task_id="celery-task-id",
-            args=(self.team_id, None, self.query_id),
-            kwargs={},
-            einfo=None,
-        )
+        with time_machine.travel(datetime.datetime.now(datetime.UTC), tick=False) as clock:
+            process_query_task.on_failure(
+                exc=ClickHouseAtCapacity(wait=5),
+                task_id="celery-task-id",
+                args=(self.team_id, None, self.query_id),
+                kwargs={},
+                einfo=None,
+            )
+
+            view = QueryViewSet()
+            view.team = Team(id=self.team_id)
+            request = Request(APIRequestFactory().get("/"))
+            for elapsed, remaining in [(0, "5"), (2, "3"), (4, "0")]:
+                clock.shift(elapsed)
+                response = view.retrieve(request, pk=self.query_id)
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response["Retry-After"], remaining)
+                self.assertEqual(
+                    json.loads(response.content)["query_status"]["error_message"], ClickHouseAtCapacity.default_detail
+                )
 
         result = self.manager.get_query_status()
         self.assertTrue(result.complete)
@@ -219,6 +236,15 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+
+    @patch("posthog.tasks.tasks.process_query_task.si")
+    def test_enqueue_stores_the_router_class_of_the_caller(self, task_signature):
+        with tags_context(kind="temporal", product=Product.MAX_AI):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, {"kind": "EventsQuery"}, _test_only_bypass_celery=True
+            )
+
+        self.assertEqual(task_signature.call_args.args[4]["query_router_class"], "async")
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")
@@ -423,6 +449,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+        self.assertEqual(result.error_status_code, ClickHouseQueryMemoryLimitExceeded.status_code)
 
     @parameterized.expand(
         [

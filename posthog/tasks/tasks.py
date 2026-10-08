@@ -403,7 +403,7 @@ def _process_query_task_failure(
     # Transient errors (capacity/concurrency) clear the stored completion flags so each
     # retry re-runs the query. Once Celery gives up, mark the status errored here so
     # clients don't poll a forever-pending status until it expires.
-    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager
+    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, set_query_status_error
 
     bound = dict(zip(("team_id", "user_id", "query_id"), args))
     bound.update(kwargs)
@@ -421,8 +421,7 @@ def _process_query_task_failure(
     query_status.complete = True
     query_status.error = True
     if isinstance(exc, APIException):
-        # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
-        query_status.error_message = str(exc.detail)
+        set_query_status_error(query_status, exc)
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 

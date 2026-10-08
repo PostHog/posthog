@@ -7301,6 +7301,7 @@ class QueryStatus(BaseModel):
         ),
     )
     error_message: str | None = None
+    error_status_code: int | None = Field(default=None, description="HTTP status of the error, when known.")
     expiration_time: AwareDatetime | None = None
     id: str
     insight_id: int | None = None
@@ -7313,6 +7314,9 @@ class QueryStatus(BaseModel):
     query_progress: ClickhouseQueryProgress | None = None
     query_scan: QueryScanSummary | None = None
     results: Any | None = None
+    retry_after: AwareDatetime | None = Field(
+        default=None, description="Earliest time to retry after a transient error."
+    )
     start_time: AwareDatetime | None = Field(default=None, description="When was query execution task enqueued.")
     task_id: str | None = None
     team_id: int

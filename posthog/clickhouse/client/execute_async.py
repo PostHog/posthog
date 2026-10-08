@@ -18,6 +18,7 @@ from posthog import celery, redis
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_router.classify import classify_tags
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
@@ -58,6 +59,18 @@ class QueryNotFoundError(NotFound):
 
 class QueryRetrievalError(Exception):
     pass
+
+
+def set_query_status_error(query_status: QueryStatus, error: APIException) -> None:
+    query_status.error_message = str(error.detail)
+    query_status.error_status_code = error.status_code
+    codes = error.get_codes()
+    # Compound validation errors have no single code for the frontend to match.
+    query_status.error_code = codes if isinstance(codes, str) else None
+    wait = getattr(error, "wait", None)
+    query_status.retry_after = (
+        datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=wait) if wait is not None else None
+    )
 
 
 class QueryStatusManager:
@@ -330,17 +343,13 @@ def execute_process_query(
             query_status.query_scan = _query_scan_from_error(err)
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
-            query_status.error_message = str(err)
             if isinstance(err, APIException):
-                # get_codes() returns a list/dict for compound validation errors; only scalar codes
-                # are meaningful to the frontend, which matches on specific code strings.
-                codes = err.get_codes()
-                if isinstance(codes, str):
-                    query_status.error_code = codes
+                set_query_status_error(query_status, err)
+            else:
+                query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
-            # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
-            # so don't report them to error tracking — only genuine server-side failures belong there.
+            # User-safe errors are returned to the caller; only unexpected failures belong in error tracking.
             capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
@@ -437,6 +446,8 @@ def enqueue_process_query_task(
         labels=labels,
     )
     query_tags = get_query_tags().model_dump()
+    # The worker replaces kind and id with its own, so the class the caller's tags give travels with the task.
+    query_tags["query_router_class"] = classify_tags(get_query_tags()).name.lower()
     manager.store_query_status(query_status)
 
     if cache_key:

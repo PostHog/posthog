@@ -1060,6 +1060,8 @@ export interface QueryStatusApi {
     /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
+    /** HTTP status of the error, when known. */
+    error_status_code?: number | null
     expiration_time?: string | null
     id: string
     insight_id?: number | null
@@ -1071,6 +1073,8 @@ export interface QueryStatusApi {
     query_progress?: ClickhouseQueryProgressApi | null
     query_scan?: QueryScanSummaryApi | null
     results?: unknown
+    /** Earliest time to retry after a transient error. */
+    retry_after?: string | null
     /** When was query execution task enqueued. */
     start_time?: string | null
     task_id?: string | null

@@ -327,6 +327,26 @@ CONSTANCE_CONFIG = {
         "Enable hedged requests for online APP queries to ClickHouse.",
         bool,
     ),
+    "QUERY_ROUTER_MODE": (
+        get_from_env("QUERY_ROUTER_MODE", "off"),
+        "Admission control in front of ClickHouse. Values: 'off', 'observe' (count queries, never delay one), 'enforce' (queue and drop the pool:class pairs listed in QUERY_ROUTER_ENFORCE, observe the rest).",
+        str,
+    ),
+    "QUERY_ROUTER_ENFORCE": (
+        get_from_env("QUERY_ROUTER_ENFORCE", ""),
+        "Comma-separated pool:class pairs the query router enforces when QUERY_ROUTER_MODE is 'enforce', for example 'offline:4,offline:3'. Pools: offline, online. Classes: 1 interactive, 2 API, 3 async, 4 background.",
+        str,
+    ),
+    "QUERY_ROUTER_OFFLINE_LIMIT": (
+        get_from_env("QUERY_ROUTER_OFFLINE_LIMIT", 100, type_cast=int),
+        "Number of queries the query router lets run at once on the offline ClickHouse nodes. Above it, a query waits briefly in class order or is refused.",
+        int,
+    ),
+    "QUERY_ROUTER_ONLINE_LIMIT": (
+        get_from_env("QUERY_ROUTER_ONLINE_LIMIT", 600, type_cast=int),
+        "Number of queries the query router lets run at once on the online ClickHouse nodes. Above it, a query waits briefly in class order or is refused.",
+        int,
+    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -475,6 +495,10 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
+    "QUERY_ROUTER_MODE",
+    "QUERY_ROUTER_ENFORCE",
+    "QUERY_ROUTER_OFFLINE_LIMIT",
+    "QUERY_ROUTER_ONLINE_LIMIT",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",

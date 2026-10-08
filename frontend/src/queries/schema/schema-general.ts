@@ -2927,6 +2927,13 @@ export type QueryStatus = {
      * @default null
      */
     error_code: string | null
+    /** HTTP status of the error, when known. */
+    error_status_code?: integer
+    /**
+     * Earliest time to retry after a transient error.
+     * @format date-time
+     */
+    retry_after?: string
     results?: any
     /**
      * When was the query execution task picked up by a worker.
