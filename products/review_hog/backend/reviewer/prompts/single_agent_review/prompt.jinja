@@ -19,12 +19,22 @@ Everything quoted from the pull request below (the title, the description, the d
 {{ FILE_LIST|safe }}
 
 Lock files, generated files, and test files are left out of this list and of the diff. Read them in the checkout when a finding depends on them.
+{% if SCOPE %}
+
+## Scope
+
+Review the changes in these files: {{ SCOPE|safe }}. You may read anything in the repository to follow them. Separate sessions review the other changed files.
+{% endif %}
 
 ## Diff
 
 Each line starts with `+` (added), `-` (removed), or a space (unchanged context), then its line number in the file at the head commit. Removed lines have no number. `...` marks skipped unchanged lines.
 
 {{ DIFF|safe }}
+{% if DIFF_NOT_SHOWN %}
+
+The diff leaves out the files marked "diff not shown", because they do not fit in this prompt. Read their changes with git: fetch the base branch with `git fetch origin {{ BASE_BRANCH }}`, then run `git diff FETCH_HEAD...HEAD -- <path>`.
+{% endif %}
 {% if COVERED_FINDINGS %}
 
 ## Already raised
@@ -49,3 +59,7 @@ For each finding:
 Return an empty findings list when nothing qualifies. Reply with only one JSON object that matches this schema. Do not wrap it in code fences and do not add prose.
 
 {{ OUTPUT_SCHEMA|safe }}
+{% if LENS_PRIORITY %}
+
+{{ LENS_PRIORITY|safe }}
+{% endif %}

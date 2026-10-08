@@ -156,6 +156,33 @@ SINGLE_AGENT_SOURCE = "flash-single-agent"
 FLASH_LENS_CHUNK_MAX_LINES = 600
 FLASH_LENS_MAX_CHUNKS = 4
 
+# About 200K tokens at 4 characters per token.
+FLASH_PROMPT_DIFF_MAX_CHARS = 800_000
+
+
+@frozen
+class FlashLens:
+    """One focused review that runs next to the main single-agent session, once per lens part."""
+
+    # Reserved like SINGLE_AGENT_PASS_NUMBER, so a lens result never collides with another session's.
+    pass_number: int
+    prompt_file: str
+    source: str
+
+
+FLASH_LENSES: dict[str, FlashLens] = {
+    "performance-reliability": FlashLens(
+        pass_number=2001,
+        prompt_file="lens_performance_reliability.md",
+        source="flash-lens-performance-reliability",
+    ),
+    "contracts-security": FlashLens(
+        pass_number=2002,
+        prompt_file="lens_contracts_security.md",
+        source="flash-lens-contracts-security",
+    ),
+}
+
 
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
     if reasoning_effort == ReasoningEffort.XHIGH.value:

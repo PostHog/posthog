@@ -47,6 +47,7 @@ from products.review_hog.backend.reviewer.constants import (
     SINGLE_AGENT_CHUNK_ID,
     SINGLE_AGENT_FLASH_ARM,
     SINGLE_AGENT_PASS_NUMBER,
+    SINGLE_AGENT_SOURCE,
     VALIDATION_MAX_ATTEMPTS,
     ReviewArm,
     effective_priority,
@@ -1237,7 +1238,16 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
         team_id=input.team_id,
         report_id=input.report_id,
         head_sha=input.head_sha,
-        results={(SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID): IssuesReview(issues=issues_from_review(review))},
+        results={
+            (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID): IssuesReview(
+                issues=issues_from_review(
+                    review,
+                    pass_number=SINGLE_AGENT_PASS_NUMBER,
+                    chunk_id=SINGLE_AGENT_CHUNK_ID,
+                    source=SINGLE_AGENT_SOURCE,
+                )
+            )
+        },
         review_arm=arm,
     )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)

@@ -1,31 +1,31 @@
-"""The single-agent Flash review: one Codex session reviews the whole PR from one prompt.
+"""The single-agent Flash review: a main Codex session reviews the whole PR, and lens sessions add breadth.
 
-The prompt has three parts. `core.md` is the DevEx-owned review rubric and goes in as the system
-prompt. `prompt.jinja` carries the PR (title, description, numbered diff), the findings of earlier
-turns, and the finding format. `schema.json` is generated from
-`SingleAgentReview`. All three live in `prompts/single_agent_review/`, so a prompt iteration edits
-files and no code.
+The main session's prompt has three parts. `core.md` is the DevEx-owned review rubric and goes in as
+the system prompt. `prompt.jinja` carries the PR (title, description, numbered diff), the findings of
+earlier turns, and the finding format. `schema.json` is generated from `SingleAgentReview`. A lens
+session swaps `core.md` for its lens prompt (`FLASH_LENSES`), can see only its part of the PR, and
+gets `lens_priority.md` after the finding format. Every file lives in `prompts/single_agent_review/`,
+so a prompt iteration edits files and no code.
 """
 
 import re
 import json
+from pathlib import Path
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
-from products.review_hog.backend.reviewer.constants import (
-    SINGLE_AGENT_CHUNK_ID,
-    SINGLE_AGENT_PASS_NUMBER,
-    SINGLE_AGENT_SOURCE,
-)
+from products.review_hog.backend.reviewer.constants import FLASH_PROMPT_DIFF_MAX_CHARS
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
+from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import is_reviewable_path
 
 SINGLE_AGENT_PROMPT_DIR = "single_agent_review"
 SINGLE_AGENT_CORE_FILE = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / "core.md"
+LENS_PRIORITY_FILE = PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / "lens_priority.md"
 
-# The leading HTML comment of core.md holds attribution for maintainers, not instructions.
+# The leading HTML comment of a prompt file holds attribution for maintainers, not instructions.
 _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 
 _STORED_PRIORITY = {
@@ -36,13 +36,27 @@ _STORED_PRIORITY = {
 }
 
 
+def load_prompt_file(path: Path) -> str:
+    """A prompt file as the model receives it."""
+    return _LEADING_HTML_COMMENT.sub("", path.read_text(), count=1).strip()
+
+
+def lens_prompt_path(prompt_file: str) -> Path:
+    return PROMPTS_DIR / SINGLE_AGENT_PROMPT_DIR / prompt_file
+
+
 def load_core_prompt() -> str:
     """The core rubric as the model receives it."""
-    return _LEADING_HTML_COMMENT.sub("", SINGLE_AGENT_CORE_FILE.read_text(), count=1).strip()
+    return load_prompt_file(SINGLE_AGENT_CORE_FILE)
 
 
 class SingleAgentPrompt:
-    """The task prompt of one single-agent review: the PR, earlier findings, format."""
+    """The task prompt of one single-agent session: the PR or its part, earlier findings, format.
+
+    `scope_files` limits the diff to one lens part. A diff over `FLASH_PROMPT_DIFF_MAX_CHARS` shrinks
+    to the reviewable files, and then to none: the file list marks each file it leaves out, and the
+    session reads those changes with git.
+    """
 
     def __init__(
         self,
@@ -51,11 +65,15 @@ class SingleAgentPrompt:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         prior_findings: list[ReviewIssueFinding],
+        scope_files: list[str] | None = None,
+        for_lens: bool = False,
     ) -> None:
         self.repository = repository
         self.pr_metadata = pr_metadata
         self.pr_files = pr_files
         self.prior_findings = prior_findings
+        self.scope_files = scope_files
+        self.for_lens = for_lens
 
     @staticmethod
     def _numbered_lines(pr_file: PRFile) -> list[str]:
@@ -77,15 +95,34 @@ class SingleAgentPrompt:
                 next_line = start + len(code_lines)
         return lines
 
-    def _diff(self) -> str:
+    @classmethod
+    def _diff(cls, pr_files: list[PRFile]) -> str:
         sections = []
-        for pr_file in self.pr_files:
-            body = self._numbered_lines(pr_file) or ["(no patch available, the file is binary or too large)"]
+        for pr_file in pr_files:
+            body = cls._numbered_lines(pr_file) or ["(no patch available, the file is binary or too large)"]
             sections.append("\n".join([f"=== {pr_file.filename} [{pr_file.status}] ===", *body]))
         return "\n\n".join(sections)
 
-    def _file_list(self) -> str:
-        return "\n".join(f"- {f.filename} ({f.status}, +{f.additions} -{f.deletions})" for f in self.pr_files)
+    def _in_scope(self) -> list[PRFile]:
+        if self.scope_files is None:
+            return self.pr_files
+        scope = set(self.scope_files)
+        return [f for f in self.pr_files if f.filename in scope]
+
+    def _shown_files(self, in_scope: list[PRFile]) -> list[PRFile]:
+        """The in-scope files whose diff fits in the prompt: all of them, else the reviewable ones, else none."""
+        reviewable = [f for f in in_scope if is_reviewable_path(f.filename)]
+        for candidate in (in_scope, reviewable):
+            if len(self._diff(candidate)) <= FLASH_PROMPT_DIFF_MAX_CHARS:
+                return candidate
+        return []
+
+    def _file_list(self, not_shown: set[str]) -> str:
+        lines = []
+        for f in self.pr_files:
+            suffix = ", diff not shown" if f.filename in not_shown else ""
+            lines.append(f"- {f.filename} ({f.status}, +{f.additions} -{f.deletions}{suffix})")
+        return "\n".join(lines)
 
     def _covered_findings(self) -> str | None:
         """Earlier turns' findings, without their fixes: the agent only needs to recognize them."""
@@ -102,27 +139,41 @@ class SingleAgentPrompt:
 
     def render(self) -> str:
         template, output_schema = load_template_and_schema(SINGLE_AGENT_PROMPT_DIR)
+        in_scope = self._in_scope()
+        shown = self._shown_files(in_scope)
+        not_shown = {f.filename for f in in_scope} - {f.filename for f in shown}
+        # A part that covers the whole PR needs no scope section, because no other session reviews its files.
+        scope = [f.filename for f in in_scope] if len(in_scope) < len(self.pr_files) else None
         return template.render(
             PR_NUMBER=self.pr_metadata.number,
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
+            BASE_BRANCH=self.pr_metadata.base_branch,
             PR_TITLE=self.pr_metadata.title,
             PR_DESCRIPTION=self.pr_metadata.body.strip() or "(no description provided)",
-            FILE_LIST=self._file_list(),
-            DIFF=self._diff(),
+            FILE_LIST=self._file_list(not_shown),
+            SCOPE=", ".join(f"`{path}`" for path in scope) if scope else None,
+            DIFF=self._diff(shown),
+            DIFF_NOT_SHOWN=bool(not_shown),
             COVERED_FINDINGS=self._covered_findings(),
             OUTPUT_SCHEMA=output_schema,
+            LENS_PRIORITY=load_prompt_file(LENS_PRIORITY_FILE) if self.for_lens else None,
         )
 
 
-def issues_from_review(review: SingleAgentReview) -> list[Issue]:
-    """Map the single agent's findings onto the pipeline's `Issue`, which dedup and publish consume."""
+def issues_from_review(review: SingleAgentReview, *, pass_number: int, chunk_id: int, source: str) -> list[Issue]:
+    """Map one session's findings onto the pipeline's `Issue`, which dedup and publish consume.
+
+    Findings go highest priority first. Storage folds P0 and P1 into `must_fix`, so this order is the
+    only place a P0 still ranks above a P1 of the same session.
+    """
     issues = []
-    for number, finding in enumerate(review.findings, start=1):
+    ranked = sorted(review.findings, key=lambda finding: finding.priority)
+    for number, finding in enumerate(ranked, start=1):
         line_end = finding.line_end if finding.line_end is not None and finding.line_end != finding.line_start else None
         issues.append(
             Issue(
-                id=f"{SINGLE_AGENT_PASS_NUMBER}-{SINGLE_AGENT_CHUNK_ID}-{number}",
+                id=f"{pass_number}-{chunk_id}-{number}",
                 title=finding.title,
                 file=finding.file,
                 lines=[LineRange(start=finding.line_start, end=line_end)],
@@ -132,7 +183,7 @@ def issues_from_review(review: SingleAgentReview) -> list[Issue]:
                 suggestion_code=finding.suggestion_code or None,
                 priority=_STORED_PRIORITY[finding.priority],
                 is_directly_related_to_changes=True,
-                source_perspective=SINGLE_AGENT_SOURCE,
+                source_perspective=source,
             )
         )
     return issues
