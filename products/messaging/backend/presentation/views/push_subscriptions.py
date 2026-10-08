@@ -30,7 +30,7 @@ from posthog.models.team.team import Team
 from posthog.utils import decompress, load_data_from_request
 from posthog.utils_cors import cors_response
 
-from products.messaging.backend.api.push_identity_tokens import verify_push_identity_token
+from products.messaging.backend.presentation.views.push_identity_tokens import verify_push_identity_token
 
 # Identity verification is opt-in per integration via config["push_identity_verification"]:
 #   "disabled" (default) — no token required; anyone with the public project token can register.

@@ -18,9 +18,9 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
-from products.messaging.backend.api import push_subscriptions
-from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token_es256
-from products.messaging.backend.api.push_subscriptions import (
+from products.messaging.backend.presentation.views import push_subscriptions
+from products.messaging.backend.presentation.views.push_identity_tokens import sign_push_identity_token_es256
+from products.messaging.backend.presentation.views.push_subscriptions import (
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
     PUSH_SUBSCRIPTION_REJECTION_COUNTER,
     _api_key_fingerprint,
@@ -92,7 +92,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         # The endpoint resolves the team from the token cache, so refresh it.
         set_team_in_cache(self.team.api_token, self.team)
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_register_android_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -120,7 +120,7 @@ class TestPushSubscriptionsAPI(BaseTest):
             for key in call_kwargs["properties"]["$set"]
         )
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_two_devices_on_one_app_are_stored_under_separate_keys(self, mock_capture: MagicMock):
         # A second device on the same app used to overwrite the first, leaving it unreachable.
         mock_capture.return_value = MagicMock(status_code=200)
@@ -144,7 +144,7 @@ class TestPushSubscriptionsAPI(BaseTest):
             device_subscription_key("my-firebase-project", "fcm-token-tablet"),
         ]
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_the_same_device_registering_twice_reuses_its_key(self, mock_capture: MagicMock):
         # Re-registration must not accumulate a key per call.
         mock_capture.return_value = MagicMock(status_code=200)
@@ -171,7 +171,7 @@ class TestPushSubscriptionsAPI(BaseTest):
             == "$device_push_subscription_my-project:7d8d408df65cffa5"
         )
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_register_ios_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -194,7 +194,7 @@ class TestPushSubscriptionsAPI(BaseTest):
             key.startswith("$device_push_subscription_com.example.app:") for key in call_kwargs["properties"]["$set"]
         )
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_ios_device_registers_a_firebase_token(self, mock_capture: MagicMock):
         # An iOS app delivering via Firebase registers with the Firebase project_id even though its
         # platform is "ios": the provider is resolved from the app_id, not the device platform.
@@ -216,7 +216,7 @@ class TestPushSubscriptionsAPI(BaseTest):
             for key in call_kwargs["properties"]["$set"]
         )
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_token_is_encrypted(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -239,7 +239,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert isinstance(encrypted_value, str)
         assert len(encrypted_value) > 0
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_unregister_unsets_the_subscription_property(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -268,7 +268,7 @@ class TestPushSubscriptionsAPI(BaseTest):
             "$device_push_subscription_my-firebase-project",
         ]
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_unregister_ios_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -285,7 +285,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["$unset"][-1] == "$device_push_subscription_com.example.app"
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_unregister_without_integration_still_unsets(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -360,7 +360,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         }
         headers = {"User-Agent": user_agent} if user_agent else None
 
-        with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
+        with patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal") as capture:
             response = self.client.post(
                 "/api/push_subscriptions/",
                 data=json.dumps(payload),
@@ -377,7 +377,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         )
 
     def test_platform_sent_by_older_sdks_is_ignored(self):
-        with patch("products.messaging.backend.api.push_subscriptions.capture_internal") as capture:
+        with patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal") as capture:
             response = self._post(
                 {
                     "distinct_id": "user-1",
@@ -391,7 +391,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert "platform" not in response.json()
         assert capture.call_count == 1
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_register_without_integration_returns_200_and_discards(self, mock_capture: MagicMock):
         counter = PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration")
         before = counter._value.get()
@@ -416,7 +416,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         mock_capture.assert_not_called()
         assert counter._value.get() == before + 1
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_discard_is_logged_once_per_window_and_counted_every_time(self, mock_capture: MagicMock):
         # The log names the project behind the discards, so it has to survive. It also has to stay
         # bounded: discarding is this endpoint's most common request, so a line per discard restates
@@ -445,7 +445,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert discard_logs[0]["app_id"] == "nonexistent-project"
         assert counter._value.get() == before + 7
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_configured_app_registers_on_the_cached_path(self, mock_capture: MagicMock):
         # The first request fills the team's app_id cache and the second reads it. A short-circuit
         # that got those ids wrong would discard registrations the team is entitled to, and the device
@@ -463,8 +463,8 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert mock_capture.call_count == 2
 
-    @patch("products.messaging.backend.api.push_subscriptions.cache")
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.cache")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_configured_app_registers_when_the_cache_is_unavailable(
         self, mock_capture: MagicMock, mock_cache: MagicMock
     ):
@@ -486,7 +486,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_team_isolation(self, mock_capture: MagicMock):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         Integration.objects.create(
@@ -522,7 +522,7 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_gzip_compressed_body(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
 
@@ -546,7 +546,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.json()["distinct_id"] == "user-1"
         mock_capture.assert_called_once()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_oversized_body_is_rejected_before_parsing(self, mock_capture: MagicMock):
         # A body over the cap is rejected before load_data_from_request decompresses it, so a
         # compressed body can't inflate into a memory-exhaustion payload.
@@ -568,7 +568,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         # No shared secret is set: ES256 must verify on the public key alone.
         set_team_in_cache(self.team.api_token, self.team)
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_required_mode_accepts_an_es256_token_signed_by_the_registered_public_key(self, mock_capture: MagicMock):
         # End to end through the endpoint: the integration holds only the EC public key, the device
         # presents a token its backend signed with the private key, and registration succeeds. Guards
@@ -592,7 +592,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_required_mode_rejects_registration_without_a_token(self, mock_capture: MagicMock):
         self._enable_identity_verification("required")
 
@@ -609,7 +609,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.json()["code"] == "identity_verification_failed"
         mock_capture.assert_not_called()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_required_mode_rejects_a_token_minted_for_another_distinct_id(self, mock_capture: MagicMock):
         # The takeover guard: a token the attacker legitimately minted for their own distinct_id
         # cannot authorize binding a device to the victim's distinct_id.
@@ -729,7 +729,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
         assert counter._value.get() == before + 1
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_optional_mode_stores_even_without_a_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
         self._enable_identity_verification("optional")
@@ -746,7 +746,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_required_mode_rejects_unregister_without_a_token(self, mock_capture: MagicMock):
         self._enable_identity_verification("required")
 
@@ -762,7 +762,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         mock_capture.assert_not_called()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_required_mode_accepts_a_valid_token_for_unregister(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
         private_pem, public_pem = _es256_keypair()
@@ -782,7 +782,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    @patch("products.messaging.backend.presentation.views.push_subscriptions.capture_internal")
     def test_strictest_mode_wins_when_two_integrations_share_an_app_id(self, mock_capture: MagicMock):
         # project_id/bundle_id aren't unique, so an app_id can match several integrations. Resolution
         # must fail closed: a second integration with the same project_id and verification disabled

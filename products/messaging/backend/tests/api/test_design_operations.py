@@ -4,8 +4,8 @@ import pytest
 
 from rest_framework import serializers
 
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.services.design_operations import apply_design_operations
+from products.messaging.backend.services.design_validation import validate_design
 
 
 def _sample_design() -> dict:

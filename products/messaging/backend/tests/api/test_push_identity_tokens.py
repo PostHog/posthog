@@ -12,7 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
-from products.messaging.backend.api.push_identity_tokens import (
+from products.messaging.backend.presentation.views.push_identity_tokens import (
     PUSH_IDENTITY_TOKEN_AUDIENCE,
     sign_push_identity_token_es256,
     verify_push_identity_token,

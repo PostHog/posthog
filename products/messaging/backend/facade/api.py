@@ -2,17 +2,13 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
-from products.messaging.backend.api import design_operations, design_validation
+from products.messaging.backend.facade.contracts import UnlayerNotConfiguredError, UnlayerRenderError
 from products.messaging.backend.remote_config import (
     PUSH_APP_ID_CONFIG_KEYS,
     build_push_config as build_push_app_ids,
 )
-from products.messaging.backend.services import message_templates
-from products.messaging.backend.unlayer import (
-    UnlayerNotConfiguredError,
-    UnlayerRenderError,
-    render_design_html as render_unlayer_design,
-)
+from products.messaging.backend.services import design_operations, design_validation, message_templates
+from products.messaging.backend.unlayer import render_design_html as render_unlayer_design
 
 __all__ = [
     "UnlayerNotConfiguredError",

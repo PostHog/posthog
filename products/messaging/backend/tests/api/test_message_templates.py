@@ -103,7 +103,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.messaging.backend.api.message_templates.report_user_action")
+    @patch("products.messaging.backend.presentation.views.message_templates.report_user_action")
     def test_create_email_template_with_subject_succeeds(self, mock_report):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",
@@ -180,7 +180,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "templating" in str(response.json())
 
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_create_with_design_only_renders_html_server_side(self, mock_render):
         mock_render.return_value = "<html><body>Rendered</body></html>"
 
@@ -200,7 +200,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert email["html"] == "<html><body>Rendered</body></html>"
         assert email["design"] == MINIMAL_DESIGN
 
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_create_with_design_and_html_keeps_submitted_html(self, mock_render):
         """The visual editor exports html from the design client-side and submits both —
         a present html is trusted, not re-rendered."""
@@ -224,7 +224,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
             ("not_configured", UnlayerNotConfiguredError(), "not configured"),
         ]
     )
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_create_with_design_render_error_returns_400(self, _name, side_effect, expected_message, mock_render):
         mock_render.side_effect = side_effect
 
@@ -241,7 +241,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected_message in str(response.json())
 
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_update_with_design_only_renders_html_server_side(self, mock_render):
         mock_render.return_value = "<html><body>Re-rendered</body></html>"
 
@@ -303,7 +303,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = getattr(self.client, method)(url, data=data, format="json")
         assert response.status_code == expected_status, response.json()
 
-    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
+    @patch("products.messaging.backend.presentation.views.message_templates.publish_resource_edited")
     def test_update_replaces_content_wholesale(self, mock_emit):
         """The content JSONField is replaced as a unit on update, never deep-merged —
         a payload without design makes the submitted html canonical."""
@@ -380,8 +380,8 @@ class TestMessageTemplatesAPI(APIBaseTest):
             },
         }
 
-    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.publish_resource_edited")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_design_patch_updates_one_block_and_rerenders(self, mock_render, mock_emit):
         mock_render.return_value = "<html>patched</html>"
         self.message_template.content = {"email": {"subject": "Hi", "design": self._design_with_text()}}
@@ -403,8 +403,8 @@ class TestMessageTemplatesAPI(APIBaseTest):
         mock_render.assert_called_once()
         self._assert_resource_edited_emitted(mock_emit)
 
-    @patch("products.messaging.backend.api.message_templates.publish_resource_edited")
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.publish_resource_edited")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_design_patch_unknown_id_leaves_template_untouched(self, mock_render, mock_emit):
         mock_render.return_value = "<html>x</html>"
         original = self._design_with_text()
@@ -473,7 +473,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    @patch("products.messaging.backend.presentation.views.message_templates.render_design_html")
     def test_design_patch_allows_write_scoped_personal_api_key(self, mock_render):
         # Regression: the design action must declare hog_flow:write so MCP / personal API key callers
         # aren't rejected as "action does not support personal API key access".

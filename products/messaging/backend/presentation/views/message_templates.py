@@ -18,12 +18,16 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import build_html_wrap_design
 from posthog.event_usage import report_user_action
 
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.facade.api import (
+    UnlayerNotConfiguredError,
+    UnlayerRenderError,
+    apply_design_operations,
+    render_design_html,
+    validate_design,
+)
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.presentation.serializers import DesignOperationSerializer
-from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
+from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 
 logger = structlog.get_logger(__name__)

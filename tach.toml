@@ -1077,7 +1077,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface

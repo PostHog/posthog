@@ -48,8 +48,8 @@ from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
 from products.early_access_features.backend.api import early_access_features
-from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.messaging.backend.api.push_subscriptions import push_subscriptions
+from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
+from products.messaging.backend.presentation.views.push_subscriptions import push_subscriptions
 from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
 from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_callback,
