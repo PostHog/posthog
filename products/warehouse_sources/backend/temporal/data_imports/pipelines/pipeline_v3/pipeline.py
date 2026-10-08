@@ -89,6 +89,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     S3BatchWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild import TableRebuildRun
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
     ResumableSourceManager,
@@ -411,6 +412,16 @@ class PipelineV3(Generic[ResumableData]):
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
 
+    async def _record_table_rebuild(self, run_uuid: str) -> None:
+        """Record that this attempt loads the table from empty (see `TableRebuildRun`).
+
+        A failure only costs speed: a later attempt of the run then merges each batch.
+        """
+        try:
+            await database_sync_to_async_pool(TableRebuildRun.record)(self._schema, run_uuid)
+        except Exception:
+            await self._logger.aexception("V3 Pipeline: Failed to record the table rebuild")
+
     def _maintains_companion_table(self) -> bool:
         """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
 
@@ -589,6 +600,13 @@ class PipelineV3(Generic[ResumableData]):
                 )
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
+            if not is_fresh_sync and self._attempt > 1 and not should_resume:
+                # Only the first attempt deletes the table for a reset, and only that attempt holds
+                # the flag the delete sets. This attempt reads the source from the start again, so
+                # it must load the way the first attempt did: its first batch overwrites the table
+                # and the later batches append. Without this, every batch is a merge into a table
+                # that holds no key of the batch, and that merge reads each file of the table.
+                is_fresh_sync = TableRebuildRun(self._schema.sync_type_config).started_in(self._job.workflow_run_id)
             if is_fresh_sync:
                 self._mark_first_ever_sync()
                 # No pre-write maintenance runs, so nothing here reads the handle that the corruption
@@ -626,6 +644,17 @@ class PipelineV3(Generic[ResumableData]):
                 # Written before this attempt can replace the queue rows of an earlier attempt, so the
                 # attempt after this one never reads a value that describes rows which are gone.
                 await self._stage_handoff_resume_value(force=True)
+
+            # Not for a webhook schema: an attempt of it does not read again the events that an
+            # earlier attempt took, so the batches of the earlier attempt must still load.
+            if (
+                is_fresh_sync
+                and not should_resume
+                and sync_type == "incremental"
+                and not self._schema.is_webhook
+                and self._run_uuid is not None
+            ):
+                await self._record_table_rebuild(self._run_uuid)
 
             items = self._resource.items()
             safe_point_scope = self._activate_safe_point(items)
