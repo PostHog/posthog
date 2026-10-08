@@ -219,7 +219,7 @@ class TestUpdateFeatureFlagActionDetect(APIBaseTest):
                 [_condition_set(GROUP_KEY_FILTER)],
                 {"feature_enrollment": True},
                 {},
-                True,
+                False,
             ),
             (
                 "properties_reordered",
@@ -1070,6 +1070,24 @@ class TestReleaseConditionGating(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert self._change_request_keys() == expected_change_requests
+
+    def test_linking_a_standalone_flag_to_an_early_access_feature_is_not_gated(self, _mock_enabled: MagicMock):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="beta-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+        self._create_policies([("feature_flag.update", {})])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": "Beta", "stage": "beta", "feature_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert self._change_request_keys() == []
 
     @parameterized.expand(
         [
