@@ -2518,6 +2518,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    def test_restoring_shared_dashboard_blocked_when_a_hidden_insight_changed(self):
+        self._deny_editor()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        dashboard_url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}"
+        assert self.client.patch(dashboard_url, {"deleted": True}).status_code == status.HTTP_200_OK
+
+        # The tiles are hidden with the dashboard, so the insight is not shared at this moment.
+        assert self._patch_insight_query().status_code == status.HTTP_200_OK
+
+        response = self.client.patch(dashboard_url, {"deleted": False})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        dashboard.refresh_from_db()
+        assert dashboard.deleted is True
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
+
     @parameterized.expand([("stored_query",), ("query_in_same_patch",)])
     def test_adding_insight_to_shared_dashboard_blocked(self, coverage: str):
         self._deny_editor()

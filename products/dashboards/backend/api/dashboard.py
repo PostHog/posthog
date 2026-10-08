@@ -1973,6 +1973,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:
+            self._check_restored_tiles_access(instance, cast(User, self.context["request"].user))
             self._undo_delete_related_tiles(instance)
 
         # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
@@ -2460,6 +2461,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 DashboardSerializer._sync_filesystem_for_insights(insight_ids_to_delete, instance.team_id)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
+
+    @staticmethod
+    def _check_restored_tiles_access(instance: Dashboard, user: User) -> None:
+        """A dashboard restore brings every tile back without a tile write, so the checks that
+        gate a single tile restore run here for each insight the restore shows again. An insight
+        can be edited while its dashboard is deleted, so its query may have changed since."""
+        queries = (
+            Insight.objects_including_soft_deleted.filter(
+                dashboard_tiles__dashboard_id=instance.id, dashboard_tiles__deleted=True
+            )
+            .distinct()
+            .values_list("query", flat=True)
+        )
+        for query in queries:
+            check_can_add_insight_to_shared_dashboard(user, instance, query)
+            if error := blocked_access_for_subscribed_dashboard_tile(user, instance, query):
+                raise serializers.ValidationError(error)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
