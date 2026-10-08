@@ -1073,8 +1073,9 @@ impl CohortStreamEventsConsumer {
                         boot_sweep_done =
                             self.run_boot_staleness_sweep(&mut prev_assignment).await;
                     }
-                    // Redrive after the boot sweep settles. Skip dispatching this batch so boot
-                    // recovery completes before any fold work.
+                    // Redrive after the boot sweep settles and before this batch is dispatched, so
+                    // boot recovery completes before any fold work. Do not skip the batch: no seek
+                    // rewinds it, so a skip would lose its events.
                     if !eager_redrive_done && boot_sweep_done {
                         let owned: HashSet<i32> =
                             self.dispatcher.owned_partitions().into_iter().collect();
@@ -1082,7 +1083,6 @@ impl CohortStreamEventsConsumer {
                             .eager_redrive_pending_transfers_on_boot(&owned)
                             .await;
                         eager_redrive_done = true;
-                        continue;
                     }
                     // Seek after the boot sweep settles. Skip dispatching the pre-seek batch so no
                     // ahead-of-seek event is folded first. Fail-stop: retry without dispatching on
