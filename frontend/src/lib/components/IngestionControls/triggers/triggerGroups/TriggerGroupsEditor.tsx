@@ -455,7 +455,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         Cancel
                                     </LemonButton>
                                     <LemonButton type="primary" onClick={() => addUrl(newUrl)}>
-                                        Save
+                                        Add
                                     </LemonButton>
                                 </div>
                                 {triggerGroup.urls.length > 0 && (

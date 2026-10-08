@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product batch_exports
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product batch_exports
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Data pipelines
 feature: batch_exports
 url_prefix: /data-management/destinations
@@ -89,24 +87,6 @@ tools:
             - latest_runs
             - filters
             - integration
-    batch-exports-backfills-cancel-create:
-        operation: batch_exports_backfills_cancel_create
-        enabled: false
-    batch-exports-backfills-create:
-        operation: batch_exports_backfills_create
-        enabled: false
-    batch-exports-backfills-list:
-        operation: batch_exports_backfills_list
-        enabled: false
-    batch-exports-backfills-retrieve:
-        operation: batch_exports_backfills_retrieve
-        enabled: false
-    batch-exports-create:
-        operation: batch_exports_create
-        enabled: false
-    batch-exports-destroy:
-        operation: batch_exports_destroy
-        enabled: false
     batch-exports-list:
         operation: batch_exports_list
         enabled: true
@@ -135,48 +115,6 @@ tools:
                 - last_updated_at
                 - start_at
                 - end_at
-    batch-exports-logs-retrieve:
-        operation: batch_exports_logs_retrieve
-        enabled: false
-    batch-exports-partial-update:
-        operation: batch_exports_partial_update
-        enabled: false
-    batch-exports-pause-create:
-        operation: batch_exports_pause_create
-        enabled: false
-    batch-exports-retrieve:
-        operation: batch_exports_retrieve
-        enabled: false
-    batch-exports-run-test-step-create:
-        operation: batch_exports_run_test_step_create
-        enabled: false
-    batch-exports-run-test-step-new-create:
-        operation: batch_exports_run_test_step_new_create
-        enabled: false
-    batch-exports-runs-cancel-create:
-        operation: batch_exports_runs_cancel_create
-        enabled: false
-    batch-exports-runs-list:
-        operation: batch_exports_runs_list
-        enabled: false
-    batch-exports-runs-logs-retrieve:
-        operation: batch_exports_runs_logs_retrieve
-        enabled: false
-    batch-exports-runs-retrieve:
-        operation: batch_exports_runs_retrieve
-        enabled: false
-    batch-exports-runs-retry-create:
-        operation: batch_exports_runs_retry_create
-        enabled: false
-    batch-exports-test-retrieve:
-        operation: batch_exports_test_retrieve
-        enabled: false
-    batch-exports-unpause-create:
-        operation: batch_exports_unpause_create
-        enabled: false
-    batch-exports-update:
-        operation: batch_exports_update
-        enabled: false
     file-download-batch-exports-cancel-create:
         operation: file_download_batch_exports_cancel_create
         enabled: true
@@ -235,15 +173,6 @@ tools:
             of any size. Use file-download-batch-exports-retrieve with the returned id to poll until status is
             Completed, then follow the downloading-batch-export-files skill to download the files through the existing
             REST download endpoint.
-    file-download-batch-exports-download-retrieve:
-        operation: file_download_batch_exports_download_retrieve
-        enabled: false
-    file-download-batch-exports-list:
-        operation: file_download_batch_exports_list
-        enabled: false
-    file-download-batch-exports-logs-retrieve:
-        operation: file_download_batch_exports_logs_retrieve
-        enabled: false
     file-download-batch-exports-retrieve:
         operation: file_download_batch_exports_retrieve
         enabled: true

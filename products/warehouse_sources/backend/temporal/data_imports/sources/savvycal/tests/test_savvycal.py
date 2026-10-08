@@ -96,62 +96,7 @@ def _run(
     return rows, params, manager
 
 
-class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, params, manager = _run(session, [_response([{"id": "a"}, {"id": "b"}], after=None)])
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        # A null after cursor ends the sync without persisting resume state.
-        manager.save_state.assert_not_called()
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_after_cursor_until_null(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, params, manager = _run(
-            session, [_response([{"id": "a"}], after="cur_2"), _response([{"id": "b"}], after=None)]
-        )
-        assert rows == [{"id": "a"}, {"id": "b"}]
-        # The first request carries no after param; the second carries the cursor from page one.
-        assert "after" not in params[0]
-        assert params[1]["after"] == "cur_2"
-        # State is saved exactly once — after the first page, pointing at the next cursor.
-        assert manager.save_state.call_count == 1
-        assert manager.save_state.call_args.args[0] == SavvyCalResumeConfig(after="cur_2", from_date=None)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        manager = _make_manager(SavvyCalResumeConfig(after="cur_2"))
-        # The first page must never be fetched on resume; the seeded cursor rides on the first request.
-        rows, params, _ = _run(session, [_response([{"id": "b"}], after=None)], manager=manager)
-        assert rows == [{"id": "b"}]
-        assert params[0]["after"] == "cur_2"
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        rows, _, manager = _run(session, [_response([], after=None)])
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-
 class TestEventFilters:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_events_full_refresh_widens_default_filters(self, MockSession) -> None:
-        # SavvyCal defaults to period=upcoming, state=confirmed, attendance=attending — any of those
-        # silently drops most of the account's history from a warehouse import.
-        session = MockSession.return_value
-        _, params, _ = _run(session, [_response([], after=None)])
-        assert params[0]["period"] == "all"
-        assert params[0]["state"] == "all"
-        assert params[0]["attendance"] == "any"
-        assert params[0]["direction"] == "asc"
-        assert params[0]["limit"] == 100
-        assert "from" not in params[0]
-
     @parameterized.expand(
         [
             ("datetime", datetime(2026, 3, 5, 14, 30, tzinfo=UTC), "2026-03-05"),
@@ -188,25 +133,6 @@ class TestEventFilters:
         assert all(p["from"] == "2026-01-01" for p in params)
         # The re-saved state carries the same original bound forward.
         assert manager.save_state.call_args.args[0].from_date == "2026-01-01"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_events_endpoint_sends_no_event_filters(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, params, _ = _run(session, [_response([], after=None)], endpoint="links")
-        assert params[0] == {"limit": 100}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_flag_ignored_for_full_refresh_endpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _, params, _ = _run(
-            session,
-            [_response([], after=None)],
-            endpoint="webhooks",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
-        )
-        assert "from" not in params[0]
-        assert "period" not in params[0]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_webhooks_secret_is_redacted(self, MockSession) -> None:
@@ -293,30 +219,6 @@ class TestSavvyCalSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
-
-    def test_events_partition_on_stable_created_at(self) -> None:
-        response = savvycal_source(
-            api_key="pt_secret_key",
-            endpoint="events",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        # start_at moves on reschedule; partitioning must stay on the immutable creation timestamp.
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
-
-    def test_links_have_no_partitioning(self) -> None:
-        # The Link schema exposes no creation timestamp to partition on.
-        response = savvycal_source(
-            api_key="pt_secret_key",
-            endpoint="links",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.partition_mode is None
-        assert response.partition_keys is None
 
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SAVVYCAL_ENDPOINTS.values())

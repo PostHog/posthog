@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 import contextvars
 from typing import Any
@@ -10,8 +11,10 @@ from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -21,9 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
+    RepartitionStoppedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    partition_measurement_holds,
     repartition_activity_has_work,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
@@ -336,6 +341,62 @@ class TestBudgetExhaustion:
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
         assert "warehouse_repartition_skipped" in emitted
+
+    @parameterized.expand([("first_attempt", 0), ("last_attempt_before_give_up", 2)])
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_worker_shutdown_hands_the_rewrite_off_without_burning_an_attempt(
+        self,
+        _name: str,
+        prior_attempts: int,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": prior_attempts},
+            rewrite={"rows_written": 50_000, "temp_uri": TEMP_URI},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+
+        async def rewrite_until_asked_to_stop(*, should_stop: Any, **_kwargs: Any) -> dict[str, Any]:
+            async with asyncio.timeout(10):
+                while not should_stop():
+                    await asyncio.sleep(0.01)
+            raise RepartitionStoppedError("stopped", rows_written=180_000)
+
+        mock_repartition.side_effect = rewrite_until_asked_to_stop
+        environment = ActivityEnvironment()
+        environment.worker_shutdown()
+
+        with pytest.raises(WorkerShuttingDownError):
+            environment.run(
+                _maybe_repartition_table,
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
+
+        # The charge is released, so the retry that continues the rewrite is not judged as the retry
+        # of a killed attempt, and the cap counts only the attempts that failed.
+        assert schema.repartition_pending["attempts"] == prior_attempts
+        assert schema.repartition_pending["charged_job_id"] is None
+        schema.clear_repartition_pending.assert_not_called()
+        schema.clear_repartition_rewrite.assert_not_called()
+        schema.stamp_last_repartition_at.assert_not_called()
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        mock_capture_exception.assert_not_called()
 
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
@@ -1088,6 +1149,142 @@ class TestRepartitionActivityHasWork:
             setattr(schema, attribute, value)
 
         assert repartition_activity_has_work(schema) is expected
+
+
+_COMPLETED = ExternalDataJob.Status.COMPLETED
+_FAILED = ExternalDataJob.Status.FAILED
+_RUNNING = ExternalDataJob.Status.RUNNING
+
+
+def _measurement(job_id: str, phase: str = "post_load", healthy: bool = True) -> dict[str, Any]:
+    return {"job_id": job_id, "phase": phase, "healthy": healthy}
+
+
+class TestPartitionMeasurementHolds:
+    @parameterized.expand(
+        [
+            # (name, measurement, earlier jobs newest first as (id, status, rows synced), holds)
+            ("previous_job_measured_after_its_load", _measurement("p"), [("p", _COMPLETED, 500)], True),
+            ("no_measurement_recorded", None, [("p", _COMPLETED, 500)], False),
+            ("measurement_from_before_this_gate_existed", {"job_id": "p"}, [("p", _COMPLETED, 500)], False),
+            ("over_budget_measurement", _measurement("p", healthy=False), [("p", _COMPLETED, 500)], False),
+            ("no_earlier_job", _measurement("p"), [], False),
+            # A merge that runs out of memory fails its job, and that table must be measured on disk.
+            ("previous_job_failed", _measurement("p"), [("p", _FAILED, 500)], False),
+            ("previous_job_still_running", _measurement("p"), [("p", _RUNNING, 500)], False),
+            (
+                "a_failed_job_after_the_measurement",
+                _measurement("p"),
+                [("n", _FAILED, 0), ("p", _COMPLETED, 500)],
+                False,
+            ),
+            # The previous job wrote rows but recorded no measurement, so the table changed since.
+            ("a_later_job_wrote_rows", _measurement("p"), [("n", _COMPLETED, 3), ("p", _COMPLETED, 500)], False),
+            (
+                "a_later_job_has_an_unknown_row_count",
+                _measurement("p"),
+                [("n", _COMPLETED, None), ("p", _COMPLETED, 5)],
+                False,
+            ),
+            (
+                "later_jobs_wrote_nothing",
+                _measurement("p"),
+                [("n", _COMPLETED, 0), ("m", _COMPLETED, 0), ("p", _COMPLETED, 500)],
+                True,
+            ),
+            ("measured_before_a_run_with_no_rows", _measurement("p", "pre_extraction"), [("p", _COMPLETED, 0)], True),
+            (
+                "measured_before_a_run_that_wrote_rows",
+                _measurement("p", "pre_extraction"),
+                [("p", _COMPLETED, 500)],
+                False,
+            ),
+            (
+                "measuring_job_is_out_of_the_window",
+                _measurement("p"),
+                [("n", _COMPLETED, 0), ("m", _COMPLETED, 0)],
+                False,
+            ),
+        ]
+    )
+    def test_holds(
+        self,
+        _name: str,
+        measurement: dict[str, Any] | None,
+        earlier_jobs: list[tuple[str, str, int | None]],
+        holds: bool,
+    ) -> None:
+        assert partition_measurement_holds(measurement, earlier_jobs) is holds
+
+
+class TestPreExtractionMeasurementGate:
+    @parameterized.expand(
+        [
+            # (name, gate result or the error it raises, pending target, the table is read on disk)
+            ("current_measurement_skips_the_read", True, None, False),
+            ("stale_measurement_reads_the_table", False, None, True),
+            ("a_failed_check_reads_the_table", OperationalError("server closed the connection"), None, True),
+        ]
+    )
+    @patch(f"{MODULE}._maybe_flag_pre_extraction", return_value=None)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_on_disk_read(
+        self,
+        _name: str,
+        gate: bool | Exception,
+        pending: dict[str, Any] | None,
+        expect_read: bool,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_table_ref: MagicMock,
+        mock_measure: MagicMock,
+    ) -> None:
+        schema = _schema(name="stripe_charge", s3_folder_name=None, pending=pending)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_schema_model.SyncType = ExternalDataSchema.SyncType
+
+        with patch(
+            f"{MODULE}.pre_extraction_measurement_is_redundant",
+            side_effect=gate if isinstance(gate, Exception) else None,
+            return_value=gate,
+        ):
+            _maybe_repartition_table(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
+
+        assert mock_measure.call_count == int(expect_read)
+
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_queued_rewrite_runs_whatever_the_measurement_says(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_table_ref: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        _mock_capture: MagicMock,
+    ) -> None:
+        schema = _schema(name="stripe_charge", s3_folder_name=None)
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+
+        with patch(f"{MODULE}.pre_extraction_measurement_is_redundant", return_value=True) as gate:
+            _maybe_repartition_table(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
+
+        gate.assert_not_called()
+        assert mock_repartition.await_count == 1
 
 
 class TestMaybeFlagPreExtraction:

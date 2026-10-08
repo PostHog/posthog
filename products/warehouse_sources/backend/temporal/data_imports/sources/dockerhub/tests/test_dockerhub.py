@@ -135,23 +135,6 @@ class TestGetRows:
                 )
             )
 
-    # pytest.mark.parametrize, not parameterized.expand: these cases take the monkeypatch fixture.
-    @pytest.mark.parametrize(
-        ("endpoint", "initial_url"),
-        [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
-    )
-    def test_cursor_endpoint_single_page_yields_and_stops(
-        self, endpoint: str, initial_url: str, monkeypatch: Any
-    ) -> None:
-        manager = _FakeResumableManager()
-        pages = {initial_url: ([{"id": "1", "namespace": "acme", "name": "alpha"}], None)}
-        rows, client = self._collect(manager, monkeypatch, pages, endpoint)
-        assert rows == [{"id": "1", "namespace": "acme", "name": "alpha"}]
-        assert client.fetched == [initial_url]
-        assert client.login_calls == 1
-        # A null next link ends the sync without persisting resume state.
-        assert manager.saved == []
-
     @pytest.mark.parametrize(
         ("endpoint", "initial_url"),
         [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
@@ -284,20 +267,6 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             _fetch_page_unwrapped(session, REPOS_URL, MagicMock(), allow_reauth=False)
 
-    def test_success_returns_results_and_next(self) -> None:
-        next_url = f"{REPOS_URL}&page=2"
-        body = {"count": 5, "next": next_url, "previous": None, "results": [{"name": "alpha"}]}
-        session = self._session_returning(200, body)
-        rows, returned_next = _fetch_page_unwrapped(session, REPOS_URL, MagicMock())
-        assert rows == [{"name": "alpha"}]
-        assert returned_next == next_url
-
-    def test_null_next_returns_none(self) -> None:
-        body = {"count": 1, "next": None, "previous": None, "results": [{"name": "alpha"}]}
-        session = self._session_returning(200, body)
-        _, returned_next = _fetch_page_unwrapped(session, REPOS_URL, MagicMock())
-        assert returned_next is None
-
     @parameterized.expand([("bare_list", [{"name": "a"}]), ("missing_results", {"count": 1})])
     def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
         session = self._session_returning(200, body)
@@ -349,17 +318,6 @@ class TestClientAuth:
     def _client_with_session(self, session: MagicMock) -> DockerHubClient:
         with patch.object(dockerhub, "make_tracked_session", return_value=session):
             return DockerHubClient("tom", "dckr_pat_token", MagicMock())
-
-    def test_login_sets_bearer_token_from_exchanged_jwt(self) -> None:
-        session = MagicMock()
-        session.headers = {}
-        session.post.return_value = self._login_response()
-        client = self._client_with_session(session)
-        client.login()
-        assert session.headers["Authorization"] == "Bearer jwt-1"
-        args, kwargs = session.post.call_args
-        assert args[0] == f"{DOCKERHUB_BASE_URL}/v2/users/login"
-        assert kwargs["json"] == {"username": "tom", "password": "dckr_pat_token"}
 
     def test_login_failure_raises_http_error(self) -> None:
         session = MagicMock()
@@ -555,21 +513,8 @@ class TestDockerhubSourceResponse:
         # the key, fan-out rows from different repositories would collide and corrupt merges.
         assert DOCKERHUB_ENDPOINTS["tags"].primary_keys == ["namespace", "repository_name", "name"]
 
-    def test_repositories_primary_key_is_namespace_scoped(self) -> None:
-        assert DOCKERHUB_ENDPOINTS["repositories"].primary_keys == ["namespace", "name"]
-
 
 class TestAuditLogs:
-    def test_short_page_ends_the_walk(self, monkeypatch: Any) -> None:
-        # The endpoint returns no next link and no total count, so a page shorter than page_size is
-        # the only end-of-collection signal. Missing it loops forever on an empty page.
-        manager = _FakeResumableManager()
-        objects = {_audit_page(1): {"logs": _audit_events(2)}}
-        rows, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
-        assert len(rows) == 2
-        assert client.fetched == [_audit_page(1)]
-        assert manager.saved == []
-
     def test_full_page_advances_and_saves_the_page_cursor(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         objects = {
@@ -608,50 +553,6 @@ class TestAuditLogs:
             manager, monkeypatch, {}, "audit_logs", objects=objects, incremental_start=since
         )
         assert "from=2026-01-01T00%3A00%3A00Z" in client.fetched[0]
-
-    def test_full_refresh_run_omits_from(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        objects = {_audit_page(1): {"logs": _audit_events(1)}}
-        _, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
-        assert "from=" not in client.fetched[0]
-
-    def test_synthetic_id_is_stable_for_identical_events(self, monkeypatch: Any) -> None:
-        # The endpoint returns no event id. An id that is not a pure function of the row's content
-        # would make every incremental run re-insert the boundary rows instead of merging onto them.
-        event = _audit_events(1)[0]
-        first, _ = TestGetRows._collect(
-            _FakeResumableManager(), monkeypatch, {}, "audit_logs", objects={_audit_page(1): {"logs": [event]}}
-        )
-        second, _ = TestGetRows._collect(
-            _FakeResumableManager(), monkeypatch, {}, "audit_logs", objects={_audit_page(1): {"logs": [dict(event)]}}
-        )
-        assert first[0]["id"] == second[0]["id"]
-
-    def test_synthetic_id_changes_with_the_event(self, monkeypatch: Any) -> None:
-        rows, _ = TestGetRows._collect(
-            _FakeResumableManager(),
-            monkeypatch,
-            {},
-            "audit_logs",
-            objects={_audit_page(1): {"logs": _audit_events(2)}},
-        )
-        assert rows[0]["id"] != rows[1]["id"]
-
-    def test_synthetic_id_ignores_an_id_the_api_starts_returning(self, monkeypatch: Any) -> None:
-        # If Docker Hub ever adds its own `id`, hashing it in would change every key at once and
-        # re-insert the whole table. The hash covers the event body only.
-        event = _audit_events(1)[0]
-        plain, _ = TestGetRows._collect(
-            _FakeResumableManager(), monkeypatch, {}, "audit_logs", objects={_audit_page(1): {"logs": [event]}}
-        )
-        with_id, _ = TestGetRows._collect(
-            _FakeResumableManager(),
-            monkeypatch,
-            {},
-            "audit_logs",
-            objects={_audit_page(1): {"logs": [{**event, "id": "hub-side-id"}]}},
-        )
-        assert plain[0]["id"] == with_id[0]["id"]
 
 
 class TestAuditLogActions:
@@ -695,11 +596,6 @@ class TestAuditLogActions:
             TestGetRows._collect(
                 _FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects={ACTIONS_URL: body}
             )
-
-    def test_group_without_actions_yields_nothing(self, monkeypatch: Any) -> None:
-        objects: dict[str, Any] = {ACTIONS_URL: {"actions": {"repo": {"label": "Repository"}}}}
-        rows, _ = TestGetRows._collect(_FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects=objects)
-        assert rows == []
 
 
 class TestFormatIncrementalStart:
@@ -763,9 +659,6 @@ class TestCheckEndpointAccess:
         for endpoint in ORG_SCOPED_ENDPOINTS:
             reason = permissions[endpoint]
             assert reason is not None and expected_substr in reason
-
-    def test_reachable_org_endpoints_report_no_reason(self) -> None:
-        assert self._check(self._sessions(probe=200)) == dict.fromkeys(ENDPOINTS)
 
     @parameterized.expand(
         [

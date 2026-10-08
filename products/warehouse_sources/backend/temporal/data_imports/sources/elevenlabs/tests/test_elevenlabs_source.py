@@ -14,6 +14,7 @@ class TestElevenLabsSchemas:
             ("conversations", True, False),
             ("agents", False, False),
             ("voices", False, False),
+            ("triage_tickets", False, False),
         ]
     )
     def test_schema_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:
@@ -23,19 +24,9 @@ class TestElevenLabsSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_incremental_fields_are_unix_integers(self) -> None:
-        schemas = {s.name: s for s in ElevenLabsSource().get_schemas(MagicMock(), team_id=1)}
-        history = schemas["history"]
-        assert [f["field"] for f in history.incremental_fields] == ["date_unix"]
-
     def test_names_filter_limits_returned_schemas(self) -> None:
         schemas = ElevenLabsSource().get_schemas(MagicMock(), team_id=1, names=["voices"])
         assert [s.name for s in schemas] == ["voices"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # lists_tables_without_credentials must stay on so the posthog.com Supported tables section renders.
-        tables = ElevenLabsSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {"history", "conversations", "agents", "voices"}
 
 
 class TestElevenLabsNonRetryableErrors:

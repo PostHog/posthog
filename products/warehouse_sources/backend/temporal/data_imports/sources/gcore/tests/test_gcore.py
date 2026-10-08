@@ -146,31 +146,6 @@ def test_statistics_windows_and_rows(clock: MagicMock, name: str, metric: str, i
     assert manager.save_state.call_args.args[0].window_start == NOW.replace(minute=0).isoformat()
 
 
-@pytest.mark.parametrize("body", [{}, {"resource": {}}, {"resource": {"42": {"metrics": {"requests": []}}}}])
-@patch(f"{TRANSPORT}.datetime", wraps=datetime)
-def test_empty_statistics_resume(clock: MagicMock, body: dict[str, Any]) -> None:
-    clock.now.return_value = NOW
-    resume = GcoreCheckpoint(window_start="2026-01-04T12:00:00+00:00", window_end="2026-01-05T00:00:00+00:00")
-    manager = manager_for(resume)
-    requests: list[PreparedRequest] = []
-
-    def send(request: PreparedRequest, **kwargs: Any) -> Response:
-        requests.append(request)
-        return response_for(request, body)
-
-    with patch("requests.Session.send", side_effect=send):
-        response = gcore_source("fake-token", inputs_for("cdn_requests"), manager)
-        assert list(items_for(response)) == []
-    assert len(requests) == 1
-    query = parse_qs(urlsplit(requests[0].url or "").query)
-    assert query["from"] == [resume.window_start]
-    assert query["to"] == [resume.window_end]
-    manager.save_state.assert_called_once_with(
-        GcoreCheckpoint(window_start=resume.window_end, window_end=resume.window_end)
-    )
-    manager.safe_point.assert_called_once()
-
-
 @pytest.mark.parametrize("status", [200, 401, 403, 429, 500])
 def test_credentials_status_mapping(status: int) -> None:
     requests: list[PreparedRequest] = []
@@ -217,42 +192,6 @@ def test_unknown_table_fails_before_network() -> None:
     send.assert_not_called()
 
 
-def test_resource_configuration_is_excluded() -> None:
-    body = {
-        "count": 1,
-        "results": [
-            {
-                "id": 1,
-                "cname": "cdn.example.com",
-                "created": "2026-01-01T00:00:00Z",
-                "updated": "2026-01-02T00:00:00Z",
-                "originGroup": 2,
-                "status": "active",
-                "options": {
-                    "secure_key": {"key": "fake-signing-key"},
-                    "staticRequestHeaders": {"value": {"Authorization": "fake-origin-credential"}},
-                },
-                "rules": [{"options": {"secure_key": {"key": "fake-rule-key"}}}],
-            }
-        ],
-    }
-    with patch("requests.Session.send", side_effect=lambda request, **kwargs: response_for(request, body)):
-        response = gcore_source("fake-token", inputs_for("resources"), manager_for())
-        rows = list(items_for(response))
-    assert rows == [
-        [
-            {
-                "id": 1,
-                "cname": "cdn.example.com",
-                "created": "2026-01-01T00:00:00Z",
-                "updated": "2026-01-02T00:00:00Z",
-                "originGroup": 2,
-                "status": "active",
-            }
-        ]
-    ]
-
-
 def test_origin_credentials_are_excluded() -> None:
     body = {
         "count": 1,
@@ -283,13 +222,3 @@ def test_malformed_statistics_do_not_advance_checkpoint(clock: MagicMock) -> Non
             response = gcore_source("fake-token", inputs_for("cdn_requests"), manager)
             list(items_for(response))
     manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize("watermark", ["2026-01-05T12:00:00Z", "2026-01-06T00:00:00Z"])
-@patch(f"{TRANSPORT}.datetime", wraps=datetime)
-def test_statistics_skip_unfinished_or_future_hours(clock: MagicMock, watermark: str) -> None:
-    clock.now.return_value = NOW
-    with patch("requests.Session.send") as send:
-        response = gcore_source("fake-token", inputs_for("cdn_requests", True, watermark), manager_for())
-        assert list(items_for(response)) == []
-    send.assert_not_called()

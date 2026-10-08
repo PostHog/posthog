@@ -66,6 +66,7 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
     'date_from',
     'date_to',
     'backfill_id',
+    'variant',
 ] as const
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>

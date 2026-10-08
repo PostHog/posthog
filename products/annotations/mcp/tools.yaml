@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product annotations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product annotations
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Annotations
 feature: annotations
 url_prefix: /data-management/annotations
@@ -109,6 +107,3 @@ tools:
             - scope
             - emoji
             - hidden_in_user_interface
-    annotations-update:
-        operation: annotations_update
-        enabled: false

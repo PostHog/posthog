@@ -14,6 +14,7 @@ It overrides `deny` and `allow`, and the differences are:
 - `infra_cicd` also matches `.github/pr-deploy`.
 - `stamphog_policy` also matches `products/stamphog/backend/logic/policy_defaults/`, `packages/owners-yaml/`, `owners.yaml` and `product.yaml`, because those are gate inputs here.
 - `devex_guardrails` is an extra category. It matches the semgrep rules, ratchet baselines, invariant tests and lint code that guard the house patterns, so an edit to a guard always gets a human review.
+- `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
 - `allow` also lists `.github/CODEOWNERS`.
 - Every `rationale` records the false positives that shaped the rule in this repository.
 

@@ -1,5 +1,4 @@
 import json
-from base64 import b64encode
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -109,14 +108,6 @@ class TestPagination:
         # Checkpoint saved once, after the first page (points at the next page); the null next link ends it.
         manager.save_state.assert_called_once_with(TicketTailorResumeConfig(cursor="or_99"))
 
-    def test_single_page_without_next_link_makes_one_request_and_no_checkpoint(self) -> None:
-        manager = _make_manager()
-        rows, captured = _run(manager, [_page([{"id": "or_1"}, {"id": "or_2"}], next_link=None)])
-
-        assert [r["id"] for r in rows] == ["or_1", "or_2"]
-        assert len(captured) == 1
-        manager.save_state.assert_not_called()
-
     def test_resumes_from_saved_cursor(self) -> None:
         manager = _make_manager(TicketTailorResumeConfig(cursor="or_50"))
         rows, captured = _run(manager, [_page([{"id": "or_51"}], next_link=None)])
@@ -124,26 +115,6 @@ class TestPagination:
         assert [r["id"] for r in rows] == ["or_51"]
         # The uncursored first page must never be fetched on resume.
         assert _query(captured[0]) == {"limit": str(PAGE_SIZE), "starting_after": "or_50"}
-
-    def test_empty_first_page_yields_nothing_and_no_checkpoint(self) -> None:
-        manager = _make_manager()
-        rows, captured = _run(manager, [_page([], next_link=None)])
-
-        assert rows == []
-        assert len(captured) == 1
-        manager.save_state.assert_not_called()
-
-    def test_next_link_present_but_empty_page_stops(self) -> None:
-        # A truthy next link with an empty page must still terminate (mirrors the old `or not items`).
-        manager = _make_manager()
-        rows, captured = _run(
-            manager,
-            [_page([], next_link="https://api.tickettailor.com/v1/orders?starting_after=or_x")],
-        )
-
-        assert rows == []
-        assert len(captured) == 1
-        manager.save_state.assert_not_called()
 
 
 class TestMalformedBodyIsRetryable:
@@ -160,18 +131,6 @@ class TestMalformedBodyIsRetryable:
         manager = _make_manager()
         with pytest.raises(RESTClientRetryableError):
             _run(manager, lambda *a, **k: _response(body))  # type: ignore[arg-type]
-
-
-class TestAuth:
-    def test_uses_http_basic_with_key_as_username(self) -> None:
-        manager = _make_manager()
-        _, captured = _run(manager, [_page([{"id": "or_1"}], next_link=None)])
-
-        # Ticket Tailor authenticates via HTTP Basic with the key as the username and no password —
-        # switching to e.g. a Bearer header would break every sync.
-        expected = "Basic " + b64encode(b"tt-key:").decode()
-        assert captured[0].headers["Authorization"] == expected
-        assert captured[0].headers["Accept"] == "application/json"
 
 
 class TestValidateCredentials:

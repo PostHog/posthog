@@ -34,6 +34,22 @@ _REPORT_METRICS = {
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "destination_url_performance_report": {
+        "description": "Daily landing page performance by destination URL and ad.",
+        "docs_url": "https://learn.microsoft.com/en-us/advertising/reporting-service/destinationurlperformancereportrequest",
+        "columns": {
+            **{
+                key: value
+                for key, value in _REPORT_METRICS.items()
+                if key in {"time_period", "currency_code", "clicks", "impressions", "spend"}
+            },
+            "account_id": "Identifier of the Microsoft Advertising account.",
+            "ad_id": "Identifier of the ad.",
+            "destination_url": "Destination URL after dynamic text substitution.",
+            "ad_distribution": "Distribution channel for the ad, such as Search or Audience.",
+            "conversions_qualified": "Conversions attributed to the ad, including fractional conversions.",
+        },
+    },
     "campaigns": {
         "description": "A Microsoft Advertising campaign — a container for ad groups, budget, and targeting settings.",
         "docs_url": "https://learn.microsoft.com/en-us/advertising/campaign-management-service/campaign",

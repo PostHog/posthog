@@ -356,7 +356,7 @@ async def check_actionability(
             actionability_prompt_name(actionability_prompt, output.source_product, output.source_type),
             actionability_prompt,
             ACTIONABILITY_SYSTEM_ONE_QUESTION,
-            0.85,
+            0.5,
         )
 
     async def sonnet_verdict(trace_id: str | None) -> bool:
@@ -428,7 +428,7 @@ async def filter_actionable(
         actionability_prompt_name(actionability_prompt, outputs[0].source_product, outputs[0].source_type),
         actionability_prompt,
         ACTIONABILITY_SYSTEM_ONE_QUESTION,
-        0.85,
+        0.5,
     )
     system_one_prompt = current_prompt(fallback)
     resolved_prompt = apply_steering(system_one_prompt.policy, steering or SourceSteering())

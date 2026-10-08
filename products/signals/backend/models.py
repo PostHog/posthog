@@ -454,6 +454,21 @@ class SignalReport(UUIDModel):
             return self.signals_researched
         return max(self.signals_at_run - SIGNALS_AT_RUN_INCREMENT, 0)
 
+    def selected_repository(self) -> str | None:
+        """The repository the report's research selected, from the latest repo_selection artefact."""
+        content = (
+            self.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        try:
+            data = json.loads(content or "")
+        except (TypeError, ValueError):
+            return None
+        repository = data.get("repository") if isinstance(data, dict) else None
+        return repository.strip() if isinstance(repository, str) and repository.strip() else None
+
     def transition_to(
         self,
         new_status: "SignalReport.Status",

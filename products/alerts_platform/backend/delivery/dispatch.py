@@ -13,6 +13,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
 )
 
 
@@ -25,6 +26,7 @@ def deliver(
     evaluation_key: str,
     target: AlertDestinationData,
     announcement: EvaluationAnnouncement,
+    incident_action: IncidentAction | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     busy = 0
@@ -42,7 +44,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition),
+                message=build_message(announcement, transition, incident_action=incident_action),
                 in_reply_to=None,
             )
             continue
@@ -64,7 +66,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
-                message=build_message(announcement, transition),
+                message=build_message(announcement, transition, incident_action=incident_action),
                 in_reply_to=claim.handle,
             )
         except Exception:

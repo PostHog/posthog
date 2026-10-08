@@ -152,6 +152,7 @@ export interface RoleLookupResponseApi {
 
 /**
  * * `anthropic` - Anthropic
+ * * `apple-ads` - Apple Ads
  * * `apns` - Apple Push
  * * `aws-redshift` - Aws Redshift
  * * `aws-s3` - Aws S3
@@ -205,6 +206,7 @@ export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeo
 
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
+    AppleAds: 'apple-ads',
     Apns: 'apns',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
@@ -594,6 +596,7 @@ export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
      *
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -759,6 +762,7 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -824,6 +828,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AppleAds: 'apple-ads',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
@@ -874,6 +879,14 @@ export const IntegrationsListKind = {
 } as const
 
 export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that channel.
+     */
+    channel_id?: string
+    /**
+     * Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads the channel's current membership after inviting the app to it. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean
     /**
      * Maximum number of channels to return per request (max 200).
      * @minimum 1

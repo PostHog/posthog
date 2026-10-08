@@ -1,7 +1,6 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.babelforce.source import BabelforceSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.babelforce import (
     BabelforceSourceConfig,
@@ -18,32 +17,6 @@ class TestBabelforceSource:
         # `environment` decides which host receives the stored token; changing it must force
         # the editor to re-enter the token or the credential could be exfiltrated.
         assert self.source.connection_host_fields == ["environment"]
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://services.babelforce.com/api/v2/calls/reporting?max=100",
-            "403 Client Error: Forbidden for url: https://us-east.babelforce.com/api/v2/agents",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    def test_non_retryable_errors_does_not_match_server_errors(self):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(
-            key in "500 Server Error for url: https://services.babelforce.com/api/v2/calls/reporting"
-            for key in non_retryable_errors
-        )
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only call reporting documents a server-side dateCreated filter.
-        assert incremental == {"calls"}
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

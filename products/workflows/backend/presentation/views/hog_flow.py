@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import IntegrityError, models, transaction
+from django.db import models, transaction
 from django.db.models import Count, F, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
@@ -84,8 +84,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
-from posthog.models.filters import Filter
 from posthog.models.integration import Integration
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -104,11 +104,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.messaging.backend.api.design_operations import apply_design_operations
-from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
-from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -138,13 +134,21 @@ from products.workflows.backend.facade.blast_radius import (
 )
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
+    EmailDesignRenderFailed,
+    EmailDesignRenderingNotConfigured,
     StaffPausedError,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
+    WorkflowProposalRecord,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
     WorkflowScheduleNotFound,
+)
+from products.workflows.backend.facade.email_design import (
+    apply_email_design_operations,
+    get_email_template_content,
+    render_email_design_html,
 )
 from products.workflows.backend.facade.email_health import (
     fetch_aws_tenant_reputation,
@@ -156,15 +160,23 @@ from products.workflows.backend.facade.email_health import (
     resume_email_sending,
     team_email_sending_allowance,
 )
-from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
+from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus, WorkflowProposalStatus
+from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
 from products.workflows.backend.facade.proposals import (
     HOG_FLOW_VERSION_APP_SOURCE,
     PROPOSAL_MERGE_BY_ID_FIELDS,
     as_the_serializer_stores_it,
+    count_proposals,
+    create_proposal,
+    get_proposal,
+    get_proposal_by_source_id,
     is_optimization_enabled,
+    list_proposals,
+    lock_proposal,
     merge_proposal_content,
     proposal_conflicts,
     proposal_outcome,
+    resolve_proposal,
     set_optimization_enabled,
     staged_proposal_changes,
     target_metric_in,
@@ -232,8 +244,6 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
-    fetch_message_asset_html,
-    fetch_message_assets,
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.services.timing_reschedule import (
@@ -429,7 +439,8 @@ BATCH_FLAG_CONDITION_REJECTION = (
 
 
 def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    property_groups = Filter(data=filters or {}, team=team).property_groups
+    # Cohorts are expanded so a flag condition nested inside one is still caught.
+    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
@@ -603,16 +614,15 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
     # list validates one action at a time, so without this each step re-queries the same row.
     # The context dict is shared across the many=True action list, so the memo (and the
     # materialized-bytes counter below) span all steps in one request.
-    template_cache: dict[str, Optional[MessageTemplate]] = context.setdefault("_message_template_cache", {})
+    template_cache: dict[str, Optional[dict]] = context.setdefault("_message_template_cache", {})
     cache_key = str(parsed_uuid)
     if parsed_uuid is None:
-        template = None
+        email_content = None
     elif cache_key in template_cache:
-        template = template_cache[cache_key]
+        email_content = template_cache[cache_key]
     else:
-        template = MessageTemplate.objects.filter(team_id=team.id, id=parsed_uuid, deleted=False).first()
-        template_cache[cache_key] = template
-    email_content = (template.content or {}).get("email") if template else None
+        email_content = get_email_template_content(team.id, parsed_uuid)
+        template_cache[cache_key] = email_content
     if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
         if strict:
             raise serializers.ValidationError(
@@ -3318,19 +3328,20 @@ def _render_action_email_operations(
                 "operations."
             }
         )
-    new_design = apply_design_operations(design, operations)
-    for warning in validate_design(new_design):
+    edited = apply_email_design_operations(design, operations)
+    new_design = edited.design
+    for warning in edited.warnings:
         logger.info("hog_flow_action_email_design_warning", warning=warning, action_id=action_id)
     try:
-        html = render_design_html(new_design)
-    except UnlayerNotConfiguredError:
+        html = render_email_design_html(new_design)
+    except EmailDesignRenderingNotConfigured:
         raise exceptions.ValidationError(
             {
                 "operations": "Design rendering is not configured on this instance - an administrator "
                 "must set UNLAYER_API_KEY to enable design editing."
             }
         )
-    except UnlayerRenderError as e:
+    except EmailDesignRenderFailed as e:
         raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
     return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
 
@@ -3591,10 +3602,29 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
 
 
-class WorkflowProposalSerializer(serializers.ModelSerializer):
-    resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
+class WorkflowProposalSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    title = serializers.CharField(read_only=True, help_text="Short summary of the proposed change.")
+    rationale = serializers.CharField(read_only=True, help_text="Why the producer thinks this change is worth making.")
     content = WorkflowProposalContentField(read_only=True)
     evidence = WorkflowProposalEvidenceField(read_only=True)
+    step_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The workflow step this is about. Set for a change to one step: the evidence and the "
+            "outcome then read that step's metrics, so a change to one email in a sequence is not "
+            "measured against the rest. Null only for a change that spans the workflow, such as its "
+            "exit condition or a step being taken out, which is measured on the workflow's own numbers."
+        ),
+    )
+    base_version = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Live workflow version this was authored against. Approving compares the steps and fields "
+            "this changes against that version to tell whether somebody else already changed them."
+        ),
+    )
     is_stale = serializers.SerializerMethodField(
         help_text=(
             "Whether approving this would undo an edit made since it was proposed. False while the "
@@ -3602,37 +3632,29 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
         )
     )
 
-    class Meta:
-        model = WorkflowProposal
-        fields = [
-            "id",
-            "title",
-            "rationale",
-            "content",
-            "evidence",
-            "step_id",
-            "base_version",
-            "is_stale",
-            "status",
-            "source_id",
-            "created_at",
-            "resolved_at",
-            "resolved_by",
-            "applied_version",
-        ]
-        read_only_fields = fields
+    status = serializers.ChoiceField(choices=WorkflowProposalStatus.choices, read_only=True)
+    source_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    resolved_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
+    applied_version = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Workflow version the approved change went live as."
+    )
 
     @extend_schema_field(serializers.BooleanField)
-    def get_is_stale(self, proposal: WorkflowProposal) -> bool:
-        if (proposal.hog_flow.version or 0) <= proposal.base_version:
+    def get_is_stale(self, proposal: WorkflowProposalRecord) -> bool:
+        hog_flow = self.context["hog_flow"]
+        if (hog_flow.version or 0) <= proposal.base_version:
             return False
         # One revision read per base version, shared across the page.
         cache = self.context.setdefault("proposal_conflicts", {})
-        key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
+        key = (hog_flow.pk, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = proposal_conflicts(
-                team_id=proposal.team_id, hog_flow_id=proposal.hog_flow_id, proposal_id=proposal.id
-            )
+            cache[key] = proposal_conflicts(team_id=hog_flow.team_id, hog_flow_id=hog_flow.pk, proposal_id=proposal.id)
         return bool(cache[key])
 
 
@@ -4029,6 +4051,19 @@ class _RevisionPages:
 
     def __getitem__(self, page: slice) -> list[WorkflowRevisionSummary]:
         return list_revisions(self.hog_flow_id, offset=page.start or 0, limit=page.stop - (page.start or 0))
+
+
+class _ProposalPages:
+    def __init__(self, hog_flow_id: uuid_mod.UUID, status: str | None) -> None:
+        self.hog_flow_id = hog_flow_id
+        self.status = status
+
+    def count(self) -> int:
+        return count_proposals(hog_flow_id=self.hog_flow_id, status=self.status)
+
+    def __getitem__(self, page: slice) -> list[WorkflowProposalRecord]:
+        offset = page.start or 0
+        return list_proposals(hog_flow_id=self.hog_flow_id, status=self.status, offset=offset, limit=page.stop - offset)
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -5426,7 +5461,7 @@ class HogFlowViewSet(
                 "status",
                 OpenApiTypes.STR,
                 description="Only return proposals in this status (suggested, approved, rejected, applied).",
-                enum=[choice.value for choice in WorkflowProposal.Status],
+                enum=[choice.value for choice in WorkflowProposalStatus],
             )
         ],
         responses={200: WorkflowProposalSerializer(many=True)},
@@ -5447,19 +5482,14 @@ class HogFlowViewSet(
         # DRF routes HEAD to the GET handler, and the scope gate reads it as a read.
         if request.method in ("GET", "HEAD"):
             requested_status = request.query_params.get("status")
-            if requested_status and requested_status not in WorkflowProposal.Status.values:
+            if requested_status and requested_status not in WorkflowProposalStatus.values:
                 raise exceptions.ValidationError(
-                    {"status": f"Must be one of: {', '.join(WorkflowProposal.Status.values)}."}
+                    {"status": f"Must be one of: {', '.join(WorkflowProposalStatus.values)}."}
                 )
-            # Applied ones order by the version that shipped them; the rest read as a queue, newest first.
-            applied_only = requested_status == WorkflowProposal.Status.APPLIED
-            ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
-            queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
-            if requested_status:
-                queryset = queryset.filter(status=requested_status)
-            queryset = queryset.select_related("resolved_by", "hog_flow")
-            page = self.paginate_queryset(queryset)
-            return self.get_paginated_response(WorkflowProposalSerializer(page, many=True).data)
+            page = self.paginate_queryset(cast(Sequence[Any], _ProposalPages(instance.pk, requested_status or None)))
+            return self.get_paginated_response(
+                WorkflowProposalSerializer(page, many=True, context={"hog_flow": instance}).data
+            )
 
         param_serializer = WorkflowProposalCreateSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
@@ -5468,11 +5498,11 @@ class HogFlowViewSet(
         source_id = params.get("source_id") or None
 
         # A retry names the suggestion it already made, which is still in someone's queue whatever the switch says now.
-        retry_of = (
-            WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first() if source_id else None
-        )
+        retry_of = get_proposal_by_source_id(hog_flow_id=instance.pk, source_id=source_id) if source_id else None
         if retry_of:
-            return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
+            return Response(
+                WorkflowProposalSerializer(retry_of, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
+            )
 
         # A version the workflow has not reached names nothing, and the outcome read spans versions.
         if params["base_version"] > instance.version:
@@ -5539,8 +5569,8 @@ class HogFlowViewSet(
         if measured is not None:
             evidence["measured"] = measured
 
-        proposal = WorkflowProposal(
-            hog_flow=instance,
+        created = create_proposal(
+            hog_flow_id=instance.pk,
             title=params["title"],
             rationale=params["rationale"],
             content=content,
@@ -5549,23 +5579,19 @@ class HogFlowViewSet(
             base_version=params["base_version"],
             source_id=source_id,
         )
-        try:
-            with transaction.atomic():
-                proposal.save()
-        except IntegrityError:
-            # A concurrent create with the same source_id landed between the read and this save.
-            existing = (
-                WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first() if source_id else None
+        proposal = created.proposal
+        if not created.created:
+            return Response(
+                WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_200_OK
             )
-            if existing is None:
-                raise
-            return Response(WorkflowProposalSerializer(existing).data, status=status.HTTP_200_OK)
         self._report_workflow_action(
             "hog_flow_proposal_created",
             instance,
             {"proposal_id": str(proposal.id)},
         )
-        return Response(WorkflowProposalSerializer(proposal).data, status=status.HTTP_201_CREATED)
+        return Response(
+            WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         parameters=[
@@ -5578,18 +5604,16 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
         proposal = self._get_proposal_or_404(instance, proposal_id)
-        return Response(WorkflowProposalSerializer(proposal).data)
+        return Response(WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data)
 
-    def _get_proposal_or_404(self, hog_flow: HogFlow, proposal_id: Optional[str]) -> WorkflowProposal:
+    def _get_proposal_or_404(self, hog_flow: HogFlow, proposal_id: Optional[str]) -> WorkflowProposalRecord:
         parsed = _parse_uuid_or_none(proposal_id)
         if parsed is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
-        try:
-            return WorkflowProposal.objects.select_related("resolved_by", "hog_flow").get(
-                team_id=self.team_id, hog_flow_id=hog_flow.pk, id=parsed
-            )
-        except WorkflowProposal.DoesNotExist:
+        proposal = get_proposal(team_id=self.team_id, hog_flow_id=hog_flow.pk, proposal_id=parsed)
+        if proposal is None:
             raise exceptions.NotFound("No such suggestion for this workflow.")
+        return proposal
 
     @extend_schema(
         parameters=[
@@ -5618,13 +5642,13 @@ class HogFlowViewSet(
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
             proposal = self._get_proposal_or_404(locked, proposal_id)
             # The row lock serializes concurrent approvals; the second sees what the first wrote.
-            locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
-            if locked_proposal.status != WorkflowProposal.Status.SUGGESTED:
+            locked_proposal = lock_proposal(team_id=self.team_id, proposal_id=proposal.id)
+            if locked_proposal.status != WorkflowProposalStatus.SUGGESTED:
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
             staged = staged_proposal_changes(
-                team_id=locked.team_id, hog_flow_id=locked.pk, proposal_id=locked_proposal.pk
+                team_id=locked.team_id, hog_flow_id=locked.pk, proposal_id=locked_proposal.id
             )
             if staged.conflicts:
                 raise ProposalOutOfDateError(staged.conflicts)
@@ -5655,15 +5679,17 @@ class HogFlowViewSet(
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
             unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
 
-            locked_proposal.status = WorkflowProposal.Status.APPROVED
-            locked_proposal.resolved_at = timezone.now()
-            locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
-            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+            locked_proposal = resolve_proposal(
+                team_id=self.team_id,
+                proposal_id=locked_proposal.id,
+                status=WorkflowProposalStatus.APPROVED,
+                resolved_by_id=request.user.pk if request.user.is_authenticated else None,
+            )
 
         log_activity_from_viewset(self, locked, activity="proposal_approved", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
         self._report_workflow_action("hog_flow_proposal_approved", locked, {"proposal_id": str(locked_proposal.id)})
-        return Response(WorkflowProposalSerializer(locked_proposal).data)
+        return Response(WorkflowProposalSerializer(locked_proposal, context={"hog_flow": locked}).data)
 
     @extend_schema(
         parameters=[
@@ -5695,7 +5721,7 @@ class HogFlowViewSet(
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
         return Response(
             WorkflowProposalOutcomeSerializer(
-                proposal_outcome(team_id=self.team_id, hog_flow_id=instance.pk, proposal_id=proposal.pk)
+                proposal_outcome(team_id=self.team_id, hog_flow_id=instance.pk, proposal_id=proposal.id)
             ).data
         )
 
@@ -5749,17 +5775,19 @@ class HogFlowViewSet(
         instance = self.get_object()
         with transaction.atomic():
             proposal = self._get_proposal_or_404(instance, proposal_id)
-            locked_proposal = WorkflowProposal.objects.select_for_update().get(pk=proposal.pk)
-            if locked_proposal.status != WorkflowProposal.Status.SUGGESTED:
+            locked_proposal = lock_proposal(team_id=self.team_id, proposal_id=proposal.id)
+            if locked_proposal.status != WorkflowProposalStatus.SUGGESTED:
                 raise ProposalAlreadyResolvedError()
-            locked_proposal.status = WorkflowProposal.Status.REJECTED
-            locked_proposal.resolved_at = timezone.now()
-            locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
-            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+            locked_proposal = resolve_proposal(
+                team_id=self.team_id,
+                proposal_id=locked_proposal.id,
+                status=WorkflowProposalStatus.REJECTED,
+                resolved_by_id=request.user.pk if request.user.is_authenticated else None,
+            )
 
         log_activity_from_viewset(self, instance, activity="proposal_rejected", name=instance.name)
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
-        return Response(WorkflowProposalSerializer(locked_proposal).data)
+        return Response(WorkflowProposalSerializer(locked_proposal, context={"hog_flow": instance}).data)
 
     @extend_schema(request=HogFlowOptimizationSerializer, responses={200: HogFlowOptimizationSerializer})
     @action(detail=True, methods=["GET", "POST"], url_path="optimization", filter_backends=[])
