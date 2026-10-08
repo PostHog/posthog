@@ -2297,8 +2297,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         props.onComplete()
                     }
                 } else if (values.hasWebhookSchemas) {
-                    // Go to webhook setup step (4)
-                    actions.onNext()
+                    // Absolute, like the progress step below it. `createSource` runs from step 3
+                    // without the destination step and from WIZARD_DESTINATION_STEP with it, so a
+                    // relative advance lands on a step that does not exist and the scene falls
+                    // through to its unknown-step error.
+                    actions.setStep(4)
                 } else {
                     // Skip webhook step, go directly to progress (5)
                     actions.setStep(5)
