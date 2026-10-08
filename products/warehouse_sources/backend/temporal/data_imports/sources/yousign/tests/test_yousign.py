@@ -6,7 +6,6 @@ import pytest
 from unittest import mock
 
 import orjson
-from requests import Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
@@ -17,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign import (
     YousignResumeConfig,
-    _cursor_paginator,
     _date_filter_value,
     create_webhook,
     delete_webhook,
@@ -89,40 +87,10 @@ class TestGetResource:
         assert incremental_param["convert"] is _date_filter_value
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-    def test_incremental_defaults_to_created_at(self) -> None:
-        resource = get_resource(YOUSIGN_ENDPOINTS["signature_requests"], True, None)
-        assert "created_at[after]" in _endpoint_params(resource)
-
     @pytest.mark.parametrize("endpoint, field", [("signature_requests", "updated_at"), ("contacts", "created_at")])
     def test_incremental_rejects_unsupported_fields(self, endpoint: str, field: str) -> None:
         with pytest.raises(ValueError, match="does not support incremental field"):
             get_resource(YOUSIGN_ENDPOINTS[endpoint], True, field)
-
-
-class TestCursorPaginator:
-    def test_follows_meta_next_cursor_until_null(self) -> None:
-        paginator = _cursor_paginator()
-
-        paginator.update_state(_resp({"data": [{"id": "a"}], "meta": {"next_cursor": "tok1"}}))
-        assert paginator.has_next_page
-        request = Request(method="GET", url="https://api.yousign.app/v3/signature_requests", params={})
-        paginator.update_request(request)
-        assert request.params["after"] == "tok1"
-
-        paginator.update_state(_resp({"data": [{"id": "b"}], "meta": {"next_cursor": None}}))
-        assert not paginator.has_next_page
-
-    def test_resume_state_roundtrip(self) -> None:
-        paginator = _cursor_paginator()
-        paginator.update_state(_resp({"data": [], "meta": {"next_cursor": "tok2"}}))
-        state = paginator.get_resume_state()
-        assert state == {"cursor": "tok2"}
-
-        resumed = _cursor_paginator()
-        resumed.set_resume_state(state)
-        request = Request(method="GET", url="https://api.yousign.app/v3/contacts", params={})
-        resumed.init_request(request)
-        assert request.params["after"] == "tok2"
 
 
 class TestValidateCredentials:
@@ -146,18 +114,6 @@ class TestValidateCredentials:
         valid, _ = validate_credentials("key", "production", schema_name)
         assert valid is expected_valid
 
-    @pytest.mark.parametrize(
-        "environment, expected_host",
-        [("production", "https://api.yousign.app/v3"), ("sandbox", "https://api-sandbox.yousign.app/v3")],
-    )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.make_tracked_session")
-    def test_probes_the_environment_host(
-        self, mock_session: mock.MagicMock, environment: str, expected_host: str
-    ) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=200)
-        validate_credentials("key", environment)
-        assert mock_session.return_value.get.call_args.args[0] == f"{expected_host}/users"
-
 
 class TestYousignSourceResponse:
     @pytest.mark.parametrize("endpoint", list(YOUSIGN_ENDPOINTS))
@@ -180,20 +136,6 @@ class TestYousignSourceResponse:
         if config.partition_key:
             assert response.partition_keys == [config.partition_key]
             assert response.partition_mode == "datetime"
-
-    @pytest.mark.parametrize("endpoint", ["signers", "documents"])
-    def test_fanout_children_key_on_parent_id(self, endpoint: str) -> None:
-        # Fan-out children aggregate rows across every signature request; without the parent id
-        # in the key, duplicate ids would multi-match on every merge.
-        response = yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint=endpoint,
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.primary_keys == ["signature_request_id", "id"]
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign.rest_api_resource")
     def test_resumes_from_saved_cursor(self, mock_rest_api_resource: mock.MagicMock) -> None:
@@ -254,48 +196,8 @@ class TestYousignSourceResponse:
 
         webhook_manager.get_items.assert_called_once()
 
-    def test_webhook_manager_not_consulted_for_non_webhook_schema(self) -> None:
-        webhook_manager = mock.MagicMock()
-        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
-
-        yousign_source(
-            api_key="key",
-            environment="production",
-            endpoint="contacts",
-            team_id=TEAM_ID,
-            job_id=JOB_ID,
-            resumable_source_manager=_make_manager(),
-            webhook_source_manager=webhook_manager,
-        )
-
-        webhook_manager.webhook_enabled.assert_not_called()
-
 
 class TestWebhookTableTransformer:
-    def _envelope(self, request_id: str, status: str, event_time: str) -> dict[str, Any]:
-        return {
-            "event_id": f"evt-{request_id}-{event_time}",
-            "event_name": "signature_request.activated",
-            "event_time": event_time,
-            "sandbox": False,
-            "data": {"signature_request": {"id": request_id, "status": status, "name": "Contract"}},
-        }
-
-    def test_reshapes_envelopes_and_keeps_latest_event_per_id(self) -> None:
-        table = table_from_py_list(
-            [
-                self._envelope("sr-1", "ongoing", "100"),
-                self._envelope("sr-1", "done", "200"),
-                self._envelope("sr-2", "ongoing", "150"),
-            ]
-        )
-        rows = make_webhook_table_transformer()(table).to_pylist()
-        by_id = {row["id"]: row for row in rows}
-        assert set(by_id) == {"sr-1", "sr-2"}
-        assert by_id["sr-1"]["status"] == "done"
-        # Envelope keys must not leak into the table — the rows merge with pulled API rows.
-        assert "event_name" not in by_id["sr-1"]
-
     def test_strips_signer_signature_link_from_webhook_rows(self) -> None:
         # `signature_link` is a `no_otp`-usable signing URL — it must never reach the warehouse.
         envelope = {

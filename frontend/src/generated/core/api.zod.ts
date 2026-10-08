@@ -1229,6 +1229,33 @@ export const TaxonomicSearchIntentMatchEventsCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
+ * Send a WebRTC session description to another terminal in a Doom room.
+ */
+export const terminalNetplaySignalCreateBodyRoomRegExp = new RegExp('^[A-Z0-9]{4,12}$')
+export const terminalNetplaySignalCreateBodySenderRegExp = new RegExp('^[a-z0-9]{1,32}$')
+export const terminalNetplaySignalCreateBodyRecipientRegExp = new RegExp('^[a-z0-9]{1,32}$')
+export const terminalNetplaySignalCreateBodyDescriptionSdpMax = 16384
+
+export const TerminalNetplaySignalCreateBody = /* @__PURE__ */ zod.object({
+    room: zod.string().regex(terminalNetplaySignalCreateBodyRoomRegExp).describe('Room code shown by the game host.'),
+    sender: zod.string().regex(terminalNetplaySignalCreateBodySenderRegExp).describe('Peer that sent the description.'),
+    recipient: zod
+        .string()
+        .regex(terminalNetplaySignalCreateBodyRecipientRegExp)
+        .describe('Peer that receives the description.'),
+    description: zod.object({
+        type: zod
+            .enum(['offer', 'answer'])
+            .describe('\* `offer` - offer\n\* `answer` - answer')
+            .describe('WebRTC session description type.\n\n\* `offer` - offer\n\* `answer` - answer'),
+        sdp: zod
+            .string()
+            .max(terminalNetplaySignalCreateBodyDescriptionSdpMax)
+            .describe('WebRTC session description with ICE candidates.'),
+    }),
+})
+
+/**
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *
@@ -1266,7 +1293,7 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *
  * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
  * @summary Report and revoke a leaked PostHog API key or token
@@ -1278,7 +1305,7 @@ export const RevokeLeakedKeyCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(revokeLeakedKeyCreateBodyTokenMax)
         .describe(
-            'The leaked PostHog personal API key, project secret API key, or OAuth access\/refresh token to revoke.'
+            'The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access\/refresh token to revoke.'
         ),
 })
 

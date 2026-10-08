@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -10,12 +11,13 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect import kong_konnect
 from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konnect.kong_konnect import (
+    CONTROL_PLANES_PAGE_SIZE,
     MAX_PAGE_SIZE,
     KongKonnectResumeConfig,
-    _build_body,
     _clamp_future_value_to_now,
     _format_datetime,
     _resolve_window,
+    get_lookup_rows,
     get_rows,
     kong_konnect_source,
     validate_credentials,
@@ -35,43 +37,7 @@ class TestFormatDatetime:
         assert _format_datetime(value) == expected
 
 
-class TestBuildBody:
-    def test_body_is_absolute_ascending_window(self) -> None:
-        body = _build_body("2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", offset=200, size=1000)
-        assert body["time_range"] == {
-            "type": "absolute",
-            "start": "2026-01-01T00:00:00Z",
-            "end": "2026-01-02T00:00:00Z",
-            "tz": "Etc/UTC",
-        }
-        # Ascending order is load-bearing: the pipeline advances the watermark trusting asc order.
-        assert body["order"] == "ascending"
-        assert body["size"] == 1000
-        assert body["offset"] == 200
-        assert body["filters"] == []
-
-
 class TestResolveWindow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_incremental_starts_at_watermark(self) -> None:
-        start, end = _resolve_window(
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 6, 10, 8, 0, 0, tzinfo=UTC),
-            lookback_days=30,
-        )
-        assert start == "2026-06-10T08:00:00Z"
-        assert end == "2026-06-15T12:00:00Z"
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_full_refresh_walks_back_lookback_days(self) -> None:
-        start, end = _resolve_window(
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            lookback_days=7,
-        )
-        assert start == "2026-06-08T12:00:00Z"
-        assert end == "2026-06-15T12:00:00Z"
-
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_watermark_clamped_to_now(self) -> None:
         # A future-dated cursor would otherwise produce start > end, wedging every later sync.
@@ -111,21 +77,6 @@ def _page(count: int) -> dict[str, Any]:
 
 
 class TestGetRowsPagination:
-    @patch.object(kong_konnect, "make_tracked_session")
-    @patch.object(kong_konnect, "_fetch_page")
-    def test_stops_on_short_page_and_advances_offset(self, mock_fetch: MagicMock, _mock_session: MagicMock) -> None:
-        # Two full pages then a short page terminates pagination.
-        mock_fetch.side_effect = [_page(MAX_PAGE_SIZE), _page(MAX_PAGE_SIZE), _page(3)]
-        manager = _manager()
-
-        batches = list(get_rows("tok", "us", "api_requests", MagicMock(), manager, lookback_days=30))
-
-        assert [len(b) for b in batches] == [MAX_PAGE_SIZE, MAX_PAGE_SIZE, 3]
-        assert mock_fetch.call_count == 3
-        # Offsets requested must walk forward by page size.
-        offsets = [call.args[3]["offset"] for call in mock_fetch.call_args_list]
-        assert offsets == [0, MAX_PAGE_SIZE, 2 * MAX_PAGE_SIZE]
-
     @patch.object(kong_konnect, "make_tracked_session")
     @patch.object(kong_konnect, "_fetch_page")
     def test_empty_first_page_yields_nothing(self, mock_fetch: MagicMock, _mock_session: MagicMock) -> None:
@@ -187,6 +138,101 @@ class TestKongKonnectSourceResponse:
         assert response.sort_mode == "asc"
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["request_start"]
+
+
+def _json_response(status: int, body: dict[str, Any] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status
+    response.ok = status < 400
+    response.json.return_value = body or {}
+    if status >= 400:
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=response)
+    return response
+
+
+def _control_plane(cp_id: str, cluster_type: str = "CLUSTER_TYPE_CONTROL_PLANE") -> dict[str, Any]:
+    return {"id": cp_id, "name": cp_id, "config": {"cluster_type": cluster_type}}
+
+
+BASE = "https://us.api.konghq.com/v2"
+
+
+class TestLookupRows:
+    @parameterized.expand(
+        [
+            ("short_page_stops", [[CONTROL_PLANES_PAGE_SIZE, None], [2, None]], 2),
+            ("total_reached_stops", [[CONTROL_PLANES_PAGE_SIZE, CONTROL_PLANES_PAGE_SIZE]], 1),
+            ("empty_first_page", [[0, 0]], 1),
+        ]
+    )
+    @patch.object(kong_konnect, "make_tracked_session")
+    def test_control_planes_page_number_pagination(
+        self, _name: str, pages: list[list[int | None]], expected_requests: int, mock_session: MagicMock
+    ) -> None:
+        responses = []
+        for count, total in pages:
+            meta = {"page": {"total": total}} if total is not None else {}
+            responses.append(
+                _json_response(200, {"data": [_control_plane(f"cp{i}") for i in range(count or 0)], "meta": meta})
+            )
+        mock_session.return_value.get.side_effect = responses
+
+        rows = [row for batch in get_lookup_rows("tok", "us", "control_planes", MagicMock()) for row in batch]
+
+        assert len(rows) == sum(count or 0 for count, _ in pages)
+        calls = mock_session.return_value.get.call_args_list
+        assert len(calls) == expected_requests
+        assert [c.kwargs["params"]["page[number]"] for c in calls] == list(range(1, expected_requests + 1))
+
+    @patch.object(kong_konnect, "make_tracked_session")
+    def test_core_entities_fan_out_over_control_planes(self, mock_session: MagicMock) -> None:
+        def fake_get(url: str, params: dict[str, Any], timeout: int) -> MagicMock:
+            if url == f"{BASE}/control-planes":
+                return _json_response(
+                    200,
+                    {
+                        "data": [
+                            _control_plane("cp-a"),
+                            _control_plane("cp-group", "CLUSTER_TYPE_CONTROL_PLANE_GROUP"),
+                            _control_plane("cp-deleted"),
+                            _control_plane("cp-b"),
+                        ],
+                        "meta": {"page": {"total": 4}},
+                    },
+                )
+            if url == f"{BASE}/control-planes/cp-a/core-entities/services":
+                if params.get("offset") == "next-token":
+                    return _json_response(200, {"data": [{"id": "svc-2"}], "offset": None})
+                return _json_response(200, {"data": [{"id": "svc-1"}], "offset": "next-token"})
+            if url == f"{BASE}/control-planes/cp-deleted/core-entities/services":
+                return _json_response(404)
+            if url == f"{BASE}/control-planes/cp-b/core-entities/services":
+                # decK can copy entity IDs between control planes, so the same ID shows up again here.
+                return _json_response(200, {"data": [{"id": "svc-1"}]})
+            raise AssertionError(f"unexpected request to {url}")
+
+        mock_session.return_value.get.side_effect = fake_get
+
+        response = kong_konnect_source("tok", "us", "services", MagicMock(), _manager())
+        rows = [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
+
+        assert rows == [
+            {"id": "svc-1", "control_plane_id": "cp-a"},
+            {"id": "svc-2", "control_plane_id": "cp-a"},
+            {"id": "svc-1", "control_plane_id": "cp-b"},
+        ]
+        assert response.primary_keys == ["control_plane_id", "id"]
+        mock_session.return_value.post.assert_not_called()
+
+    @patch.object(kong_konnect, "make_tracked_session")
+    def test_core_entities_raise_on_auth_error(self, mock_session: MagicMock) -> None:
+        mock_session.return_value.get.side_effect = [
+            _json_response(200, {"data": [_control_plane("cp-a")], "meta": {"page": {"total": 1}}}),
+            _json_response(403),
+        ]
+
+        with pytest.raises(requests.HTTPError):
+            list(get_lookup_rows("tok", "us", "consumers", MagicMock()))
 
 
 if __name__ == "__main__":

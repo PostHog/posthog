@@ -31,6 +31,9 @@ def _report_version(policy: dict[str, list[str]]) -> list[str] | None:
     return parse_qs(urlsplit(policy.get("report-uri", [""])[0]).query).get("v")
 
 
+_US_BUNDLE = "https://app-static-prod.posthog.com"
+
+
 class _PageLoads(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -379,18 +382,26 @@ class TestCSPMiddleware(APIBaseTest):
         assert f"https://live.{region}.posthog.com" in connect_src
         assert f"https://webhooks.{region}.posthog.com" in connect_src
         assert f"https://{region}.i.posthog.com/decide/" in connect_src
+        assert f"https://{region}.i.posthog.com/i/v0/e/" in connect_src
+        # The bare origin would admit every endpoint on the ingestion host, not only the paths the app calls.
+        assert f"https://{region}.i.posthog.com" not in connect_src
         assert f"https://agent-proxy.{region}.posthog.com" in connect_src
         # Allowing the other region would hide a request that crossed regions by mistake.
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
     @parameterized.expand(
         [
-            ("enforced_app_page", "/", {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com"}, True),
-            # This document already sends the app policy report-only, so the shadow must join that header.
+            (
+                "enforced_app_page",
+                "/",
+                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
+                True,
+            ),
+            # This document already sends the app policy report-only, so the shadows must join that header.
             (
                 "report_only_embeddable_document",
                 "/shared/notarealtoken",
-                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com"},
+                {"CLOUD_DEPLOYMENT": "US", "SITE_URL": "https://us.posthog.com", "JS_URL": _US_BUNDLE},
                 True,
             ),
             (
@@ -405,8 +416,8 @@ class TestCSPMiddleware(APIBaseTest):
             ),
         ]
     )
-    def test_cloud_reports_images_that_need_https_without_blocking_them(
-        self, _name: str, path: str, overrides: dict[str, str | None], expects_shadow: bool
+    def test_cloud_reports_narrower_sources_without_blocking_them(
+        self, _name: str, path: str, overrides: dict[str, str | None], expects_shadows: bool
     ) -> None:
         with override_settings(TEST=False, DEBUG=False, E2E_TESTING=False, **overrides):
             response = self.client.get(path)
@@ -416,18 +427,32 @@ class TestCSPMiddleware(APIBaseTest):
         (app_policy,) = [policy for policy in enforced + reported if "default-src" in policy]
         # The app policy keeps `https:`, so the shadow reports images without blocking any.
         assert "https:" in app_policy["img-src"]
-        # Enforced, the shadow would block every image from a host it does not name.
-        assert [policy for policy in enforced if _report_version(policy) == ["5"]] == []
-        shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
-        if not expects_shadow:
-            assert shadows == []
+        # The app policy keeps the wildcards until the v=6 reports show the named hosts are complete.
+        assert "https://*.posthog.com" in app_policy["style-src"]
+        assert "https://*.posthog.com" in app_policy["font-src"]
+        # Enforced, a shadow would block every image, stylesheet or font from a host it does not name.
+        assert [policy for policy in enforced if _report_version(policy) in (["5"], ["6"])] == []
+        image_shadows = [policy for policy in reported if _report_version(policy) == ["5"]]
+        style_font_shadows = [policy for policy in reported if _report_version(policy) == ["6"]]
+        if not expects_shadows:
+            assert image_shadows == style_font_shadows == []
             return
 
-        (shadow,) = shadows
+        (image_shadow,) = image_shadows
         # Any other directive would make a v=5 report mean something besides "this image needs https:".
-        assert set(shadow) == {"img-src", "report-uri"}
-        assert "https:" not in shadow["img-src"]
-        assert "https://www.gravatar.com" in shadow["img-src"]
+        assert set(image_shadow) == {"img-src", "report-uri"}
+        assert "https:" not in image_shadow["img-src"]
+        assert "https://www.gravatar.com" in image_shadow["img-src"]
+
+        (style_font_shadow,) = style_font_shadows
+        # Any other directive would make a v=6 report mean something besides "this host is missing".
+        assert set(style_font_shadow) == {"style-src", "font-src", "report-uri"}
+        for sources in (style_font_shadow["style-src"], style_font_shadow["font-src"]):
+            # A wildcard admits every PostHog host, so a missed host would never report.
+            assert "https://*.posthog.com" not in sources
+            # Without these, every page load reports its own bundle or the toolbar, and a real miss is lost.
+            assert _US_BUNDLE in sources
+            assert "https://internal-cf.posthog.com/static/" in sources
 
     @override_settings(
         OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",

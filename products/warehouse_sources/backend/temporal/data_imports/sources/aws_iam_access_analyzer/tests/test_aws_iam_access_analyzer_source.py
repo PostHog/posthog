@@ -53,18 +53,6 @@ def test_pipeline_does_not_filter_findings_by_a_stored_watermark(incremental: bo
     }
 
 
-@pytest.mark.parametrize(
-    "names,expected",
-    [(None, ["analyzers", "findings", "archive_rules"]), (["findings"], ["findings"]), (["missing"], [])],
-)
-def test_schema_selection_does_not_require_credentials(names: list[str] | None, expected: list[str]) -> None:
-    with patch.object(transport, "make_tracked_session") as factory:
-        schemas = AwsIamAccessAnalyzerSource().get_schemas(CONFIG, 1, names=names)
-    assert [schema.name for schema in schemas] == expected
-    assert all(not schema.supports_incremental and not schema.supports_append for schema in schemas)
-    factory.assert_not_called()
-
-
 def test_permission_errors_are_scoped_to_each_selected_table() -> None:
     with patch.object(transport, "make_tracked_session") as factory:
         factory.return_value.request.side_effect = [

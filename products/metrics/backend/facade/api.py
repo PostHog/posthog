@@ -21,13 +21,11 @@ from posthog.models import Team
 
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
-from products.metrics.backend.diagnostics import decompose_bucket as _decompose_bucket
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
-    MetricBucketDecomposition,
     MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
@@ -186,7 +184,7 @@ def _evaluate_formula_point(
 
 
 def _evaluate_formula(
-    formula_text: str, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
+    node: Any, series_by_clause: dict[str, list[MetricSeries]], grid: list[str]
 ) -> list[MetricSeries]:
     """Combine clause results point-by-point on the shared grid.
 
@@ -195,8 +193,6 @@ def _evaluate_formula(
     single ungrouped series is broadcast to every label-set instead. A
     label-set missing from any non-broadcast clause is dropped.
     """
-    node = parse_formula(formula_text, frozenset(series_by_clause))
-
     broadcasts: dict[str, MetricSeries] = {}
     grouped: dict[str, dict[tuple[tuple[str, str], ...], MetricSeries]] = {}
     for name, series_list in series_by_clause.items():
@@ -240,6 +236,11 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
     """
+    formula_node_checked = (
+        parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
+        if request.formula is not None
+        else None
+    )
     rows_by_clause: dict[str, list[dict[str, Any]]] = {}
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
@@ -254,14 +255,8 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             interval=request.interval,
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
-            min_interval=request.min_interval,
         )
         rows_by_clause[clause.name] = runner.run()
-
-    # Validate the formula before any early return so bad formulas always 400.
-    formula_node_checked = (
-        parse_formula(request.formula, frozenset(rows_by_clause)) if request.formula is not None else None
-    )
 
     grid = sorted({row["time"] for rows in rows_by_clause.values() for row in rows})
     if not grid:
@@ -288,8 +283,8 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         for clause in request.clauses
     }
 
-    if request.formula is not None:
-        return _evaluate_formula(request.formula, series_by_clause, grid)
+    if formula_node_checked is not None:
+        return _evaluate_formula(formula_node_checked, series_by_clause, grid)
 
     return [series for clause in request.clauses for series in series_by_clause[clause.name]]
 
@@ -569,35 +564,4 @@ def investigate_incident(*, team: Team, context: IncidentContext) -> Investigati
         anomaly_to=context.fired_at + context.leadout,
         filters=filters,
         companions=context.companions,
-    )
-
-
-def explain_metric_bucket(
-    *,
-    team: Team,
-    metric_name: str,
-    aggregation: str,
-    bucket_start: dt.datetime,
-    interval: str,
-    filters: Sequence[MetricFilter] = (),
-    metric_type: MetricType | None = None,
-    quantile: float | None = None,
-) -> MetricBucketDecomposition:
-    """Take one chart point apart and show how it was built.
-
-    Returns the series that reported in the bucket, the samples each sent, and
-    the two reductions that combined them, alongside both the value the product
-    would plot and the value recomputed independently from the raw samples.
-    Reading them side by side is what makes an aggregation bug visible instead
-    of merely plausible. The presentation layer surfaces `ValueError` as a 400.
-    """
-    return _decompose_bucket(
-        team=team,
-        metric_name=metric_name,
-        aggregation=aggregation,
-        bucket_start=bucket_start,
-        interval=interval,
-        filters=filters,
-        metric_type=metric_type.value if metric_type is not None else None,
-        quantile=quantile,
     )

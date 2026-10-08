@@ -25,6 +25,7 @@ from posthog.session.activity import session_public_id
 from posthog.test.insight_queries import default_pageview_query
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.csv_exporter import add_query_params
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -650,6 +651,56 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
         assert exported_asset.source_credential_id == str(token.id)
+
+
+class TestAdvancedActivityLogExportPath(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for item_id, user, activity in (
+            ("flag-created", self.user, "created"),
+            ("flag-updated", self.other_user, "updated"),
+            ("flag-deleted", None, "deleted"),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=False,
+                item_id=item_id,
+                scope="FeatureFlag",
+                activity=activity,
+                detail=Detail(name=item_id),
+                force_save=True,
+            )
+
+    @parameterized.expand(
+        [
+            ("multiple_users", "users", lambda self: [str(self.user.uuid), str(self.other_user.uuid)]),
+            ("multiple_activities", "activities", lambda _self: ["created", "updated"]),
+            ("explicit_false", "is_system", lambda _self: False),
+        ]
+    )
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_export_path_keeps_every_filter_value(
+        self, _name: str, filter_key: str, value: Any, _mock_exporter_task: Any
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv", "filters": {filter_key: value(self)}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.export_context is not None
+        export_path = exported_asset.export_context["path"]
+
+        # The exporter rewrites the stored path and replays it against the list endpoint, so a
+        # filter must survive both the stored encoding and that rewrite.
+        replay = self.client.get(add_query_params(export_path, {"limit": "100", "is_csv_export": "1"}))
+
+        assert replay.status_code == status.HTTP_200_OK
+        assert {row["item_id"] for row in replay.json()["results"]} == {"flag-created", "flag-updated"}
 
 
 class TestActivityLogSerializerFields(SimpleTestCase):

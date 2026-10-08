@@ -74,7 +74,7 @@ async def eval_skill_usage(ctx: EvalContext) -> None:
                 "Compute this experiment's actual $multiple exposure share from its data and state "
                 "whether the row is visible for it."
             ),
-            skill="diagnosing-experiment-results",
+            skill="diagnosing-experiment-health",
             # The support front door wraps the diagnostic skill and also answers this prompt.
             alternate_skills=["debugging-experiments"],
             downstream_tools=["experiment-get", "experiment-results-get", "execute-sql"],

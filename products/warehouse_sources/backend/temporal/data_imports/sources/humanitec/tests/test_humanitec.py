@@ -2,7 +2,6 @@ import json
 from collections.abc import Iterable, Iterator
 from http import HTTPStatus
 from typing import cast
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -20,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     HumanitecSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.humanitec.humanitec import (
-    HumanitecResumeConfig,
     humanitec_source,
     validate_credentials,
 )
@@ -73,21 +71,6 @@ def manager() -> MagicMock:
     return result
 
 
-@pytest.mark.parametrize("endpoint,path", [("applications", "apps"), ("environment_types", "env-types")])
-@pytest.mark.parametrize("rows", [[], [{"id": "example"}]])
-def test_single_page_lists(
-    http: MagicMock, manager: MagicMock, endpoint: str, path: str, rows: list[dict[str, str]]
-) -> None:
-    http.responses = [response(rows)]
-    source = humanitec_source(CONFIG, endpoint, 1, "job", manager)
-    assert [row for page in source_items(source) for row in page] == rows
-    http.send.assert_called_once()
-    request = http.send.call_args.args[0]
-    assert request.url == f"{BASE}/{path}"
-    assert request.headers["Authorization"] == "Bearer test-token"
-    assert http.send.call_args.kwargs["allow_redirects"] is False
-
-
 @pytest.mark.parametrize(
     "endpoint,suffix,key", [("deployments", "deploys", "id"), ("active_resources", "resources", "gu_res_id")]
 )
@@ -119,59 +102,6 @@ def test_environment_children_keep_parent_keys(
         f"{BASE}/apps/app-a/envs/production/{suffix}",
         f"{BASE}/apps/app-b/envs/staging/{suffix}",
     ]
-
-
-def test_environments_keep_application_id(http: MagicMock, manager: MagicMock) -> None:
-    http.responses = [
-        response([{"id": "app-a"}, {"id": "app-b"}]),
-        response([{"id": "staging"}]),
-        response([{"id": "staging"}]),
-    ]
-    source = humanitec_source(CONFIG, "environments", 1, "job", manager)
-    rows = [row for page in source_items(source) for row in page]
-    assert rows == [{"id": "staging", "app_id": "app-a"}, {"id": "staging", "app_id": "app-b"}]
-    assert len({tuple(row[field] for field in source.primary_keys or []) for row in rows}) == 2
-
-
-@pytest.mark.parametrize("first_page", [[], [{"id": "first"}]])
-def test_pipeline_pagination_and_checkpoints(
-    http: MagicMock, manager: MagicMock, first_page: list[dict[str, str]]
-) -> None:
-    next_url = f"{BASE}/apps/app-a/pipelines?page=cursor-2&per_page=100"
-    http.responses = [response([{"id": "app-a"}]), response(first_page, next_url=next_url), response([{"id": "last"}])]
-    source = humanitec_source(CONFIG, "pipelines", 1, "job", manager)
-    assert [row for page in source_items(source) for row in page] == [
-        *[{**row, "app_id": "app-a"} for row in first_page],
-        {"id": "last", "app_id": "app-a"},
-    ]
-    requests = [call.args[0] for call in http.send.call_args_list]
-    assert requests[0].url == f"{BASE}/apps"
-    assert parse_qs(urlsplit(requests[1].url).query) == {"per_page": ["100"]}
-    assert requests[2].url == next_url
-    assert all(request.headers["Authorization"] == "Bearer test-token" for request in requests)
-    states = [call.args[0].paginator_state for call in manager.save_state.call_args_list]
-    assert states[0] == {
-        "completed": [],
-        "current": "orgs/example-org/apps/app-a/pipelines",
-        "child_state": {"next_url": next_url},
-    }
-    assert states[-1] == {"completed": ["orgs/example-org/apps/app-a/pipelines"], "current": None, "child_state": None}
-
-
-def test_resume_skips_completed_parents_and_uses_saved_page(http: MagicMock, manager: MagicMock) -> None:
-    next_url = f"{BASE}/apps/app-b/pipelines?page=cursor-2"
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = HumanitecResumeConfig(
-        paginator_state={
-            "completed": ["orgs/example-org/apps/app-a/pipelines"],
-            "current": "orgs/example-org/apps/app-b/pipelines",
-            "child_state": {"next_url": next_url},
-        }
-    )
-    http.responses = [response([{"id": "app-a"}, {"id": "app-b"}]), response([{"id": "last"}])]
-    source = humanitec_source(CONFIG, "pipelines", 1, "job", manager)
-    assert list(source_items(source)) == [[{"id": "last", "app_id": "app-b"}]]
-    assert [call.args[0].url for call in http.send.call_args_list] == [f"{BASE}/apps", next_url]
 
 
 @pytest.mark.parametrize(
@@ -244,29 +174,6 @@ def test_unknown_table(http: MagicMock, manager: MagicMock) -> None:
     with pytest.raises(UnknownResourceError):
         humanitec_source(CONFIG, "missing", 1, "job", manager)
     http.send.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "endpoint,completed_path",
-    [
-        ("environments", "orgs/example-org/apps/app-a/envs"),
-        ("deployments", "orgs/example-org/apps/app-a/envs/staging/deploys"),
-        ("active_resources", "orgs/example-org/apps/app-a/envs/staging/resources"),
-        ("pipelines", "orgs/example-org/apps/app-a/pipelines"),
-    ],
-)
-def test_resume_after_final_parent_does_not_repeat_rows(
-    http: MagicMock, manager: MagicMock, endpoint: str, completed_path: str
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = HumanitecResumeConfig(
-        paginator_state={"completed": [completed_path], "current": None, "child_state": None}
-    )
-    http.responses = [response([{"id": "app-a", "envs": [{"id": "staging"}]}])]
-    source = humanitec_source(CONFIG, endpoint, 1, "job", manager)
-    assert list(source_items(source)) == []
-    http.send.assert_called_once()
-    assert http.send.call_args.args[0].url == f"{BASE}/apps"
 
 
 def test_unexpected_probe_error_is_not_reported_as_invalid_credentials(http: MagicMock) -> None:

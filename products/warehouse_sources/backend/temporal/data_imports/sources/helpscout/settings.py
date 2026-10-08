@@ -11,7 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
+HELP_SCOUT_API_VERSION_V2 = "v2"
+HELP_SCOUT_API_VERSION_V3 = "v3"
+
 HELP_SCOUT_API_BASE = "https://api.helpscout.net/v2"
+HELP_SCOUT_API_BASE_V3 = "https://api.helpscout.net/v3"
 
 
 @frozen
@@ -30,6 +34,9 @@ class HelpScoutEndpointConfig:
     # Only conversations/customers document a `sortField`/`sortOrder` param; other list
     # endpoints don't accept one (and reject unknown params on some Help Scout API versions).
     supports_sort: bool = False
+    # Help Scout versions its Mailbox API per endpoint: only these endpoints have a v3 route, so
+    # a v3 pin moves them and leaves every other endpoint on its v2 route.
+    has_v3_route: bool = False
     # Structural requirement of `FanoutEndpointLike` (see common/rest_source/fanout.py); unused
     # here since threads' fan-out passes `page_size_param=None` (Help Scout has no page-size param).
     page_size: int = 50
@@ -45,6 +52,7 @@ HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
         default_incremental_field="modifiedAt",
         updated_since_param="modifiedSince",
         supports_sort=True,
+        has_v3_route=True,
     ),
     "customers": HelpScoutEndpointConfig(
         name="customers",
@@ -54,6 +62,7 @@ HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
         default_incremental_field="modifiedAt",
         updated_since_param="modifiedSince",
         supports_sort=True,
+        has_v3_route=True,
     ),
     "mailboxes": HelpScoutEndpointConfig(
         name="mailboxes",
@@ -82,6 +91,7 @@ HELP_SCOUT_ENDPOINTS: dict[str, HelpScoutEndpointConfig] = {
         # Thread ids are unique only within their conversation, so the parent id is part of the
         # key to keep it unique across the whole table.
         primary_key=["conversation_id", "id"],
+        has_v3_route=True,
         fanout=DependentEndpointConfig(
             parent_name="conversations",
             resolve_param="conversation_id",

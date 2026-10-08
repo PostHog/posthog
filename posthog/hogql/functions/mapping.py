@@ -219,6 +219,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "LpNormalize": HogQLFunctionMeta("LpNormalize", 2, 2),
     "cosineDistance": HogQLFunctionMeta("cosineDistance", 2, 2),
     # window functions
+    "grouping": HogQLFunctionMeta("grouping", 1, None, signatures=[((UnknownType(),), IntegerType())]),
     "rank": HogQLFunctionMeta("rank"),
     "dense_rank": HogQLFunctionMeta("dense_rank"),
     "row_number": HogQLFunctionMeta("row_number"),
