@@ -29,21 +29,19 @@ export function FlagCalledRebuildBanner({
     const { reportBannerShown, loadReferencedActions } = useActions(flagCalledRebuildBannerLogic)
     // Callers rebuild the references on every render, so the effect depends on this string instead of the array.
     const actionIdsKey = references.actionIds.join(',')
-    // The logic stays mounted across scenes, so each mount refetches every action it references once.
-    // A cached copy can predate an edit to the action's steps.
-    const refreshedIdsRef = useRef(new Set<number>())
+    // Dashboard tiles stream in, so the referenced ids grow across renders. Each id is requested once per mount.
+    const requestedIdsRef = useRef(new Set<number>())
 
     useEffect(() => {
         if (!bannersEnabled || !actionIdsKey) {
             return
         }
-        const unrefreshedIds = actionIdsKey
-            .split(',')
-            .map(Number)
-            .filter((id) => !refreshedIdsRef.current.has(id))
-        if (unrefreshedIds.length) {
-            loadReferencedActions(unrefreshedIds, true)
-            unrefreshedIds.forEach((id) => refreshedIdsRef.current.add(id))
+        const unrequestedIds = [...new Set(actionIdsKey.split(',').map(Number))].filter(
+            (id) => !requestedIdsRef.current.has(id)
+        )
+        if (unrequestedIds.length) {
+            loadReferencedActions(unrequestedIds)
+            unrequestedIds.forEach((id) => requestedIdsRef.current.add(id))
         }
     }, [bannersEnabled, actionIdsKey, loadReferencedActions])
 

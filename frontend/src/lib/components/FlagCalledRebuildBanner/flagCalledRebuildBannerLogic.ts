@@ -27,12 +27,8 @@ export interface flagCalledRebuildBannerLogicActions {
     addReferencedActions: (referencedActions: ActionApi[]) => {
         referencedActions: ActionApi[]
     }
-    loadReferencedActions: (
-        actionIds: number[],
-        refresh?: boolean
-    ) => {
+    loadReferencedActions: (actionIds: number[]) => {
         actionIds: number[]
-        refresh: boolean
     }
     reportBannerShown: (artifactType: FlagCalledArtifactType) => {
         artifactType: FlagCalledArtifactType
@@ -60,7 +56,7 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
     })),
     actions({
         reportBannerShown: (artifactType: FlagCalledArtifactType) => ({ artifactType }),
-        loadReferencedActions: (actionIds: number[], refresh: boolean = false) => ({ actionIds, refresh }),
+        loadReferencedActions: (actionIds: number[]) => ({ actionIds }),
         addReferencedActions: (referencedActions: ActionApi[]) => ({ referencedActions }),
     }),
     reducers({
@@ -84,29 +80,17 @@ export const flagCalledRebuildBannerLogic = kea<flagCalledRebuildBannerLogicType
                 !!featureFlags[FEATURE_FLAGS.FLAG_CALLED_REBUILD_BANNERS] && readsFlagEvaluationsTable(currentTeam),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         // Fetches only the actions a banner references. The full actions list can hold thousands of actions.
         // Insight and dashboard view modes do not load it.
-        loadReferencedActions: async ({ actionIds, refresh }) => {
-            // Dashboard tiles stream in one at a time, so a later call can name actions an earlier call still fetches.
-            const pendingIds: Set<number> = (cache.pendingActionIds ??= new Set<number>())
-            const loadedIds = new Set(refresh ? [] : values.referencedActions.map((action) => action.id))
-            const missingIds = [...new Set(actionIds)].filter((id) => !loadedIds.has(id) && !pendingIds.has(id))
-            if (!missingIds.length) {
-                return
-            }
-            missingIds.forEach((id) => pendingIds.add(id))
-            try {
-                const results = await Promise.allSettled(
-                    missingIds.map((id) => actionsRetrieve(String(values.currentProjectId), id))
-                )
-                // An action that fails to load counts as not reading the event, so its banner stays hidden.
-                actions.addReferencedActions(
-                    results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-                )
-            } finally {
-                missingIds.forEach((id) => pendingIds.delete(id))
-            }
+        loadReferencedActions: async ({ actionIds }) => {
+            const results = await Promise.allSettled(
+                actionIds.map((id) => actionsRetrieve(String(values.currentProjectId), id))
+            )
+            // An action that fails to load counts as not reading the event, so its banner stays hidden.
+            actions.addReferencedActions(
+                results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+            )
         },
         reportBannerShown: ({ artifactType }) => {
             // pinned: analytics event name and property. Renaming them breaks the insights that count banner views.

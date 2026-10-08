@@ -110,7 +110,7 @@ export function actionReadsFlagCalls(action: Pick<FlagCalledAction, 'steps'>): b
 
 /** An action keeps at least one step, so the user can't remove the flag-call steps from this one. */
 export function actionOnlyReadsFlagCalls(action: Pick<FlagCalledAction, 'steps'>): boolean {
-    return actionReadsFlagCalls(action) && !!action.steps?.every((step) => step.event === FEATURE_FLAG_CALLED_EVENT)
+    return !!action.steps?.length && action.steps.every((step) => step.event === FEATURE_FLAG_CALLED_EVENT)
 }
 
 export function actionFlagCalledReferences(action: Pick<FlagCalledAction, 'steps'>): FlagCalledReferences {
@@ -201,11 +201,12 @@ export function experimentFlagCalledReferences(experiment: Experiment): FlagCall
     })
     // A user becomes an exposure only after an activation row in the events table.
     const activationConfig = getActivationConfig(experiment.exposure_criteria)
-    const activationReferences = !activationConfig
-        ? NO_REFERENCES
-        : isActionsNode(activationConfig)
-          ? actionReference(activationConfig.id)
-          : eventReference(activationConfig.event)
+    if (!activationConfig) {
+        return eventReference(event)
+    }
+    const activationReferences = isActionsNode(activationConfig)
+        ? actionReference(activationConfig.id)
+        : eventReference(activationConfig.event)
     return combineReferences([eventReference(event), activationReferences])
 }
 
