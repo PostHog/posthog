@@ -210,7 +210,7 @@ test.describe('Auth', () => {
         await click(secondPage, '[data-attr=new-account-menu-button]')
         await click(secondPage, '[data-attr=new-account-menu-logout-button]')
         await urlIs(secondPage, /\/login/)
-        await page.reload()
+        await page.reload({ waitUntil: 'load' })
         await urlIs(page, /\/login/)
     })
 })
