@@ -17,6 +17,8 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    Grouping,
+    GroupingMode,
     IncidentAction,
     PlatformConfigurationSnapshot,
     SourceBatchEvaluation,
@@ -25,7 +27,12 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_check_query import (
+    BatchedBucketedResult,
+    BucketedCount,
+    GroupCounts,
+    GroupedRollingResult,
+)
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
@@ -265,6 +272,49 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert [(d.sends_messages, d.incident_actions) for d in cleared.deliveries] == [
             (False, {"": IncidentAction.RESOLVE})
         ]
+
+    def _run_grouped(
+        self, configuration: PlatformConfigurationSnapshot, counts: dict[str, int], *, now: datetime | None = None
+    ) -> SourceBatchEvaluation:
+        now = now or self.cutoff
+        groups = [
+            GroupCounts(labels={"service_name": service}, counts=[BucketedCount(timestamp=now, count=count)])
+            for service, count in counts.items()
+        ]
+        with (
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.GroupedAlertCheckQuery") as query,
+        ):
+            query.return_value.execute_rolling_checks.return_value = GroupedRollingResult(
+                groups=groups, period_starts=[now], query_duration_ms=1
+            )
+            return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
+
+    def test_a_grouped_alert_fires_per_group_resolves_a_vanished_one_and_reports_overflow(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
+        configuration = self._configuration(grouping=grouping.to_stored())
+
+        first = self._run_grouped(configuration, {"api": 500, "web": 3, "worker": 400, "cron": 300})
+        self._record(first)
+
+        (outcome,) = first.outcomes
+        (delivery,) = first.deliveries
+        # The quiet group gets no row, and the cap admits the two worst of the three breaching.
+        assert [(group.labels["service_name"], group.kind) for group in outcome.groups] == [
+            ("api", AlertEventKind.FIRING),
+            ("worker", AlertEventKind.FIRING),
+        ]
+        assert delivery.overflowed == 1
+
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+        second = self._run_grouped(configuration, {"api": 500})
+
+        (outcome,) = second.outcomes
+        assert {group.labels["service_name"]: group.kind for group in outcome.groups} == {
+            "api": AlertEventKind.CHECK,
+            "worker": AlertEventKind.RESOLVED,
+        }
 
     @parameterized.expand(
         [

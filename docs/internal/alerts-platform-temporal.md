@@ -299,6 +299,10 @@ The count it turned away travels on the delivery as `overflowed`, and the last m
 An instance that is not firing, not muted, and that no check returned for longer than both 24 hours and its cooldown is deleted, which frees its slot.
 Nothing is reaped while the configuration's checks fail, because a failed check returns no groups and every instance would look gone.
 
+Logs is the first source that groups, by `service_name` and `severity_text` only.
+A grouped logs alert leaves the batched cohort and runs `GroupedAlertCheckQuery`, one query per alert, with its open groups ordered first and the rest worst first.
+A group with no instance whose check decides nothing is left out, so a quiet service costs no row, and an open group the query does not return is checked against a zero count so it can resolve.
+
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
 ### What a check leaves behind
