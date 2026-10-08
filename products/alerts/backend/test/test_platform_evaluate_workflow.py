@@ -148,10 +148,8 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
         outcome = PlatformAlertOutcome(
             configuration_id=uuid.UUID(inputs.configuration_id),
             evaluation_key="slot:2026-09-16T10:00:00+00:00",
-            kind=AlertEventKind.CHECK,
-            new_state="not_firing",
-            notified=False,
             consecutive_failures=0,
+            groups=(GroupOutcome(grouping_key="", kind=AlertEventKind.CHECK, new_state="not_firing", notified=False),),
         )
         return SourceBatchEvaluation(outcomes=(outcome,), deliveries=())
 

@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.api import due_checks, list_configu
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    GroupOutcome,
     IncidentAction,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
@@ -528,11 +529,16 @@ def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOut
     return PlatformAlertOutcome(
         configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
         evaluation_key="slot:x|window:y",
-        kind=kind,
-        new_state="firing",
-        notified=notified,
         consecutive_failures=5 if kind == AlertEventKind.BROKEN else 0,
-        value=500.0 if kind == AlertEventKind.FIRING else None,
+        groups=(
+            GroupOutcome(
+                grouping_key="",
+                kind=kind,
+                new_state="firing",
+                notified=notified,
+                value=500.0 if kind == AlertEventKind.FIRING else None,
+            ),
+        ),
     )
 
 
