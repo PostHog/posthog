@@ -2,61 +2,14 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { preflightLogic } from 'lib/logic/preflightLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AppContext, OrganizationType, PreflightStatus } from '../types'
+import { AppContext, OrganizationType } from '../types'
 import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
     let logic: ReturnType<typeof organizationLogic.build>
-
-    test.each([
-        ['hobby at its single-project limit', false, false, false, true, true],
-        ['hobby before its first project', false, false, false, false, false],
-        ['hobby with a legacy project entitlement', false, false, false, true, true],
-        ['hobby with no visible teams', false, false, false, true, true],
-        ['hobby without project permission data', false, false, false, null, true],
-        ['cloud without a project entitlement', true, false, false, true, false],
-        ['local development', false, true, false, true, false],
-        ['test mode', false, false, true, true, false],
-    ])('%s', (_name, cloud, is_debug, is_test, hasProject, blocked) => {
-        const organization: OrganizationType = {
-            ...MOCK_DEFAULT_ORGANIZATION,
-            teams: [],
-            has_non_demo_project: hasProject,
-        }
-        window.POSTHOG_APP_CONTEXT = { current_user: { organization } } as unknown as AppContext
-        initKeaTests()
-        preflightLogic.actions.loadPreflightSuccess({ cloud, is_debug, is_test } as PreflightStatus)
-        logic = organizationLogic()
-
-        expect(Boolean(logic.values.projectCreationForbiddenReason)).toBe(blocked)
-        if (blocked && hasProject === true) {
-            expect(logic.values.projectCreationForbiddenReason).toContain('Self-hosted PostHog supports one project')
-        }
-    })
-
-    test('project creation waits for preflight settings', () => {
-        const organization: OrganizationType = {
-            ...MOCK_DEFAULT_ORGANIZATION,
-            has_non_demo_project: false,
-        }
-        window.POSTHOG_APP_CONTEXT = { current_user: { organization } } as unknown as AppContext
-        initKeaTests()
-        logic = organizationLogic()
-
-        expect(logic.values.projectCreationForbiddenReason).toContain('settings load')
-
-        preflightLogic.actions.loadPreflightSuccess({
-            cloud: false,
-            is_debug: false,
-            is_test: false,
-        } as PreflightStatus)
-        expect(logic.values.projectCreationForbiddenReason).toBeNull()
-    })
 
     describe('if POSTHOG_APP_CONTEXT available', () => {
         beforeEach(() => {

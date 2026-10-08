@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -28,13 +28,13 @@ const mockedUseValues = useValues as jest.Mock
 const guardAvailableFeature = jest.fn()
 const showCreateProjectModal = jest.fn()
 
-function setup(projectCreationForbiddenReason: string | null, isHobby = false): void {
+function setup(isHobby: boolean): void {
     mockedUseValues.mockImplementation((logic: unknown) => {
         if (logic === preflightLogic) {
-            return { preflight: { can_create_org: false }, isHobby }
+            return { preflight: { can_create_org: !isHobby }, isHobby }
         }
         if (logic === organizationLogic) {
-            return { currentOrganization: { teams: [] }, projectCreationForbiddenReason }
+            return { currentOrganization: { teams: [] }, projectCreationForbiddenReason: null }
         }
         if (logic === teamLogic) {
             return { currentTeam: MOCK_DEFAULT_TEAM }
@@ -65,49 +65,24 @@ describe('project creation controls', () => {
     })
 
     test.each([
-        [null, false],
-        ['Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.', true],
-        ['You need to be an organization admin or above to create new projects.', true],
-    ])('switcher with forbidden reason %s is disabled: %s', (reason, disabled) => {
-        setup(reason)
+        ['switcher', ProjectSwitcher],
+        ['legacy menu', ProjectCombobox],
+    ])('%s hides project creation on Hobby', (_name, Component) => {
+        setup(true)
 
-        render(<ProjectSwitcher dialog={false} />)
+        render(<Component />)
 
-        const button = screen.getByText('New project').closest('button')
-        expect(button).not.toBeNull()
-        if (disabled) {
-            expect(button).toBeDisabled()
-        } else {
-            expect(button).toBeEnabled()
-        }
-    })
-
-    test('legacy project menu disables creation at the self-hosted limit', () => {
-        setup('Self-hosted PostHog supports one project. See PostHog Cloud plans for more projects.')
-
-        render(<ProjectCombobox />)
-
-        expect(screen.getByText('New project').closest('button')).toBeDisabled()
+        expect(screen.queryByText('New project')).not.toBeInTheDocument()
     })
 
     test.each([
-        ['hobby', true, false],
-        ['cloud or local development', false, true],
-    ])('first project on %s uses the right entitlement guard', (_name, isHobby, guardOnSelfHosted) => {
-        setup(null, isHobby)
-        guardAvailableFeature.mockImplementation((_feature, onAvailable, options) => {
-            if (!options.guardOnSelfHosted) {
-                onAvailable()
-            }
-        })
-        render(<ProjectCombobox />)
+        ['switcher', ProjectSwitcher],
+        ['legacy menu', ProjectCombobox],
+    ])('%s keeps project creation on Cloud', (_name, Component) => {
+        setup(false)
 
-        fireEvent.click(screen.getByText('New project'))
+        render(<Component />)
 
-        expect(guardAvailableFeature).toHaveBeenCalledWith(expect.anything(), showCreateProjectModal, {
-            currentUsage: 0,
-            guardOnSelfHosted,
-        })
-        expect(showCreateProjectModal).toHaveBeenCalledTimes(isHobby ? 1 : 0)
+        expect(screen.getByText('New project')).toBeInTheDocument()
     })
 })

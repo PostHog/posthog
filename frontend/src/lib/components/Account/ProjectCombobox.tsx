@@ -22,7 +22,7 @@ import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectName } from './ProjectMenu'
 
 export function ProjectCombobox(): JSX.Element | null {
-    const { isHobby } = useValues(preflightLogic)
+    const { preflight, isHobby } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -171,34 +171,35 @@ export function ProjectCombobox(): JSX.Element | null {
                 )}
 
                 <MenuSeparator />
-                <Combobox.Item
-                    asChild
-                    onClick={() => {
-                        // The button below is rendered disabled when creation is forbidden, but the
-                        // Combobox still fires onClick/Enter — enforce the disabled state here too.
-                        if (projectCreationForbiddenReason) {
-                            return
-                        }
-                        guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                            currentUsage: currentOrganization?.teams?.length,
-                            guardOnSelfHosted: !isHobby,
-                        })
-                    }}
-                >
-                    <ButtonPrimitive
-                        menuItem
-                        data-attr="new-project-button"
-                        tooltip="Create a new project"
-                        tooltipPlacement="right"
-                        className="shrink-0"
-                        disabledReasons={
-                            projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
-                        }
+                {preflight?.can_create_org && !isHobby && (
+                    <Combobox.Item
+                        asChild
+                        onClick={() => {
+                            // The button below is rendered disabled when creation is forbidden, but the
+                            // Combobox still fires onClick/Enter — enforce the disabled state here too.
+                            if (projectCreationForbiddenReason) {
+                                return
+                            }
+                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
+                                currentUsage: currentOrganization?.teams?.length,
+                            })
+                        }}
                     >
-                        <IconPlusSmall className="text-tertiary" />
-                        New project
-                    </ButtonPrimitive>
-                </Combobox.Item>
+                        <ButtonPrimitive
+                            menuItem
+                            data-attr="new-project-button"
+                            tooltip="Create a new project"
+                            tooltipPlacement="right"
+                            className="shrink-0"
+                            disabledReasons={
+                                projectCreationForbiddenReason ? { [projectCreationForbiddenReason]: true } : undefined
+                            }
+                        >
+                            <IconPlusSmall className="text-tertiary" />
+                            New project
+                        </ButtonPrimitive>
+                    </Combobox.Item>
+                )}
             </Combobox.Content>
         </Combobox>
     )

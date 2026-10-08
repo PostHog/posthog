@@ -28,7 +28,6 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.permissions import can_create_project_in_organization
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -993,39 +992,6 @@ class TestOrganizationSerializer(APIBaseTest):
         self.assertEqual(len(teams), 3)
         team_names = {team["name"] for team in teams}
         self.assertEqual(team_names, {self.team.name, team2.name, team3.name})
-
-    @parameterized.expand(
-        [
-            ("admin", OrganizationMembership.Level.ADMIN, False, False, True),
-            ("eligible_member", OrganizationMembership.Level.MEMBER, True, True, True),
-            ("ordinary_member", OrganizationMembership.Level.MEMBER, False, False, None),
-        ]
-    )
-    def test_project_presence_is_scoped_to_project_creators(self, _name, level, member_creation, entitlement, expected):
-        self.organization_membership.level = level
-        self.organization_membership.save()
-        self.organization.members_can_create_projects = member_creation
-        self.organization.available_product_features = (
-            [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"}]
-            if entitlement
-            else []
-        )
-        self.organization.save()
-        cache.clear()
-
-        serializer = OrganizationSerializer(self.organization, context=self._fresh_context_for(self.user))
-        with patch.object(serializer, "get_teams", return_value=[]):
-            self.assertEqual(serializer.data["has_non_demo_project"], expected)
-
-        self.assertFalse(can_create_project_in_organization(self.organization, None))
-
-    def test_demo_project_does_not_count_as_non_demo_project(self):
-        self.team.is_demo = True
-        self.team.save()
-
-        serializer = OrganizationSerializer(self.organization, context=self.context)
-
-        self.assertFalse(serializer.data["has_non_demo_project"])
 
     def test_get_teams_with_multiple_orgs(self):
         org2, _, _ = Organization.objects.bootstrap(self.user)

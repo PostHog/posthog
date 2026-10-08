@@ -47,7 +47,6 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
-from posthog.cloud_utils import is_hobby
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -3365,12 +3364,6 @@ def validate_team_attrs(
             if level is None or level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(
                     "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
-                )
-        if attrs.get("is_demo") is False and is_hobby():
-            team = instance if isinstance(instance, Team) else instance.passthrough_team
-            if team.is_demo:
-                raise exceptions.ValidationError(
-                    {"is_demo": "Demo projects cannot be converted on self-hosted PostHog."}
                 )
     else:
         # On create there's no team yet, so check the creator's org-level membership. Without this a

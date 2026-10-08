@@ -1378,17 +1378,6 @@ class UserCanInvitePermission(BasePermission):
         return members_can_invite
 
 
-def can_create_project_in_organization(organization: Organization, membership: OrganizationMembership | None) -> bool:
-    if membership is None:
-        return False
-    if membership.level >= OrganizationMembership.Level.ADMIN:
-        return True
-    # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
-    return bool(organization.members_can_create_projects) and organization.is_feature_available(
-        AvailableFeature.ORGANIZATION_INVITE_SETTINGS
-    )
-
-
 class UserCanCreateProjectPermission(BasePermission):
     """
     Only allows Admins+, and Members if the members_can_create_projects org setting is True
@@ -1406,7 +1395,14 @@ class UserCanCreateProjectPermission(BasePermission):
 
         membership = get_required_organization_membership(request, organization)
 
-        return can_create_project_in_organization(organization, membership)
+        if membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+
+        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
+        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+            return False
+
+        return bool(organization.members_can_create_projects)
 
 
 def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:

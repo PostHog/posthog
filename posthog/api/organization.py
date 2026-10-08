@@ -4,7 +4,7 @@ from typing import Any, Literal, Union, cast
 
 from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import Exists, Model, OuterRef, QuerySet
+from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 
 import nh3
@@ -38,7 +38,7 @@ from posthog.event_usage import (
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -49,7 +49,6 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
-    can_create_project_in_organization,
     extract_organization,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
@@ -243,9 +242,6 @@ class OrganizationSerializer(
     has_signed_baa = serializers.SerializerMethodField(
         help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
-    has_non_demo_project = serializers.SerializerMethodField(
-        help_text="Whether this organization has a non-demo project, including hidden projects. Null when the user cannot create projects."
-    )
 
     class Meta:
         model = Organization
@@ -280,7 +276,6 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
-            "has_non_demo_project",
             "default_anonymize_ips",
             "default_role_id",
             "is_active",
@@ -308,7 +303,6 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
-            "has_non_demo_project",
             "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
@@ -346,15 +340,6 @@ class OrganizationSerializer(
     def get_membership_joined_at(self, organization: Organization) -> str | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.joined_at.isoformat() if membership is not None else None
-
-    @extend_schema_field(serializers.BooleanField(allow_null=True))
-    def get_has_non_demo_project(self, organization: Organization) -> bool | None:
-        membership = self.user_permissions.organization_memberships.get(organization.pk)
-        if not can_create_project_in_organization(organization, membership):
-            return None
-        if hasattr(organization, "_has_non_demo_project"):
-            return cast(bool, organization._has_non_demo_project)
-        return organization.teams.exclude(is_demo=True).exists()
 
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
@@ -634,9 +619,6 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
 
-        queryset = queryset.annotate(
-            _has_non_demo_project=Exists(Team.objects.filter(organization_id=OuterRef("pk"), is_demo=False))
-        )
         return annotate_signed_baa(queryset)
 
     def safely_get_object(self, queryset):

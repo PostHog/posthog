@@ -73,7 +73,7 @@ export function NewAccountMenu({
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight, isHobby } = useValues(preflightLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -155,17 +155,12 @@ export function NewAccountMenu({
                             >
                                 <Label intent="menu" className="pl-2 relative">
                                     Project
-                                    {/* Position a wrapper, not the button: a disabled button's tooltip trigger must keep the icon's size */}
-                                    <span className="absolute -right-[2px] -top-[2px] flex">
+                                    {preflight?.can_create_org && !isHobby && (
                                         <ButtonPrimitive
                                             iconOnly
                                             tooltip="Create a new project"
-                                            disabledReasons={
-                                                projectCreationForbiddenReason
-                                                    ? { [projectCreationForbiddenReason]: true }
-                                                    : undefined
-                                            }
                                             size="xs"
+                                            className="absolute -right-[2px] -top-[2px]"
                                             data-attr="new-account-menu-create-project-icon-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
@@ -174,16 +169,13 @@ export function NewAccountMenu({
                                                         setAccountMenuOpen(false)
                                                         showCreateProjectModal()
                                                     },
-                                                    {
-                                                        currentUsage: currentOrganization?.teams?.length,
-                                                        guardOnSelfHosted: !isHobby,
-                                                    }
+                                                    { currentUsage: currentOrganization?.teams?.length }
                                                 )
                                             }}
                                         >
                                             <IconPlusSmall className="text-tertiary size-4" />
                                         </ButtonPrimitive>
-                                    </span>
+                                    )}
                                 </Label>
                                 <DropdownMenuSeparator />
 

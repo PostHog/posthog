@@ -39,7 +39,7 @@ interface CreateProjectItem {
 type ListItem = ProjectListItem | CreateProjectItem
 
 export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Element | null {
-    const { isHobby } = useValues(preflightLogic)
+    const { preflight, isHobby } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -73,6 +73,10 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             ? allProjectItems.filter((item) => item.team.name.toLowerCase().includes(searchLower))
             : allProjectItems
 
+        if (!preflight || isHobby) {
+            return filteredProjects
+        }
+
         // Create the "create" item - show different label based on search
         const createItem: CreateProjectItem = {
             type: 'create',
@@ -83,7 +87,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         }
 
         return [...filteredProjects, createItem] as ListItem[]
-    }, [allProjectItems, searchValue])
+    }, [allProjectItems, searchValue, preflight, isHobby])
 
     const currentProject = filteredItems.find((p): p is ProjectListItem => p.type === 'project' && p.isCurrent)
     const otherProjects = filteredItems
@@ -91,7 +95,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         .sort((a, b) => a.team.name.localeCompare(b.team.name))
     const createItem = filteredItems.find((p): p is CreateProjectItem => p.type === 'create')
 
-    const canCreateProject = !projectCreationForbiddenReason
+    const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
 
     const handleItemClick = useCallback(
         (item: ListItem) => {
@@ -109,7 +113,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     },
                     {
                         currentUsage: currentOrganization?.teams?.length,
-                        guardOnSelfHosted: !isHobby,
                     }
                 )
                 closeProjectSwitcher()
@@ -132,7 +135,6 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             currentOrganization?.teams?.length,
             setAccountMenuOpen,
             canCreateProject,
-            isHobby,
         ]
     )
 
@@ -281,7 +283,12 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                     menuItem
                                                     fullWidth
                                                     disabled={!canCreateProject}
-                                                    tooltip={projectCreationForbiddenReason || undefined}
+                                                    tooltip={
+                                                        !canCreateProject
+                                                            ? projectCreationForbiddenReason ||
+                                                              'You do not have permission to create a project'
+                                                            : undefined
+                                                    }
                                                     tooltipPlacement="right"
                                                 >
                                                     <IconPlusSmall className="text-tertiary" />

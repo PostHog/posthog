@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import Model
 from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
@@ -65,7 +65,7 @@ from posthog.api.team import (
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
-from posthog.cloud_utils import get_cached_instance_license, is_cloud, is_hobby
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -1195,21 +1195,12 @@ class ProjectBackwardCompatSerializer(
         for field_name in validated_data.copy():  # Copy to avoid iterating over a changing dict
             if field_name in self.Meta.team_passthrough_fields:
                 team_fields[field_name] = validated_data.pop(field_name)
-        organization_id = self.context["view"].organization_id
-        with transaction.atomic():
-            if is_hobby() and not team_fields.get("is_demo"):
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"hobby-project:{organization_id}"]
-                    )
-                if Team.objects.filter(organization_id=organization_id, is_demo=False).exists():
-                    raise exceptions.PermissionDenied("Self-hosted PostHog supports one project.")
-            project, team = Project.objects.create_with_team(
-                organization_id=organization_id,
-                initiating_user=request.user,
-                **validated_data,
-                team_fields=team_fields,
-            )
+        project, team = Project.objects.create_with_team(
+            organization_id=self.context["view"].organization_id,
+            initiating_user=self.context["request"].user,
+            **validated_data,
+            team_fields=team_fields,
+        )
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
@@ -2356,13 +2347,6 @@ class PremiumMultiProjectPermission(BasePermission):
                 return False
 
         current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-        if (
-            is_hobby()
-            and view.action == "create"
-            and request.data.get("is_demo") is not True
-            and current_non_demo_project_count >= 1
-        ):
-            return False
         projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
 
         if projects_feature:
