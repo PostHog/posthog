@@ -474,7 +474,7 @@ class FeatureFlagStatusChecker:
         users it matches. A condition carrying a `variant` override serves that variant, and any
         other condition serves whatever the variant distribution gives. The flag is fully rolled
         out to one variant only when every one of those paths lands on the same variant. The walk
-        ends at the first condition that decides for everyone, see `decides_for_everyone`.
+        ends at the first condition that decides for everyone, see `first_deciding_condition`.
 
         A boolean flag carries no variants and returns None, so a caller must not read None as
         "the flag is not constant". `is_flag_fully_rolled_out` sends boolean flags to
@@ -484,11 +484,7 @@ class FeatureFlagStatusChecker:
         variants = ((filters.get("multivariate") or {}).get("variants")) or []
 
         groups = filters.get("groups") or []
-        mixed = self.mixes_aggregation(filters)
-        decider = next(
-            (index for index, group in enumerate(groups) if self.decides_for_everyone(filters, group, mixed=mixed)),
-            None,
-        )
+        decider = self.first_deciding_condition(filters)
         if decider is None:
             return None
 
@@ -518,25 +514,26 @@ class FeatureFlagStatusChecker:
         properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
-    def mixes_aggregation(self, filters: dict) -> bool:
-        """Whether the release conditions declare more than one aggregation target."""
-        return len({_condition_aggregation(filters, group) for group in filters.get("groups") or []}) > 1
-
-    def decides_for_everyone(self, filters: dict, group: dict, *, mixed: bool) -> bool:
-        """Whether an untargeted 100% condition settles the result for every request the flag addresses.
+    def first_deciding_condition(self, filters: dict) -> int | None:
+        """Index of the first untargeted 100% condition that settles the result for every request.
 
         The matcher skips a group-aggregated condition when the request carries no key for that
         group. A flag whose conditions all aggregate on one target addresses only the requests
         that carry it, so its condition decides for that whole audience. A flag that mixes person
         and group aggregation addresses requests without the key too, and only a person-level
         condition reaches those.
-
-        The caller passes `mixed` from `mixes_aggregation`, computed once, because the walk asks
-        this of every condition and the answer reads the whole list.
         """
-        if not self.is_group_fully_rolled_out(group):
-            return False
-        return not mixed or _condition_aggregation(filters, group) is None
+        groups = filters.get("groups") or []
+        mixed = len({_condition_aggregation(filters, group) for group in groups}) > 1
+        return next(
+            (
+                index
+                for index, group in enumerate(groups)
+                if self.is_group_fully_rolled_out(group)
+                and (not mixed or _condition_aggregation(filters, group) is None)
+            ),
+            None,
+        )
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
         # Treat missing filters, `{}`, and `{"groups": []}` as "no release conditions"
@@ -548,10 +545,7 @@ class FeatureFlagStatusChecker:
             logger.debug(f"Boolean flag {flag.id} has no release conditions, so it is rolled out to 100%")
             return True
 
-        mixed = self.mixes_aggregation(filters)
-        for release_condition in release_conditions:
-            if self.decides_for_everyone(filters, release_condition, mixed=mixed):
-                logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
-                return True
-
+        if self.first_deciding_condition(filters) is not None:
+            logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
+            return True
         return False
