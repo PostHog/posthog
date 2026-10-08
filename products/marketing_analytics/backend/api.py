@@ -45,9 +45,8 @@ from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
-    get_app_org_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -91,7 +90,7 @@ from products.marketing_analytics.backend.services.setup_types import (
     SetCampaignFieldPreference,
     UpdateConversionGoal,
 )
-from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UTM_ISSUE_KIND_CHOICES
+from products.marketing_analytics.backend.services.types import SUGGESTED_ACTION_CHOICES, UtmIssueKind
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -163,11 +162,10 @@ class UtmAlternativeSourceSerializer(serializers.Serializer):
 class UtmIssueSerializer(serializers.Serializer):
     field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
     severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
-    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
-    # ENUM_NAME_OVERRIDES ("UtmIssueKindEnum") rather than being flattened to a plain string —
-    # consumers get the five values as a union instead of having to restate them.
+    # `kind` collides with other enums in drf-spectacular. The UtmIssueKind class gives the enum a
+    # stable name (UtmIssueKindEnum), so consumers get the five values as a union.
     kind = serializers.ChoiceField(
-        choices=UTM_ISSUE_KIND_CHOICES,
+        choices=UtmIssueKind.choices,
         help_text="Which kind of UTM problem this campaign has",
     )
     message = serializers.CharField(
@@ -1206,12 +1204,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 get_api_team_rate_limiter().run(
                     team_id=self.team_id, is_api=is_api, limit=runner.get_api_queries_concurrency_limit()
                 ),
-                get_app_org_rate_limiter().run(
-                    org_id=self.team.organization_id,
-                    team_id=self.team_id,
-                    is_api=is_api,
-                    limit=get_org_app_concurrency_limit(self.team.organization_id),
-                ),
+                app_org_concurrency_slot(self.team),
             ):
                 result = runner.sessions(
                     goal_id=data["goal_id"],

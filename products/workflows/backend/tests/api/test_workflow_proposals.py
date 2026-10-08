@@ -451,6 +451,11 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.json()["code"] == "proposal_out_of_date"
         assert HogFlow.objects.get(id=flow_id).exit_condition == "exit_on_trigger_not_matched"
         assert HogFlow.objects.get(id=flow_id).draft is None
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", {}
+        )
+        assert rejected.status_code == 200, rejected.json()
+        assert rejected.json()["is_stale"] is True
 
     def test_a_field_change_still_approves_after_an_edit_elsewhere(self, _mock_flag):
         flow_id = self._create_active_flow()

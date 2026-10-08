@@ -126,6 +126,43 @@ export interface PatchedExternalDataDestinationApi {
     readonly synced_sources?: readonly SyncedSourceApi[]
 }
 
+export interface AddSourcesRequestApi {
+    /**
+     * IDs of up to 50 existing sources to attach to this destination.
+     * @maxItems 50
+     */
+    source_ids: string[]
+    /** Start a full resync for each enabled table newly attached. */
+    resync?: boolean
+}
+
+export interface SkippedSourceApi {
+    /** ID of the source that was not attached. */
+    id: string
+    /** Name of the source that was not attached. */
+    name: string
+    /** Why the source was not attached. */
+    reason: string
+}
+
+export interface ResyncFailureApi {
+    /** ID of the table whose resync did not start. */
+    schema_id: string
+    /** Why the resync did not start. */
+    detail: string
+}
+
+export interface AddSourcesResponseApi {
+    /** Sources newly attached to this destination. */
+    attached: SyncedSourceApi[]
+    /** Sources that were not attached and their reasons. */
+    skipped: SkippedSourceApi[]
+    /** Number of tables sent for a full resync. */
+    tables_resyncing: number
+    /** Tables whose resync did not start. The sources are still attached. */
+    resync_failures: ResyncFailureApi[]
+}
+
 /**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
@@ -1130,6 +1167,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Squarespace` - Squarespace
  * * `Statsig` - Statsig
  * * `Statuspage` - Statuspage
+ * * `Steam` - Steam
  * * `Stigg` - Stigg
  * * `Strava` - Strava
  * * `SurveySparrow` - SurveySparrow
@@ -2006,6 +2044,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Arcade` - Arcade
  * * `Neo4j` - Neo4j
  * * `TestDino` - TestDino
+ * * `ChessCom` - ChessCom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2506,6 +2545,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Squarespace: 'Squarespace',
     Statsig: 'Statsig',
     Statuspage: 'Statuspage',
+    Steam: 'Steam',
     Stigg: 'Stigg',
     Strava: 'Strava',
     SurveySparrow: 'SurveySparrow',
@@ -3382,6 +3422,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Arcade: 'Arcade',
     Neo4j: 'Neo4j',
     TestDino: 'TestDino',
+    ChessCom: 'ChessCom',
 } as const
 
 /**
@@ -4029,6 +4070,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -4904,7 +4946,8 @@ export interface ExternalDataSourceCreateApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5916,6 +5959,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -6791,7 +6835,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7372,6 +7417,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -8247,7 +8293,8 @@ export interface DatabaseSchemaRequestApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -8752,6 +8799,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -9627,7 +9675,8 @@ export interface DirectConnectionSourceOptionApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10186,6 +10235,7 @@ export interface SourcePreviewRequestApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -11061,7 +11111,8 @@ export interface SourcePreviewRequestApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11601,6 +11652,7 @@ export interface SourceSetupApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -12476,7 +12528,8 @@ export interface SourceSetupApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13023,6 +13076,7 @@ export interface SourceCredentialCreateApi {
      * * `Squarespace` - Squarespace
      * * `Statsig` - Statsig
      * * `Statuspage` - Statuspage
+     * * `Steam` - Steam
      * * `Stigg` - Stigg
      * * `Strava` - Strava
      * * `SurveySparrow` - SurveySparrow
@@ -13898,7 +13952,8 @@ export interface SourceCredentialCreateApi {
      * * `Loom` - Loom
      * * `Arcade` - Arcade
      * * `Neo4j` - Neo4j
-     * * `TestDino` - TestDino */
+     * * `TestDino` - TestDino
+     * * `ChessCom` - ChessCom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

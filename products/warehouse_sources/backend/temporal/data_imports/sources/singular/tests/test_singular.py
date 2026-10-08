@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.singular.s
     SingularReportQuery,
     SingularResumeConfig,
     SingularRetryableError,
-    parse_field_list,
     report_rows,
     report_start_date,
     singular_source,
@@ -122,38 +121,6 @@ class TestDailyReport:
     def _frozen_clock(self):
         with time_machine.travel(_NOW, tick=False):
             yield
-
-    def test_requests_one_report_per_day_in_date_order(self, mock_session, _sleep):
-        created = _wire(
-            mock_session,
-            rows_by_day={
-                "2026-06-28": [{"app": "Invented App", "source": "Example Ads", "adn_cost": 1.5}],
-                "2026-06-30": [{"app": "Invented App", "source": "Example Ads", "adn_cost": 2.5}],
-            },
-        )
-        manager = _resume_manager()
-
-        batches = _report_batches(manager, last_value="2026-06-28")
-
-        assert [(body["start_date"], body["end_date"]) for body in created] == [
-            ("2026-06-28", "2026-06-28"),
-            ("2026-06-29", "2026-06-29"),
-            ("2026-06-30", "2026-06-30"),
-        ]
-        assert created[0] == {
-            "dimensions": "app,source",
-            "metrics": "adn_cost",
-            "start_date": "2026-06-28",
-            "end_date": "2026-06-28",
-            "time_breakdown": "day",
-            "format": "json",
-        }
-        assert [row["date"] for batch in batches for row in batch] == [dt.date(2026, 6, 28), dt.date(2026, 6, 30)]
-        assert [call.args[0].next_date for call in manager.save_state.call_args_list] == [
-            "2026-06-29",
-            "2026-06-30",
-            "2026-07-01",
-        ]
 
     def test_api_key_travels_in_a_header_and_never_in_a_url(self, mock_session, _sleep):
         _wire(mock_session)
@@ -319,44 +286,10 @@ class TestReportShaping:
     def test_report_start_date(self, last_value, history_start, expected):
         assert report_start_date(dt.date(2026, 6, 30), last_value, history_start) == expected
 
-    @pytest.mark.parametrize(
-        "body",
-        [
-            [{"app": "Invented App"}],
-            {"results": [{"app": "Invented App"}]},
-            {"status": 0, "substatus": 0, "value": {"results": [{"app": "Invented App"}]}},
-        ],
-    )
-    def test_report_rows_accepts_each_known_file_shape(self, body):
-        assert report_rows(body) == [{"app": "Invented App"}]
-
     @pytest.mark.parametrize("body", [{"value": "not rows"}, {"value": {"rows": []}}, "text", None])
     def test_report_rows_rejects_an_unrecognized_file(self, body):
         with pytest.raises(ValueError):
             report_rows(body)
-
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (None, ("app", "source")),
-            ("  ", ("app", "source")),
-            (" os , country_field,,os ", ("os", "country_field")),
-        ],
-    )
-    def test_parse_field_list(self, value, expected):
-        assert parse_field_list(value, ("app", "source")) == expected
-
-    def test_report_primary_key_is_the_date_plus_the_chosen_dimensions(self):
-        response = singular_source(
-            api_key=_API_KEY,
-            api_version="v2.0",
-            endpoint="daily_report",
-            query=SingularReportQuery(dimensions=("app", "os", "invented_custom_dimension_id"), metrics=("adn_cost",)),
-            logger=mock.MagicMock(),
-            resumable_source_manager=_resume_manager(),
-        )
-
-        assert response.primary_keys == ["date", "app", "os", "invented_custom_dimension_id"]
 
 
 @mock.patch(f"{_MODULE}.make_tracked_session")

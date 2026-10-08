@@ -11,6 +11,7 @@ The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
 """
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -34,6 +35,7 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TABLE,
+    FLAG_EVALUATIONS_TTL_DAYS,
 )
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
@@ -99,21 +101,17 @@ class DeletionTarget:
     # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
     # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
-    # properties/person_properties can be rewritten in place. True needs both halves: the property
-    # columns are DEFAULT-kind (assignable by ALTER UPDATE, as materialize() mints them), and the
-    # property-rewrite machinery in posthog/dags/data_deletion_requests.py actually sweeps the
-    # table, which today is hardcoded to the events tables. flag_evaluations satisfies only the
-    # schema half, so flipping this without extending the sweep silently under-deletes.
+    # True where the property-removal job sweeps the table. Its verification fails while any copy of
+    # a named property that the table keeps survives the rewrite. A property removal refuses while a
+    # target without it holds rows the request names.
     accepts_property_rewrite: bool = False
-    # Whether the property-removal gate may build a person_properties predicate here. False where
-    # the column has been dropped out of band on PostHog Cloud, which makes the predicate an
-    # unknown-identifier error rather than a count. The flag narrows the gate on every deployment
-    # regardless of whether the column is actually present there. The cost is a blind spot: rows
-    # this table stored before its producer stopped sending person_properties hold real values
-    # wherever the column survives, and this gate no longer sees them. Bounded by the table's TTL;
-    # see COVERAGE_DOC.
-    # accepts_property_rewrite=True implies this must stay True too, since the rewrite assumes the
-    # column holds real data; __post_init__ below enforces that pairing.
+    # Whether property removal may build a person_properties predicate or replacement here. False
+    # where the column has been dropped out of band on PostHog Cloud, which makes the predicate an
+    # unknown-identifier error rather than a count. The flag narrows the gate and the rewrite on
+    # every deployment regardless of whether the column is actually present there. The cost is a
+    # blind spot: rows this table stored before its producer stopped sending person_properties hold
+    # real values wherever the column survives, and property removal no longer sees them. Bounded
+    # by the table's TTL; see COVERAGE_DOC.
     stores_person_properties: bool = True
     # Whether the person-overrides squash rewrites person_id here. A merge moves a distinct_id to
     # another person, and a later deletion names only the survivor, so a table the squash skips
@@ -128,15 +126,20 @@ class DeletionTarget:
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+    # Days the TTL keeps a row past toDate(timestamp). Property removal's restore checks leave out
+    # the rows that the TTL can drop.
+    ttl_days: int | None = None
     # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
     # MutationRunner.patch_parts.
     uses_patch_parts: bool = False
 
     def __post_init__(self) -> None:
-        if self.accepts_property_rewrite and not self.stores_person_properties:
+        # A table that takes a HogQL predicate has the events schema, including person_properties.
+        if self.accepts_property_rewrite and self.accepts_hogql_predicate and not self.stores_person_properties:
             raise ValueError(
-                f"{self.data_table}: accepts_property_rewrite needs stores_person_properties, "
-                f"because the rewrite writes the person_properties column back. See {COVERAGE_DOC}."
+                f"{self.data_table}: accepts_property_rewrite on an events-schema table needs "
+                f"stores_person_properties, because the rewrite must clean its person_properties "
+                f"column too. See {COVERAGE_DOC}."
             )
 
     @property
@@ -200,17 +203,20 @@ EVENTS_JSON = DeletionTarget(
 
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
-# events-shaped table. Its producer stopped sending person_properties on 2026-09-05 (#95693); a row
-# the table stored before then is out of the property-removal gate's reach until its TTL passes. It
-# takes neither of the richer sweeps; both exclusions are explained in
+# events-shaped table. Property removal rewrites its event properties. Its producer stopped sending
+# person_properties on 2026-09-05 (#95693); a row the table stored before then is out of property
+# removal's reach until its TTL passes. A HogQL predicate does not compile against the table, which
+# limits immediate event removal and property removal there; both limits are explained in
 # docs/internal/clickhouse-deletion-coverage.md.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    accepts_property_rewrite=True,
     stores_person_properties=False,
     accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
+    ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
@@ -434,34 +440,48 @@ def count_surviving_rows(cluster: ClickhouseCluster, target: DeletionTarget, pre
     return int(rows[0][0]) if rows else 0
 
 
+_STORES_NONE_OF_THE_EVENTS = "it stores none of the request's events"
+
+
+@dataclass(frozen=True)
+class NotCounted:
+    """What ``predicate_for`` returns for a target that none of the request's criteria apply to."""
+
+    reason: str
+
+
 def assert_no_unsweepable_rows(
     cluster: ClickhouseCluster,
     targets: Sequence[DeletionTarget],
-    predicate_for: Callable[[DeletionTarget], tuple[str, dict] | None],
+    predicate_for: Callable[[DeletionTarget], tuple[str, dict] | NotCounted],
     *,
     events: Sequence[str],
     reason: str,
+    log: logging.Logger | None = None,
 ) -> None:
     """Fail when a target this request cannot sweep actually holds rows matching it.
 
     Pass targets already narrowed by ``resolve_targets``; this does not re-check presence.
 
-    ``predicate_for`` returns the criteria to count on a target, or ``None`` to skip it.
+    ``predicate_for`` returns the criteria to count on a target, or ``NotCounted`` to skip it.
     The criteria carry no HogQL fragment and no materialized-column arms, so each count is a
     superset of what the deletion would have removed. A caller may drop a criterion the target
     cannot hold, and the count is then a superset of the remainder.
     ``events`` is the request's event filter, empty meaning every event.
+    ``log`` gets an info line for each target skipped without a count, with the reason, so a
+    completed erasure records which targets went unchecked.
 
     Deliberately gated on rows existing rather than on the request's shape: an unconditional
     refusal would block every request of that shape from the day it lands, including the ones with
     nothing to strand.
     """
     for target in targets:
-        if not target.may_hold_any_of(events):
-            continue
-
-        criteria = predicate_for(target)
-        if criteria is None:
+        criteria = (
+            predicate_for(target) if target.may_hold_any_of(events) else NotCounted(reason=_STORES_NONE_OF_THE_EVENTS)
+        )
+        if isinstance(criteria, NotCounted):
+            if log:
+                log.info(f"{target.read_table}: not counted, because {criteria.reason}")
             continue
         predicate, params = criteria
 

@@ -61,7 +61,7 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
 - `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, vision alerts, and the Gemini file cleanup sweep.

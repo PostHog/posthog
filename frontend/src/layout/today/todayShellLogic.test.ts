@@ -3,7 +3,13 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { toolHrefForPath } from 'scenes/tools/toolsUtils'
+import {
+    getToolSourceItems,
+    isToolItem,
+    libraryRowProductLabels,
+    toolHrefForPath,
+    toolLabel,
+} from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
 
@@ -32,6 +38,10 @@ describe('todayShellLogic', () => {
         ['/project/1/canvases/new', 'views'],
         ['/project/1/notebooks/abc', 'views'],
         ['/project/1/dashboard/12', 'views'],
+        ['/project/1/notebooks', 'products'],
+        ['/project/1/dashboard', 'products'],
+        ['/project/1/persons', 'products'],
+        ['/project/1/activity/events', 'products'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
@@ -49,9 +59,28 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
+        ['Notebooks', true],
+        ['Dashboards', true],
+        ['Session replay', true],
+        ['Persons', true],
+        ['Activity', true],
+        ['SQL editor', true],
+        ['Feature flags', false],
+        ['Product analytics', false],
+        ['Cohorts', false],
+    ])('gives %s its own row in the Products list: %s', (label, ownRow) => {
+        const rows = getToolSourceItems().filter(isToolItem).map(toolLabel)
+        expect(rows.includes(label)).toBe(ownRow)
+    })
+
+    it('finds the Insights row with a search for the Product analytics name', () => {
+        expect(libraryRowProductLabels('insight')).toContain('Product analytics')
+    })
+
+    test.each([
         ['home', '/home'],
         ['spaces', '/ai'],
-        ['views', '/views/new'],
+        ['views', '/views'],
         ['products', '/tools'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
         const logic = todayShellLogic()
