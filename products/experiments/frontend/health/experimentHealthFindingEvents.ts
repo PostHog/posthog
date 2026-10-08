@@ -28,7 +28,7 @@ export interface ExperimentHealthFinding {
 }
 
 // pinned: `open_kind` property values, for the same reason as the codes above.
-export type ExperimentHealthFindingOpenKind = 'evidence' | 'docs'
+export type ExperimentHealthFindingOpenKind = 'evidence' | 'docs' | 'why'
 
 // pinned: `action_kind` property values, for the same reason as the codes above.
 export type ExperimentHealthFindingActionKind =
@@ -46,6 +46,10 @@ const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentH
     ended_but_multiple_variants_rolled_out: 'flag_live_after_end',
     not_started_but_multiple_variants_rolled_out: 'flag_live_before_launch',
 }
+
+export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> = new Set(
+    Object.values(EXPERIMENT_WARNING_FINDING_CODES)
+)
 
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
     return { code: EXPERIMENT_WARNING_FINDING_CODES[warningKey], variant: warningKey }
