@@ -33,6 +33,8 @@ API_PATH = "/api/v4"
 PAGE_SIZE = 1000
 # Paginated endpoints carry a `nextPageToken` in the body; the same token is sent back as a query param.
 NEXT_PAGE_TOKEN = "nextPageToken"
+# (connect, read) seconds, so a stalled Wrike response can't hold an import worker indefinitely.
+REQUEST_TIMEOUT = (10, 60)
 
 
 @dataclasses.dataclass
@@ -105,6 +107,7 @@ def _client_config(access_token: str, host: str) -> ClientConfig:
         # Pin every request (base and paginated) to the validated Wrike host so a tampered
         # response can't retarget the credential off-host.
         "allowed_hosts": [],
+        "request_timeout": REQUEST_TIMEOUT,
     }
 
 

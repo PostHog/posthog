@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class WrikeEndpointConfig:
     name: str
     path: str
