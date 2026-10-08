@@ -77,14 +77,14 @@ def get_workflow_ref(
 
 def get_workflow_edit_state(
     *,
-    project_id: int,
+    team_id: int,
     workflow_id: UUID | str,
     user_access_control: "UserAccessControl | None",
     required_level: str | None,
 ) -> WorkflowEditState:
     """The same lookup and access check as get_workflow, for an edit the serializer validates against
     the stored workflow."""
-    flow = _checked_flow(project_id, workflow_id, user_access_control, required_level, created_by=True)
+    flow = _checked_flow(team_id, workflow_id, user_access_control, required_level, created_by=True)
     return to_edit_state(flow)
 
 
