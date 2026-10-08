@@ -238,10 +238,15 @@ describe('eventsSceneLogic', () => {
                 case 'link':
                     router.actions.push(linkUrl)
                     break
-                case 'link, then edit':
+                case 'link, then edit': {
                     router.actions.push(linkUrl)
-                    logic.actions.setQuery({ ...query, source: { ...(query.source as EventsQuery), after: '-7d' } })
+                    const edited: DataTableNode = {
+                        ...query,
+                        source: { ...(query.source as EventsQuery), after: '-7d' },
+                    }
+                    logic.actions.setQuery(edited)
                     break
+                }
                 case 'edit':
                     logic.actions.setQuery(query)
                     break
