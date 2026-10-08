@@ -41,13 +41,15 @@ def deliver(
     busy = 0
 
     for transition in announcement.transitions:
-        is_last = transition is announcement.transitions[-1]
+        # On the first transition, because a retry skips a message already delivered and waits out
+        # a held one, so the overflow notice is sent once, and with the message that opens the batch.
+        is_first = transition is announcement.transitions[0]
         message = build_message(
             announcement,
             transition,
             team_id=team_id,
             incident_action=incident_action,
-            overflowed=announcement.overflowed if is_last else 0,
+            overflowed=announcement.overflowed if is_first else 0,
         )
         key = _thread_key(
             configuration_id=configuration_id,

@@ -294,7 +294,7 @@ The check input and the read API show each instance the later of the two.
 
 A configuration's `grouping` holds `max_instances` (100 by default), the most instance rows it keeps.
 A source calls `check.admit(keys)` with its groups in priority order: a group that already has an instance is always admitted, so it can resolve, and new groups fill the remaining room front first.
-The count it turned away travels on the delivery as `overflowed`, and the last message of that delivery says how many groups were not tracked.
+The count it turned away travels on the delivery as `overflowed`, and the first message of that delivery says how many groups were not tracked.
 `record_outcomes` enforces the cap again and drops a group past it, counted on `alerts_platform_groups_over_cap_total`.
 An instance that is not firing, not muted, and that no check returned for longer than both 24 hours and its cooldown is deleted, which frees its slot.
 Nothing is reaped while the configuration's checks fail, because a failed check returns no groups and every instance would look gone.

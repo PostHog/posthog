@@ -457,7 +457,7 @@ class EvaluationAnnouncement:
     # whole evaluation, and every group in one announcement saw the same count.
     consecutive_failures: int
     transitions: tuple[AnnouncedTransition, ...]
-    # Groups the configuration had no room for. The last message names them, so a cap never drops
+    # Groups the configuration had no room for. The first message names them, so a cap never drops
     # a group without anyone being told.
     overflowed: int = 0
 
