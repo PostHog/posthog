@@ -440,6 +440,7 @@ Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are 
 
 When a report would have had better evidence from a product the project does not use, record a `source_suggestion` artefact on it.
 After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {"product": ..., "reason": ...}`.
+The tool needs the `task:write` scope. If the session does not have it, continue without the suggestion.
 `product` is one of `logs`, `session_replay`, `error_tracking`, or `llm_analytics`.
 The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
 
