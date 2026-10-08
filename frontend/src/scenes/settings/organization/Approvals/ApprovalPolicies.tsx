@@ -373,9 +373,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                         )}
 
                         <p className="text-xs text-secondary">
-                            With no conditions, any change to a flag's release conditions or rollout needs approval. For
-                            a flag that an experiment, survey, product tour, or early access feature manages, only
-                            rollout changes need approval.
+                            With no conditions, any change to a flag's release conditions or rollout needs approval.
                         </p>
                     </div>
                 )}
