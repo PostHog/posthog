@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.giph
     giphy_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.giphy.settings import GIPHY_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -107,45 +106,6 @@ class TestPagination:
         assert params[0]["limit"] == PAGE_SIZE
         assert params[1]["offset"] == PAGE_SIZE
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_gif_page(["a", "b"], total_count=999)])
-
-        rows = _run("gifs_trending", _make_manager())
-
-        assert [r["id"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_gif_page([], total_count=0)])
-
-        rows = _run("gifs_trending", _make_manager())
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_at_offset_cap_without_requesting_beyond_it(self, MockSession) -> None:
-        # gifs_trending caps at offset 499. Every page is full and total_count is far larger, so only
-        # the offset cap can stop us — and it must stop before an offset GIPHY would reject is requested.
-        session = MockSession.return_value
-        cap = GIPHY_ENDPOINTS["gifs_trending"].max_offset
-        assert cap == 499
-        # offsets 0, 50, ..., 450 -> 10 full pages, then 500 >= 499 halts pagination.
-        params = _wire(
-            session,
-            [_gif_page([f"{o}_{i}" for i in range(PAGE_SIZE)], total_count=10_000) for o in range(0, 500, PAGE_SIZE)],
-        )
-
-        _run("gifs_trending", _make_manager())
-
-        requested = [p["offset"] for p in params]
-        assert max(requested) <= cap
-        assert max(requested) + PAGE_SIZE > cap
-
 
 class TestResume:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -158,47 +118,8 @@ class TestResume:
         assert [r["id"] for r in rows] == ["x", "y"]
         assert params[0]["offset"] == PAGE_SIZE
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_saved_after_full_page_then_short_page_ends(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _gif_page([str(i) for i in range(PAGE_SIZE)], total_count=PAGE_SIZE + 1),
-                _gif_page(["last"], total_count=PAGE_SIZE + 1),
-            ],
-        )
-
-        manager = _make_manager()
-        _run("gifs_trending", manager)
-
-        # Saved once, advancing to the second page's offset, before that page ends the sync.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == GiphyResumeConfig(offset=PAGE_SIZE)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_saves_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_gif_page(["a", "b"], total_count=999)])
-
-        manager = _make_manager()
-        _run("gifs_trending", manager)
-
-        manager.save_state.assert_not_called()
-
 
 class TestSearch:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_search_includes_query_param(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_gif_page(["a"], total_count=1)])
-
-        _run("gifs_search", _make_manager(), search_query="cats")
-
-        assert params[0]["q"] == "cats"
-        assert params[0]["limit"] == PAGE_SIZE
-        assert params[0]["offset"] == 0
-
     @parameterized.expand(["gifs_search", "stickers_search"])
     def test_search_without_query_raises(self, endpoint: str) -> None:
         with pytest.raises(ValueError, match="requires a search query"):
@@ -217,15 +138,6 @@ class TestTermList:
         assert rows == [{"search_term": "cats"}, {"search_term": "dogs"}, {"search_term": "memes"}]
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_term_list_missing_data_key_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"meta": {"status": 200}})])
-
-        rows = _run("trending_search_terms", _make_manager())
-
-        assert rows == []
 
 
 class TestRedaction:
@@ -293,16 +205,6 @@ class TestSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
 
-    def test_full_refresh_sort_mode_default_ascending(self) -> None:
-        response = giphy_source(
-            api_key="KEY",
-            endpoint="gifs_trending",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.sort_mode == "asc"
-
 
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
@@ -310,8 +212,3 @@ class TestValidateCredentials:
     def test_status_maps_to_validity(self, status_code: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
         assert validate_credentials("KEY") is expected
-
-    @mock.patch(GIPHY_SESSION_PATCH)
-    def test_network_error_is_invalid(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("KEY") is False

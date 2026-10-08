@@ -103,7 +103,7 @@ from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_
 from posthog.views import login_required
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -352,7 +352,7 @@ def _gateway_blocklist_block(
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=request.user.email,
                 user_uuid=str(request.user.uuid),
@@ -363,8 +363,9 @@ def _gateway_blocklist_block(
             call_site="oauth_authorize",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
-    if not wizard_identity_blocked(
+        logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
+        refused = False
+    if not refused and not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
         email=request.user.email,
         surface="oauth_authorize",

@@ -730,18 +730,18 @@ def string_config(value: str, default: str | None, rule_id: str | None = RULE_A)
 
 
 RESERVED_STRING_VALUES = [
-    ("rule_value", "$false", None, "filters.rules[0].value: Must be a non-empty string other than $false."),
+    ("rule_value", "$false", None, "filters.rules[0].value: Must be a non-empty string other than $false or $true."),
     (
         "default_value",
         "compact",
-        "$false",
-        "filters.default_value: Must be a non-empty string other than $false, or null.",
+        "$true",
+        "filters.default_value: Must be a non-empty string other than $false or $true, or null.",
     ),
 ]
 
 
 class TestWriterOnlyRules(AdmittedV2TestCase):
-    """The writer reserves `$false` as a string value; the caches accept it, so a stored one stays replaceable."""
+    """The writer reserves `$false` and `$true` as string values; the caches accept them, so a stored one stays replaceable."""
 
     @parameterized.expand(RESERVED_STRING_VALUES)
     def test_create_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:

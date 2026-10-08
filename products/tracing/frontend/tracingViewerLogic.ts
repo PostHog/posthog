@@ -385,9 +385,11 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         openTrace: ({ traceId, ts }) => {
             posthog.capture('tracing trace opened')
             const prefetchedSpans = values.spans.filter((s: Span) => s.trace_id === traceId)
-            // Zero prefetched spans = the trace isn't in the loaded list (cold link) — fetch it by
-            // id. A full prefetch batch (>= PREFETCH_SPANS) may be truncated — fetch the rest.
-            if (prefetchedSpans.length === 0 || prefetchedSpans.length >= PREFETCH_SPANS) {
+            // Fetch the trace by id when the prefetch can be incomplete. A batch with no root span is a
+            // cold link (no spans loaded) or an orphan trace, whose prefetch holds only the spans that
+            // matched the list. A full prefetch batch (>= PREFETCH_SPANS) may be truncated.
+            const hasRootSpan = prefetchedSpans.some((s: Span) => s.is_root_span)
+            if (!hasRootSpan || prefetchedSpans.length >= PREFETCH_SPANS) {
                 actions.loadTraceSpans({ traceId, ts })
             }
         },

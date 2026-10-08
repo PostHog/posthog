@@ -6,7 +6,7 @@ description: >
   restack or rebase a stack, adopt existing branches or PRs into a stack, check out
   someone else's stack, or land a stack. Covers creating and submitting stacks
   (draft-first), cascade rebases with `gh stack sync`, and landing one through the
-  Trunk merge queue via `/merging-prs` — whole-stack via `/trunk merge` on the top
+  Trunk merge queue via `/merging-prs` — whole-stack via `trunk merge` on the top
   layer, or bottom-first — never `gh stack merge`.
 ---
 
@@ -93,7 +93,7 @@ Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack 
 
 **Whole stack at once (default).**
 The queue handles stacks natively: enqueueing a PR enqueues it and every unmerged layer below it, tests them together, and merges them atomically.
-After explicit user approval, comment `/trunk merge` on the **top** PR to land the whole stack, or on the highest layer that's ready to land just the bottom part.
+After explicit user approval, run `trunk merge <n>` on the **top** PR to land the whole stack, or on the highest layer that's ready to land just the bottom part. `/merging-prs` has the comment fallback for when the CLI is not available.
 Every layer being merged must individually pass `/merging-prs` preflight (ready, approved, no failing checks — pending ones are fine, the queue waits for them) — a mid-stack draft or missing approval blocks the layers above it.
 
 **Bottom-first, one layer at a time.**

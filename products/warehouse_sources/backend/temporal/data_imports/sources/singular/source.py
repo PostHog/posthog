@@ -81,7 +81,6 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         # A lookup table is one request, so a retry has nothing to continue from.

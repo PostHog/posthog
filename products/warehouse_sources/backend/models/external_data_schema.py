@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -25,6 +25,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
@@ -49,6 +50,32 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
+
+# Sync type strings that early clients wrote to the column. They name a real mode, so they map to it.
+LEGACY_SYNC_TYPE_ALIASES: dict[str, ExternalDataSchemaSyncType] = {
+    "full": ExternalDataSchemaSyncType.FULL_REFRESH,
+}
+
+# Matched by `Any_Source_Errors`, so the exception text must keep this prefix.
+UNSUPPORTED_SYNC_TYPE_ERROR = "Unsupported sync type"
+UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE = (
+    "This table has a sync type that PostHog does not support. Choose a sync type in the table's "
+    "sync settings, then re-enable the sync."
+)
+
+
+def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
+    """Turn a stored `sync_type` into the enum. The column does not enforce its choices."""
+    if value is None:
+        return None
+    try:
+        return ExternalDataSchemaSyncType(value)
+    except ValueError:
+        alias = LEGACY_SYNC_TYPE_ALIASES.get(value)
+        if alias is not None:
+            return alias
+        raise UnsupportedSyncTypeError(f"{UNSUPPORTED_SYNC_TYPE_ERROR}: '{value}'") from None
+
 
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
@@ -183,6 +210,22 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
 # import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
 STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
+# The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
+# run can resume after. It differs from the staged `last_value`, which the loader promotes only
+# when the whole run completes.
+STAGED_RESUME_VALUE_KEY = "resume_value"
+
+# The key, inside a staged cursor, for the run whose queue rows the resume value actually describes.
+# An attempt that only inherits the value from an earlier attempt, without queuing a batch of its
+# own yet, is not that run: finalizing a later zero-batch continuation must target the run that
+# holds the rows, not whichever attempt most recently restated the same value.
+STAGED_RESUME_OWNER_KEY = "resume_owner_run_uuid"
+
+# The key for the append run that the loader started to write and has not completed. The loader
+# owns the value (see `pipeline_v3/load/append_rollback.py`). A reset deletes the table, so it
+# drops the key too.
+APPEND_RUN_MARKER_KEY = "append_run_in_progress"
+
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
@@ -227,6 +270,15 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 
 
+# In `sync_type_config`: how many of this schema's runs failed in a row, and when the last of them
+# failed. `retry_limits` turns the count into this schema's retry cap and its smallest gap between
+# runs. A key here rather than a column because clearing it is what a reset is for: a reset
+# re-reads the table from the start, which is the progress a streak counts the absence of.
+FAILURE_STREAK_KEY = "failure_streak"
+FAILURE_STREAK_RUNS_KEY = "runs"
+FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
+
+
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -266,7 +318,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "source_cursor": { "kind": str, "data": dict }, "max_partition_bytes": int, "partition_measurement": { "job_id": str, "phase": "pre_extraction" | "post_load", "budget": int, "healthy": bool }, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -456,6 +508,54 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def sync_halted(self) -> bool:
         """True when syncing will not resume without user action."""
         return not self.should_sync or self.cdc_halted
+
+    @property
+    def _failure_streak(self) -> dict[str, Any]:
+        """The streak marker, or an empty one for any value this cannot read.
+
+        Both readers below run on the terminal status write of every run, so a raise here would
+        fail every sync of the schema rather than throttle it.
+        """
+        config = self.sync_type_config if isinstance(self.sync_type_config, dict) else {}
+        streak = config.get(FAILURE_STREAK_KEY)
+        return streak if isinstance(streak, dict) else {}
+
+    @property
+    def failed_runs_in_a_row(self) -> int:
+        """Runs of this schema that failed since its last completed run."""
+        runs = self._failure_streak.get(FAILURE_STREAK_RUNS_KEY)
+        return runs if isinstance(runs, int) and not isinstance(runs, bool) and runs > 0 else 0
+
+    @property
+    def failure_streak_last_failed_at(self) -> datetime | None:
+        """When the newest run in the streak failed, or None while there is no streak."""
+        stamped = self._failure_streak.get(FAILURE_STREAK_LAST_FAILED_AT_KEY)
+        if not isinstance(stamped, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(stamped)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+    def note_failed_run(self, failed_at: datetime) -> None:
+        """Add one failed run to the streak, in memory.
+
+        The caller saves `sync_type_config` under the row lock it already holds for the run's
+        terminal status, so the streak lands in that statement rather than in a second
+        read-modify-write that could race it.
+        """
+        config = self.sync_type_config if isinstance(self.sync_type_config, dict) else {}
+        config[FAILURE_STREAK_KEY] = {
+            FAILURE_STREAK_RUNS_KEY: self.failed_runs_in_a_row + 1,
+            FAILURE_STREAK_LAST_FAILED_AT_KEY: failed_at.isoformat(),
+        }
+        self.sync_type_config = config
+
+    def clear_failure_streak(self) -> None:
+        """Drop the streak, in memory. The caller saves `sync_type_config`."""
+        if isinstance(self.sync_type_config, dict):
+            self.sync_type_config.pop(FAILURE_STREAK_KEY, None)
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -774,6 +874,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return None
 
     @property
+    def partition_measurement(self) -> dict[str, Any] | None:
+        if self.sync_type_config:
+            measurement = self.sync_type_config.get("partition_measurement", None)
+            if isinstance(measurement, dict):
+                return measurement
+        return None
+
+    @property
     def last_repartition_at(self) -> str | None:
         if self.sync_type_config:
             return self.sync_type_config.get("last_repartition_at", None)
@@ -786,6 +894,10 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             if isinstance(pending, dict):
                 return pending
         return None
+
+    @property
+    def pending_scheme_for_table_replacement(self) -> dict[str, Any] | None:
+        return pending_scheme_for_table_replacement(self.sync_type_config or {})
 
     @property
     def repartition_swap(self) -> dict[str, Any] | None:
@@ -872,16 +984,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             lambda: self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
         )
 
-    def record_partition_measurement(self, max_partition_bytes: int) -> None:
+    def record_partition_measurement(self, max_partition_bytes: int, measurement: dict[str, Any] | None = None) -> None:
         # Deferred: this module loads during django.setup() and the util pulls in temporalio.
         from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
 
+        updates: dict[str, Any] = {"max_partition_bytes": max_partition_bytes}
+        if measurement is not None:
+            updates["partition_measurement"] = measurement
         self.sync_type_config = retry_on_db_connection_drop(
-            lambda: update_sync_type_config_keys(
-                self.id,
-                self.team_id,
-                updates={"max_partition_bytes": max_partition_bytes},
-            )
+            lambda: update_sync_type_config_keys(self.id, self.team_id, updates=updates)
         )
 
     def set_repartition_pending(self, target: dict[str, Any]) -> None:
@@ -896,9 +1007,52 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self.sync_type_config["repartition_swap"] = swap
         self._save_sync_type_config()
 
-    def set_repartition_claim(self, claim: dict[str, Any]) -> None:
-        self.sync_type_config["repartition_claim"] = claim
-        self._save_sync_type_config()
+    def set_repartition_claim(self, claim: dict[str, Any]) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        # A timed-out activity may still be running when its retry stakes a newer claim. Merge under
+        # the row lock so the older activity's stale model copy cannot overwrite that newer token (or
+        # any unrelated config written while it was running) and accidentally reclaim the table.
+        def _write(config: dict[str, Any]) -> None:
+            current = config.get("repartition_claim")
+            if isinstance(current, dict):
+                current_claimed_at = current.get("claimed_at")
+                claimed_at = claim.get("claimed_at")
+                if isinstance(current_claimed_at, str) and isinstance(claimed_at, str):
+                    if current_claimed_at > claimed_at:
+                        return
+            config["repartition_claim"] = claim
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        return self.sync_type_config.get("repartition_claim") == claim
+
+    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        def _write(config: dict[str, Any]) -> None:
+            claim = config.get("repartition_claim")
+            if not (isinstance(claim, dict) and claim.get("token") == claim_token):
+                return
+            if config.get("repartition_swap") is not None:
+                return
+            for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
+                config.pop(key, None)
+            config["last_repartition_at"] = timezone.now().isoformat()
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        claim = self.sync_type_config.get("repartition_claim")
+        return (
+            isinstance(claim, dict)
+            and claim.get("token") == claim_token
+            and not any(
+                key in self.sync_type_config
+                for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
+            )
+        )
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -948,8 +1102,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def coarsen_requested(self) -> dict[str, Any] | None:
         """Set by `stage_warehouse_coarsening` to nominate this table for the coarsening rewrite.
 
-        Nominating overrides the *policy* gates the automatic path applies (rollout flag, OOM history,
-        layout age, minimum partition count) because an operator has looked at the table. It never
+        Nominating overrides the *policy* gates the automatic path applies (OOM history, layout age,
+        minimum partition count) because an operator has looked at the table. It never
         overrides the *safety* checks: the controller still measures the live layout and refuses any
         target that would not fit the memory budget, so a nomination can only ever be a no-op, never a
         rewrite into partitions too big to merge. Consumed on the next evaluation either way.
@@ -986,6 +1140,25 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             if value is not None
         }
         self._stage_cursor_values(run_uuid, values)
+
+    def stage_handoff_resume_value(self, run_uuid: str, resume_value: Any, owner_run_uuid: str | None = None) -> None:
+        """Record the incremental value a later attempt of this workflow run can resume after.
+
+        Stage only a value whose rows already have their queue rows, because the next attempt reads
+        the source strictly above it. None records that this attempt has no such value, which stops
+        the next attempt from using the value of an older attempt.
+
+        `owner_run_uuid` is the run whose queue rows the value describes, for finalizing a later
+        zero-batch continuation. It defaults to `run_uuid`, the common case of an attempt that just
+        queued the batch the value describes.
+        """
+        self._stage_cursor_values(
+            run_uuid,
+            {
+                STAGED_RESUME_VALUE_KEY: self._serialize_incremental_value(resume_value),
+                STAGED_RESUME_OWNER_KEY: owner_run_uuid if owner_run_uuid is not None else run_uuid,
+            },
+        )
 
     def stage_source_cursor(self, run_uuid: str, payload: dict[str, Any]) -> None:
         """Hold a run's source cursor in `incremental_staged`, which the load side promotes with the watermark."""
@@ -1116,7 +1289,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             slack = min(slack, self.sync_frequency_interval / 2)
         return (now or timezone.now()) >= self.next_full_refresh_at - slack
 
-    def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
+    def update_sync_type_config_for_reset_pipeline(
+        self, *, clear_initial_sync_complete: bool = True, promote_pending_repartition: bool = False
+    ) -> None:
+        """Clear the settings that describe the table a reset deleted.
+
+        `promote_pending_repartition` is for a caller that loads the table again in the same run. A
+        queued repartition target then becomes the scheme of the new table (see
+        `promote_pending_repartition_for_replaced_table`), so no rewrite of the new table is necessary.
+        """
         removes = [
             "reset_pipeline",
             # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
@@ -1127,12 +1308,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "incremental_field_earliest_value",
             "incremental_staged",
             "incremental_staged_pending",
+            APPEND_RUN_MARKER_KEY,
             "partitioning_enabled",
             "partition_size",
             "partition_count",
             "partitioning_keys",
             "partition_mode",
             "backfilled_partition_format",
+            "partition_measurement",
             SOURCE_CURSOR_KEY,
             # Cursor keys from before `source_cursor`. A source still reads them when it has no
             # `source_cursor`, so a reset has to drop them too.
@@ -1160,6 +1343,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             self.id,
             self.team_id,
             removes=removes,
+            mutate=promote_pending_repartition_for_replaced_table if promote_pending_repartition else None,
             extra_model_fields=extra_model_fields,
             restart_full_refresh_clock=True,
         )
@@ -1274,6 +1458,16 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 # parse, even though the preceding GMT offset already fully specifies the instant.
 JS_DATE_TOSTRING_TZ_NAME_RE = re.compile(r"\([^()]*\)\s*\Z")
 
+# MySQL's zero-date convention for "no date set" ('0000-00-00', optionally with a
+# '00:00:00' time part). Some REST sources (e.g. ServiceM8's `edit_date`) emit this literal
+# string too, and dateutil raises ParserError on the year-0 value rather than treating it
+# as absent.
+ZERO_DATETIME_SENTINEL_RE = re.compile(r"\A0000-00-00(?:[ T]00:00:00(?:\.0+)?)?\Z")
+
+
+def _is_zero_datetime_sentinel(value: str) -> bool:
+    return bool(ZERO_DATETIME_SENTINEL_RE.match(value.strip()))
+
 
 def _parse_datetime_string(value: str) -> datetime:
     try:
@@ -1300,7 +1494,8 @@ def _align_epoch_cursor(value: Any, partner: Any) -> Any:
 def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
     """A run is live or parked, never both: only another run's staging parks it, and its own
     staging moves it back. Both happen under the row lock."""
-    if not staged.get("run_uuid") or not ({"last_value", "earliest_value", SOURCE_CURSOR_KEY} & staged.keys()):
+    cursor_keys = {"last_value", "earliest_value", SOURCE_CURSOR_KEY, STAGED_RESUME_VALUE_KEY}
+    if not staged.get("run_uuid") or not (cursor_keys & staged.keys()):
         return
     pending = [*config.get("incremental_staged_pending", []), staged]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
@@ -1318,6 +1513,45 @@ def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[st
     else:
         config.pop("incremental_staged_pending", None)
     return dropped
+
+
+def staged_handoff_resume_point(config: dict[str, Any], workflow_run_id: str | None) -> tuple[str, Any] | None:
+    """The run that owns the queued rows, and the value, recorded by the newest attempt of
+    `workflow_run_id`.
+
+    The returned run is `STAGED_RESUME_OWNER_KEY`, not necessarily the attempt that most recently
+    staged the entry: an attempt that only inherited the value, without queuing a batch of its own
+    yet, stages it under its own `run_uuid` for parking purposes but records the earlier run as the
+    owner. A caller that finalizes a zero-batch continuation needs the owner, since that is the run
+    whose queue rows still need the final marker.
+    """
+    if not workflow_run_id:
+        return None
+    prefix = f"{workflow_run_id}-a"
+    newest: dict[str, Any] | None = None
+    newest_attempt = 0
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        run_uuid = staged.get("run_uuid")
+        if not isinstance(run_uuid, str) or not run_uuid.startswith(prefix):
+            continue
+        attempt = run_uuid.removeprefix(prefix)
+        if attempt.isdigit() and int(attempt) > newest_attempt:
+            newest, newest_attempt = staged, int(attempt)
+    if newest is None:
+        return None
+    owner_run_uuid = newest.get(STAGED_RESUME_OWNER_KEY) or newest["run_uuid"]
+    return owner_run_uuid, newest.get(STAGED_RESUME_VALUE_KEY)
+
+
+def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | None) -> Any:
+    """The value the newest attempt of `workflow_run_id` recorded with `stage_handoff_resume_value`.
+
+    Only the newest attempt counts. An attempt that restarted from the stored watermark can replace
+    the queue rows of the attempts before it, so their values no longer describe what the loader
+    will load.
+    """
+    point = staged_handoff_resume_point(config, workflow_run_id)
+    return None if point is None else point[1]
 
 
 def _advance_promoted_cursor(
@@ -1403,10 +1637,18 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
+        # A date-only column (e.g. a MySQL DATE) can back a DateTime/Timestamp field when the column
+        # type changed after the incremental field was saved.
+        if isinstance(value, date):
+            return datetime.combine(value, time.min)
+
         # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
         # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
+
+        if isinstance(value, str) and _is_zero_datetime_sentinel(value):
+            return None
 
         return _coerce_incremental_datetime(value)
 
@@ -1419,6 +1661,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
         if isinstance(value, int | float) and not isinstance(value, bool):
             return value
+
+        if isinstance(value, str) and _is_zero_datetime_sentinel(value):
+            return None
 
         parsed = _coerce_incremental_datetime(value)
         return parsed if isinstance(parsed, int) else parsed.date()
@@ -1490,6 +1735,10 @@ def update_should_sync(
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
+    # Turning syncing back on says the source is worth trying again, so the next run starts on
+    # the full retry cap and the normal cadence.
+    if should_sync:
+        schema.clear_failure_streak()
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 
@@ -1593,6 +1842,44 @@ def save_repartition_checkpoint_if_claimed(
     return claimed
 
 
+def release_repartition_hold_if_claimed(schema: ExternalDataSchema, *, claim_token: str) -> None:
+    """Stop an abandoned rewrite checkpoint from holding the import (see `repartition_holds_import`).
+
+    The checkpoint stays as the record of the temp table that still must be deleted.
+    """
+
+    def _write(config: dict[str, Any]) -> None:
+        claim = config.get("repartition_claim")
+        checkpoint = config.get("repartition_rewrite")
+        if claim and claim.get("token") == claim_token and isinstance(checkpoint, dict):
+            checkpoint.pop("held_at", None)
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+
+
+def clear_repartition_checkpoint_if_claimed(schema: ExternalDataSchema, *, claim_token: str, temp_uri: str) -> bool:
+    """Remove the rewrite checkpoint for `temp_uri` while `claim_token` still owns the schema.
+
+    Row-locked for the same reason as `save_repartition_checkpoint_if_claimed`. A checkpoint that a
+    newer attempt wrote names a different temp table and stays.
+    """
+    cleared = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal cleared
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        checkpoint = config.get("repartition_rewrite")
+        if not isinstance(checkpoint, dict) or checkpoint.get("temp_uri") != temp_uri:
+            return
+        config.pop("repartition_rewrite", None)
+        cleared = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return cleared
+
+
 def finalize_repartition_scheme(
     schema: ExternalDataSchema,
     *,
@@ -1643,12 +1930,137 @@ def finalize_repartition_scheme(
             "repartition_swap",
             "repartition_pending",
             "repartition_rewrite",
+            "partition_measurement",
         ):
             config.pop(key, None)
         wrote = True
 
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
     return wrote
+
+
+PARTITION_SCHEME_OVERRIDE_KEYS = (
+    "partitioning_keys_override",
+    "partition_count_override",
+    "partition_size_override",
+    "partition_mode_override",
+)
+
+
+def _stage_partition_scheme(
+    config: dict[str, Any],
+    *,
+    partitioning_keys: list[str] | None,
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+) -> None:
+    """Pin a scheme in `config` for the load that writes the table again, and retire the repartition markers."""
+    overrides: dict[str, Any] = {
+        "partitioning_keys_override": partitioning_keys or None,
+        "partition_count_override": partition_count,
+        "partition_size_override": partition_size,
+        "partition_mode_override": partition_mode,
+    }
+    for key, value in overrides.items():
+        if value is None:
+            config.pop(key, None)
+        else:
+            config[key] = value
+    if partition_format is not None:
+        config["partition_format"] = partition_format
+    # The cooldown stops detection from flagging the old layout again before the sync rewrites it.
+    config["last_repartition_at"] = timezone.now().isoformat()
+    for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
+        config.pop(key, None)
+
+
+def stage_partition_scheme_for_full_refresh(
+    schema: ExternalDataSchema,
+    *,
+    partitioning_keys: list[str],
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+    claim_token: str | None = None,
+) -> bool:
+    """Pin a new partition scheme for the next full refresh to write, and retire the repartition markers.
+
+    A full-refresh sync deletes the table and writes it again, so it can lay out the new scheme with
+    no rewrite at all. The scheme goes in as the `*_override` keys because the reset at the start of
+    that sync removes the plain partition settings, and the overrides are the keys it keeps for the
+    sync to consume (see `update_sync_type_config_for_reset_pipeline` and `set_partitioning_enabled`).
+    `partition_format` survives the reset on its own.
+    """
+    wrote = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal wrote
+        if claim_token is not None:
+            claim = config.get("repartition_claim")
+            if not (claim and claim.get("token") == claim_token):
+                return
+        if config.get("repartition_swap") is not None:
+            return
+        _stage_partition_scheme(
+            config,
+            partitioning_keys=partitioning_keys,
+            partition_count=partition_count,
+            partition_size=partition_size,
+            partition_mode=partition_mode,
+            partition_format=partition_format,
+        )
+        wrote = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return wrote
+
+
+def pending_scheme_for_table_replacement(config: dict[str, Any]) -> dict[str, Any] | None:
+    """The queued repartition target that a load which replaces the table must write, or None.
+
+    None while a swap is staged, because the temp table can then be the only intact copy and the
+    swap recovery owns the scheme. None when an operator pinned a scheme, because that pin is the
+    newer decision. A marker with no keys holds bookkeeping only and describes no scheme.
+    """
+    pending = config.get("repartition_pending")
+    if not isinstance(pending, dict) or not pending.get("partition_keys"):
+        return None
+    if config.get("repartition_swap") is not None:
+        return None
+    if any(config.get(key) is not None for key in PARTITION_SCHEME_OVERRIDE_KEYS):
+        return None
+    return pending
+
+
+def promote_pending_repartition_for_replaced_table(config: dict[str, Any]) -> None:
+    """Make a queued repartition target the scheme of the table that a reset is about to load again.
+
+    The load writes every row again, so it can write the target layout directly. A rewrite of the
+    old table before the reset is work that the reset deletes. The target is staged the same way as
+    for a full-refresh table (see `stage_partition_scheme_for_full_refresh`).
+
+    A target that cannot be promoted is removed with its checkpoint: it describes a table that no
+    longer exists, and post-load detection measures the new table. A staged swap stays, because its
+    recovery owns those markers.
+    """
+    if config.get("repartition_swap") is not None:
+        return
+    pending = pending_scheme_for_table_replacement(config)
+    if pending is None:
+        for key in ("repartition_pending", "repartition_rewrite"):
+            config.pop(key, None)
+        return
+    _stage_partition_scheme(
+        config,
+        partitioning_keys=pending.get("partition_keys"),
+        partition_count=pending.get("partition_count"),
+        partition_size=pending.get("partition_size"),
+        partition_mode=pending.get("partition_mode"),
+        partition_format=pending.get("partition_format"),
+    )
 
 
 def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
@@ -1670,7 +2082,7 @@ def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
 
 
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
-    """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
+    """Mark a schema's first successful sync complete. Called by the V3 loader's post-load.
 
     On the False→True transition, a CDC schema still in snapshot mode moves to
     ``cdc_mode="streaming"`` in the same row lock. Callers must only invoke this once the
@@ -1724,6 +2136,74 @@ def get_schemas_for_direct_reconciliation(
     current_names = set(current_schema_names)
     stale = [schema for schema in candidates if schema.name not in current_names]
     return DirectSchemaReconciliation(active_schemas=active, stale_schemas=stale)
+
+
+# A discovered schema can carry a stable identifier for its upstream resource under this key in its
+# `schema_metadata`. A source sets it when the resource keeps its identity through an upstream rename (a
+# Google Sheets worksheet keeps its sheet id when its title changes). Reconciliation then keeps the
+# stored schema, its table and its sync settings across the rename instead of disabling the schema and
+# offering the new name as a separate one.
+SCHEMA_RESOURCE_ID_METADATA_KEY = "source_resource_id"
+
+
+def _resource_id(metadata: object) -> str | None:
+    if isinstance(metadata, dict) and metadata.get(SCHEMA_RESOURCE_ID_METADATA_KEY) is not None:
+        return str(metadata[SCHEMA_RESOURCE_ID_METADATA_KEY])
+    return None
+
+
+def _renamed_schema_names(
+    old_schemas: list["ExternalDataSchema"],
+    new_schema_names: list[str],
+    schema_metadata_by_name: dict[str, dict],
+) -> dict[str, str]:
+    """Map each discovered name that is a renamed stored schema to that schema's stored name."""
+    stored_names = {schema.name for schema in old_schemas}
+    stored_name_by_resource_id: dict[str, str] = {}
+    for schema in old_schemas:
+        resource_id = _resource_id(schema.schema_metadata)
+        if resource_id is not None:
+            stored_name_by_resource_id[resource_id] = schema.name
+
+    renames: dict[str, str] = {}
+    for new_name in new_schema_names:
+        if new_name in stored_names:
+            continue
+        resource_id = _resource_id(schema_metadata_by_name.get(new_name))
+        stored_name = stored_name_by_resource_id.get(resource_id) if resource_id is not None else None
+        if stored_name is None:
+            continue
+        resource_at_stored_name = _resource_id(schema_metadata_by_name.get(stored_name))
+        if stored_name not in new_schema_names or resource_at_stored_name != resource_id:
+            renames[new_name] = stored_name
+    return renames
+
+
+def _apply_schema_renames[T](values: dict[str, T], renames: dict[str, str]) -> dict[str, T]:
+    rename_destinations = set(renames.values())
+    remapped = {
+        name: value for name, value in values.items() if name not in rename_destinations and name not in renames
+    }
+    remapped.update({renames[name]: values[name] for name in renames})
+    return remapped
+
+
+def _store_discovered_resource_ids(
+    old_schemas: list["ExternalDataSchema"], schema_metadata_by_name: dict[str, dict]
+) -> None:
+    for schema in old_schemas:
+        discovered_id = _resource_id(schema_metadata_by_name.get(schema.name))
+        if discovered_id is None or _resource_id(schema.schema_metadata) == discovered_id:
+            continue
+
+        def store_resource_id(config: dict[str, Any], discovered_id: str = discovered_id) -> None:
+            metadata = config.get("schema_metadata")
+            metadata = metadata if isinstance(metadata, dict) else {}
+            config["schema_metadata"] = {**metadata, SCHEMA_RESOURCE_ID_METADATA_KEY: discovered_id}
+
+        schema.sync_type_config = update_sync_type_config_keys(
+            schema_id=schema.id, team_id=schema.team_id, mutate=store_resource_id
+        )
 
 
 def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:
@@ -1782,6 +2262,17 @@ def sync_old_schemas_with_new_schemas(
 ) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
+
+    if schema_metadata_by_name:
+        # Discovery reports a renamed resource under its new name. Name it as the stored schema from
+        # here on, so the matching below keeps that row and refreshes its label to the new name.
+        renames = _renamed_schema_names(old_schemas, list(new_schemas), schema_metadata_by_name)
+        if renames:
+            new_schemas = _apply_schema_renames(new_schemas, renames)
+            if descriptions:
+                descriptions = _apply_schema_renames(descriptions, renames)
+            schema_metadata_by_name = _apply_schema_renames(schema_metadata_by_name, renames)
+        _store_discovered_resource_ids(old_schemas, schema_metadata_by_name)
 
     if descriptions:
         for old_schema in old_schemas:

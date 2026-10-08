@@ -1,6 +1,7 @@
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { MetricsQuery, NodeKind, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -25,7 +26,19 @@ export const manifest: ProductManifest = {
         metrics: (): string => '/metrics',
     },
     fileSystemTypes: {},
-    treeItemsNew: [],
+    treeItemsNew: [
+        {
+            path: `Insight/Metrics`,
+            type: 'insight',
+            href: urls.insightNew({
+                query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
+            }),
+            flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
+            iconType: 'metrics',
+            visualOrder: INSIGHT_VISUAL_ORDER.metrics,
+            sceneKeys: ['Insight'],
+        },
+    ],
     treeItemsProducts: [
         {
             path: 'Metrics',

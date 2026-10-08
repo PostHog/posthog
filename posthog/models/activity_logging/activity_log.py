@@ -33,6 +33,11 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Kafka rejects messages above `message.max.bytes` (1 MB by default), so leave room for the event envelope.
+MAX_INTERNAL_EVENT_DETAIL_BYTES = 512 * 1024
+_SUMMARY_DETAIL_KEYS = ("id", "short_id", "type", "name")
+_MAX_SUMMARY_NAME_LENGTH = 1000
+
 ACTIVITY_LOG_WRITE_FAILURES = Counter(
     "activity_log_write_failures_total",
     "Activity log rows that failed to write",
@@ -41,6 +46,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 
 ActivityScope = Literal[
     "Cohort",
+    "CrossProjectDashboard",
     "FeatureFlag",
     "Person",
     "Group",
@@ -124,6 +130,7 @@ ActivityScope = Literal[
     "TableCertification",
     "DataQualityCheck",
     "DataQualityCheckSchedule",
+    "WarehouseSuggestion",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -354,6 +361,7 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "AccountView": ["name", "content", "text_content"],
+    "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
         "inputs",
         "mappings",
@@ -510,7 +518,6 @@ replay_scanner_machine_fields = [
     "sweep_read_bytes_by_hour",
     "fast_read_bytes_by_hour",
     "deep_read_bytes_by_hour",
-    "feedback_themes",
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
@@ -520,6 +527,7 @@ replay_scanner_machine_fields = [
     "search_last_viewed_at",
     "prompt_question",
     "prompt_question_source",
+    "prompt_valence",
     "limit_notified_period_start",
     "admission_budget_used",
     "admission_budget_refreshed_at",
@@ -685,9 +693,17 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
+    "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
-    "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
+    "ReplayScanner": [
+        *replay_scanner_machine_fields,
+        "observations",
+        "backfills",
+        "learned_rulesets",
+        "alerts",
+    ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
@@ -719,6 +735,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "metric",
         "saved_query",
         "table",
+    ],
+    "WarehouseSuggestion": [
+        "evidence",
+        "score_inputs",
+        "payload",
     ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason
@@ -1018,6 +1039,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
+        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
+        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -1028,6 +1051,13 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "custom_oauth2_integrations",
         # Same hazard: the destination set is edited through its own endpoint, not by saving a source.
         "destination_links",
+        # The diff reads each reverse relation in full on both sides, after the save, so it never
+        # sees a real before-state. The view prefetches `schemas` without the deleted ones, so the
+        # two lists differ on every save and the entry stores every job and schema twice, which
+        # goes past the Kafka message limit for a source with a long sync history. Schemas log
+        # their own changes under the ExternalDataSchema scope, and jobs are sync runs, not user changes.
+        "jobs",
+        "schemas",
     ],
     "ExternalDataSchema": [
         "status",
@@ -1644,6 +1674,38 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
     return get_activity_page(activity_query, limit, page)
 
 
+def _json_size(value: Any) -> int:
+    return len(json.dumps(value).encode("utf-8"))
+
+
+def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
+    """Shrink an activity detail so the internal event stays under the Kafka message limit.
+
+    Returns the detail to send and a flag that tells if it was truncated.
+    """
+    if _json_size(detail) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return detail, False
+    if not isinstance(detail, dict):
+        return None, True
+
+    # First drop the change values and the free-form fields, but keep which fields changed.
+    bounded: dict[str, Any] = {key: detail.get(key) for key in _SUMMARY_DETAIL_KEYS if key in detail}
+    bounded["changes"] = [
+        {key: change.get(key) for key in ("type", "action", "field")}
+        for change in detail.get("changes") or []
+        if isinstance(change, dict)
+    ]
+    if _json_size(bounded) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return bounded, True
+
+    summary: dict[str, Any] = {key: detail.get(key) for key in _SUMMARY_DETAIL_KEYS if key in detail}
+    if isinstance(summary.get("name"), str):
+        summary["name"] = summary["name"][:_MAX_SUMMARY_NAME_LENGTH]
+    if _json_size(summary) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return summary, True
+    return None, True
+
+
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
@@ -1668,6 +1730,9 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         serialized_data = ActivityLogSerializer(instance).data
         # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
         serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
+        serialized_data["detail"], detail_truncated = bound_detail_for_internal_event(serialized_data["detail"])
+        if detail_truncated:
+            serialized_data["detail_truncated"] = True
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
@@ -1698,6 +1763,15 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
             )
     except Exception as e:
         # We don't want to hard fail here.
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Identify the entry by ids only: the detail can carry person data and runs to megabytes.
+        logger.exception(
+            "Failed to produce internal event",
+            activity_log_id=str(instance.id),
+            scope=instance.scope,
+            activity=instance.activity,
+            team_id=instance.team_id,
+            organization_id=instance.organization_id,
+            error=e,
+        )
         capture_exception(e)
         return

@@ -58,13 +58,14 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
             "Missing integration ID": "Intercom integration ID is not configured. Please reconnect your Intercom account.",
             "Integration not found": "The linked Intercom integration no longer exists. Please reconnect your Intercom account.",
             "Intercom access token not found": "Intercom OAuth access token is missing. Please reconnect your Intercom account.",
+            # Raised by intercom_source for a table Intercom only serves on a newer API version.
+            "requires Intercom API version": "This table needs a newer Intercom API version. Upgrade the source's API version, then sync again.",
         }
 
     def resume_covers_run(
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         # The companies Scroll API cannot preserve a cursor across worker hand-offs.
@@ -128,8 +129,11 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        resolved_version = self.resolve_api_version(api_version)
         schemas = []
         for endpoint_config in INTERCOM_ENDPOINTS.values():
+            if endpoint_config.api_versions is not None and resolved_version not in endpoint_config.api_versions:
+                continue
             incremental_fields = INCREMENTAL_FIELDS.get(endpoint_config.name, [])
             supports_incremental = bool(incremental_fields)
             schemas.append(

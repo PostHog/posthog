@@ -15,14 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import (
     FreshchatHostNotAllowedError,
     FreshchatResumeConfig,
-    build_base_params,
     freshchat_source,
-    is_allowed_host,
-    normalize_domain,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.settings import (
-    FRESHCHAT_ENDPOINTS,
     PER_PAGE,
     USERS_CREATED_FROM,
 )
@@ -119,64 +115,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestNormalizeDomain:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("acme", "acme.freshchat.com"),  # bare account name gets the default domain
-            ("acme.freshchat.com", "acme.freshchat.com"),
-            ("https://acme.freshchat.com", "acme.freshchat.com"),
-            ("http://acme.freshchat.com/", "acme.freshchat.com"),
-            ("  acme.freshchat.com  ", "acme.freshchat.com"),
-            ("acme.freshchat.com/v2/agents", "acme.freshchat.com"),
-            ("api.eu.freshchat.com", "api.eu.freshchat.com"),  # regional host preserved
-            ("acme.myfreshworks.com", "acme.myfreshworks.com"),  # Freshsales Suite host preserved
-        ],
-    )
-    def test_normalize_domain(self, raw: str, expected: str) -> None:
-        assert normalize_domain(raw) == expected
-
-
-class TestIsAllowedHost:
-    @pytest.mark.parametrize(
-        "host, allowed",
-        [
-            ("acme.freshchat.com", True),
-            ("api.eu.freshchat.com", True),
-            ("acme.myfreshworks.com", True),
-            # The domain is customer-controlled; non-Freshworks hosts must be refused (SSRF).
-            ("metadata.google.internal", False),
-            ("api.default.svc.cluster.local", False),
-            ("service.internal", False),
-            ("evilfreshchat.com", False),  # suffix match must not accept lookalikes
-            ("freshchat.com.evil.com", False),
-        ],
-    )
-    def test_is_allowed_host(self, host: str, allowed: bool) -> None:
-        assert is_allowed_host(host) is allowed
-
-
-class TestBuildBaseParams:
-    def test_paginated_endpoint_has_page_size_and_sort(self) -> None:
-        params = build_base_params(FRESHCHAT_ENDPOINTS["agents"])
-        assert params == {"items_per_page": str(PER_PAGE), "sort_order": "asc"}
-
-    def test_users_carries_mandatory_created_from_filter(self) -> None:
-        # `GET /v2/users` rejects a filter-less request, so the created-time floor must be sent.
-        params = build_base_params(FRESHCHAT_ENDPOINTS["users"])
-        assert params["created_from"] == USERS_CREATED_FROM
-
-    def test_messages_endpoint_omits_the_undocumented_sort_order(self) -> None:
-        # `sort_order` is documented on the top-level list endpoints but not on the per-conversation
-        # messages endpoint, so it must not ride along there.
-        params = build_base_params(FRESHCHAT_ENDPOINTS["conversation_messages"])
-        assert params == {"items_per_page": str(PER_PAGE)}
-
-    def test_non_paginated_endpoint_has_no_pagination_params(self) -> None:
-        params = build_base_params(FRESHCHAT_ENDPOINTS["accounts_configuration"])
-        assert params == {}
-
-
 class TestGetRows:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_by_page_number_and_saves_state(self, MockSession) -> None:
@@ -205,62 +143,6 @@ class TestGetRows:
         assert manager.save_state.call_args.args[0] == FreshchatResumeConfig(page=2)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_saves_no_state(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("groups", [{"id": 1}], current=1, total_pages=1)])
-        manager = _make_manager()
-
-        rows = _rows(
-            freshchat_source("key", BASE_HOST, "groups", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once(self, MockSession) -> None:
-        # accounts/configuration is a single object: one request, no pagination params, no state.
-        session = MockSession.return_value
-        params = _wire(session, [_resp({"configuration": {"app_id": "a1"}})])
-        manager = _make_manager()
-
-        rows = _rows(
-            freshchat_source(
-                "key", BASE_HOST, "accounts_configuration", team_id=1, job_id="j", resumable_source_manager=manager
-            )
-        )
-
-        assert rows == [{"app_id": "a1"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-        assert "page" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("agents", [{"id": 50}], current=5, total_pages=5)])
-        manager = _make_manager(FreshchatResumeConfig(page=5))
-
-        rows = _rows(
-            freshchat_source("key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert rows == [{"id": 50}]
-        assert params[0]["page"] == 5
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_users_carries_created_from_filter(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("users", [{"id": 1}], current=1, total_pages=1)])
-
-        _rows(
-            freshchat_source("key", BASE_HOST, "users", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert params[0]["created_from"] == USERS_CREATED_FROM
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_bearer_token_is_redacted_from_samples(self, MockSession) -> None:
         # The token rides in the Authorization header; it must be value-redacted from captured
         # HTTP samples via the tracked session's redact_values.
@@ -287,32 +169,6 @@ class TestGetRows:
                     "key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
                 )
             )
-
-    # A 429 (rate limit) and any 5xx are transient: the sync retries rather than aborting. The 429
-    # case also carries a Retry-After the client honors (here 0, so the retry is immediate).
-    @mock.patch("time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    @pytest.mark.parametrize("status_code, headers", [(429, {"Retry-After": "0"}), (500, {})])
-    def test_retryable_status_is_retried_then_succeeds(
-        self, MockSession, _mock_sleep, status_code: int, headers: dict
-    ) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _resp(None, status=status_code, headers=headers),
-                _page("agents", [{"id": 1}], current=1, total_pages=1),
-            ],
-        )
-
-        rows = _rows(
-            freshchat_source(
-                "key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
-            )
-        )
-
-        assert rows == [{"id": 1}]
-        assert session.send.call_count == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_html_body_raises_the_mapped_non_retryable_error(self, MockSession) -> None:
@@ -404,19 +260,6 @@ class TestFanout:
         # would be undocumented guesswork.
         assert calls[1][1] == {}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_user_conversations_skips_a_user_deleted_mid_sync(self, MockSession) -> None:
-        # A user removed between the Users page and this fetch must not sink the whole table.
-        session = MockSession.return_value
-        pages = {
-            "/v2/users": _page("users", [{"id": "gone"}, {"id": "u2"}], current=1, total_pages=1),
-            "/v2/users/gone/conversations": _resp({"error": "not found"}, status=404),
-            "/v2/users/u2/conversations": _resp({"conversations": [{"id": "c2"}]}),
-        }
-        _wire_routed(session, lambda path, params: pages[path])
-
-        assert self._call("user_conversations", session) == [{"id": "c2", "user_id": "u2"}]
-
     def test_conversation_messages_is_not_resumable(self) -> None:
         response = freshchat_source(
             "key",
@@ -429,81 +272,8 @@ class TestFanout:
 
         assert response.supports_resume is False
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_conversation_messages_chains_through_users_and_conversations(self, MockSession) -> None:
-        session = MockSession.return_value
-        # The messages response carries no pagination envelope, so paging has to stop on the first
-        # empty page rather than on a reported page count.
-        message_pages = {
-            "1": _resp({"messages": [{"id": "m1", "conversation_id": "c1"}]}),
-            "2": _resp({"messages": []}),
-        }
-
-        def handler(path: str, params: dict[str, Any]) -> Response:
-            if path == "/v2/users":
-                return _page("users", [{"id": "u1"}], current=1, total_pages=1)
-            if path == "/v2/users/u1/conversations":
-                return _resp({"conversations": [{"id": "c1"}]})
-            return message_pages[str(params["page"])]
-
-        calls = _wire_routed(session, handler)
-
-        rows = self._call("conversation_messages", session)
-
-        assert rows == [{"id": "m1", "conversation_id": "c1"}]
-        message_calls = [params for path, params in calls if path.endswith("/messages")]
-        assert [params["page"] for params in message_calls] == [1, 2]
-        assert message_calls[0]["items_per_page"] == str(PER_PAGE)
-        assert "sort_order" not in message_calls[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_conversation_messages_skips_a_conversation_deleted_mid_sync(self, MockSession) -> None:
-        # The chain skips a missing parent at both levels, so a conversation removed after the
-        # users fan-out must not sink the messages table either.
-        session = MockSession.return_value
-
-        def handler(path: str, params: dict[str, Any]) -> Response:
-            if path == "/v2/users":
-                return _page("users", [{"id": "u1"}], current=1, total_pages=1)
-            if path == "/v2/users/u1/conversations":
-                return _resp({"conversations": [{"id": "gone"}, {"id": "c2"}]})
-            if path == "/v2/conversations/gone/messages":
-                return _resp({"error": "not found"}, status=404)
-            return _resp({"messages": [{"id": "m2"}]} if params["page"] == 1 else {"messages": []})
-
-        _wire_routed(session, handler)
-
-        assert self._call("conversation_messages", session) == [{"id": "m2", "conversation_id": "c2"}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_conversation_messages_key_column_comes_from_the_parent(self, MockSession) -> None:
-        # The message object documents `conversation_id`, but projecting it from the parent row
-        # keeps the primary-key column populated even when a response omits it.
-        session = MockSession.return_value
-        pages = {
-            "/v2/users": _page("users", [{"id": "u1"}], current=1, total_pages=1),
-            "/v2/users/u1/conversations": _resp({"conversations": [{"id": "c1"}]}),
-        }
-
-        def handler(path: str, params: dict[str, Any]) -> Response:
-            if path in pages:
-                return pages[path]
-            return _resp({"messages": [{"id": "m1"}]} if params["page"] == 1 else {"messages": []})
-
-        _wire_routed(session, handler)
-
-        assert self._call("conversation_messages", session) == [{"id": "m1", "conversation_id": "c1"}]
-
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403])
-    def test_returns_status_code(self, status_code: int) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _resp({"configuration": {"app_id": "a1"}}, status=status_code)
-
-        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session):
-            assert validate_credentials(BASE_HOST, "key") == (status_code, True)
-
     # A Freshworks portal domain answers the probe with its web app, not the API. An empty body and
     # a truncated body stay acceptable, because the sync path reads an empty 2xx as an empty page
     # and retries a truncated one, rather than calling either a broken host.

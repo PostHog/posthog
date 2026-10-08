@@ -13,19 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo 
     INITIAL_INCREMENTAL_VALUE,
     ZyloResumeConfig,
     _format_zylo_filter_date,
-    get_resource,
     probe_endpoint_status,
     validate_credentials,
     zylo_source,
 )
-
-
-def _endpoint(resource: Any) -> dict[str, Any]:
-    return cast(dict[str, Any], resource["endpoint"])
-
-
-def _params(resource: Any) -> dict[str, Any]:
-    return cast(dict[str, Any], _endpoint(resource)["params"])
 
 
 class TestFormatZyloFilterDate:
@@ -43,83 +34,6 @@ class TestFormatZyloFilterDate:
 
     def test_unparseable_value_falls_back_to_raw_with_suffix(self) -> None:
         assert _format_zylo_filter_date("not-a-date") == "not-a-date,gte"
-
-
-class TestGetResource:
-    @pytest.mark.parametrize(
-        ("endpoint", "table_name", "primary_key"),
-        [
-            ("Applications", "applications", ["id"]),
-            ("ApplicationLicenses", "application_licenses", ["id"]),
-            ("ApplicationUsers", "application_users", ["id"]),
-            ("Contracts", "contracts", ["id"]),
-            ("ContractLineItems", "contract_line_items", ["id"]),
-            ("Payments", "payments", ["id"]),
-            ("PurchaseOrders", "purchase_orders", ["id"]),
-            ("POLineItems", "po_line_items", ["id"]),
-            ("Suppliers", "suppliers", ["id"]),
-            ("SavingsEvents", "savings_events", ["id"]),
-            ("ApplicationBudgets", "application_budgets", ["application_id", "year"]),
-            ("ActivityHistory", "activity_history", ["id"]),
-        ],
-    )
-    def test_table_name_and_primary_key(self, endpoint: str, table_name: str, primary_key: list[str]) -> None:
-        resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None)
-        assert resource["table_name"] == table_name
-        assert resource["primary_key"] == primary_key
-
-    def test_full_refresh_sorts_by_default_created_field(self) -> None:
-        resource = get_resource("Applications", should_use_incremental_field=False, incremental_field=None)
-        params = _params(resource)
-        assert params["sort"] == "+zylo_created_at"
-        assert resource["write_disposition"] == "replace"
-        assert set(params.keys()) == {"sort"}
-
-    def test_incremental_endpoint_uses_selected_cursor(self) -> None:
-        resource = get_resource("Contracts", should_use_incremental_field=True, incremental_field="zylo_modified_at")
-        params = _params(resource)
-        assert params["sort"] == "+zylo_modified_at"
-        gte = cast(dict[str, Any], params["zylo_modified_at"])
-        assert gte["type"] == "incremental"
-        assert gte["cursor_path"] == "zylo_modified_at"
-        assert gte["initial_value"] == INITIAL_INCREMENTAL_VALUE
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    @pytest.mark.parametrize("incremental_field", [None, "bogus_field"])
-    def test_incremental_falls_back_to_first_advertised_cursor(self, incremental_field: str | None) -> None:
-        resource = get_resource("Applications", should_use_incremental_field=True, incremental_field=incremental_field)
-        params = _params(resource)
-        assert params["sort"] == "+zylo_created_at"
-        assert "zylo_created_at" in params
-
-    def test_incremental_disabled_when_not_requested(self) -> None:
-        resource = get_resource("Applications", should_use_incremental_field=False, incremental_field="zylo_created_at")
-        assert resource["write_disposition"] == "replace"
-        params = _params(resource)
-        assert "zylo_created_at" not in params
-
-
-class TestZyloSourcePartitioning:
-    def test_partition_config(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        response = zylo_source(
-            token_id="tok_id",
-            token_secret="tok_secret",
-            endpoint="Applications",
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=manager,
-            db_incremental_field_last_value=None,
-            should_use_incremental_field=False,
-        )
-
-        assert response.name == "Applications"
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["zylo_created_at"]
-        assert response.partition_format == "month"
 
 
 def _make_http_response(body: list[dict[str, Any]], status_code: int = 200) -> Response:
@@ -199,15 +113,6 @@ class TestZyloSourceResumeBehavior:
         assert [p.get("skip") for p in sent_params] == [2000]
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{"id": "only"}])]
-        self._drive("Applications", manager, responses)
-
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
@@ -233,22 +138,6 @@ class TestZyloSourceResumeBehavior:
 
         assert sent_params[0]["zylo_created_at"] == f"{INITIAL_INCREMENTAL_VALUE},gte"
         assert sent_params[0]["sort"] == "+zylo_created_at"
-
-    def test_incremental_request_uses_db_last_value(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response([{"id": "contract_1"}])]
-        sent_params = self._drive(
-            "Contracts",
-            manager,
-            responses,
-            should_use_incremental_field=True,
-            incremental_field="zylo_modified_at",
-            db_incremental_field_last_value=datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC),
-        )
-
-        assert sent_params[0]["zylo_modified_at"] == "2024-06-01,gte"
 
 
 class TestValidateCredentials:

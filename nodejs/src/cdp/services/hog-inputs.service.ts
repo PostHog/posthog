@@ -15,6 +15,8 @@ import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
+const EMAIL_INPUT_TYPES = ['native_email', 'email']
+
 export class HogInputsService {
     constructor(
         private integrationManager: IntegrationManagerService,
@@ -45,11 +47,24 @@ export class HogInputsService {
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
         const liquidBudget = new LiquidRenderBudget()
 
+        // Build a lookup of schema types for rendering and post-render coercion
+        const schemaTypes: Record<string, string> = {}
+        for (const schema of hogFunction.inputs_schema ?? []) {
+            schemaTypes[schema.key] = schema.type
+        }
+
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
-                return formatLiquidInput(input.value, newGlobals, key, liquidBudget)
+                let value = input.value
+                // `design` is the email editor's state and is never sent. Its JSON-encoded strings escape quotes
+                // as \", which Liquid cannot parse. validation.py drops it the same way before it compiles hog.
+                if (EMAIL_INPUT_TYPES.includes(schemaTypes[key]) && value?.design !== undefined) {
+                    const { design: _design, ...rest } = value
+                    value = rest
+                }
+                return formatLiquidInput(value, newGlobals, key, liquidBudget)
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {
@@ -63,9 +78,7 @@ export class HogInputsService {
         }
 
         // Add unsubscribe url if we have an email input here
-        const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
-            ['native_email', 'email'].includes(input.type)
-        )
+        const emailInputSchema = hogFunction.inputs_schema?.find((input) => EMAIL_INPUT_TYPES.includes(input.type))
         const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
 
         if (emailInputSchema && emailInput) {
@@ -84,12 +97,6 @@ export class HogInputsService {
                     identifier: emailValue.to.email,
                 })
             }
-        }
-
-        // Build a lookup of schema types for post-render coercion
-        const schemaTypes: Record<string, string> = {}
-        for (const schema of hogFunction.inputs_schema ?? []) {
-            schemaTypes[schema.key] = schema.type
         }
 
         const orderedInputs = Object.entries(inputs ?? {}).sort(([_k1, input1], [_k2, input2]) => {

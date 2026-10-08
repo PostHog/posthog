@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM lifecycle_op\n        WHERE op_id = $1 AND team_id = $2 AND op_type = 'delete'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "138b31578ae24294373586142495b6fef5a1750e00e4797687861e4d0f1be82a"
+}

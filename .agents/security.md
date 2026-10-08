@@ -198,6 +198,9 @@ A script or request that goes to another PostHog subdomain needs its host in the
 Local runs, E2E runs and self-hosted installs keep the wildcards, so a missing host breaks only production.
 On PostHog Cloud, each app document also sends a report-only policy that holds only `img-src` without `https:`.
 It blocks nothing, and its reports (`$csp_version` 5) list the image hosts that only `https:` admits.
+A second report-only policy holds only `style-src` and `font-src`, with each PostHog host named instead of `*.posthog.com`.
+Its reports (`$csp_version` 6) list the PostHog stylesheet and font hosts that the named list misses.
+A stylesheet or font from another PostHog subdomain needs its host in the list that `CSPMiddleware` passes to `style_font_shadow_policy()`.
 Name a new image host in `img-src` anyway, so that removing `https:` later does not break it.
 A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/presentation/views/hog_flow.py`.
 `CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.

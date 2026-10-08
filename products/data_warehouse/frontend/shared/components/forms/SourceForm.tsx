@@ -413,6 +413,7 @@ export const sourceFieldToElement = (
                 fieldName={field.name}
                 fieldLabel={field.label}
                 credentialFields={field.credentialFields}
+                integrationField={field.integrationField ?? undefined}
                 sourceType={sourceConfig.name}
                 placeholder={field.placeholder ?? undefined}
                 caption={field.caption ?? undefined}

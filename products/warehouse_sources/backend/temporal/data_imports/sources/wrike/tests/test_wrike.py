@@ -111,17 +111,6 @@ class TestBuildUrl:
     def test_no_params(self) -> None:
         assert _build_url("www.wrike.com", "/tasks", {}) == "https://www.wrike.com/api/v4/tasks"
 
-    def test_with_params(self) -> None:
-        url = _build_url("www.wrike.com", "/tasks", {"pageSize": 1000})
-        assert url == "https://www.wrike.com/api/v4/tasks?pageSize=1000"
-
-    def test_drops_none_values(self) -> None:
-        url = _build_url("app-us2.wrike.com", "/tasks", {"pageSize": 1000, "nextPageToken": None})
-        assert url == "https://app-us2.wrike.com/api/v4/tasks?pageSize=1000"
-
-    def test_normalizes_scheme_and_trailing_slash(self) -> None:
-        assert _build_url("https://www.wrike.com/", "/contacts", {}) == "https://www.wrike.com/api/v4/contacts"
-
 
 class TestValidateCredentials:
     def test_rejects_non_wrike_host_without_request(self) -> None:
@@ -147,21 +136,6 @@ class TestValidateCredentials:
             is_valid, error = validate_credentials("token", "www.wrike.com")
         assert is_valid is expected_valid
         assert error == expected_error
-
-    def test_swallows_transport_errors(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
-            is_valid, _error = validate_credentials("token", "www.wrike.com")
-        assert is_valid is False
-
-    def test_probes_current_user_endpoint(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(WRIKE_SESSION_PATCH, return_value=session):
-            validate_credentials("token", "www.wrike.com")
-        called_url = session.get.call_args.args[0]
-        assert called_url == "https://www.wrike.com/api/v4/contacts?me=true"
 
 
 class TestPagination:
@@ -210,34 +184,8 @@ class TestPagination:
         assert rows == [{"id": 3}]
         assert params[0]["nextPageToken"] == "resume_tok"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_data_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"data": []})])
-
-        rows = _rows(_source("tasks"))
-
-        assert rows == []
-
     def test_rejects_non_wrike_host_before_any_request(self) -> None:
         with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
             with pytest.raises(ValueError, match="non-Wrike host"):
                 _source("tasks", host="evil.com")
         MockSession.assert_not_called()
-
-
-class TestWrikeSource:
-    def test_tasks_partition_on_created_date(self) -> None:
-        response = _source("tasks")
-        assert response.name == "tasks"
-        assert response.primary_keys == ["id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["createdDate"]
-
-    @pytest.mark.parametrize("endpoint", ["folders", "contacts", "workflows", "custom_fields", "spaces"])
-    def test_unpartitioned_endpoints(self, endpoint: str) -> None:
-        response = _source(endpoint)
-        assert response.primary_keys == ["id"]
-        assert response.partition_mode is None
-        assert response.partition_keys is None

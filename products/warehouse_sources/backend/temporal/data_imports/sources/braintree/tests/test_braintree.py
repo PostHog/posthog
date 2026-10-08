@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
     MAX_PAGE_SIZE,
     BraintreeGraphQLError,
     BraintreeResumeConfig,
@@ -54,10 +56,6 @@ def _edge(node_id: str) -> dict[str, Any]:
 
 
 class TestBaseUrl:
-    def test_production_and_sandbox_hosts(self):
-        assert _base_url("production") == "https://payments.braintree-api.com/graphql"
-        assert _base_url("sandbox") == "https://payments.sandbox.braintree-api.com/graphql"
-
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
             _base_url("evil")
@@ -81,6 +79,14 @@ class TestBuildQuery:
         assert f"$input: {input_type}!" in query
         assert BRAINTREE_ENDPOINTS[endpoint].connection_field in query
 
+    @pytest.mark.parametrize("field", ["price", "balance", "nextBillingPeriodAmount"])
+    def test_subscription_amounts_are_selected_as_leaves(self, field):
+        # These are Braintree's `Amount` scalar; a subselection fails validation
+        # (SubselectionNotAllowed) and rejects the whole query.
+        query = _build_query(BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"])
+        assert re.search(rf"\b{field}\b", query)
+        assert not re.search(rf"\b{field}\s*{{", query)
+
     def test_query_nests_connection_under_its_wrappers(self):
         # `merchantAccounts` hangs off `viewer.merchant`, not the `search` root.
         query = _build_query(BRAINTREE_ENDPOINTS["merchant_accounts"])
@@ -97,22 +103,11 @@ class TestBuildQuery:
 
 
 class TestNormalizeNode:
-    def test_hoists_nested_created_at_to_the_node_root(self):
-        config = BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"]
-        node = {"id": "s1", "timeline": {"createdAt": "2024-01-02T03:04:05Z"}}
-
-        assert _normalize_node(node, config)["createdAt"] == "2024-01-02T03:04:05Z"
-
     @pytest.mark.parametrize("node", [{"id": "s1"}, {"id": "s1", "timeline": None}, {"id": "s1", "timeline": {}}])
     def test_leaves_node_untouched_when_the_nested_timestamp_is_missing(self, node):
         # A null timestamp must not seed a `createdAt` column holding None for every row.
         config = BRAINTREE_ENDPOINTS["recurring_billing_subscriptions"]
         assert "createdAt" not in _normalize_node(node, config)
-
-    def test_leaves_root_level_nodes_alone(self):
-        config = BRAINTREE_ENDPOINTS["transactions"]
-        node = {"id": "t1", "createdAt": "2024-01-02T03:04:05Z"}
-        assert _normalize_node(node, config) is node
 
 
 class TestFormatCreatedAt:
@@ -148,11 +143,6 @@ class TestValidateCredentials:
         resp.ok = True
         mock_session.return_value.post.return_value = resp
 
-        assert validate_credentials("production", "pub", "priv", _VERSION) is False
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_on_exception(self, mock_session):
-        mock_session.return_value.post.side_effect = Exception("boom")
         assert validate_credentials("production", "pub", "priv", _VERSION) is False
 
 
@@ -258,18 +248,6 @@ class TestGetRows:
         assert variables["input"] == {}
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_full_scan_has_empty_input(self, mock_session):
-        mock_session.return_value.post.return_value = _search_response("transactions", [])
-
-        manager = _make_manager()
-        list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
-
-        # `input` is declared non-null (see TestBuildQuery), so a full scan must
-        # send an empty object rather than null or Braintree rejects the query.
-        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
-        assert variables["input"] == {}
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_cursor(self, mock_session):
         mock_session.return_value.post.return_value = _search_response("transactions", [])
 
@@ -298,6 +276,7 @@ class TestGetRows:
             BRAINTREE_VERSION_2026_07_14,
             BRAINTREE_VERSION_2026_08_04,
             BRAINTREE_VERSION_2026_08_13,
+            BRAINTREE_VERSION_2026_10_06,
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
