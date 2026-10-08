@@ -19,7 +19,11 @@ from posthog.temporal.ai.slack_app.types import SlackAppModelOverride, SlackAppM
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.facade.run_preferences import ModelRouterOption, model_router_options
+from products.slack_app.backend.facade.run_preferences import (
+    MODEL_ROUTER_INSTRUCTIONS,
+    ModelRouterOption,
+    model_router_options,
+)
 from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled
 from products.slack_app.backend.services.slack_settings import resolve_auto_model_choice
 
@@ -31,17 +35,6 @@ MODEL_ROUTER_DECISION_MODEL = DEFAULT_DECISION_MODEL
 MODEL_ROUTER_TIMEOUT_SECONDS = 5.0
 
 _QUESTION_ID = "model"
-
-# User text stays in `state`. The instructions only name the fields, so the request cannot
-# become an instruction.
-MODEL_ROUTER_INSTRUCTIONS = (
-    "state.request is a Slack message that asks the PostHog agent to do a task. "
-    "state.repository is the code repository the task works in, or null when the task has no repository. "
-    "Pick the option that will get this task done correctly at the lowest cost. "
-    "A large code change, a hard bug, or research across many files needs a smarter option. "
-    "A short question, a data lookup, or a small edit needs a faster option. "
-    "When options fit equally well, pick the user's personal default, then the project default."
-)
 
 
 def route_slack_app_model(
