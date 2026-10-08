@@ -6326,6 +6326,10 @@ snapshots:
         hash: v1.k794b7964.2bcd3736aebabc2318ff73411a9a91afe46482ad9bd6b956384d5bae6df59471.K6FU2bGvPPBZdFlHEPr5VDzBofsHaZtUvErUaJZ2f6Y
     metrics-metricscatalog--narrow--light:
         hash: v1.k794b7964.a3e0f3eca9aaa6069dba0367ecd31c7bd9d47c9172e06ac68f0ebdad551dcb56.EhcEcU7jd55Gt3GugyXqtOowPSUwBvacNVGulhHN1t0
+    metrics-metricsdashboardimportmodal--import-summary--dark:
+        hash: v1.k794b7964.9d9cb83c4714d18eaca7c7bfdfd62d78a3839b1d049c711ef4f3eaa98858321b.1H7SOSAkpM57Z9hDnaf_jhToYuu9vTJFaPCjskzUyvw
+    metrics-metricsdashboardimportmodal--import-summary--light:
+        hash: v1.k794b7964.e4d44232d2a0643510f92059a11d0cc44a00cdbfcbefa9d373510d913a2c7ed6.ggMWBEA6C71dg8L40PMTETJXurjD1jjqso7fp42sACo
     posthog-3000-keyboard-shortcut--default--dark:
         hash: v1.k794b7964.a5fc5a426df52137d3fb6377a06c7b39c36b041280de154cf2b95cbe46932b8d.f2HHu2jv6bztshqmrVtHpiuuv3PJZNskIh7SbZRgIpk
     posthog-3000-keyboard-shortcut--default--light:
