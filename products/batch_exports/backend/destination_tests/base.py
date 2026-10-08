@@ -1,9 +1,10 @@
 import abc
 import enum
-import dataclasses
 import collections.abc
 
 from asgiref.sync import async_to_sync
+
+from posthog.dataclasses import frozen
 
 
 class Status(enum.StrEnum):
@@ -12,7 +13,7 @@ class Status(enum.StrEnum):
     SKIPPED = "Skipped"
 
 
-@dataclasses.dataclass
+@frozen
 class DestinationTestStepResult:
     """The result of a test step.
 
