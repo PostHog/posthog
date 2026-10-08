@@ -439,10 +439,20 @@ pub struct Config {
     // check, write, and read, the group type mapping lookup, and the properties fetch.
     // statement_timeout cannot cancel a query on a database that has stopped answering.
     // Only this timer bounds the request then. On expiry, the flags that need persons data
-    // return an error and the other flags evaluate normally. The default leaves 2s of the
-    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    // return an error and the other flags evaluate normally. The budget starts just before
+    // evaluation. With no permit wait, the default leaves 2s of the 4.5s REQUEST_TIMEOUT_MS for
+    // the rest of the request. `Config::persons_db_deadline` moves the deadline earlier when the
+    // wait for a concurrency permit leaves less than PERSONS_DB_DEADLINE_RESERVE_MS of that 2s.
+    // 0 disables the deadline.
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
     pub persons_db_deadline_ms: u64,
+
+    // The rest of a /flags request has at least this long to finish after the persons DB
+    // deadline. `Config::persons_db_deadline` never sets the deadline later than this long before
+    // REQUEST_TIMEOUT_MS ends. Startup clamps it between `Config::MIN_PERSONS_DB_DEADLINE_RESERVE_MS`
+    // and `Config::MAX_PERSONS_DB_DEADLINE_RESERVE_MS`.
+    #[envconfig(from = "PERSONS_DB_DEADLINE_RESERVE_MS", default = "500")]
+    pub persons_db_deadline_reserve_ms: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -1067,6 +1077,13 @@ impl Config {
     const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
     const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
 
+    /// With less time, the flags evaluated after the persons DB calls may not finish before the
+    /// request timeout returns a 503.
+    const MIN_PERSONS_DB_DEADLINE_RESERVE_MS: u64 = 100;
+    /// The work after the persons DB calls needs far less time. A larger reserve only takes time
+    /// from the persons DB budget.
+    const MAX_PERSONS_DB_DEADLINE_RESERVE_MS: u64 = 2_000;
+
     /// Validate and fix timeout configuration, logging warnings and applying defaults for invalid values
     ///
     /// This method checks timeout values and relationships, applying safe defaults when invalid
@@ -1104,6 +1121,47 @@ impl Config {
                 self.redis_response_timeout_ms,
                 self.redis_connection_timeout_ms
             );
+        }
+
+        let reserve_ms = self.persons_db_deadline_reserve_ms.clamp(
+            Self::MIN_PERSONS_DB_DEADLINE_RESERVE_MS,
+            Self::MAX_PERSONS_DB_DEADLINE_RESERVE_MS,
+        );
+        if reserve_ms != self.persons_db_deadline_reserve_ms {
+            tracing::warn!(
+                configured = self.persons_db_deadline_reserve_ms,
+                using = reserve_ms,
+                "PERSONS_DB_DEADLINE_RESERVE_MS is outside {}..={}ms, clamping",
+                Self::MIN_PERSONS_DB_DEADLINE_RESERVE_MS,
+                Self::MAX_PERSONS_DB_DEADLINE_RESERVE_MS
+            );
+            self.persons_db_deadline_reserve_ms = reserve_ms;
+        }
+
+        if let Some(problem) = self.persons_db_deadline_misconfiguration() {
+            tracing::warn!(
+                persons_db_deadline_ms = self.persons_db_deadline_ms,
+                persons_db_deadline_reserve_ms = self.persons_db_deadline_reserve_ms,
+                request_timeout_ms = self.request_timeout_ms,
+                "{problem}"
+            );
+        }
+    }
+
+    /// Why the persons DB deadline settings defeat the deadline, or `None` when they do not.
+    fn persons_db_deadline_misconfiguration(&self) -> Option<&'static str> {
+        if self.persons_db_deadline_ms == 0 {
+            None
+        } else if self.request_timeout_ms <= self.persons_db_deadline_reserve_ms {
+            Some("REQUEST_TIMEOUT_MS is not more than PERSONS_DB_DEADLINE_RESERVE_MS, so every persons DB call fails without running")
+        } else if self
+            .persons_db_deadline_ms
+            .saturating_add(self.persons_db_deadline_reserve_ms)
+            >= self.request_timeout_ms
+        {
+            Some("PERSONS_DB_DEADLINE_MS plus PERSONS_DB_DEADLINE_RESERVE_MS is at least REQUEST_TIMEOUT_MS, so the request timeout always sets the persons DB deadline and PERSONS_DB_DEADLINE_MS has no effect")
+        } else {
+            None
         }
     }
 
@@ -1161,6 +1219,7 @@ impl Config {
             cohort_membership_cache_max_entries: 50_000,
             realtime_cohort_lookup_timeout_ms: 1000,
             persons_db_deadline_ms: 30_000,
+            persons_db_deadline_reserve_ms: 500,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1333,10 +1392,26 @@ impl Config {
         }
     }
 
-    /// The budget for all persons DB work in one flag evaluation, or `None` when disabled.
-    pub fn persons_db_deadline(&self) -> Option<std::time::Duration> {
-        (self.persons_db_deadline_ms > 0)
-            .then(|| std::time::Duration::from_millis(self.persons_db_deadline_ms))
+    /// The instant when all persons DB work in one flag evaluation stops, or `None` when disabled.
+    /// The `persons_db_deadline_ms` budget counts from this call. The request timeout counts from
+    /// `request_entered_at`, before the wait for a concurrency permit. The deadline is never later
+    /// than `persons_db_deadline_reserve_ms` before the request timeout ends, so the rest of the
+    /// request has that long to finish. When `request_timeout_ms` is not more than the reserve,
+    /// the deadline is the arrival time and every persons DB call fails.
+    pub fn persons_db_deadline(
+        &self,
+        request_entered_at: tokio::time::Instant,
+    ) -> Option<tokio::time::Instant> {
+        (self.persons_db_deadline_ms > 0).then(|| {
+            let budget_end = tokio::time::Instant::now()
+                + std::time::Duration::from_millis(self.persons_db_deadline_ms);
+            let request_cap = request_entered_at
+                + std::time::Duration::from_millis(
+                    self.request_timeout_ms
+                        .saturating_sub(self.persons_db_deadline_reserve_ms),
+                );
+            budget_end.min(request_cap)
+        })
     }
 
     /// Check if persons database routing is enabled
@@ -1694,6 +1769,72 @@ mod tests {
         assert_eq!(
             config.redis_connection_timeout_ms,
             Config::MAX_CONNECTION_TIMEOUT_MS
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::below_minimum(0, 100)]
+    #[case::in_range(500, 500)]
+    #[case::above_maximum(10_000, 2_000)]
+    fn test_validate_and_fix_timeouts_clamps_persons_db_deadline_reserve(
+        #[case] configured_ms: u64,
+        #[case] expected_ms: u64,
+    ) {
+        let mut config = Config::default_test_config();
+        config.persons_db_deadline_reserve_ms = configured_ms;
+        config.validate_and_fix_timeouts();
+        assert_eq!(config.persons_db_deadline_reserve_ms, expected_ms);
+    }
+
+    #[rstest::rstest]
+    #[case::fits(2500, 500, 4500, false)]
+    #[case::budget_reaches_the_cap(2500, 2000, 4500, true)]
+    #[case::request_timeout_within_the_reserve(2500, 500, 400, true)]
+    #[case::disabled(0, 500, 100, false)]
+    fn test_persons_db_deadline_misconfiguration(
+        #[case] persons_db_deadline_ms: u64,
+        #[case] reserve_ms: u64,
+        #[case] request_timeout_ms: u64,
+        #[case] misconfigured: bool,
+    ) {
+        let mut config = Config::default_test_config();
+        config.persons_db_deadline_ms = persons_db_deadline_ms;
+        config.persons_db_deadline_reserve_ms = reserve_ms;
+        config.request_timeout_ms = request_timeout_ms;
+        assert_eq!(
+            config.persons_db_deadline_misconfiguration().is_some(),
+            misconfigured
+        );
+    }
+
+    // The cap is the request timeout minus the reserve, counted from arrival.
+    #[rstest::rstest]
+    #[case::short_permit_wait(2500, 500, 4500, 1000, Some(3500))]
+    #[case::long_permit_wait(2500, 500, 4500, 3000, Some(4000))]
+    #[case::larger_reserve(2500, 1000, 4500, 3000, Some(3500))]
+    #[case::waited_past_the_cap(2500, 500, 4500, 4200, Some(4000))]
+    #[case::request_timeout_within_the_reserve(2500, 500, 400, 0, Some(0))]
+    #[case::disabled(0, 500, 4500, 0, None)]
+    #[tokio::test(start_paused = true)]
+    async fn test_persons_db_deadline_is_capped_by_the_request_timeout(
+        #[case] persons_db_deadline_ms: u64,
+        #[case] reserve_ms: u64,
+        #[case] request_timeout_ms: u64,
+        #[case] permit_wait_ms: u64,
+        #[case] expected_ms_after_arrival: Option<u64>,
+    ) {
+        use std::time::Duration;
+
+        let mut config = Config::default_test_config();
+        config.persons_db_deadline_ms = persons_db_deadline_ms;
+        config.persons_db_deadline_reserve_ms = reserve_ms;
+        config.request_timeout_ms = request_timeout_ms;
+        let arrival = tokio::time::Instant::now();
+        tokio::time::advance(Duration::from_millis(permit_wait_ms)).await;
+
+        assert_eq!(
+            config.persons_db_deadline(arrival),
+            expected_ms_after_arrival.map(|ms| arrival + Duration::from_millis(ms))
         );
     }
 
