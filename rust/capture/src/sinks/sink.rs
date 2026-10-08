@@ -47,9 +47,6 @@ pub enum Outcome {
     Failed(CaptureError),
 }
 
-/// Per-event publish result. Results align with the input by position;
-/// the uuid may repeat within a batch (v0 accepts client-supplied uuids
-/// unchecked), so position, not uuid, identifies the event.
 #[derive(Debug)]
 pub struct SinkResult {
     pub uuid: Uuid,

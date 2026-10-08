@@ -173,6 +173,8 @@ impl Failover {
 
         let mut results = self.primary.publish_prepared(events.clone()).await;
         debug_assert_eq!(results.len(), events.len());
+        // Retry by position, not uuid: v0 accepts client-supplied uuids
+        // unchecked, so a batch can repeat one.
         let retry: Vec<usize> = results
             .iter()
             .enumerate()
