@@ -9,6 +9,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
@@ -274,12 +275,13 @@ class TestEventsWindowPagination:
     @time_machine.travel("2024-01-20", tick=False)
     def test_walks_weekly_windows_with_bounded_range(self):
         last_value = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1000)
-        _rows, urls, manager = _run(
-            "events",
-            [{"events": [{"id": 1}]}],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=last_value,
-        )
+        with mock.patch.object(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0):
+            _rows, urls, manager = _run(
+                "events",
+                [{"events": [{"id": 1}]}],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=last_value,
+            )
         # 2024-01-01 .. 2024-01-20 chunked into <= 7-day windows
         assert "start=2024-01-01" in urls[0]
         assert "end=2024-01-08" in urls[0]

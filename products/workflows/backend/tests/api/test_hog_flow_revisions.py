@@ -10,7 +10,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.presentation.views.hog_flow import DRAFT_CONTENT_FIELDS, snapshot_flow_content
+from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_FIELDS, snapshot_flow_content
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 

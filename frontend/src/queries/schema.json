@@ -5407,83 +5407,24 @@
             "type": "object"
         },
         "AssistantTrendsDisplayType": {
-            "anyOf": [
-                {
-                    "const": "Auto",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsLineGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsBar",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsUnstackedBar",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsAreaGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsLineGraphCumulative",
-                    "type": "string"
-                },
-                {
-                    "const": "BoldNumber",
-                    "type": "string"
-                },
-                {
-                    "const": "Metric",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsPie",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsDonut",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsBarValue",
-                    "type": "string"
-                },
-                {
-                    "const": "ActionsTable",
-                    "type": "string"
-                },
-                {
-                    "const": "WorldMap",
-                    "type": "string"
-                },
-                {
-                    "const": "CalendarHeatmap",
-                    "type": "string"
-                },
-                {
-                    "const": "TwoDimensionalHeatmap",
-                    "type": "string"
-                },
-                {
-                    "const": "BoxPlot",
-                    "type": "string"
-                },
-                {
-                    "const": "SlopeGraph",
-                    "type": "string"
-                },
-                {
-                    "const": "ScatterPlot",
-                    "type": "string"
-                },
-                {
-                    "not": {}
-                }
-            ]
+            "enum": [
+                "ActionsLineGraph",
+                "ActionsBar",
+                "ActionsUnstackedBar",
+                "ActionsAreaGraph",
+                "ActionsLineGraphCumulative",
+                "SlopeGraph",
+                "BoxPlot",
+                "Metric",
+                "BoldNumber",
+                "ActionsBarValue",
+                "ActionsPie",
+                "ActionsDonut",
+                "ActionsTable",
+                "WorldMap",
+                "CalendarHeatmap"
+            ],
+            "type": "string"
         },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
@@ -5561,29 +5502,9 @@
                     "type": "number"
                 },
                 "display": {
+                    "$ref": "#/definitions/AssistantTrendsDisplayType",
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
-                    "enum": [
-                        "Auto",
-                        "ActionsLineGraph",
-                        "ActionsBar",
-                        "ActionsUnstackedBar",
-                        "ActionsAreaGraph",
-                        "ActionsLineGraphCumulative",
-                        "BoldNumber",
-                        "Metric",
-                        "ActionsPie",
-                        "ActionsDonut",
-                        "ActionsBarValue",
-                        "ActionsTable",
-                        "WorldMap",
-                        "CalendarHeatmap",
-                        "TwoDimensionalHeatmap",
-                        "BoxPlot",
-                        "SlopeGraph",
-                        "ScatterPlot"
-                    ],
-                    "type": "string"
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsUnstackedBar` - time-series bar chart with series side by side in each interval. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `SlopeGraph` - net change from the first to the last interval, one line per series. `BoxPlot` - quartiles of a numeric `math_property` for each interval. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsDonut` - total value donut chart; same use as `ActionsPie`. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then."
                 },
                 "formulaNodes": {
                     "description": "Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.",
@@ -27663,7 +27584,6 @@
                 "default_icon_type",
                 "dashboard",
                 "llm_analytics",
-                "ai_gateway",
                 "product_analytics",
                 "revenue_analytics",
                 "revenue_analytics_metadata",
@@ -41509,7 +41429,6 @@
         "ProductKey": {
             "enum": [
                 "actions",
-                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",

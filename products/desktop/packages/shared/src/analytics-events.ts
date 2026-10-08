@@ -1426,7 +1426,11 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
+type UpgradePromptCause =
+  | "model_gate"
+  | "model_unavailable"
+  | "org_limit"
+  | "user_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
