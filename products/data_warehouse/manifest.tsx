@@ -63,8 +63,17 @@ export const manifest: ProductManifest = {
             description: 'Manage where your warehouse sources write the rows they sync.',
             iconType: 'data_warehouse',
         },
+        WarehouseHome: {
+            name: 'Warehouse',
+            import: () => import('./frontend/scenes/WarehouseHomeScene/WarehouseHomeScene'),
+            projectBased: true,
+            description: 'Connect your data, build views on it and check that it stays fresh.',
+            iconType: 'data_warehouse',
+        },
     },
     routes: {
+        // pinned: people bookmark this path
+        '/warehouse': ['WarehouseHome', 'warehouseHome'],
         '/data-ops': ['DataOps', 'dataOps'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
@@ -99,6 +108,7 @@ export const manifest: ProductManifest = {
         '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     },
     urls: {
+        warehouse: (): string => '/warehouse',
         dataOps: (tab?: string): string => {
             const params = new URLSearchParams()
             if (tab) {

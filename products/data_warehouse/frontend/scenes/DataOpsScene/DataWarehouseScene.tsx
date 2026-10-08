@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -67,7 +67,7 @@ export function DataWarehouseScene(): JSX.Element {
                     <span>Loading warehouse...</span>
                 </div>
             ) : availableTabs.length > 1 ? (
-                <LemonTabs
+                <SceneTabs
                     activeKey={activeTab}
                     sceneInset
                     onChange={setActiveTab}

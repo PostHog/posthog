@@ -5,12 +5,13 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -156,7 +157,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
             ) : (
                 // The bar only: panels are siblings below so a visited one stays mounted, keeping
                 // materialization drafts, the check editor and the graph viewport across switches.
-                availableTabs.length > 1 && <LemonTabs activeKey={effectiveTab} tabs={tabs} sceneInset />
+                availableTabs.length > 1 && <SceneTabs activeKey={effectiveTab} tabs={tabs} sceneInset />
             )}
             {availableTabs
                 // Always render the active tab, even one not yet visited: if a shrinking tab set

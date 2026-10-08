@@ -21,7 +21,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
@@ -31,6 +31,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
@@ -335,7 +336,7 @@ function BatchExportSceneContentInner({
     return (
         <SceneContent>
             <BatchExportSceneHeader />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            <SceneTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )
 }

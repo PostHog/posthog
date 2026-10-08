@@ -1849,6 +1849,11 @@
         "params": ["repoId"],
         "scope": "project"
     },
+    "warehouse": {
+        "template": "/warehouse",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseDestinations": {
         "template": "/data-management/warehouse-destinations",
         "params": [],

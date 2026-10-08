@@ -12,7 +12,7 @@ import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { isMac } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { TODAY_RAIL_ITEMS } from './todayRailItems'
+import { TODAY_RAIL_ITEMS, withoutWarehouse } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
@@ -46,7 +46,8 @@ const RailUtility = forwardRef<
 })
 
 export function TodayRail(): JSX.Element {
-    const { activePane, sidebarVisible } = useValues(todayShellLogic)
+    const { activePane, activePaneHasSidebar, sidebarVisible, sidebarInContent, todayWarehouseEnabled } =
+        useValues(todayShellLogic)
     const { pickPane, toggleSidebar } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -59,7 +60,7 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
+            {withoutWarehouse(TODAY_RAIL_ITEMS, todayWarehouseEnabled).map(({ pane, label, icon }) => (
                 <TodayRailTile
                     key={pane}
                     label={label}
@@ -71,7 +72,8 @@ export function TodayRail(): JSX.Element {
                 />
             ))}
             <div className="mt-auto flex flex-col items-center gap-1">
-                {!sidebarVisible && (
+                {/* The account menu lives in the sidebar footer, so the rail carries it whenever that sidebar is not beside it. */}
+                {(!sidebarVisible || sidebarInContent) && (
                     <NewAccountMenu
                         side="right"
                         align="end"
@@ -99,14 +101,16 @@ export function TodayRail(): JSX.Element {
                 >
                     <IconSearch />
                 </RailUtility>
-                <RailUtility
-                    label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    shortcut={isMac() ? '⌘B' : 'Ctrl+B'}
-                    data-attr="today-rail-toggle-sidebar"
-                    onClick={toggleSidebar}
-                >
-                    {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
-                </RailUtility>
+                {activePaneHasSidebar && (
+                    <RailUtility
+                        label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
+                        shortcut={isMac() ? '⌘B' : 'Ctrl+B'}
+                        data-attr="today-rail-toggle-sidebar"
+                        onClick={toggleSidebar}
+                    >
+                        {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
+                    </RailUtility>
+                )}
             </div>
         </nav>
     )

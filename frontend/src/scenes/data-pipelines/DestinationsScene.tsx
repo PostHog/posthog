@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -11,6 +11,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
@@ -97,7 +98,7 @@ export function DestinationsScene(): JSX.Element {
                 actions={action}
             />
             <DestinationsIncidentReplayBanner />
-            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
+            <SceneTabs activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
         </SceneContent>
     )
 }
