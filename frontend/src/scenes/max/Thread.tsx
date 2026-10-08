@@ -519,7 +519,13 @@ const Message = React.memo(function Message({
 }: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeSceneId } = useValues(sceneLogic)
-    const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
+    const {
+        threadLoading,
+        isSharedThread,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+        webSearchResultsByToolUseId,
+    } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
@@ -631,7 +637,7 @@ const Message = React.memo(function Message({
                         )
 
                         let thinkingElements = null
-                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        const thinkingBlocks = getThinkingMessageFromResponse(message, webSearchResultsByToolUseId)
                         if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
                             // 1. The thread has finished streaming (thinking might be at the end), OR

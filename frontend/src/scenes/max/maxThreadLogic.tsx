@@ -26,6 +26,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -70,9 +71,11 @@ import {
 import {
     attachedContextLogic,
     getRandomThinkingMessage,
+    getWebSearchResultsByToolUseId,
     isTerminalRunStatus,
     INITIAL_PERMISSION_MODE,
     runStreamLogic,
+    WebSearchResultsByToolUseId,
 } from 'products/posthog_ai/frontend/api/logics'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -250,6 +253,7 @@ export interface maxThreadLogicValues {
     threadGrouped: ThreadMessage[]
     threadLoading: boolean
     threadMessageCount: number
+    webSearchResultsByToolUseId: WebSearchResultsByToolUseId
     threadRaw: ThreadMessage[]
     toolCallUpdateMap: Map<string, string[]>
     traceId: string | null
@@ -662,6 +666,7 @@ export interface maxThreadLogicMeta {
             currentThinkingMessage: string | null
         ) => ThreadMessage[]
         threadMessageCount: (threadRaw: ThreadMessage[]) => number
+        webSearchResultsByToolUseId: (threadRaw: ThreadMessage[]) => WebSearchResultsByToolUseId
         formPending: (threadRaw: ThreadMessage[]) => boolean
         multiQuestionFormPending: (threadRaw: ThreadMessage[]) => boolean
         activeMultiQuestionForm: (threadRaw: ThreadMessage[]) => MultiQuestionForm | null
@@ -2729,6 +2734,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadMessageCount: [(s) => [s.threadRaw], (threadRaw: ThreadMessage[]) => threadRaw.length],
+
+        webSearchResultsByToolUseId: [
+            (s) => [s.threadRaw],
+            (threadRaw: ThreadMessage[]): WebSearchResultsByToolUseId =>
+                getWebSearchResultsByToolUseId(
+                    threadRaw.filter((message): message is AssistantMessage & ThreadMessage =>
+                        isAssistantMessage(message)
+                    )
+                ),
+            // Streaming replaces `threadRaw` on each chunk, so keep the reference stable to avoid rerendering every message.
+            { resultEqualityCheck: objectsEqual },
+        ],
 
         formPending: [
             (s) => [s.threadRaw],
