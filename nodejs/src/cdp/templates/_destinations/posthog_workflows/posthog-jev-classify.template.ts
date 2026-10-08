@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-jev-classify',
     name: 'Classify with Jev',
     description: 'Ask Jev to pick one category for the context. Returns the category and its confidence.',
-    icon_url: '/static/posthog-icon.svg',
+    icon_url: '/static/services/typesafe.png',
     category: ['Custom'],
     code_language: 'hog',
     code: `
