@@ -161,10 +161,10 @@ def _describe_training_sample(sample: TrainingSample | None) -> str:
     return clause
 
 
-def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: str, today_iso: str) -> str:
-    """The Finalize step that builds the report notebook, indented to sit inside the brief."""
+def _report_notebook_step(pipeline: AutoresearchPipeline, *, today_iso: str) -> str:
+    """The Finalize step that creates the report notebook, indented to sit inside the brief."""
     step = textwrap.dedent(f"""
-        3. **Build the report notebook** — a live copy of the report whose numbers come from SQL
+        3. **Create the report notebook** — a live copy of the report whose numbers come from SQL
            cells, so a reader can check them and re-run them after scoring. `report.md` stays the
            fallback: write it first, whatever happens in this step.
 
@@ -174,20 +174,32 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
            Create exactly ONE notebook with `notebooks-create-markdown`. Title it
            `<pipeline name> · model report · {today_iso}`, where the pipeline name is
            {_wrap_untrusted(pipeline.name)}. Change and run only this notebook. Never update,
-           delete, or run any other notebook.
+           delete, or run any other notebook. Put only the **TL;DR** and **What it predicts**
+           sections in it now, with the same content as `report.md`. You add the cells in step 5,
+           after the run completes, because this run's model row does not exist until then.
 
-           Build it in this order, with markdown prose between the cells:
-           - **TL;DR** and **What it predicts** — the same content as `report.md`.
+           Keep the notebook's `short_id` for the next step.""")
+    return textwrap.indent(step, " " * 8)
+
+
+def _report_notebook_cells_step(pipeline: AutoresearchPipeline, *, training_run_id: str) -> str:
+    """The step after complete that fills the report notebook, indented to sit inside the brief."""
+    step = textwrap.dedent(f"""
+        5. **Fill the report notebook** — do this step only if you created the notebook in step 3
+           and the complete call succeeded. Complete writes this run's model row, so the cells
+           below now read real data.
+
+           Add these cells with `notebooks-add-cell`, in this order, with markdown prose between them:
            - **How training went** — a SQL cell over `system.autoresearch_iterations` where
              `training_run_id = '{training_run_id}'`, then a Python cell that plots holdout AUC by
              iteration and marks kept and discarded iterations.
            - **How well it works** — a SQL cell over `system.autoresearch_models` where
              `pipeline_id = '{pipeline.pk}'`: role, holdout AUC, realized AUC, calibration error,
              and lift@10/@20 from `metrics` when present. Explain them in plain words.
-           - **What drives it** — a Python cell that charts the feature importances and direction
-             in `model_explanation` of this run's model row
-             (`source_training_run_id = '{training_run_id}'`), then prose on the intuition behind
-             each top feature.
+           - **What drives it** — a SQL cell that reads `model_explanation` of this run's model row
+             in `system.autoresearch_models` (`source_training_run_id = '{training_run_id}'`), then a
+             Python cell that charts the feature importances and direction, then prose on the
+             intuition behind each top feature.
            - **Live performance** — a SQL cell over `events` where
              `event = 'autoresearch_prediction'` and
              `properties.$autoresearch_pipeline_id = '{pipeline.pk}'`, then Python cells for the
@@ -205,9 +217,7 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
            - One figure per Python cell. The kernel keeps at most 8 figures and about 3 MB of
              images per cell.
            - Do not call `notebooks-configure-compute`. Use the default kernel.
-           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.
-
-           Keep the notebook's `short_id` for the next step.""")
+           - Run each cell. If a cell fails, fix it or delete it. Never leave a failed cell.""")
     return textwrap.indent(step, " " * 8)
 
 
@@ -252,9 +262,11 @@ def build_agent_description(
     complete_step = 3
     notebook_step = ""
     notebook_field = ""
+    notebook_cells_step = ""
     if report_notebook:
         complete_step = 4
-        notebook_step = _report_notebook_step(pipeline, training_run_id=training_run_id, today_iso=today_iso)
+        notebook_step = _report_notebook_step(pipeline, today_iso=today_iso)
+        notebook_cells_step = "\n" + _report_notebook_cells_step(pipeline, training_run_id=training_run_id)
         notebook_field = (
             "\n           - `report_notebook_short_id`: the `short_id` of the notebook from step 3. Omit it\n"
             "             if you skipped step 3 or the notebook does not exist."
@@ -673,7 +685,7 @@ def build_agent_description(
            Also pass `model_explanation`, which the model card charts. Use exactly this shape:
            `{{"method": "<how you computed importance, one short line>", "top_features": [{{"name": "<feature column>", "importance": <number >= 0>, "direction": "positive" | "negative"}}]}}`.
            List at most {MAX_TOP_FEATURES} features of the winning iteration, strongest first. `direction` is
-           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.
+           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.{notebook_cells_step}
 
         **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
         AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.

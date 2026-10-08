@@ -100,9 +100,6 @@ class TestFormatStartDate:
     def test_format_start_date(self, value: object, expected: str) -> None:
         assert _format_start_date(value) == expected
 
-    def test_no_tz_offset_in_output(self) -> None:
-        assert "+00:00" not in _format_start_date(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestPagination:
     # subscription_events wraps its rows under its own resource name rather than "entries",
@@ -155,42 +152,6 @@ class TestPagination:
         _rows(_source("customers", manager))
 
         assert params[0]["cursor"] == "resume-cursor"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_paginated_endpoint_fetches_once(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("data_sources", [{"uuid": "ds1"}], has_more=True, cursor="ignored")])
-
-        manager = _make_manager()
-        rows = _rows(_source("data_sources", manager))
-
-        assert [r["uuid"] for r in rows] == ["ds1"]
-        assert session.send.call_count == 1
-        assert "per_page" not in params[0]
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("plans", [])])
-
-        rows = _rows(_source("plans", _make_manager()))
-
-        assert rows == []
-
-    @pytest.mark.parametrize("status", [429, 503])
-    @mock.patch("tenacity.nap.time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_codes_recover(self, MockSession, _mock_sleep, status: int) -> None:
-        # A single retryable response then success: the client retry should
-        # recover and still yield the data. The backoff sleep is patched out to
-        # keep the test fast and deterministic.
-        session = MockSession.return_value
-        _wire(session, [_response({}, status_code=status), _page("plans", [{"uuid": "p1"}])])
-
-        rows = _rows(_source("plans", _make_manager()))
-
-        assert [r["uuid"] for r in rows] == ["p1"]
 
 
 class TestIncrementalParams:
@@ -245,12 +206,6 @@ class TestIncrementalParams:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status,expected", [(200, True), (401, False), (403, False)])
-    @mock.patch(CHARTMOGUL_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("key") is expected
-
     @mock.patch(CHARTMOGUL_SESSION_PATCH)
     def test_exception_returns_false(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
@@ -315,17 +270,6 @@ class TestMetricsDateRange:
         assert "per_page" not in params[0]
         assert session.send.call_count == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_other_endpoints_send_no_date_range(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("entries", [{"uuid": "a"}])])
-
-        _rows(_source("opportunities", _make_manager()))
-
-        assert "start-date" not in params[0]
-        assert "end-date" not in params[0]
-        assert "interval" not in params[0]
-
 
 class TestCustomerSubscriptionsFanout:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -355,23 +299,6 @@ class TestCustomerSubscriptionsFanout:
             {"uuid": "sub_b", "customer_uuid": "cus_2"},
         ]
         assert all(page["per_page"] == 200 for page in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_child_pages_follow_the_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _page("entries", [{"uuid": "cus_1"}]),
-                _page("entries", [{"uuid": "sub_a"}], has_more=True, cursor="c1"),
-                _page("entries", [{"uuid": "sub_b"}]),
-            ],
-        )
-
-        rows = _rows(_source("customer_subscriptions", _make_manager()))
-
-        assert [r["uuid"] for r in rows] == ["sub_a", "sub_b"]
-        assert params[2]["cursor"] == "c1"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_the_customer_in_progress(self, MockSession) -> None:

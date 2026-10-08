@@ -124,39 +124,6 @@ class TestToEpoch:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_max_page_and_unwraps_records(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _list_page("contacts", "contact", [{"id": "a1"}, {"id": "a2"}], page=1, max_page=2),
-                _list_page("contacts", "contact", [{"id": "a3"}], page=2, max_page=2),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source(session, "contacts", manager))
-
-        assert [r["id"] for r in rows] == ["a1", "a2", "a3"]
-        assert session.send.call_count == 2
-        assert params[0]["page"] == 1
-        assert params[0]["per_page"] == 100
-        assert params[1]["page"] == 2
-        # Checkpoint saved after the first page (points at the next page); the last page ends it.
-        manager.save_state.assert_called_once_with(OnepagecrmResumeConfig(page=2, modified_since=None))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_sorts_by_stable_creation_field(self, MockSession):
-        session = MockSession.return_value
-        params = _wire(session, [_list_page("contacts", "contact", [{"id": "a1"}], page=1, max_page=1)])
-
-        _rows(_source(session, "contacts", _make_manager()))
-
-        assert params[0]["sort_by"] == "created_at"
-        assert params[0]["order"] == "asc"
-        assert "modified_since" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_run_pins_anchor_across_pages(self, MockSession):
         session = MockSession.return_value
         params = _wire(

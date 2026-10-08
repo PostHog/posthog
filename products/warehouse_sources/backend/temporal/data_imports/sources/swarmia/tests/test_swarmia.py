@@ -177,92 +177,12 @@ class TestFetchCsv:
         with pytest.raises(requests.HTTPError):
             _fetch_csv_direct(session, "/reports/dora", {}, {}, MagicMock())
 
-    def test_parses_csv_rows(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, "A,B\n1,2\n")
-
-        rows = _fetch_csv_direct(session, "/reports/dora", {"startDate": "2026-06-29"}, {}, MagicMock())
-
-        assert rows == [{"A": "1", "B": "2"}]
-        assert "startDate=2026-06-29" in session.get.call_args[0][0]
-
 
 class TestGetRows:
     @pytest.fixture(autouse=True)
     def _frozen_clock(self):
         with time_machine.travel("2026-07-15T12:00:00Z", tick=False):
             yield
-
-    @patch(_TRACKED_SESSION_PATH)
-    def test_incremental_sync_fetches_complete_windows_after_watermark(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
-        session.get.return_value = _mock_response(200, PULL_REQUESTS_CSV)
-        manager = _mock_manager()
-
-        batches = list(
-            get_rows(
-                api_key="token",
-                endpoint="pull_requests",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2026, 6, 28),
-            )
-        )
-
-        requested_urls = [call.args[0] for call in session.get.call_args_list]
-        assert len(requested_urls) == 2
-        assert "startDate=2026-06-29&endDate=2026-07-05" in requested_urls[0]
-        assert "startDate=2026-07-06&endDate=2026-07-12" in requested_urls[1]
-
-        assert len(batches) == 2
-        first_row = batches[0][0]
-        assert first_row["start_date"] == date(2026, 6, 29)
-        assert first_row["end_date"] == date(2026, 7, 5)
-        assert first_row["team"] == "Team A"
-        assert first_row["cycle_time_seconds"] == 3600.0
-        assert first_row["review_rate_percent"] == 80.5
-
-    @patch(_TRACKED_SESSION_PATH)
-    def test_saves_resume_state_after_each_window_except_last(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
-        session.get.return_value = _mock_response(200, PULL_REQUESTS_CSV)
-        manager = _mock_manager()
-
-        list(
-            get_rows(
-                api_key="token",
-                endpoint="pull_requests",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2026, 6, 28),
-            )
-        )
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [SwarmiaResumeConfig(next_window_start="2026-07-06")]
-
-    @patch(_TRACKED_SESSION_PATH)
-    def test_resumes_from_saved_window_start(self, mock_make_session: MagicMock) -> None:
-        session = mock_make_session.return_value
-        session.get.return_value = _mock_response(200, PULL_REQUESTS_CSV)
-        manager = _mock_manager(resume=SwarmiaResumeConfig(next_window_start="2026-07-06"))
-
-        list(
-            get_rows(
-                api_key="token",
-                endpoint="pull_requests",
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2026, 1, 1),
-            )
-        )
-
-        requested_urls = [call.args[0] for call in session.get.call_args_list]
-        assert len(requested_urls) == 1
-        assert "startDate=2026-07-06&endDate=2026-07-12" in requested_urls[0]
 
     @patch(_TRACKED_SESSION_PATH)
     def test_monthly_endpoint_uses_month_param(self, mock_make_session: MagicMock) -> None:

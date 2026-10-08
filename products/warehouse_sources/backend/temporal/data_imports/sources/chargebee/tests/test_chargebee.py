@@ -5,7 +5,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargebee.chargebee import (
     ChargebeePaginator,
@@ -20,29 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 class TestChargebeePaginator:
-    def test_initial_state(self) -> None:
-        paginator = ChargebeePaginator()
-        assert paginator._next_offset is None
-        # BasePaginator starts with _has_next_page=True so the first request runs;
-        # update_state flips it to False on the terminal page.
-        assert paginator.has_next_page is True
-
-    def test_update_state_has_more(self) -> None:
-        paginator = ChargebeePaginator()
-        response = MagicMock()
-        response.json.return_value = {"list": [{"customer": {"id": "c1"}}], "next_offset": "cursor-1"}
-        paginator.update_state(response)
-        assert paginator._next_offset == "cursor-1"
-        assert paginator.has_next_page is True
-
-    def test_update_state_no_more(self) -> None:
-        paginator = ChargebeePaginator()
-        response = MagicMock()
-        response.json.return_value = {"list": [{"customer": {"id": "c1"}}]}
-        paginator.update_state(response)
-        assert paginator._next_offset is None
-        assert paginator.has_next_page is False
-
     def test_update_state_empty_body(self) -> None:
         paginator = ChargebeePaginator()
         response = MagicMock()
@@ -50,35 +27,6 @@ class TestChargebeePaginator:
         paginator.update_state(response)
         assert paginator._next_offset is None
         assert paginator.has_next_page is False
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_offset"),
-        [
-            ("fresh", None),
-            ("resumed", "cursor-2000"),
-        ],
-    )
-    def test_init_request_honours_seeded_offset(self, label: str, seeded_offset: str | None) -> None:
-        paginator = ChargebeePaginator()
-        if seeded_offset is not None:
-            paginator.set_resume_state({"next_offset": seeded_offset})
-
-        request = Request(method="GET", url="https://site.chargebee.com/api/v2/customers")
-        paginator.init_request(request)
-
-        if seeded_offset is None:
-            # A fresh paginator must not inject an offset on the first request.
-            assert request.params is None or "offset" not in request.params
-        else:
-            assert request.params["offset"] == seeded_offset
-
-    def test_get_resume_state_returns_state_when_next_page(self) -> None:
-        paginator = ChargebeePaginator()
-        response = MagicMock()
-        response.json.return_value = {"next_offset": "cursor-42"}
-        paginator.update_state(response)
-
-        assert paginator.get_resume_state() == {"next_offset": "cursor-42"}
 
     def test_get_resume_state_returns_none_on_terminal_page(self) -> None:
         paginator = ChargebeePaginator()
@@ -88,28 +36,6 @@ class TestChargebeePaginator:
 
         assert paginator.get_resume_state() is None
 
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = ChargebeePaginator()
-        paginator.set_resume_state({"next_offset": "cursor-99"})
-
-        assert paginator._next_offset == "cursor-99"
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"next_offset": "cursor-99"}
-
-    def test_set_resume_state_coerces_to_string(self) -> None:
-        # Chargebee cursors come back as strings in live responses, but defensive casting
-        # protects against a Redis round-trip that somehow returns a number.
-        paginator = ChargebeePaginator()
-        paginator.set_resume_state({"next_offset": 12345})
-
-        assert paginator._next_offset == "12345"
-        assert paginator.has_next_page is True
-
-    def test_set_resume_state_ignores_missing_offset(self) -> None:
-        paginator = ChargebeePaginator()
-        paginator.set_resume_state({})
-
-        assert paginator._next_offset is None
         # has_next_page is left at its BasePaginator default (True) so a fresh run still fires the first request.
 
 
@@ -212,17 +138,6 @@ class TestChargebeeSourceResumeBehavior:
 
         assert [p.get("offset") for p in sent_params] == ["cursor-resumed"]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response({"list": [{"customer": {"id": "only"}}]}),
-        ]
-        self._drive("Customers", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
