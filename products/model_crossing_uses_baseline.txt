@@ -542,7 +542,6 @@ product_analytics.Insight ee.hogai.artifacts.types in-collection 1
 product_analytics.Insight ee.hogai.chat_agent.insights.nodes instance-many(order_by) 1
 product_analytics.Insight ee.hogai.context.entity_search.context in-collection 1
 product_analytics.Insight ee.hogai.context.entity_search.context instance-many(order_by) 1
-product_analytics.Insight ee.hogai.eval.ci.max_tools.eval_upsert_dashboard write(acreate) 1
 product_analytics.Insight ee.hogai.tools.upsert_dashboard.tool construct 1
 product_analytics.Insight exports.ExportedAsset.insight reverse-accessor(exportedasset_set) 1
 product_analytics.Insight exports.Subscription.dashboard_export_insights reverse-accessor(subscriptions_dashboard_export) 1
@@ -766,10 +765,6 @@ warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instan
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table write(create) 1
 warehouse_sources.DataWarehouseCredential products.posthog_ai.evals.data_warehouse.seeder write(create) 1
-warehouse_sources.DataWarehouseTable ee.hogai.eval.offline.snapshot_loader write(abulk_create) 1
-warehouse_sources.DataWarehouseTable ee.hogai.eval.schema construct 1
-warehouse_sources.DataWarehouseTable ee.hogai.eval.schema in-collection 1
-warehouse_sources.DataWarehouseTable ee.hogai.eval.schema instance-many(iterator) 1
 warehouse_sources.DataWarehouseTable ee.hogai.tools.execute_sql.direct_connection_suggestions instance-many(filter) 1
 warehouse_sources.DataWarehouseTable ee.hogai.tools.read_data.tool instance-many(filter) 1
 warehouse_sources.DataWarehouseTable posthog.hogql.database.database instance-many(order_by) 2

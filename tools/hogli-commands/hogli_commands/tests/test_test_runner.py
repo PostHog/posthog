@@ -61,12 +61,6 @@ class TestDetectTestType:
         assert config.test_type == "python"
         assert config.command == ["pytest", "-s", "posthog/api/test/test_user.py::TestUserAPI::test_retrieve"]
 
-    def test_python_eval_uses_special_config(self) -> None:
-        config = detect_test_type("ee/hogai/eval/eval_router.py")
-        assert config.test_type == "python-eval"
-        assert config.command == ["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", "ee/hogai/eval/eval_router.py"]
-        assert "REDIS_URL" in config.env
-
     # -- Jest tests: these hit real package.json files on disk --
 
     @parameterized.expand(
@@ -365,8 +359,8 @@ class TestIsTestFile:
     @parameterized.expand(
         [
             ("posthog/api/test/test_user.py", True),
-            ("ee/hogai/eval/eval_router.py", True),
-            ("ee/hogai/eval_router.py", False),
+            ("products/posthog_ai/evals/sql/eval_sql.py", False),
+            ("products/posthog_ai/eval_harness/test/test_discovery.py", True),
             ("posthog/eval_something.py", False),
             ("ee/hogai/router.py", False),
             ("posthog/models/team.py", False),
