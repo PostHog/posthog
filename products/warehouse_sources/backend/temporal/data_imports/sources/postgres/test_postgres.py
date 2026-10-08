@@ -4102,6 +4102,7 @@ class TestStreamingConnectionDeadlines:
         def __init__(self, setup_cursor: Any):
             super().__init__()
             self._setup_cursor = setup_cursor
+            self.server_cursor_factory: Any = None
 
         def cursor(self, *args, **kwargs):
             return self._setup_cursor
