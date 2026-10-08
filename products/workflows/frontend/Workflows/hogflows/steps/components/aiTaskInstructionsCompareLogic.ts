@@ -200,7 +200,7 @@ export const aiTaskInstructionsCompareLogic = kea<aiTaskInstructionsCompareLogic
                 revisions.map((revision) => ({
                     value: revision.version,
                     label: `v${revision.version}`,
-                    labelInMenu: `v${revision.version} · ${dayjs(revision.created_at).format('MMM D, YYYY')}`,
+                    labelInMenu: `v${revision.version} · ${dayjs(revision.created_at).format('MMM D, YYYY, h:mm A')}`,
                 })),
         ],
         // undefined while the chosen version loads, and null when the step is not an AI task in it.

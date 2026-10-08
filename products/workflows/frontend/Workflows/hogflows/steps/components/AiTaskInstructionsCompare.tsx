@@ -72,7 +72,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     Close
                 </LemonButton>
             </div>
-            {revisionsResponse && pastVersionOptions.length === 0 && (
+            {revisionsResponse && !revisionsLoadFailed && pastVersionOptions.length === 0 && (
                 <span className="text-xs text-secondary">
                     No past versions yet. One is saved each time the live workflow changes.
                 </span>
@@ -89,7 +89,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
             <div className="ph-no-capture h-64 overflow-auto">
                 {selectedVersion !== null && revisionLoadFailed ? (
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm text-danger">Could not load {versionName}.</span>
+                        <span className="text-sm text-danger">{`Could not load ${versionName}.`}</span>
                         <LemonButton size="xsmall" type="secondary" onClick={() => loadRevision(selectedVersion)}>
                             Try again
                         </LemonButton>
@@ -97,13 +97,13 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                 ) : comparedPrompt === undefined ? (
                     <LemonSkeleton className="h-24 w-full" />
                 ) : comparedPrompt === null ? (
-                    <span className="text-sm text-secondary">{versionSubject} doesn't have this AI task step.</span>
+                    <span className="text-sm text-secondary">{`${versionSubject} doesn't have this AI task step.`}</span>
                 ) : comparedPrompt === currentPrompt ? (
-                    <span className="text-sm text-secondary">No differences from {versionName}.</span>
+                    <span className="text-sm text-secondary">{`No differences from ${versionName}.`}</span>
                 ) : (
                     <div className="flex flex-col gap-1">
                         <span className="text-xs text-secondary">
-                            Removed lines are from {versionName}. Added lines are the instructions in this step now.
+                            {`Removed lines are from ${versionName}. Added lines are in this step now.`}
                         </span>
                         {/* Keeps a failed editor load inside this box, so the rest of the step panel stays usable. */}
                         <ErrorBoundary>

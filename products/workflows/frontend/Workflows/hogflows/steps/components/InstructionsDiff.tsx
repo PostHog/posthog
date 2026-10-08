@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { MonacoDiffEditorProps } from 'lib/components/MonacoDiffEditor'
+import { useBodyIsDark } from 'lib/hooks/useBodyIsDark'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -26,20 +27,13 @@ const DIFF_OPTIONS: MonacoDiffEditorProps['options'] = {
 }
 
 export function InstructionsDiff({ before, after }: { before: string; after: string }): JSX.Element {
-    // Monaco's theme is global, so a wrong value recolors every editor on the page. Read the attribute the
-    // page CSS follows, as CodeEditor does, because themeLogic can lag behind it.
-    const isDarkMode = document.body.getAttribute('theme') === 'dark'
+    const isDarkMode = useBodyIsDark()
 
     // Monaco reads empty text as one blank line, so a diff against it would show that line as changed.
     // With nothing on one side, the whole text is either added or removed.
     if (!before || !after) {
         return (
-            <div
-                className={clsx(
-                    'max-h-96 overflow-auto rounded border',
-                    before ? 'bg-fill-error-highlight' : 'bg-fill-success-highlight'
-                )}
-            >
+            <div className={clsx('rounded border', before ? 'bg-fill-error-highlight' : 'bg-fill-success-highlight')}>
                 <div className="px-2 pt-2 text-xs font-semibold">
                     {before ? 'Instructions removed' : 'New instructions'}
                 </div>
