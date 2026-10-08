@@ -1618,10 +1618,10 @@ export namespace Schemas {
          */
       churned_at?: string | null;
       /**
-         * When Track Rules ignored the account. Null means the account is tracked.
+         * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
          * @nullable
          */
-      readonly ignored_at: string | null;
+      ignored_at?: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -75673,10 +75673,10 @@ export namespace Schemas {
          */
       churned_at?: string | null;
       /**
-         * When Track Rules ignored the account. Null means the account is tracked.
+         * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
          * @nullable
          */
-      readonly ignored_at?: string | null;
+      ignored_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -114798,6 +114798,10 @@ export namespace Schemas {
      * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean;
+    /**
+     * When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.
+     */
+    inactive_last?: boolean;
     /**
      * Include churned accounts. Churned accounts are hidden by default.
      */
