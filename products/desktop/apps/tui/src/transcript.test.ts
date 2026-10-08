@@ -380,6 +380,13 @@ describe("transcriptFrom turn state", () => {
   ])("reports whether the agent is %s", (_, entries, open) => {
     expect(transcriptFrom("pi", entries).turnOpen).toBe(open);
   });
+
+  it("keeps a turn open when the log window starts after its prompt", () => {
+    const transcript = transcriptFrom("acp", ACP_LOG.slice(1, -1));
+    expect(transcript.turnOpen).toBe(true);
+    expect(transcript.turnStartedAt).toBe(new Date(at(2)).getTime());
+    expect(transcript.lastTurn).toBeNull();
+  });
 });
 
 describe("transcriptFrom last turn", () => {
@@ -390,6 +397,25 @@ describe("transcriptFrom last turn", () => {
       stopReason: "stop",
     });
     expect(transcriptFrom("pi", PI_LOG.slice(0, -1)).lastTurn).toBeNull();
+  });
+
+  it("reports the wake-up the agent scheduled at the end of the turn", () => {
+    const wake = update(5, {
+      sessionUpdate: "tool_call",
+      toolCallId: "w1",
+      title: "ScheduleWakeup",
+      kind: "other",
+      status: "completed",
+      rawInput: { delaySeconds: 300, reason: "watching CI" },
+      rawOutput: { scheduledFor: 305_000 },
+    });
+    const log = [...ACP_LOG.slice(0, -1), wake, ACP_LOG.at(-1)!];
+    expect(transcriptFrom("acp", log).wake).toEqual({
+      at: 305_000,
+      reason: "watching CI",
+    });
+    expect(transcriptFrom("acp", ACP_LOG).wake).toBeNull();
+    expect(transcriptFrom("acp", log.slice(0, -1)).wake).toBeNull();
   });
 });
 

@@ -400,9 +400,22 @@ export function processEvent(
     return;
   }
 
-  if (isJsonRpcResponse(msg) && b.pendingPrompts.has(msg.id)) {
+  if (
+    isJsonRpcResponse(msg) &&
+    b.pendingPrompts.has(msg.id) &&
+    !isPermissionOutcome(msg)
+  ) {
     handlePromptResponse(b, msg, event.ts);
   }
+}
+
+// The agent's own requests (permissions) use the same id space as the host's prompts, so an outcome never answers a prompt.
+function isPermissionOutcome(msg: { result?: unknown }): boolean {
+  return (
+    typeof msg.result === "object" &&
+    msg.result !== null &&
+    "outcome" in msg.result
+  );
 }
 
 /**

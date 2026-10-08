@@ -265,9 +265,12 @@ export function runNotice(
     reopening = false,
     delivery = null,
     compacting = false,
+    wake = null,
   }: {
     setup?: SetupProgress | null;
     compacting?: boolean;
+    // The wake-up the agent scheduled at the end of its last turn.
+    wake?: Transcript["wake"];
     // The backend could not hand the last message to the agent.
     delivery?: DeliveryFailure | null;
     // A reply is bringing the chat's stopped run back, until its agent takes the message.
@@ -350,12 +353,22 @@ export function runNotice(
     };
   }
   if (lastTurn && !waiting) {
+    const worked = `Worked for ${formatDuration(lastTurn.durationMs)}`;
+    // The agent sleeps until its wake-up, so the chat counts down to it instead of calling the turn done.
+    if (wake && running) {
+      const wait = wake.at - Date.now();
+      return {
+        text: `${worked} · ${wait > 0 ? `waking in ${formatDuration(wait)}` : "waking up…"}`,
+        ...(wake.reason ? { subject: wake.reason } : {}),
+        tone: "working",
+      };
+    }
     const done = new Date(lastTurn.endedAt).toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
     });
     return {
-      text: `Worked for ${formatDuration(lastTurn.durationMs)} · done ${done}`,
+      text: `${worked} · done ${done}`,
       tone: "done",
     };
   }
