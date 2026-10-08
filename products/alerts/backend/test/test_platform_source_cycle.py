@@ -18,6 +18,7 @@ from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.dispatcher import SeriesEvaluation
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_source_cycle import (
@@ -31,6 +32,8 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
+    Grouping,
+    GroupingMode,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceKind,
@@ -50,7 +53,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     def _alert(self, **overrides: Any) -> AlertConfiguration:
         return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
 
-    def _copy(self, alert: AlertConfiguration | None) -> PlatformConfigurationSnapshot:
+    def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
             return platform_testing.create_configuration(
                 team_id=self.team.id,
@@ -61,7 +64,47 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 recurrence_unit="day",
                 next_check_at=CUTOFF - timedelta(minutes=1),
                 legacy_configuration_id=alert.id if alert else None,
+                **overrides,
             )
+
+    def _evaluate_per_series(
+        self, configuration: PlatformConfigurationSnapshot, values: dict[str, float]
+    ) -> PlatformAlertOutcome | None:
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
+        evaluated = tuple(
+            SeriesEvaluation(
+                label=label, result=AlertEvaluationResult(value=value, breaches=["above 100"] if value > 100 else [])
+            )
+            for label, value in values.items()
+        )
+        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
+            return evaluate_insight_check(
+                self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
+            )
+
+    def test_each_breakdown_value_fires_and_resolves_on_its_own(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+
+        fired = self._evaluate_per_series(configuration, {"Chrome": 150.0, "Safari": 40.0, "Firefox": 120.0})
+        assert fired is not None
+        record_outcomes(self.team.id, (fired,), CUTOFF)
+        assert {group.grouping_key: group.kind for group in fired.groups} == {
+            "Chrome": AlertEventKind.FIRING,
+            "Firefox": AlertEventKind.FIRING,
+        }
+
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+        resolved = self._evaluate_per_series(configuration, {"Chrome": 150.0})
+
+        assert resolved is not None
+        assert {group.grouping_key: group.new_state for group in resolved.groups} == {
+            "Chrome": "firing",
+            "Firefox": "not_firing",
+        }
 
     def _evaluate(
         self, configuration: PlatformConfigurationSnapshot, *, result: Any = None

@@ -27,6 +27,7 @@ import structlog
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
@@ -35,6 +36,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, release_ev
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.dispatcher import check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -43,6 +45,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     CheckFailure,
+    GroupingMode,
     GroupOutcome,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -52,6 +55,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
+    AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
     CheckInput,
@@ -253,6 +257,8 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
+    if check.grouping.mode != GroupingMode.SINGLE:
+        return _decide_grouped(check, snapshot, alert, now=now)
     started_at = time.monotonic()
     try:
         result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
@@ -295,6 +301,138 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         CheckInput(threshold_breached=bool(result.breaches)),
         now=now,
         value=result.value,
+        query_duration_ms=duration_ms,
+    )
+
+
+# The one label a grouped insight alert splits on: each breakdown value is a group.
+BREAKDOWN_GROUPING_KEY = "breakdown"
+
+
+@frozen
+class _SeriesVerdict:
+    label: str
+    snapshot: AlertSnapshot
+    outcome: AlertCheckOutcome
+    value: float | None
+
+
+def _decide_grouped(
+    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, alert: AlertConfiguration, *, now: datetime
+) -> PlatformAlertOutcome:
+    """One check of a breakdown alert, judged per breakdown value against that value's instance.
+
+    A value with no instance that decides nothing is left out, so a quiet value costs no row. An
+    open value the query no longer returns is judged as not breaching, so it can resolve.
+    """
+    if tuple(check.grouping.keys) != (BREAKDOWN_GROUPING_KEY,):
+        return _recorded(
+            check,
+            snapshot,
+            ControlPlaneOutcome(new_state=AlertState.ERRORED, consecutive_failures=0),
+            now=now,
+            notification=NotificationAction.ERROR,
+            notified=True,
+            error_message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}",
+            skip=SkipReason.BROKEN_CONFIG,
+            disable=True,
+            failed=True,
+        )
+    started_at = time.monotonic()
+    try:
+        evaluated = check_alert_per_series(alert)
+    except AlertExtractionError as error:
+        return _recorded(
+            check,
+            snapshot,
+            ControlPlaneOutcome(new_state=AlertState.ERRORED, consecutive_failures=0),
+            now=now,
+            notification=NotificationAction.ERROR,
+            notified=True,
+            error_message=str(error),
+            skip=SkipReason.BROKEN_CONFIG,
+            disable=True,
+            failed=True,
+        )
+    except Exception as error:
+        if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
+            return _skipped(check, snapshot, now=now, skip=SkipReason.CAPACITY, error_message=CAPACITY_REJECTED)
+        if not isinstance(error, CH_TRANSIENT_ERRORS):
+            logger.exception("Platform insight check failed", check_id=str(check.id), error=str(error))
+        return _verdict(
+            check,
+            snapshot,
+            CheckInput(
+                threshold_breached=False,
+                error_message=str(error),
+                is_transient_error=isinstance(error, CH_TRANSIENT_ERRORS),
+            ),
+            now=now,
+            skip=SkipReason.QUERY_FAILED,
+        )
+    if not isinstance(evaluated, tuple):
+        return _skipped(check, snapshot, now=now)
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+
+    by_label = {series.label: series.result for series in evaluated}
+    open_labels = [i.grouping_key for i in check.instances if i.state != AlertState.NOT_FIRING.value]
+    existing = {instance.grouping_key for instance in check.instances}
+    decided: list[_SeriesVerdict] = []
+    for label in [*by_label, *(label for label in open_labels if label not in by_label)]:
+        series = by_label.get(label)
+        instance = check.instance(label)
+        group_snapshot = insight_snapshot(
+            AlertState(instance.state),
+            last_notified_at=instance.last_notified_at,
+            firing_started_at=instance.firing_started_at,
+        )
+        outcome = evaluate_alert_check(
+            group_snapshot,
+            CheckInput(threshold_breached=bool(series and series.breaches)),
+            now,
+            policy=INSIGHT_ALERT_POLICY,
+        )
+        if label not in existing and outcome.new_state == AlertState.NOT_FIRING:
+            continue
+        decided.append(
+            _SeriesVerdict(
+                label=label, snapshot=group_snapshot, outcome=outcome, value=series.value if series else None
+            )
+        )
+
+    # Firing values first, so a cap keeps the values that announce something.
+    decided.sort(key=lambda verdict: verdict.outcome.new_state == AlertState.NOT_FIRING)
+    admission = check.admit([verdict.label for verdict in decided])
+    admitted = set(admission.admitted)
+    groups = []
+    for verdict in decided:
+        if verdict.label not in admitted:
+            continue
+        outcome = verdict.outcome
+        safe_record(increment_checks, SourceKind.INSIGHT.value, outcome.notification.value)
+        if verdict.snapshot.state != outcome.new_state:
+            safe_record(
+                increment_state_transition,
+                SourceKind.INSIGHT.value,
+                verdict.snapshot.state.value,
+                outcome.new_state.value,
+            )
+        groups.append(
+            GroupOutcome(
+                grouping_key=verdict.label,
+                kind=NOTIFICATION_EVENT_KINDS[outcome.notification],
+                new_state=outcome.new_state.value,
+                notified=outcome.update_last_notified_at,
+                firing_episode=decide_firing_episode(verdict.snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+                value=verdict.value,
+                labels={BREAKDOWN_GROUPING_KEY: verdict.label},
+            )
+        )
+    return PlatformAlertOutcome(
+        configuration_id=check.id,
+        evaluation_key=_evaluation_key(check, now),
+        consecutive_failures=0,
+        groups=tuple(groups),
         query_duration_ms=duration_ms,
     )
 
@@ -371,7 +509,7 @@ def _recorded(
         evaluation_key=_evaluation_key(check, now),
         consecutive_failures=outcome.consecutive_failures,
         groups=()
-        if failed
+        if failed or check.grouping.mode != GroupingMode.SINGLE
         else (
             GroupOutcome(
                 grouping_key="",

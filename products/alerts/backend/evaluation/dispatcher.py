@@ -1,8 +1,11 @@
+from dataclasses import replace
+
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -11,6 +14,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import (
     AlertExtractionError,
+    ComparableSeries,
     DetectorExtractor,
     ExtractionResult,
     Extractor,
@@ -136,18 +140,98 @@ def _check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | 
         if alert.detector_config:
             return check_detector_alert(alert, insight, query, evaluation_id=evaluation_id)
 
-        extractor = EXTRACTORS.get(kind)
-        if extractor is None:
-            raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
-
-        # Short-circuit before the (potentially expensive) query: no bounds means nothing to breach.
-        threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
-        if not threshold or not threshold.bounds:
+        extracted = _extract_for_threshold(alert, insight, query, kind)
+        if extracted is None:
             return AlertEvaluationResult(value=0, breaches=[])
+        return describe_delayed_evaluation(
+            evaluate_threshold(extracted.result, extracted.condition, extracted.threshold), extracted.result
+        )
 
-        condition = AlertCondition.model_validate(alert.condition)
-        result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
-        return describe_delayed_evaluation(evaluate_threshold(result, condition, threshold), result)
+
+@frozen
+class _ThresholdExtraction:
+    result: ExtractionResult
+    condition: AlertCondition
+    threshold: InsightThreshold
+
+
+def _extract_for_threshold(
+    alert: AlertConfiguration, insight: Insight, query: object, kind: NodeKind
+) -> _ThresholdExtraction | None:
+    """Run a threshold alert's query. None when the alert has no bounds, so there is nothing to breach."""
+    extractor = EXTRACTORS.get(kind)
+    if extractor is None:
+        raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
+
+    # Short-circuit before the (potentially expensive) query: no bounds means nothing to breach.
+    threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
+    if not threshold or not threshold.bounds:
+        return None
+
+    condition = AlertCondition.model_validate(alert.condition)
+    result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query))
+    return _ThresholdExtraction(result=result, condition=condition, threshold=threshold)
+
+
+def _one_series(result: ExtractionResult, series: ComparableSeries) -> ExtractionResult:
+    """One series as its own result. Not a breakdown any more, so a series that does not breach
+    still reports its value, and the label stays in a breach message."""
+    return replace(
+        result,
+        series=[series],
+        is_breakdown=False,
+        include_series_label=result.is_breakdown or result.include_series_label,
+    )
+
+
+@frozen
+class SeriesEvaluation:
+    label: str
+    result: AlertEvaluationResult
+
+
+def check_alert_per_series(
+    alert: AlertConfiguration,
+) -> tuple[SeriesEvaluation, ...] | AlertEvaluationResult:
+    """Each series' own verdict for a threshold alert, rather than one verdict for the insight.
+
+    `check_alert_for_insight` stops at the first series that breaches, because one alert holds one
+    state. A caller that keeps state per breakdown value needs every series judged on its own.
+    Returns the skipped result instead when the evaluation delay leaves no complete interval.
+    Detector alerts are not supported, because a detector scores the series together.
+    """
+    if alert.detector_config:
+        raise AlertExtractionError("Per-series evaluation supports threshold alerts only")
+    insight = alert.insight
+    if insight.query is None:
+        raise ValueError("Alert's insight has no valid query")
+
+    try:
+        with upgrade_insight(insight):
+            query = insight.query
+            kind = get_from_dict_or_attr(query, "kind")
+            if kind in WRAPPER_NODE_KINDS:
+                query = get_from_dict_or_attr(query, "source")
+                kind = get_from_dict_or_attr(query, "kind")
+            try:
+                validate_evaluation_delay(query, alert.config, alert.evaluation_delay_intervals)
+            except ValueError as err:
+                raise AlertExtractionError(str(err)) from err
+            extracted = _extract_for_threshold(alert, insight, query, kind)
+    except DelayedEvaluationUnavailable as err:
+        return AlertEvaluationResult(value=None, breaches=[], skipped_reason=str(err))
+    if extracted is None:
+        return ()
+    return tuple(
+        SeriesEvaluation(
+            label=series.label,
+            result=describe_delayed_evaluation(
+                evaluate_threshold(_one_series(extracted.result, series), extracted.condition, extracted.threshold),
+                extracted.result,
+            ),
+        )
+        for series in extracted.result.series
+    )
 
 
 def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | None = None) -> AlertEvaluationResult:

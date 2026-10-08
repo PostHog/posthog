@@ -303,6 +303,10 @@ Logs is the first source that groups, by `service_name` and `severity_text` only
 A grouped logs alert leaves the batched cohort and runs `GroupedAlertCheckQuery`, one query per alert, with its open groups ordered first and the rest worst first.
 A group with no instance whose check decides nothing is left out, so a quiet service costs no row, and an open group the query does not return is checked against a zero count so it can resolve.
 
+Insight groups by breakdown value, with `keys` set to `["breakdown"]`.
+`check_alert_per_series` judges every series on its own, where production's `check_alert_for_insight` stops at the first series that breaches, and the adapter runs each value through the shared machine against its own instance.
+Only threshold alerts can group; a detector scores its series together.
+
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
 ### What a check leaves behind
