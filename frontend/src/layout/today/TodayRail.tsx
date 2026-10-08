@@ -4,7 +4,6 @@ import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
@@ -56,13 +55,10 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 pb-3"
+            className="flex shrink-0 flex-col items-center gap-3 pt-2.5 pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <div className="flex h-12 w-full shrink-0 items-center justify-center" aria-hidden>
-                <Logomark className="h-auto w-6" />
-            </div>
             {TODAY_RAIL_ITEMS.map(({ pane, label, Icon }) => (
                 <TodayRailTile
                     key={pane}

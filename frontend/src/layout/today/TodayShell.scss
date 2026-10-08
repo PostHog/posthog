@@ -1,5 +1,8 @@
 .TodayAppLayout {
-    --today-frame-inset: 8px;
+    --today-frame-inset: 4px;
+
+    // Resolved here, outside any quill scope, so the sidebar and content corners share one value.
+    --today-frame-radius: var(--radius);
 
     background: var(--today-paper);
 }
@@ -21,13 +24,12 @@
 
 // The panes sit in one framed inset beside the rail. A docked sidebar starts the inset, so it owns the top-left
 // corner and the seam against the content. The content frame in Navigation.tsx draws the rest.
-// --color-border-primary resolves to quill's border inside the sidebar and to the matching app border outside it.
 .TodayShell__sidebar--framed {
     height: auto;
     margin-top: var(--today-frame-inset);
-    border: 1px solid var(--color-border-primary);
+    border: 1px solid var(--border);
     border-bottom: 0;
-    border-top-left-radius: var(--radius-lg);
+    border-top-left-radius: var(--today-frame-radius);
 }
 
 .TodayAppLayout__backdrop {
@@ -36,11 +38,22 @@
 
 .TodayAppLayout .TodayAppLayout__content {
     margin-top: var(--today-frame-inset);
-    border-top: 1px solid var(--color-border-primary);
 
     &.TodayAppLayout__content--corner {
-        border-left: 1px solid var(--color-border-primary);
-        border-top-left-radius: var(--radius-lg);
+        border-top-left-radius: var(--today-frame-radius);
+    }
+}
+
+.TodayAppLayout__frame {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-layout-navbar-under);
+    pointer-events: none;
+    border-top: 1px solid var(--border);
+    border-radius: inherit;
+
+    .TodayAppLayout__content--corner > & {
+        border-left: 1px solid var(--border);
     }
 }
 
@@ -214,7 +227,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     flex: 1 1 auto;
     flex-direction: column;
     min-height: 0;
-    padding: 8px 8px 0;
+    padding: 0 8px;
 }
 
 .TodayPane__filters {

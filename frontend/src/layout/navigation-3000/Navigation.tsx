@@ -218,6 +218,10 @@ export function Navigation({
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
+                        {todayFramed && (
+                            // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
+                            <div data-quill aria-hidden className="TodayAppLayout__frame" />
+                        )}
                         <main
                             ref={mainRef}
                             role="main"
