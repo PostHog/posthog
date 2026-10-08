@@ -45,6 +45,13 @@ export const Quill: Story = {
     ),
 }
 
-export const Uploading: Story = { args: { uploading: true } }
+export const Uploading: Story = {
+    args: { uploading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 
-export const QuillUploading: Story = { ...Quill, args: { uploading: true } }
+export const QuillUploading: Story = {
+    ...Quill,
+    args: { uploading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
