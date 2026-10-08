@@ -4944,10 +4944,10 @@ Today (10): `add_ons`, `applied_coupons`, `billable_metrics`, `coupons`, `credit
 
 Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/openapi.yaml>
 
-- [ ] `GET /wallets and GET /wallet_transactions` — prepaid credit balances and top-ups; an entire revenue mechanism is missing (high)
-- [ ] `GET /payments` — actual cash collection against the invoices already synced (high)
-- [ ] `GET /plans/{code}/charges (and /charges/{charge_code}/filters)` — lookup joining plans to billable metrics; without it, fees cannot be traced to pricing rules (high)
-- [ ] `GET /events` — the raw usage events that every fee is derived from (high)
+- [x] `GET /wallets and GET /wallet_transactions` — prepaid credit balances and top-ups; an entire revenue mechanism is missing (high)
+- [x] `GET /payments` — actual cash collection against the invoices already synced (high)
+- [x] `GET /plans/{code}/charges (and /charges/{charge_code}/filters)` — lookup joining plans to billable metrics; without it, fees cannot be traced to pricing rules (high)
+- [x] `GET /events` — the raw usage events that every fee is derived from (high)
 - [ ] `GET /taxes` — lookup resolving tax codes applied on invoices, fees and customers (medium)
 - [ ] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
 - [ ] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
