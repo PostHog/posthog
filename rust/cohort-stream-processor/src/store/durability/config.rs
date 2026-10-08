@@ -95,12 +95,9 @@ impl DurabilityConfig {
         StoreIdentity::for_ordinal(self.ordinal)
     }
 
-    /// The other pod's lineage to fall back to on restore, if a restore source is set and differs
-    /// from this pod's own ordinal.
+    /// The other pod's lineage to fall back to on restore, if a restore source is set.
     pub fn restore_source_identity(&self) -> Option<StoreIdentity> {
-        self.restore_source_ordinal
-            .filter(|&source| source != self.ordinal)
-            .map(StoreIdentity::for_ordinal)
+        self.restore_source_ordinal.map(StoreIdentity::for_ordinal)
     }
 }
 

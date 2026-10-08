@@ -1419,7 +1419,8 @@ mod tests {
 
     #[test]
     fn startup_refuses_a_pod_identity_that_shares_or_misnames_a_checkpoint_prefix() {
-        let cases: [(&str, fn(&mut Config)); 4] = [
+        type Mutation = fn(&mut Config);
+        let cases: [(&str, Mutation); 4] = [
             ("requires POD_INDEX", |config| {
                 config.cohort_pod_count = 2;
             }),
