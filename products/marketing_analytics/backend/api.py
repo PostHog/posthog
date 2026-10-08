@@ -162,9 +162,8 @@ class UtmAlternativeSourceSerializer(serializers.Serializer):
 class UtmIssueSerializer(serializers.Serializer):
     field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
     severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
-    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
-    # ENUM_NAME_OVERRIDES ("UtmIssueKindEnum") rather than being flattened to a plain string —
-    # consumers get the five values as a union instead of having to restate them.
+    # `kind` collides with other enums in drf-spectacular. The UtmIssueKind class gives the enum a
+    # stable name (UtmIssueKindEnum), so consumers get the five values as a union.
     kind = serializers.ChoiceField(
         choices=UtmIssueKind.choices,
         help_text="Which kind of UTM problem this campaign has",

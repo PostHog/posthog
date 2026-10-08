@@ -60,7 +60,7 @@ VALID_CHANNEL_VALUES = frozenset(c.value for c in Channel)
 
 # Named choice sets for ChoiceFields below, registered in ENUM_NAME_OVERRIDES
 # (posthog/settings/web.py) so drf-spectacular doesn't mint generic globals like
-# ChannelEnum/SlaEnum/OrderEnum in the shared OpenAPI namespace.
+# ChannelEnum/SlaEnum in the shared OpenAPI namespace.
 TICKET_CHANNEL_FILTER_CHOICES = [*(c.value for c in Channel), "all"]
 TICKET_SLA_FILTER_CHOICES = [*SLA_FILTER_VALUES, "all"]
 
