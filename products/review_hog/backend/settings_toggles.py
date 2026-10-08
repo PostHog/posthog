@@ -131,6 +131,9 @@ def plan_toggle(
 def apply_toggle(plan: TogglePlan) -> None:
     rows = ReviewUserSettings.objects.for_team(plan.team_id, canonical=True)
     updates: dict[str, bool | str] = {plan.field: plan.enabled}
+    if plan.field == "review_authored_prs":
+        # The automatic trigger reads `default_review_mode`; the deprecated switch only mirrors it.
+        updates["default_review_mode"] = ReviewUserSettings.default_mode_for_authored_prs(plan.enabled).value
     if plan.flash_reasoning_effort is not None:
         updates["flash_reasoning_effort"] = plan.flash_reasoning_effort.value
     with transaction.atomic():

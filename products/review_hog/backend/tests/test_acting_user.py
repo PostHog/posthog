@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
-from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
+from products.review_hog.backend.models import ReviewReport, ReviewRepository, ReviewUserSettings
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 
@@ -51,15 +51,18 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("enabled", True, True, True),
-            ("opted_out", False, True, True),
-            ("inactive", True, False, True),
-            ("left_organization", True, True, False),
+            ("enabled", True, True, True, True),
+            ("opted_out", False, True, True, True),
+            ("inactive", True, False, True, True),
+            ("left_organization", True, True, False, True),
+            ("repository_removed", True, True, True, False),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
-        self, _name: str, opted_in: bool, active: bool, member: bool
+        self, _name: str, opted_in: bool, active: bool, member: bool, repository_added: bool
     ) -> None:
+        if repository_added:
+            ReviewRepository.objects.for_team(self.team.id).create(team=self.team, full_name="PostHog/posthog")
         report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="PostHog/posthog",
@@ -69,7 +72,9 @@ class TestResolveActingUser(BaseTest):
             base_branch="main",
         )
         ReviewUserSettings.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, review_authored_prs=opted_in
+            team_id=self.team.id,
+            user_id=self.user.id,
+            default_review_mode=ReviewUserSettings.default_mode_for_authored_prs(opted_in),
         )
         self.user.is_active = active
         self.user.save(update_fields=["is_active"])
@@ -82,10 +87,13 @@ class TestResolveActingUser(BaseTest):
                 override_user_id=self.user.id,
                 trigger_source=TRIGGER_AUTOMATIC,
                 report_id=str(report.id),
+                repository="posthog/PostHog",
             )
         )
-        eligible = opted_in and active and member
+        eligible = opted_in and active and member and repository_added
         assert result.acting_user_id == (self.user.id if eligible else None)
+        # The workflow gates the automatic run on this flag after the resolve.
+        assert result.review_authored_prs is eligible
         report.refresh_from_db()
         assert report.status == (ReviewReport.Status.ACTIVE if eligible else ReviewReport.Status.IDLE)
 
@@ -101,7 +109,6 @@ class TestResolveActingUser(BaseTest):
             review_inbox_prs=True,
             urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
             resolve_comments=False,
-            review_authored_prs=True,
             flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort.XHIGH,
             celebrate_clean_reviews=False,
         )
@@ -114,7 +121,6 @@ class TestResolveActingUser(BaseTest):
         # The opt-out must reach the workflow — hardwiring the snapshot on would strip users of the
         # only lever that stops reviews from writing to their PRs.
         assert result.resolve_comments is False
-        assert result.review_authored_prs is True
         assert result.flash_reasoning_effort == "xhigh"
         assert result.celebrate_clean_reviews is False
 

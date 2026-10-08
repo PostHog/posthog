@@ -143,6 +143,8 @@ class TestSettingsToggleCommands(BaseTest):
         for user in (self.user, opted_in):
             row = self._row(user)
             assert row is not None and row.review_authored_prs is True
+            # The automatic trigger reads the mode, not the deprecated switch.
+            assert row.default_review_mode == ReviewUserSettings.DefaultReviewMode.FLASH
             assert row.flash_reasoning_effort == effort
         untouched_row = self._row(untouched)
         assert untouched_row is not None and untouched_row.flash_reasoning_effort == opposite_effort

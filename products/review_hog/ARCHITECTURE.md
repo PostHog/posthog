@@ -795,7 +795,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 [--user-ids <id> ...] [--dry-run]` sets `review_inbox_prs` on every active org member's `ReviewUserSettings`
   (or only the listed users, each of whom must be an org member). `{enable,disable}_stamphog_inbox_reviews` is
   the same pair for `stamphog_review_inbox_prs`, and `{enable,disable}_comment_resolution` for `resolve_comments`.
-  `{enable,disable}_authored_pr_reviews` controls `review_authored_prs`, the default-off automatic Flash setting.
+  `{enable,disable}_authored_pr_reviews` sets `default_review_mode` to `flash` or `follow` (and the deprecated `review_authored_prs` switch with it).
   `enable_authored_pr_reviews` also accepts `--effort medium` or `--effort xhigh` to set the user's effort for all Flash requests; omitting it preserves the saved choice.
   Disabling automatic reviews preserves the effort preference and lets running reviews finish while stopping future and pending automatic starts.
   Each command changes only its named toggle and any explicit effort choice. A run creates rows only when the requested value differs from the
@@ -835,7 +835,10 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   and `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
   Enabling manual project access requires no changes to these settings or the shared secret.
 - **Automatic authored-PR trigger** uses the first `REVIEWHOG_TEAM_IDS` entry and requires a matching GitHub installation on that team.
-  The PR author's linked GitHub identity must map to an active member of the team's organization with `review_authored_prs` enabled.
+  The repository must be a `ReviewRepository` of that team.
+  The PR author's linked GitHub identity must map to an active member of the team's organization.
+  The repository rules (`backend/automatic_review_rules.py`) then decide the mode: excluded bots get none, the author's own per-repository choice or `default_review_mode` wins, else the repository's `flash_for` rule and its listed and excepted people apply.
+  A resolved Full review does not dispatch yet.
 - **Internal UI features** use `show_internal_features` in the settings response, true only for the first
   `REVIEWHOG_TEAM_IDS` entry. That project retains Flash and all automation controls. Other enabled projects
   show manual review and resolution without Flash or automation controls, except that saved Inbox or
@@ -843,7 +846,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   Existing automation routing and its configuration remain separate from the flag.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`reviewhog` **label** on a `PostHog/posthog` or `PostHog/ai-gateway` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
+`reviewhog` **label** on a PR in a repository added to the trigger team (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving and resolve-only variants; the configured internal project also shows
 **Flash**, which pins resolution off), an **inbox** trigger (a
@@ -852,10 +855,11 @@ a PR is not reviewed, and the PR must sit in the task's own repository because `
 whoever controls the run, the sandbox agent included), **MCP tools**
 (`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
-The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for identity and opt-in checks.
-It accepts `opened` and `synchronize` for open `PostHog/posthog` PRs whose head and base belong to that repository, including drafts.
+The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the repository, identity, and rule checks.
+It accepts `opened` and `synchronize` for open PRs whose head and base belong to the delivery's repository, including drafts.
+The webhook handler reads no database, so the task checks that the repository is added.
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
-The turn rechecks the author's opt-in before starting and uses their saved severity threshold; Flash never starts resolution.
+The turn rechecks the repository rules before starting and uses the author's saved severity threshold; Flash never starts resolution.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
@@ -866,7 +870,7 @@ The `review-pr-queue` workflow keeps the existing per-PR workflow ID and records
 It has at most one pending request each for Full, manual Flash, and automatic Flash, taking explicit requests before automatic ones.
 It waits for an active resolution stage and runs each review in a `review-pr` child workflow with the existing retry and comment behavior.
 An explicit Full request remains pending during an active Flash turn and runs if that head still needs a Full review.
-Automatic pushes coalesce to the latest head; turning off the authored-PR setting prevents pending automatic reviews from starting without canceling a running turn.
+Automatic pushes coalesce to the latest head; a rule change that stops the author's automatic review prevents pending automatic reviews from starting without canceling a running turn.
 `automatic_reviewed_head_sha` advances only after publication succeeds or finds nothing to publish, so a failed publication can retry and an empty review does not repeat.
 An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first runs the push gate (`reviewer/push_gate.py`) on the PR's own commits since that head.
 Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).

@@ -25,7 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.review_hog.backend.automatic_reviews import enqueue_authored_pr_review
-from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.models import ReviewRepository, ReviewRepositoryPerson, ReviewUserSettings
 from products.review_hog.backend.tasks import process_authored_pr_event
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
@@ -40,19 +40,19 @@ def _dispatch_count(outcome: str) -> float:
     return REGISTRY.get_sample_value(_DISPATCH_METRIC, {"outcome": outcome}) or 0.0
 
 
-def _payload(*, action: str = "opened", draft: bool = False) -> dict[str, object]:
+def _payload(*, action: str = "opened", draft: bool = False, repository: str = "PostHog/posthog") -> dict[str, object]:
     return {
         "action": action,
         "installation": {"id": 1234},
-        "repository": {"full_name": "PostHog/posthog"},
+        "repository": {"full_name": repository},
         "pull_request": {
             "number": 42,
             "state": "open",
             "draft": draft,
             "merged": False,
             "user": {"login": "OctoCat"},
-            "head": {"sha": _HEAD_SHA, "repo": {"full_name": "posthog/PostHog"}},
-            "base": {"repo": {"full_name": "PostHog/posthog"}},
+            "head": {"sha": _HEAD_SHA, "repo": {"full_name": repository.lower()}},
+            "base": {"repo": {"full_name": repository}},
         },
     }
 
@@ -85,16 +85,27 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         )
         return self.view(request)
 
-    @parameterized.expand([("opened", False), ("opened", True), ("synchronize", False), ("synchronize", True)])
+    @parameterized.expand(
+        [
+            ("opened", False, "PostHog/posthog"),
+            ("opened", True, "PostHog/posthog"),
+            ("synchronize", False, "PostHog/posthog"),
+            ("synchronize", True, "PostHog/posthog"),
+            # Whether a repository is added needs the database, so the task decides it.
+            ("opened", False, "PostHog/posthog-js"),
+        ]
+    )
     @patch(_QUEUE)
-    def test_signed_eligible_events_enqueue_once(self, action: str, draft: bool, enqueue: MagicMock) -> None:
-        body = json.dumps(_payload(action=action, draft=draft)).encode()
+    def test_signed_eligible_events_enqueue_once(
+        self, action: str, draft: bool, repository: str, enqueue: MagicMock
+    ) -> None:
+        body = json.dumps(_payload(action=action, draft=draft, repository=repository)).encode()
 
         assert self._post(body).status_code == 202
         assert self._post(body).status_code == 202
 
         enqueue.assert_called_once_with(
-            installation_id="1234", author_login="octocat", pr_number=42, head_sha=_HEAD_SHA
+            installation_id="1234", repository=repository, author_login="octocat", pr_number=42, head_sha=_HEAD_SHA
         )
 
     @parameterized.expand(
@@ -172,8 +183,11 @@ class TestAuthoredPRReviewTask(BaseTest):
         self.github_identity = UserSocialAuth.objects.create(
             user=self.user, provider="github", uid="review-author", extra_data={"login": "OctoCat"}
         )
+        self.repository = ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, full_name="PostHog/posthog", flash_for=ReviewRepository.FlashFor.LISTED
+        )
         self.preferences = ReviewUserSettings.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=self.user.id, review_authored_prs=True
+            team_id=self.team.id, user_id=self.user.id, default_review_mode=ReviewUserSettings.DefaultReviewMode.FLASH
         )
 
     def _queued_event(self) -> Mapping[str, object]:
@@ -182,8 +196,17 @@ class TestAuthoredPRReviewTask(BaseTest):
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
+    @parameterized.expand([("own_flash_default", False), ("listed_by_the_repository", True)])
     @patch(_START)
-    def test_opted_in_author_schedules_flash_on_the_configured_team(self, start: MagicMock) -> None:
+    def test_eligible_author_schedules_flash_on_the_configured_team(
+        self, _name: str, listed: bool, start: MagicMock
+    ) -> None:
+        if listed:
+            self.preferences.default_review_mode = ReviewUserSettings.DefaultReviewMode.FOLLOW
+            self.preferences.save(update_fields=["default_review_mode"])
+            ReviewRepositoryPerson.objects.for_team(self.team.id).create(
+                team=self.team, repository=self.repository, user=self.user, kind=ReviewRepositoryPerson.Kind.LISTED
+            )
         started_before = _dispatch_count("started")
 
         process_authored_pr_event.run(**self._queued_event())
@@ -205,19 +228,24 @@ class TestAuthoredPRReviewTask(BaseTest):
         [
             ("disabled", "not_opted_in"),
             ("unset", "not_opted_in"),
-            ("inactive", "not_opted_in"),
+            ("full", "full_not_supported"),
+            ("repository_removed", "repository_not_added"),
+            ("inactive", "author_unmapped"),
             ("left_org", "author_unmapped"),
             ("unmapped", "author_unmapped"),
         ]
     )
     @patch(_START)
-    def test_queued_events_recheck_author_consent_and_membership(
+    def test_queued_events_recheck_repository_author_consent_and_membership(
         self, change: str, expected_outcome: str, start: MagicMock
     ) -> None:
         queued = self._queued_event()
-        if change == "disabled":
-            self.preferences.review_authored_prs = False
-            self.preferences.save(update_fields=["review_authored_prs"])
+        if change in ("disabled", "full"):
+            mode = "follow" if change == "disabled" else "full"
+            self.preferences.default_review_mode = ReviewUserSettings.DefaultReviewMode(mode)
+            self.preferences.save(update_fields=["default_review_mode"])
+        elif change == "repository_removed":
+            self.repository.delete()
         elif change == "unset":
             self.preferences.delete()
         elif change == "inactive":
@@ -257,6 +285,7 @@ class TestAuthoredPRReviewTask(BaseTest):
                 self.integration.team = other_team
                 self.integration.save(update_fields=["team"])
             else:
+                ReviewRepository.objects.for_team(other_team.id).create(team=other_team, full_name="PostHog/posthog")
                 self.enterContext(override_settings(REVIEWHOG_TEAM_IDS=[other_team.id, self.team.id]))
         outcome_before = _dispatch_count(expected_outcome)
 
