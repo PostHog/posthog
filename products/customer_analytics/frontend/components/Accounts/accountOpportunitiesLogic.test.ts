@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { insightsApi } from 'scenes/insights/utils/api'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { InsightModel } from '~/types'
 
 import { accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountApiProperties } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -22,6 +24,17 @@ const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof acco
 
 const buildAccount = (properties: AccountApiProperties): AccountApi =>
     ({ id: 'acc-1', name: 'Acme', external_id: 'ext-1', properties }) as AccountApi
+
+const ACCOUNT_VARIABLE = { variableId: 'var-1', code_name: 'salesforce_account_id', value: '' }
+
+const buildInsight = (sql: string, variables: Record<string, typeof ACCOUNT_VARIABLE>): InsightModel =>
+    ({
+        short_id: 'xauPgpXt',
+        query: {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: sql, variables },
+        },
+    }) as unknown as InsightModel
 
 describe('accountOpportunitiesLogic', () => {
     let logic: ReturnType<typeof accountOpportunitiesLogic.build>
@@ -42,82 +55,66 @@ describe('accountOpportunitiesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
-    it('shows the not-linked state and runs no warehouse query when the account has no Salesforce id', async () => {
+    it('shows the not-linked state and loads no insight when the account has no Salesforce id', async () => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({}))
-        const queryMock = jest.spyOn(api, 'query')
+        const insightMock = jest.spyOn(insightsApi, 'getByShortId')
 
         await mount()
 
-        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: null, opportunities: null })
-        expect(queryMock).not.toHaveBeenCalled()
+        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: null, insight: null })
+        expect(insightMock).not.toHaveBeenCalled()
     })
 
     it('surfaces a load-failed result (not an infinite skeleton) when the account fetch throws', async () => {
         mockAccountsRetrieve.mockRejectedValue(new Error('network'))
-        const queryMock = jest.spyOn(api, 'query')
+        const insightMock = jest.spyOn(insightsApi, 'getByShortId')
 
         await mount()
 
-        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: null, opportunities: null, loadFailed: true })
-        expect(queryMock).not.toHaveBeenCalled()
+        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: null, insight: null, loadFailed: true })
+        expect(insightMock).not.toHaveBeenCalled()
     })
 
     it.each([
-        ['access is denied', "You don't have access to table `salesforce.opportunity`."],
-        ['the table is absent', 'Unknown table `salesforce.opportunity`.'],
-    ])('degrades to a null result without capturing the expected error when %s', async (_label, message) => {
+        ['is absent', () => jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(null)],
+        ['fails to load', () => jest.spyOn(insightsApi, 'getByShortId').mockRejectedValue(new Error('boom'))],
+    ])('shows the not-found state when the saved insight %s', async (_label, mockInsight) => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
-        jest.spyOn(api, 'query').mockRejectedValue(new Error(message))
+        mockInsight()
 
         await mount()
 
-        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: 'sfdc-1', opportunities: null })
-        expect(posthog.captureException).not.toHaveBeenCalled()
+        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: 'sfdc-1', insight: null })
+        expect(logic.values.variablesOverride).toBeNull()
     })
 
-    it('still captures genuine, unexpected warehouse query failures', async () => {
+    it.each([
+        [
+            'sets the account Salesforce id on the variable',
+            buildInsight('select 1 from salesforce.opportunity where account_id = {variables.salesforce_account_id}', {
+                'var-1': ACCOUNT_VARIABLE,
+            }),
+            { 'var-1': { ...ACCOUNT_VARIABLE, value: 'sfdc-1' } },
+        ],
+        [
+            'refuses an insight whose SQL does not filter by the variable',
+            buildInsight('select 1 from salesforce.opportunity', { 'var-1': ACCOUNT_VARIABLE }),
+            null,
+        ],
+        [
+            'refuses an insight without the variable',
+            buildInsight(
+                'select 1 from salesforce.opportunity where account_id = {variables.salesforce_account_id}',
+                {}
+            ),
+            null,
+        ],
+    ])('%s', async (_label, insight, expectedOverride) => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
-        jest.spyOn(api, 'query').mockRejectedValue(new Error('Query exceeded memory limit'))
+        jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue(insight)
 
         await mount()
 
-        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: 'sfdc-1', opportunities: null })
-        expect(posthog.captureException).toHaveBeenCalledTimes(1)
-    })
-
-    it('maps warehouse rows to opportunities preserving column order and nulls', async () => {
-        mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
-        jest.spyOn(api, 'query').mockResolvedValue({
-            results: [
-                ['op-1', 'Expansion', 50000, 20, 15, '2024-12-31', '2025-01-15'],
-                ['op-2', null, null, null, null, null, null],
-            ],
-        } as any)
-
-        await mount()
-
-        expect(logic.values.opportunitiesResult).toEqual({
-            sfdcId: 'sfdc-1',
-            opportunities: [
-                {
-                    id: 'op-1',
-                    name: 'Expansion',
-                    totalCreditAmount: 50000,
-                    discountRate: 20,
-                    effectiveDiscountRate: 15,
-                    closeDate: '2024-12-31',
-                    contractStartDate: '2025-01-15',
-                },
-                {
-                    id: 'op-2',
-                    name: null,
-                    totalCreditAmount: null,
-                    discountRate: null,
-                    effectiveDiscountRate: null,
-                    closeDate: null,
-                    contractStartDate: null,
-                },
-            ],
-        })
+        expect(logic.values.variablesOverride).toEqual(expectedOverride)
     })
 })

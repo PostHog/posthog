@@ -66,7 +66,7 @@ export function AccountViewComponent({
         case 'spend':
             return <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="spend" {...tileProps} />
         case 'opportunities':
-            return <AccountOpportunitiesExpansion accountId={accountId} embedded={embedded} instanceId={instanceId} />
+            return <AccountOpportunitiesExpansion accountId={accountId} instanceId={instanceId} />
         case 'conversations':
             return <AccountConversationsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'meetings':

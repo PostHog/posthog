@@ -1,19 +1,25 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
+import type { ReactNode } from 'react'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
-import { LemonSkeleton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyCurrency, percentage } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
-import { AccountOpportunity, accountOpportunitiesLogic, NOT_LOADED } from './accountOpportunitiesLogic'
-import { AccountsEvents, SALESFORCE_ORIGIN } from './constants'
+import { Query } from '~/queries/Query/Query'
+import { InsightShortId } from '~/types'
+
+import {
+    accountOpportunitiesLogic,
+    NOT_LOADED,
+    OPPORTUNITIES_INSIGHT_SHORT_ID,
+    SALESFORCE_ACCOUNT_VARIABLE,
+} from './accountOpportunitiesLogic'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
-function OpportunitiesEmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
+function OpportunitiesEmptyState({ title, detail }: { title: string; detail: ReactNode }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
             <HedgehogBusiness className="w-24 h-24" />
@@ -23,95 +29,21 @@ function OpportunitiesEmptyState({ title, detail }: { title: string; detail: str
     )
 }
 
-function OpportunityDate({ value }: { value: string | null }): JSX.Element {
-    if (!value) {
-        return <span className="text-muted">—</span>
-    }
-    const parsed = dayjs(value)
-    return <span>{parsed.isValid() ? parsed.format('MMM D, YYYY') : value}</span>
-}
-
-function OpportunityDiscount({ value }: { value: number | null }): JSX.Element {
-    if (value == null) {
-        return <span className="text-muted">—</span>
-    }
-    return <span>{percentage(value / 100)}</span>
-}
-
-const columns: LemonTableColumns<AccountOpportunity> = [
-    {
-        title: 'Name',
-        key: 'name',
-        render: (_, opportunity) => (
-            <Link
-                to={`${SALESFORCE_ORIGIN}/${opportunity.id}`}
-                target="_blank"
-                className={opportunity.name ? undefined : 'italic'}
-                onClick={() => posthog.capture(AccountsEvents.OpportunityClicked)}
-            >
-                {opportunity.name || 'Unnamed'}
-            </Link>
-        ),
-        sorter: (a, b) => (a.name ?? '').localeCompare(b.name ?? ''),
-    },
-    {
-        title: 'Credit amount',
-        key: 'totalCreditAmount',
-        align: 'right',
-        render: (_, opportunity) =>
-            opportunity.totalCreditAmount != null ? (
-                humanFriendlyCurrency(opportunity.totalCreditAmount)
-            ) : (
-                <span className="text-muted">—</span>
-            ),
-        sorter: (a, b) => (a.totalCreditAmount ?? 0) - (b.totalCreditAmount ?? 0),
-    },
-    {
-        title: 'Discount',
-        key: 'discountRate',
-        align: 'right',
-        render: (_, opportunity) => <OpportunityDiscount value={opportunity.discountRate} />,
-        sorter: (a, b) => (a.discountRate ?? 0) - (b.discountRate ?? 0),
-    },
-    {
-        title: 'Effective discount',
-        key: 'effectiveDiscountRate',
-        align: 'right',
-        render: (_, opportunity) => <OpportunityDiscount value={opportunity.effectiveDiscountRate} />,
-        sorter: (a, b) => (a.effectiveDiscountRate ?? 0) - (b.effectiveDiscountRate ?? 0),
-    },
-    {
-        title: 'Close date',
-        key: 'closeDate',
-        render: (_, opportunity) => <OpportunityDate value={opportunity.closeDate} />,
-        sorter: (a, b) => dayjs(a.closeDate ?? 0).valueOf() - dayjs(b.closeDate ?? 0).valueOf(),
-    },
-    {
-        title: 'Contract start',
-        key: 'contractStartDate',
-        render: (_, opportunity) => <OpportunityDate value={opportunity.contractStartDate} />,
-        sorter: (a, b) => dayjs(a.contractStartDate ?? 0).valueOf() - dayjs(b.contractStartDate ?? 0).valueOf(),
-    },
-]
-
 export function AccountOpportunitiesExpansion({
     accountId,
     instanceId,
-    embedded = true,
 }: {
     accountId: string
     instanceId?: string
-    embedded?: boolean
 }): JSX.Element {
-    const { opportunitiesResult, opportunitiesResultLoading } = useValues(
-        accountOpportunitiesLogic({ accountId, instanceId })
-    )
+    const logic = accountOpportunitiesLogic({ accountId, instanceId })
+    const { opportunitiesResult, opportunitiesResultLoading, variablesOverride } = useValues(logic)
 
     if (opportunitiesResultLoading || opportunitiesResult === NOT_LOADED) {
         return <LemonSkeleton className="h-64 w-full" />
     }
 
-    const { sfdcId, opportunities, loadFailed } = opportunitiesResult
+    const { sfdcId, insight, loadFailed } = opportunitiesResult
 
     if (loadFailed) {
         return (
@@ -131,22 +63,54 @@ export function AccountOpportunitiesExpansion({
         )
     }
 
-    if (!opportunities || opportunities.length === 0) {
+    if (!insight?.query) {
         return (
             <OpportunitiesEmptyState
-                title="No opportunities yet"
-                detail="We couldn't find any Salesforce opportunities for this account."
+                title="No opportunities insight here"
+                detail="We couldn't find the saved opportunities insight in this environment."
             />
         )
     }
 
+    if (!variablesOverride) {
+        return (
+            <OpportunitiesEmptyState
+                title="Opportunities insight needs an account filter"
+                detail={
+                    <>
+                        Add <code>{`{variables.${SALESFORCE_ACCOUNT_VARIABLE}}`}</code> to the SQL of the{' '}
+                        <Link to={urls.insightView(OPPORTUNITIES_INSIGHT_SHORT_ID)} target="_blank">
+                            saved opportunities insight
+                        </Link>
+                        , so it shows only this account's opportunities.
+                    </>
+                }
+            />
+        )
+    }
+
+    const queryKey = `account-opportunities-${accountId}-${instanceId ?? 'default'}`
+
     return (
-        <LemonTable<AccountOpportunity>
-            size="small"
-            embedded={embedded}
-            dataSource={opportunities}
-            columns={columns}
-            rowKey="id"
-        />
+        /* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */
+        <div className="h-80 flex flex-col overflow-hidden">
+            <Query
+                key={queryKey}
+                uniqueKey={queryKey}
+                query={insight.query}
+                variablesOverride={variablesOverride}
+                readOnly
+                embedded
+                // Attach the insight's data logic to the tab logic, which the expanded-row root keeps mounted,
+                // so the loaded results survive tab switches instead of refetching on return.
+                attachTo={logic}
+                context={{
+                    insightProps: {
+                        dashboardItemId: queryKey as InsightShortId,
+                        dataNodeCollectionId: queryKey,
+                    },
+                }}
+            />
+        </div>
     )
 }
