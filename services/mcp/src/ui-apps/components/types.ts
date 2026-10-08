@@ -14,6 +14,7 @@ export type ChartDisplayType =
     | 'ActionsAreaGraph'
     | 'BoldNumber'
     | 'ActionsPie'
+    | 'ActionsDonut'
     | 'ActionsTable'
     | 'WorldMap'
     | 'SlopeGraph'
