@@ -39,6 +39,8 @@ import {
 // Off, each team's slice stays in the digest thread, labeled with the channel it would go to.
 const TEAM_CHANNEL_POSTS = process.env.FLAKY_REPORT_TEAM_CHANNELS === 'true'
 const FEEDBACK_CHANNEL = '<#C09G8QA6740>' // #team-devex
+// The name a team uses under `notifications:` in owners.yaml to redirect or silence this report.
+const OWNERS_PRODUCER = 'flaky_report'
 
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 const DEPOT_ORG = 'ntsdt08fpt'
@@ -221,10 +223,12 @@ async function enrich(items, runHogql = hogql) {
         const seen = new Set()
         const evidence = []
         for (const [, engine, runId, jobId, workflowId, nativeJobId] of [...recent].sort((a, b) => b[0] - a[0])) {
-            if (seen.has(runId)) {
+            // The two engines number their runs independently, so a bare integer can name one in each.
+            const runKey = `${engine}:${runId}`
+            if (seen.has(runKey) || (engine === 'depot_ci' && !(workflowId && nativeJobId))) {
                 continue
             }
-            seen.add(runId)
+            seen.add(runKey)
             evidence.push({ url: failedJobUrl(engine, { runId, jobId, workflowId, nativeJobId }) })
             if (evidence.length === 2) {
                 break
@@ -601,9 +605,14 @@ async function deliverTeamDigests(teamDigests, { now, digest, withheld = null, s
         }
     }
     if (posted.length > 0) {
-        await slack.post(buildTeamIndexBlocks(posted), 'Team posts for the weekly flaky test report', {
-            threadTs: digest.ts,
-        })
+        // The team posts already landed. A failed run would invite a re-dispatch that repeats them.
+        try {
+            await slack.post(buildTeamIndexBlocks(posted), 'Team posts for the weekly flaky test report', {
+                threadTs: digest.ts,
+            })
+        } catch (err) {
+            console.warn(`team post index failed: ${err.message}`)
+        }
     }
     return posted
 }
@@ -630,7 +639,7 @@ async function main() {
         console.info('No qualifying flaky tests this week — nothing to post.')
         return
     }
-    const ownerFor = resolveOwners(reportCandidates, toRepoPaths)
+    const ownerFor = resolveOwners(reportCandidates, toRepoPaths, OWNERS_PRODUCER)
     // Rendered once; the channel table and the per-team slices share the same rows.
     const entries = runnerReports.flatMap(({ candidates, extrasFor }) => {
         const reportRows = tableRows(candidates, ownerFor, extrasFor)

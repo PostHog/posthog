@@ -106,7 +106,7 @@ export function repoPathResolver(trackedPaths = trackedTestPaths()) {
 
 // Ambiguous suffix matches only count when every candidate agrees on the owner.
 // `slack` is the owning team's notifications channel, only set when the owner is unambiguous.
-export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
+export function resolveOwners(items, toRepoPaths = repoPathResolver(), producer = null) {
     const candidates = new Map()
     for (const item of items) {
         const selectorPath = item.selector.split('::')[0]
@@ -118,7 +118,8 @@ export function resolveOwners(items, toRepoPaths = repoPathResolver()) {
     let resolved = {}
     if (allPaths.length > 0) {
         try {
-            const out = execFileSync('python3', ['-m', 'owners_yaml', '--purpose', 'notifications'], {
+            const producerArgs = producer ? ['--producer', producer] : []
+            const out = execFileSync('python3', ['-m', 'owners_yaml', '--purpose', 'notifications', ...producerArgs], {
                 encoding: 'utf8',
                 input: allPaths.join('\n'),
                 env: { ...process.env, PYTHONPATH: 'packages/owners-yaml' },
