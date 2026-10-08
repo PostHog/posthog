@@ -2,6 +2,7 @@
 searched and access-filtered page of them. Each workflow is a contract with its secret inputs masked."""
 
 import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Final, Optional, cast
 from uuid import UUID
 
@@ -16,6 +17,8 @@ from django_filters import BooleanFilter, FilterSet
 from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
+    WorkflowArchived,
+    WorkflowEditState,
     WorkflowListFilterError,
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
@@ -23,12 +26,14 @@ from products.workflows.backend.facade.contracts import (
     WorkflowPage,
     WorkflowRef,
 )
-from products.workflows.backend.facade.enums import WorkflowProposalStatus
+from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.services.batch_jobs import hog_flow_ids_with_broadcast_status
 from products.workflows.backend.services.hog_flow_schedules import list_schedules_oldest_first
 from products.workflows.backend.services.hog_flow_secrets import TemplateCache, mask_workflow_fields
+from products.workflows.backend.services.publish_impact import build_publish_impact
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -68,6 +73,90 @@ def get_workflow_ref(
         trigger_type=trigger.get("type"),
         trigger_filters=trigger.get("filters") or {},
         variables=flow.variables,
+    )
+
+
+def get_workflow_edit_state(
+    *,
+    team_id: int,
+    workflow_id: UUID | str,
+    user_access_control: "UserAccessControl | None",
+    required_level: str | None,
+) -> WorkflowEditState:
+    """The same lookup and access check as get_workflow, for an edit the serializer validates against
+    the stored workflow."""
+    flow = _checked_flow(team_id, workflow_id, user_access_control, required_level, created_by=True)
+    return to_edit_state(flow)
+
+
+def get_team_workflow_edit_state(
+    *, team_id: int, workflow_id: UUID | str, user_access_control: "UserAccessControl", required_level: str
+) -> WorkflowEditState:
+    """The team's workflow for an edit made outside a request, read once for the archived and access checks.
+    An archived workflow raises WorkflowArchived before the access check, so every caller gets the same answer."""
+    try:
+        flow = HogFlow.objects.select_related("created_by").get(team_id=team_id, pk=workflow_id)
+    except (HogFlow.DoesNotExist, ValidationError, ValueError):
+        raise WorkflowNotFound()
+    if flow.status == HogFlow.State.ARCHIVED:
+        raise WorkflowArchived()
+    if not user_access_control.check_access_level_for_object(
+        flow, required_level=cast("AccessControlLevel", required_level)
+    ):
+        raise WorkflowAccessDenied(required_level)
+    return to_edit_state(flow)
+
+
+def to_edit_state(flow: HogFlow) -> WorkflowEditState:
+    return WorkflowEditState(
+        id=flow.id,
+        team_id=flow.team_id,
+        name=flow.name,
+        status=flow.status,
+        version=flow.version,
+        origin_product=flow.origin_product,
+        created_by=flow.created_by,
+        updated_at=flow.updated_at,
+        trigger=flow.trigger,
+        edges=flow.edges,
+        actions=flow.actions,
+        abort_action=flow.abort_action,
+        variables=flow.variables,
+        draft=flow.draft,
+        draft_updated_at=flow.draft_updated_at,
+        encrypted_inputs=flow.encrypted_inputs,
+        draft_encrypted_inputs=flow.draft_encrypted_inputs,
+    )
+
+
+def workflow_from_fields(*, fields: Mapping[str, object], user_access_control: "UserAccessControl | None") -> Workflow:
+    """The workflow a write left behind, built from the field values the write returned rather than
+    read again, so a write another request commits afterwards does not show in this response."""
+    return _to_workflow(HogFlow(**fields), user_access_control, template_cache={}, with_schedules=True)
+
+
+def workflow_publish_impact(
+    *, team_id: int, hog_flow_id: UUID, by_action_counts: Optional[dict], position_unknown: Optional[int]
+) -> dict:
+    """What publishing the staged draft does to the runs in flight."""
+    flow = HogFlow.objects.get(team_id=team_id, pk=hog_flow_id)
+    draft = flow.draft or {}
+    schedule_overrides = {
+        str(schedule_id): variables or {}
+        for schedule_id, variables in HogFlowSchedule.objects.filter(hog_flow_id=flow.id)
+        .exclude(status=HogFlowScheduleStatus.COMPLETED)
+        .values_list("id", "variables")
+    }
+    return build_publish_impact(
+        live_actions=flow.actions or [],
+        live_edges=flow.edges or [],
+        live_variables=flow.variables or [],
+        draft_actions=draft.get("actions") or [],
+        draft_variables=draft.get("variables") or [],
+        existing_redirects=flow.action_redirects,
+        by_action_counts=by_action_counts,
+        position_unknown=position_unknown,
+        schedule_overrides=schedule_overrides,
     )
 
 
