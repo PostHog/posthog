@@ -44,6 +44,7 @@ describe('liveWebAnalyticsMetricsLogic', () => {
             ],
         })
         jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined)
         ;(posthog as any).setPersonProperties = jest.fn()
         unmountFeatureFlagLogic = featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {})
