@@ -939,8 +939,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # that still has an encrypted value, and the save has no request to tell a replacement the
         # caller typed from the secret it must not expose, so that value would reach neither column.
         # Drop the superseded entry here, where the request says which keys carry a real value.
-        supplied = explicit_secret_input_keys(getattr(self, "initial_data", {}).get("inputs"))
-        secret_keys = {schema["key"] for schema in (validated_data.get("inputs_schema") or []) if schema.get("secret")}
+        # A staged edit saves only its metadata here, so its inputs must not touch the live secrets.
+        supplied = (
+            explicit_secret_input_keys(getattr(self, "initial_data", {}).get("inputs"))
+            if "inputs" in validated_data
+            else set()
+        )
+        schemas = validated_data.get("inputs_schema", instance.inputs_schema) or []
+        secret_keys = {schema["key"] for schema in schemas if schema.get("secret")}
         stored_secrets = instance.encrypted_inputs or {}
         superseded = (supplied - secret_keys) & stored_secrets.keys()
         if superseded:

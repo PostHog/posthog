@@ -131,13 +131,23 @@ class TestHogFunctionDrafts(DraftTestCase):
     def test_agent_metadata_in_a_config_edit_still_applies_live(self):
         function_id = self._create()
 
-        self._stage(function_id, {"name": "Renamed", "enabled": False, "filters": {"source": "events"}})
+        self._stage(
+            function_id,
+            {
+                "name": "Renamed",
+                "enabled": False,
+                "filters": {"source": "events"},
+                "inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "rotated-token"}},
+            },
+        )
 
         function = HogFunction.objects.get(id=function_id)
         assert function.name == "Renamed"
         assert function.enabled is False
         assert function.draft is not None
         assert function.draft["filters"]["source"] == "events"
+        assert function.encrypted_inputs["token"]["value"] == "live-token"
+        assert function.draft_encrypted_inputs["token"]["value"] == "rotated-token"
 
     def test_metadata_in_a_draft_edit_does_not_revert_a_concurrent_live_edit(self):
         function_id = self._create()
