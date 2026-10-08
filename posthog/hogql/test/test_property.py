@@ -111,9 +111,16 @@ class TestProperty(BaseTest):
             Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
         ] = None,
         strict: bool = True,
+        cohort_via_distinct_id: bool = False,
     ):
         return clear_locations(
-            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+            property_to_expr(
+                property,
+                team=team or self.team,
+                scope=scope or "event",
+                strict=strict,
+                cohort_via_distinct_id=cohort_via_distinct_id,
+            )
         )
 
     def _selector_to_expr(self, selector: str):
@@ -952,12 +959,16 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match('(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
+                elements_chain_match(
+                    '(^|;)div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))div(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                )
             ),
         )
         self.assertEqual(
@@ -965,20 +976,32 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?href="boo"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.class(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
+                    {
+                        "regex": elements_chain_match(
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="withid"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        )
+                    },
                 )
             ),
         )
@@ -990,7 +1013,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?attr_id="with\\-dashed\\-id"(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -1005,6 +1028,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with-dashed-id"),
             self._selector_to_expr("[id='with-dashed-id']"),
         )
+        self.assertEqual(self._selector_to_expr("#a[id='b']"), ast.Constant(value=False))
         self.assertEqual(
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
@@ -1020,7 +1044,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.sm:\\[max\\-width:640px\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -1028,7 +1054,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
@@ -1037,7 +1065,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\](?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -1045,7 +1073,11 @@ class TestProperty(BaseTest):
         # Test Tailwind fraction/opacity class with a slash
         self.assertEqual(
             self._selector_to_expr(".bg-yellow/50"),
-            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;)(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?\\.bg\\-yellow/50(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
@@ -1067,6 +1099,30 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
+        )
+
+    @parameterized.expand(
+        [
+            ("in", {}, "IN"),
+            ("negation", {"negation": True}, "NOT IN"),
+            ("not_in_operator", {"operator": "not_in"}, "NOT IN"),
+        ]
+    )
+    def test_cohort_filter_via_distinct_id(self, _name: str, extra: dict, expected_op: str):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "cohort", "key": "id", "value": cohort.pk, **extra},
+                self.team,
+                cohort_via_distinct_id=True,
+            ),
+            self._parse_expr(
+                f"distinct_id {expected_op} "
+                f"(SELECT distinct_id FROM person_distinct_ids WHERE person_id IN COHORT {cohort.pk})"
+            ),
         )
 
     def test_cohort_filter_missing_cohort(self):

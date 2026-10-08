@@ -946,6 +946,7 @@ rules:
           IDOR: User input flows to organization-scoped model lookup without organization filter.
           Fix: Add organization=organization or organization_id=organization_id to the query.
           For RoleMembership, use role__organization= or role__organization_id=.
+          For IdJagIdentity, use identity_provider_config= or identity_provider_config_id=.
       pattern-sources:
           - patterns:
                 - pattern-either:
@@ -990,6 +991,7 @@ rules:
                               |CrossProjectDashboard
                               |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
+                              |IdJagIdentity
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
@@ -1003,7 +1005,6 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
-                              |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
                               |RoleMembership
@@ -1015,6 +1016,8 @@ rules:
           - pattern: $M.objects. ... .$METHOD(..., organization__id=$O, ...)
           - pattern: $M.objects. ... .$METHOD(..., role__organization=$O, ...)
           - pattern: $M.objects. ... .$METHOD(..., role__organization_id=$O, ...)
+          - pattern: $M.objects. ... .$METHOD(..., identity_provider_config=$C, ...)
+          - pattern: $M.objects. ... .$METHOD(..., identity_provider_config_id=$C, ...)
           # get_object_or_404
           - pattern: get_object_or_404($M, ..., organization=$O, ...)
           - pattern: get_object_or_404($M, ..., organization_id=$O, ...)
@@ -1069,6 +1072,7 @@ rules:
                         |CrossProjectDashboard
                         |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
+                        |IdJagIdentity
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
@@ -1082,7 +1086,6 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
-                        |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
                         |RoleMembership
@@ -1092,6 +1095,8 @@ rules:
           - pattern-not: $M.objects. ... .$METHOD2(..., organization__id=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., role__organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., role__organization_id=$O, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., identity_provider_config=$C, ...)
+          - pattern-not: $M.objects. ... .$METHOD2(..., identity_provider_config_id=$C, ...)
           # get_object_or_404
           - pattern-not: get_object_or_404($M, ..., organization=$O, ...)
           - pattern-not: get_object_or_404($M, ..., organization_id=$O, ...)
@@ -1107,6 +1112,7 @@ rules:
           IDOR risk: Lookup on organization-scoped model without organization filter.
           Fix: Add organization_id=organization_id or organization=organization to the query.
           For RoleMembership, use role__organization= or role__organization_id=.
+          For IdJagIdentity, use identity_provider_config= or identity_provider_config_id=.
       languages: [python]
       severity: WARNING
       metadata:

@@ -37,6 +37,7 @@ import {
     FeatureFlagType,
     FeatureFlagWithV1Config,
     OrganizationFeatureFlag,
+    PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RecurrenceInterval,
@@ -4510,6 +4511,30 @@ describe('a flag in config version 2', () => {
         expect(newLogic.values.configFormat).toBe('v1')
         expect(newLogic.values.featureFlag.key).toBe('')
         expect(router.values.searchParams.sourceId).toBeUndefined()
+        newLogic.unmount()
+    })
+
+    it('prefills one fully rolled out release condition from a properties link', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        const properties: PersonPropertyFilter[] = [
+            {
+                key: 'p_signed_up',
+                type: PropertyFilterType.Person,
+                operator: PropertyOperator.GreaterThanOrEqual,
+                value: 0.6,
+            },
+        ]
+        router.actions.push(urls.featureFlagNew({ properties }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.filters.groups).toEqual([
+            { properties, rollout_percentage: 100, variant: null },
+        ])
         newLogic.unmount()
     })
 })
