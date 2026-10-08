@@ -345,7 +345,7 @@ _Also asked as:_ Depot CI is slower, Depot CI hyperthreading, thread to core rat
 A mypy run with no cache needs more memory than an 8 GB runner has, so the job moved to a 16 GB runner.
 The kernel killed mypy and the runner died with "lost communication with the server" and no logs.
 
-No mypy setting leaves enough room.
+None of the tested settings leaves enough room.
 Peak memory with no cache: 10.3 GB with 2 workers, 8.3 GB with 1 worker, 14.0 GB with 4 workers.
 Without `--cache-fine-grained` the 2-worker run needs 9.35 GB, and the 1-worker run needs 7.1 GB and takes 354 s instead of 217 s.
 A cache from an older dependency set does not help: the run still needs 8.0 GB.
