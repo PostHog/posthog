@@ -11,7 +11,7 @@ import {
   localHarnessFor,
 } from "../billing";
 import { chatgptAccount } from "../chatgpt";
-import type { PiChats } from "../chats";
+import type { PiChats, StartPick } from "../chats";
 import { loadClaudeToken } from "../claudeToken";
 import type { Composer } from "../composer";
 import { messageOf } from "../errors";
@@ -64,6 +64,7 @@ export function useSend({
   openModal,
   openModelSheet,
   openEffortSheet,
+  pickFor,
   compact,
   openSearch,
   openSettings,
@@ -83,7 +84,7 @@ export function useSend({
   resetWork: () => void;
   local: {
     isLocal: (taskId: string | null) => taskId is string;
-    localFor: (id: string) => Promise<LocalAgent>;
+    localFor: (id: string, pick?: StartPick) => Promise<LocalAgent>;
     clear: (id: string) => Promise<void>;
     markActive: (taskId: string) => void;
   };
@@ -100,6 +101,7 @@ export function useSend({
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
+  pickFor: (paneId: string) => StartPick;
   compact: (
     paneId: string,
     task: Task | undefined,
@@ -363,7 +365,9 @@ export function useSend({
     };
     const promptLocal = (taskId: string): Promise<void> => {
       markActive(taskId);
-      return localFor(taskId).then((session) => session.prompt(text, images));
+      return localFor(taskId, pickFor(paneId)).then((session) =>
+        session.prompt(text, images),
+      );
     };
     if (isLocal(pane?.taskId ?? null)) {
       promptLocal(pane?.taskId as string).catch((error: unknown) => {
@@ -430,6 +434,7 @@ export function useSend({
           images,
           repos.reposFor(paneId),
           cloudHarnessFor(loadPrefs().billing),
+          pickFor(paneId),
         )
     ).then(
       (task) => {

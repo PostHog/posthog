@@ -29,7 +29,7 @@ describe("ClaudeLocalSession", () => {
     const agent = fakeAgent();
     const session = new ClaudeLocalSession(
       agent as never,
-      input,
+      { ...input, model: "claude-opus-5-5", effort: "high" },
       async () => true,
     );
     const views: unknown[] = [];
@@ -46,6 +46,8 @@ describe("ClaudeLocalSession", () => {
       adapter: "claude",
       claudeModelAccess: "own-subscription",
       runMode: "local",
+      model: "claude-opus-5-5",
+      effort: "high",
     });
     const message = {
       method: "session/update",
