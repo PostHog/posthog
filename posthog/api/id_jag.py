@@ -14,6 +14,7 @@ from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import IntegrityError
 
 import jwt
 import requests
@@ -25,6 +26,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
+from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -111,6 +113,7 @@ class IdJagClaims(TypedDict, total=False):
     scope: str
     resource: str
     jti: str
+    tenant: str
     iat: int
     nbf: int
     exp: int
@@ -121,6 +124,7 @@ class _VerifiedIdJag:
     claims: IdJagClaims
     provider_name: str
     identity_provider_config: IdentityProviderConfig
+    issuer: str
 
 
 @frozen
@@ -416,26 +420,75 @@ def _verify_and_extract_id_jag_token(assertion: str, authenticated_client_id: st
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    verified_email = claims.get("email") or claims.get("sub") or ""
-
-    # Membership must match the configuration's organization because the access token is scoped to it.
-    is_member = EmailLookupHandler.users_matching_email(
-        verified_email,
-        User.objects.filter(
-            is_active=True,
-            organization_membership__organization_id=idp_config.organization_id,
-        ),
-    ).exists()
-    if not is_member:
-        raise InvalidGrantError(
-            "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
-        )
-
     return _VerifiedIdJag(
         claims=claims,
         provider_name=provider_name,
         identity_provider_config=idp_config,
+        issuer=expected_issuer,
     )
+
+
+def _resolve_user(verified_id_jag: _VerifiedIdJag) -> User:
+    """The active org member this ID-JAG speaks for.
+
+    The IdP subject is the stable key. Email only matches a member the first time a subject
+    is seen, and that match is stored, so a later change of email at either end keeps the
+    same account. A member already bound to a different subject is refused: the IdP has
+    given their email address to someone else.
+    """
+    idp_config = verified_id_jag.identity_provider_config
+    claims = verified_id_jag.claims
+    issuer = verified_id_jag.issuer
+    tenant = str(claims.get("tenant") or "")
+    subject = str(claims["sub"])
+    if len(tenant) > IDENTITY_FIELD_MAX_LENGTH or len(subject) > IDENTITY_FIELD_MAX_LENGTH:
+        raise InvalidGrantError(f"ID-JAG sub and tenant must be at most {IDENTITY_FIELD_MAX_LENGTH} characters")
+    # Membership must match the configuration's organization because the access token is scoped to it.
+    members = User.objects.filter(is_active=True, organization_membership__organization_id=idp_config.organization_id)
+    not_a_member = InvalidGrantError(
+        "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
+    )
+
+    def linked_member(user_id: int) -> User:
+        linked_user = members.filter(pk=user_id).first()
+        if linked_user is None:
+            raise not_a_member
+        return linked_user
+
+    linked_user_id = (
+        IdJagIdentity.objects.filter(identity_provider_config=idp_config, issuer=issuer, tenant=tenant, subject=subject)
+        .values_list("user_id", flat=True)
+        .first()
+    )
+    if linked_user_id is not None:
+        return linked_member(linked_user_id)
+
+    verified_email = claims.get("email") or subject
+    user = EmailLookupHandler.users_matching_email(verified_email, members).first()
+    if user is None:
+        raise not_a_member
+
+    try:
+        identity, _ = IdJagIdentity.objects.get_or_create(
+            identity_provider_config=idp_config,
+            issuer=issuer,
+            tenant=tenant,
+            subject=subject,
+            defaults={"user": user},
+        )
+    except IntegrityError:
+        # get_or_create recovers from a concurrent link of this subject, so the clash is on the member.
+        logger.info(
+            "id_jag_token_rejected",
+            reason="member is already linked to a different IdP subject",
+            identity_provider_config_id=str(idp_config.id),
+            stage="subject_link",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+    if identity.user_id != user.pk:
+        # A concurrent first exchange linked this subject to another member, and the subject decides.
+        return linked_member(identity.user_id)
+    return user
 
 
 def _construct_access_token_payload(
@@ -443,7 +496,7 @@ def _construct_access_token_payload(
     provider_name: str,
     granted_scopes: list[str],
     organization_id: Any,
-    verified_email: str,
+    user: User,
 ) -> dict[str, Any]:
     """
     Constructs the payload for the JWT access token which will be issued to the ID-JAG caller.
@@ -457,7 +510,8 @@ def _construct_access_token_payload(
     payload: dict[str, Any] = {
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
-        "email": verified_email,
+        "email": user.email,
+        "user_uuid": str(user.uuid),
         "aud": claims.get("resource"),
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
@@ -533,13 +587,13 @@ def issue_access_token(
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-    verified_email = verified_id_jag.claims.get("email") or verified_id_jag.claims.get("sub") or ""
+    user = _resolve_user(verified_id_jag)
     payload = _construct_access_token_payload(
         verified_id_jag.claims,
         verified_id_jag.provider_name,
         granted,
         organization.pk,
-        cast(str, verified_email),
+        user,
     )
     token = _construct_access_token(payload)
     return IssuedAccessToken(

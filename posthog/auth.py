@@ -608,9 +608,8 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     ID-JAG (XAA) JWT Bearer grant served from the OAuth token endpoint
     (`/oauth/token`, logic in `posthog.api.id_jag`). Validates the JWT against the
     RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
-    to the User whose email matches the `userSub` half of the token's `sub`
-    claim (`{provider}:{userSub}` per
-    https://xaa.dev/docs/token-structure#sub-claim-format).
+    to the User named by the token's `user_uuid` claim, which the token endpoint
+    resolved from the IdP subject.
 
     Scope enforcement lives in `posthog.permissions.APIScopePermission`; this
     class only handles signature + claim validation and user resolution.
@@ -636,20 +635,6 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         token = match.group(1).strip()
 
         return token
-
-    @classmethod
-    def _parse_sub(cls, sub: str) -> Optional[tuple[str, str]]:
-        """`{providerName}:{userSub}` per spec — split into (provider, user_sub).
-
-        Returns None if the format is malformed (no colon, empty provider, empty
-        user_sub) so the caller can fail with `invalid_token`.
-        """
-        if not sub or ":" not in sub:
-            return None
-        provider, user_sub = sub.split(":", 1)
-        if not provider or not user_sub:
-            return None
-        return provider, user_sub
 
     @classmethod
     def _is_id_jag_token(cls, token: str) -> bool:
@@ -702,7 +687,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={
-                            "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                            "require": ["iss", "sub", "user_uuid", "aud", "exp", "iat", "client_id", "scope", "org_id"],
                             "verify_signature": True,
                             "verify_exp": True,
                             "verify_aud": True,
@@ -728,30 +713,17 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             if claims is None:
                 raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
 
-            sub_parts = self._parse_sub(str(claims.get("sub", "")))
-            if sub_parts is None:
-                raise AuthenticationFailed(
-                    detail="ID-JAG access token sub claim is not in the expected '{provider}:{userSub}' format."
-                )
-
             organization_id = str(claims.get("org_id") or "")
             if not organization_id:
                 raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
 
-            token_email = str(claims.get("email") or "")
-            if not token_email:
-                raise AuthenticationFailed(detail="ID-JAG access token is missing the email claim.")
-
-            # Resolve the user by (email, org_id) so the token only authenticates
-            # against the specific organization it was minted for. This prevents
-            # a token from authenticating as another user that happens to share
-            # the email, and re-validates membership at every request (the user
-            # may have been removed from the org after the token was issued).
+            # Membership is re-checked on every request, because the user may have left the
+            # organization after the token was issued.
             membership = (
                 OrganizationMembership.objects.filter(
                     organization_id=organization_id,
                     user__is_active=True,
-                    user__email__iexact=token_email,
+                    user__uuid=str(claims["user_uuid"]),
                 )
                 .select_related("user", "organization")
                 .first()

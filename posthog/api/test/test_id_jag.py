@@ -12,6 +12,7 @@ The strategy is:
 """
 
 import time
+import uuid
 from typing import Any
 from urllib.parse import urlencode
 
@@ -41,6 +42,7 @@ from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
+from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.oauth import OAuthApplication
@@ -119,7 +121,7 @@ def _make_id_jag(
         "client_id": client_id,
         "resource": resource,
         "scope": scope,
-        "jti": f"id-jag-{now}",
+        "jti": f"id-jag-{uuid.uuid4()}",
         "iat": iat if iat is not None else now,
         "nbf": nbf if nbf is not None else now,
         "exp": now + exp_seconds,
@@ -196,6 +198,17 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             return self.client.post("/oauth/token", data=urlencode(data), content_type=content_type)
         return self.client.post("/oauth/token", data=data, content_type=content_type)
 
+    def _exchange(
+        self, *, sub: str, email: str = "user@example.com", tenant: str = "", issuer: str = _IDP_ISSUER
+    ) -> Any:
+        extra_claims: dict[str, Any] = {"email": email, **({"tenant": tenant} if tenant else {})}
+        assertion = _make_id_jag(issuer=issuer, sub=sub, extra_claims=extra_claims)
+        return self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+    def _link_subject(self, sub: str) -> None:
+        resp = self._exchange(sub=sub)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
     @parameterized.expand(
         [
             ("RS256", _IDP_PRIVATE_KEY_PEM),
@@ -225,6 +238,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(claims["aud"], _RESOURCE_URL)
         self.assertEqual(claims["client_id"], _RESOURCE_CLIENT_ID)
         self.assertEqual(claims["app_org"], _PROVIDER_NAME)
+        self.assertEqual(claims["user_uuid"], str(self.user.uuid))
         self.assertIn("jti", claims)
         self.assertIn("iat", claims)
         self.assertIn("exp", claims)
@@ -507,6 +521,10 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # verified domain.
 
         attacker_org = Organization.objects.create(name="attacker-org")
+        attacker_org.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        attacker_org.save()
         attacker_domain = OrganizationDomain.objects.create(
             organization=attacker_org,
             domain="bigco.example",
@@ -534,6 +552,75 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
         self.assertIn("active member", resp.json()["error_description"])
+
+    def test_linked_subject_keeps_resolving_after_the_email_changes(self) -> None:
+        self._link_subject("idp-user-1")
+
+        self.user.email = "renamed@example.com"
+        self.user.save()
+        second = self._exchange(sub="idp-user-1", email="new-name@example.com")
+
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.json())
+        claims = jwt.decode(
+            second.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["user_uuid"], str(self.user.uuid))
+
+    @parameterized.expand(
+        [("different_subject", "idp-user-2", ""), ("same_subject_other_tenant", "idp-user-1", "other")]
+    )
+    def test_rejects_email_match_for_member_linked_to_another_identity(self, _name: str, sub: str, tenant: str) -> None:
+        self._link_subject("idp-user-1")
+
+        second = self._exchange(sub=sub, tenant=tenant)
+
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second.json()["error"], "invalid_grant")
+        self.assertEqual(IdJagIdentity.objects.filter(user=self.user).count(), 1)
+
+    def test_link_from_a_replaced_issuer_does_not_resolve_the_new_issuers_subject(self) -> None:
+        self._link_subject("idp-user-1")
+        other_user = UserModel.objects.create_and_join(self.organization, "other@example.com", "x")
+        new_issuer = "https://new-idp.example.com"
+        config = (
+            OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+            .identity_provider_configs_for_scope(ConfigScope.ID_JAG)
+            .first()
+        )
+        config.id_jag_issuer_url = new_issuer
+        config.save()
+
+        resp = self._exchange(sub="idp-user-1", email="other@example.com", issuer=new_issuer)
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["user_uuid"], str(other_user.uuid))
+
+    def test_rejects_linked_subject_whose_user_left_the_organization(self) -> None:
+        self._link_subject("idp-user-1")
+
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+        second = self._exchange(sub="idp-user-1")
+
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("active member", second.json()["error_description"])
+
+    @parameterized.expand([("sub", "s" * 256, ""), ("tenant", "idp-user-1", "t" * 256)])
+    def test_rejects_identity_claims_longer_than_stored(self, _name: str, sub: str, tenant: str) -> None:
+        resp = self._exchange(sub=sub, tenant=tenant)
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
 
     def test_rejects_signature_from_unrecognized_key(self) -> None:
         other_pem = generate_rsa_private_key_pem()
@@ -926,6 +1013,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         *,
         sub: str | None = None,
         email: str | None = None,
+        user_uuid: str | None = None,
         aud: str = _RESOURCE_URL,
         iss: str = _AUTH_SERVER_URL,
         scope: str = "feature_flag:read",
@@ -940,6 +1028,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             "iss": iss,
             "sub": sub if sub is not None else f"{_PROVIDER_NAME}:{self.user.email}",
             "email": email if email is not None else self.user.email,
+            "user_uuid": user_uuid if user_uuid is not None else str(self.user.uuid),
             "aud": aud,
             "client_id": client_id,
             "scope": scope,
@@ -1080,36 +1169,23 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_unknown_user_email_rejected(self) -> None:
-        token = self._mint_access_token(
-            sub=f"{_PROVIDER_NAME}:no-such-user@nowhere.example.com",
-            email="no-such-user@nowhere.example.com",
-            scope="user:read",
-        )
+    def test_unknown_user_uuid_rejected(self) -> None:
+        token = self._mint_access_token(user_uuid=str(uuid.uuid4()), scope="user:read")
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_opaque_sub_with_email_claim_authenticates_user(self) -> None:
-        # OIDC IdPs (Okta, Auth0, Entra) emit opaque `sub` values — the user's
-        # PostHog identity is in the separate `email` claim. The resource-side
-        # authenticator must key off `email`, not the userSub half of `sub`.
-        token = self._mint_access_token(
-            sub=f"{_PROVIDER_NAME}:auth0|opaque-id-abc123",
-            email=self.user.email,
-            scope="user:read",
-        )
+    def test_user_is_resolved_by_uuid_not_by_email(self) -> None:
+        token = self._mint_access_token(email="previous-address@example.com", scope="user:read")
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
-        self.assertEqual(resp.json()["email"], self.user.email)
+        self.assertEqual(resp.json()["uuid"], str(self.user.uuid))
 
-    def test_missing_email_claim_rejected(self) -> None:
-        # `email` is the authenticated identity — a token without it must not
-        # fall back to parsing `sub` for an email.
+    def test_missing_user_uuid_claim_rejected(self) -> None:
         now = int(time.time())
         payload = {
             "iss": _AUTH_SERVER_URL,
             "sub": f"{_PROVIDER_NAME}:{self.user.email}",
-            # email intentionally missing
+            "email": self.user.email,
             "aud": _RESOURCE_URL,
             "client_id": _RESOURCE_CLIENT_ID,
             "scope": "user:read",
@@ -1118,11 +1194,6 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
             "exp": now + 300,
         }
         token = jwt.encode(payload, _AS_PRIVATE_KEY_PEM, algorithm="RS256", headers={"typ": ACCESS_TOKEN_TYPE})
-        resp = self._call_authenticated(token)
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_malformed_sub_claim_rejected(self) -> None:
-        token = self._mint_access_token(sub="no_provider_prefix", scope="user:read")
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
