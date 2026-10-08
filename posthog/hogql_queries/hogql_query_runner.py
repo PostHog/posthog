@@ -8,6 +8,7 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
+    ExecutionTarget,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -38,6 +39,10 @@ from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.managed_warehouse.backend.facade.query_execution import (
+    execute_managed_trino_query,
+    validate_managed_trino_query,
+)
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
@@ -70,6 +75,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
         if self._direct_connection_validated and not force:
             return
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
@@ -249,6 +256,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             self.settings.max_execution_time = self.QUERY_SERVICE_MAX_EXECUTION_TIME
 
         self._validate_direct_connection()
+
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            if self.is_query_service:
+                validate_user_query(self._parse_query()[0], team=self.team)
+            return execute_managed_trino_query(
+                self.query.model_copy(update={"modifiers": self.modifiers}),
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                settings=self.settings or HogQLGlobalSettings(),
+                timings=self.timings,
+                limit_context=self.limit_context,
+            )
 
         if self.query.sendRawQuery and self.query.connectionId:
             return execute_hogql_query(

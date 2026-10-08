@@ -199,6 +199,21 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const HostedTrino: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+        pageUrl: `${urls.sqlEditor({ query: 'SELECT event FROM events' })}#engine=managed_trino`,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
+
 export const LoadingInsight: Story = {
     parameters: {
         pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
@@ -214,6 +229,7 @@ export const LoadingInsight: Story = {
                         return [200, { results: [] }]
                     },
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                 },
             },
         },
@@ -500,6 +516,7 @@ export const BIModeWorksheet: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                 },
                 post: {
                     // The specific path wins over the catch-all query mock on the meta
@@ -732,6 +749,7 @@ export const LazySchema: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                     '/api/projects/:team_id/warehouse_saved_queries/': {
                         results: [
                             {
@@ -948,6 +966,7 @@ const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDe
                     is_ai_data_processing_approved: approved,
                 },
                 '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                '/api/environments/:team_id/warehouse_expressions/': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/HogQLMetadata': async ({ request }: MockResolverInfo) => {

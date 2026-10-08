@@ -29773,6 +29773,11 @@
                     "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
                 },
+                "executionTarget": {
+                    "description": "Compile and run this query against the hosted Trino target.",
+                    "enum": ["default", "managed_trino"],
+                    "type": "string"
+                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"

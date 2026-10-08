@@ -1688,6 +1688,11 @@ class HogQLAlertEvaluation(StrEnum):
     ANY_ROW = "any_row"
 
 
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
+
+
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"

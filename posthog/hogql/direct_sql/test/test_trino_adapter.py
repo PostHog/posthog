@@ -49,6 +49,7 @@ def test_execute_returns_rows_and_types(
     request = MagicMock()
     request.sql = request_sql
     request.values = request_values
+    request.cancellation_token = None
     request.team.pk = 1
     request.source.id = "source-id"
     request.settings.max_execution_time = 30

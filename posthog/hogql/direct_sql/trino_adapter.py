@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, cast
 
 import sqlparse
@@ -13,9 +14,15 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
+from posthog.dataclasses import frozen
+from posthog.direct_query_cancellation import is_direct_query_cancellation_requested
+
 if TYPE_CHECKING:
+    from trino.dbapi import Connection
+
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
@@ -46,8 +53,15 @@ def ensure_read_only_raw_trino_statement(sql: str) -> str:
 
 
 class _CancelWatchdog:
-    def __init__(self, cursor: object, timeout_seconds: float) -> None:
+    def __init__(
+        self, cursor: object, timeout_seconds: float, *, team_id: int = 0, cancellation_token: str | None = None
+    ) -> None:
         self._fired = threading.Event()
+        self._finished = threading.Event()
+        self._cancelled = threading.Event()
+        self._team_id = team_id
+        self._cancellation_token = cancellation_token
+        self._cursor = cursor
 
         def _cancel() -> None:
             self._fired.set()
@@ -56,19 +70,126 @@ class _CancelWatchdog:
             except Exception:
                 pass
 
-        self._timer = threading.Timer(timeout_seconds, _cancel)
+        self._timer = threading.Timer(max(timeout_seconds, 1), _cancel)
         self._timer.daemon = True
 
     def __enter__(self) -> _CancelWatchdog:
         self._timer.start()
+        if self._cancellation_token:
+            threading.Thread(target=self._watch_cancellation, daemon=True, name="trino-query-cancel").start()
         return self
 
     def __exit__(self, *args: object) -> None:
+        self._finished.set()
         self._timer.cancel()
+
+    def _watch_cancellation(self) -> None:
+        while not self._finished.wait(0.5):
+            try:
+                if self._cancellation_token and is_direct_query_cancellation_requested(
+                    self._team_id, self._cancellation_token
+                ):
+                    self._cancelled.set()
+                    self._cursor.cancel()  # type: ignore[attr-defined]
+                    return
+            except Exception:
+                continue
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled.is_set()
 
     @property
     def fired(self) -> bool:
         return self._fired.is_set()
+
+
+@frozen
+class TrinoQueryRequest:
+    sql: str
+    values: dict[str, object] | None
+    timeout_seconds: float
+    timings: HogQLTimings
+    team_id: int
+    debug: bool = False
+    cancellation_token: str | None = None
+
+
+def execute_trino_query(
+    request: TrinoQueryRequest, connection_context: AbstractContextManager[Connection]
+) -> DirectQueryResult:
+    from products.warehouse_sources.backend.facade.models import (
+        trino_column_to_dwh_column,  # noqa: PLC0415 -- optional result mapping belongs to warehouse sources
+    )
+    from products.warehouse_sources.backend.facade.source_management import (
+        trino_error_to_message,  # noqa: PLC0415 -- avoids loading connector drivers during Django startup
+    )
+
+    span = trace.get_current_span()
+    span.set_attribute("team_id", request.team_id)
+    sql, values = (
+        convert_pyformat_placeholders(request.sql, request.values) if request.values is not None else (request.sql, [])
+    )
+    try:
+        with request.timings.measure("trino_execute"), observe_direct_query("trino"):
+            with connection_context as connection:
+                cursor = connection.cursor()
+                try:
+                    with _CancelWatchdog(
+                        cursor,
+                        request.timeout_seconds,
+                        team_id=request.team_id,
+                        cancellation_token=request.cancellation_token,
+                    ) as watchdog:
+                        try:
+                            if values:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- values are passed as parameters; the trino client escapes them, this code never concatenates them
+                                    sql, values
+                                )
+                            else:
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- raw SQL is intentionally user-authored and SELECT-gated
+                                    sql
+                                )
+                            results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
+                        except Exception as error:
+                            if watchdog.cancelled:
+                                raise ExposedHogQLError("Trino query was canceled.") from error
+                            if watchdog.fired:
+                                raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR) from error
+                            raise
+                        # The parameterized path runs a capability probe and a PREPARE before the
+                        # main query exists, where cancel() is a no-op. Refuse results that arrive
+                        # past the deadline so the timeout holds through that window.
+                        if watchdog.cancelled:
+                            raise ExposedHogQLError("Trino query was canceled.")
+                        if watchdog.fired:
+                            raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
+                    description = cursor.description or []
+                finally:
+                    cursor.close()
+    except Exception as error:
+        span.set_attribute("error_type", error.__class__.__name__)
+        message = str(error) if isinstance(error, ExposedHogQLError) else trino_error_to_message(error)
+        if request.debug:
+            return DirectQueryResult(results=[], types=[], print_columns=[], error=message)
+        if isinstance(error, ExposedHogQLError):
+            raise
+        raise ExposedHogQLError(message) from error
+
+    if len(results) > DIRECT_TRINO_MAX_ROWS:
+        DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="trino").inc()
+        raise ExposedHogQLError(DIRECT_TRINO_ROW_CAP_ERROR)
+
+    span.set_attribute("row_count", len(results))
+    types = []
+    for column in description:
+        mapped = trino_column_to_dwh_column(str(column[0]), str(column[1]), True)
+        types.append((str(column[0]), str(mapped["clickhouse"])))
+    return DirectQueryResult(
+        results=list(results),
+        types=types,
+        print_columns=[str(column[0]) for column in description],
+    )
 
 
 class TrinoAdapter:
@@ -97,12 +218,8 @@ class TrinoAdapter:
         return ensure_read_only_raw_trino_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        from products.warehouse_sources.backend.facade.models import (
-            trino_column_to_dwh_column,  # noqa: PLC0415 — product mapper is needed only for Trino results
-        )
         from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the optional driver off startup paths
             connect_trino,
-            trino_error_to_message,
         )
 
         _, config = self.validate_source_config(request.source, request.team)
@@ -114,57 +231,15 @@ class TrinoAdapter:
         span.set_attribute("team_id", request.team.pk)
         span.set_attribute("query_type", request.query_type)
         span.set_attribute("source_id", str(request.source.id))
-        sql, values = (
-            convert_pyformat_placeholders(request.sql, request.values)
-            if request.values is not None
-            else (request.sql, [])
-        )
-
-        try:
-            with request.timings.measure("trino_execute"), observe_direct_query("trino"):
-                with connect_trino(config) as connection:
-                    cursor = connection.cursor()
-                    with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
-                        try:
-                            if values:
-                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- values are passed as parameters; the trino client escapes them, this code never concatenates them
-                                    sql, values
-                                )
-                            else:
-                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- raw SQL is intentionally user-authored and SELECT-gated
-                                    sql
-                                )
-                            results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
-                        except Exception as error:
-                            if watchdog.fired:
-                                raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR) from error
-                            raise
-                        # The parameterized path runs a capability probe and a PREPARE before the
-                        # main query exists, where cancel() is a no-op. Refuse results that arrive
-                        # past the deadline so the timeout holds through that window.
-                        if watchdog.fired:
-                            raise ExposedHogQLError(DIRECT_TRINO_TIMEOUT_ERROR)
-                    description = cursor.description or []
-        except Exception as error:
-            span.set_attribute("error_type", error.__class__.__name__)
-            message = str(error) if isinstance(error, ExposedHogQLError) else trino_error_to_message(error)
-            if request.debug:
-                return DirectQueryResult(results=[], types=[], print_columns=[], error=message)
-            if isinstance(error, ExposedHogQLError):
-                raise
-            raise ExposedHogQLError(message) from error
-
-        if len(results) > DIRECT_TRINO_MAX_ROWS:
-            DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="trino").inc()
-            raise ExposedHogQLError(DIRECT_TRINO_ROW_CAP_ERROR)
-
-        span.set_attribute("row_count", len(results))
-        types = []
-        for column in description:
-            mapped = trino_column_to_dwh_column(str(column[0]), str(column[1]), True)
-            types.append((str(column[0]), str(mapped["clickhouse"])))
-        return DirectQueryResult(
-            results=list(results),
-            types=types,
-            print_columns=[str(column[0]) for column in description],
+        return execute_trino_query(
+            TrinoQueryRequest(
+                sql=request.sql,
+                values=request.values,
+                timeout_seconds=timeout_seconds,
+                timings=request.timings,
+                team_id=request.team.pk,
+                debug=request.debug,
+                cancellation_token=request.cancellation_token,
+            ),
+            connect_trino(config),
         )

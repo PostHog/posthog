@@ -16,9 +16,12 @@ from products.managed_warehouse.backend.table_binding import build_trino_table_l
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
 
+    from posthog.hogql.constants import LimitContext
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -206,6 +209,9 @@ def compile_hogql_to_trino_sql(
     *,
     team: Team | None = None,
     user: User | None = None,
+    user_access_control: UserAccessControl | None = None,
+    limit_top_select: bool = False,
+    limit_context: LimitContext | None = None,
     bypass_warehouse_access_control: bool = False,
     include_hogql: bool = False,
     expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
@@ -271,6 +277,7 @@ def compile_hogql_to_trino_sql(
         team_id,
         team=team,
         user=user,
+        user_access_control=user_access_control,
         modifiers=query_modifiers,
         # Preserve an explicit trusted-internal bypass; the public default remains fail-closed.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -299,8 +306,10 @@ def compile_hogql_to_trino_sql(
         team_id=team_id,
         team=team,
         user=user,
+        user_access_control=user_access_control,
         enable_select_queries=True,
-        limit_top_select=False,
+        limit_top_select=limit_top_select,
+        limit_context=limit_context,
         modifiers=query_modifiers,
         # Match the access-controlled database above instead of widening it during resolution.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -316,8 +325,10 @@ def compile_hogql_to_trino_sql(
             team_id=team_id,
             team=team,
             user=user,
+            user_access_control=user_access_control,
             enable_select_queries=True,
-            limit_top_select=False,
+            limit_top_select=limit_top_select,
+            limit_context=limit_context,
             modifiers=query_modifiers,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,
