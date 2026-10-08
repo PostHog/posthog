@@ -1,18 +1,13 @@
 # Dashboard design guidelines
 
 A dashboard is read top to bottom by someone who did not build it.
-These rules make it answer one question fast, then let the reader dig.
+These rules make it quick to read from the top, then let the reader dig.
 Use them when you build a dashboard from a blueprint.
 
-## Start from one question
+## Dashboard description
 
-- Write the question the dashboard answers before you choose a tile, for example "Is onboarding getting better?".
-  One dashboard serves one question and one audience.
-- Put that question first in the dashboard description. Then say who is counted and who is excluded. Then say how to read it.
-  Example: "Is checkout getting more reliable? Production traffic only, internal users excluded, complete weeks only. Compare each payment method before and after a release."
-- If the request covers several questions or audiences, build a set: one overview dashboard and one dashboard per area.
-  Give the set a shared name prefix and the same structure, and tell the user you are building a set.
-  When several dashboards differ only by site, customer, or feature, build one, confirm it with the user, then repeat it.
+Open the description with the question the dashboard answers. Then say who is counted and who is excluded. Then say how to read it.
+Example: "Is the product growing, and do new signups become regular users? Counts accounts, with internal and test users excluded, over the last 12 complete weeks. The headline numbers show the last complete week."
 
 ## Order the page: summary first, evidence last
 
@@ -124,7 +119,6 @@ A period that is still in progress looks like a sudden drop, and the reader cann
 ## Size
 
 - A typical dashboard has 3-4 headline numbers and 2-4 sections: 8-14 insight tiles.
-- More than 5 sections, or sections for different audiences, means the request is a set of dashboards.
 
 ## Build order
 
