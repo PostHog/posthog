@@ -283,7 +283,7 @@ module "custom_metrics_test" {
         'ClickHouseCustomMetric_Test' AS name,
         map('instance', hostname()) AS labels,
         1 AS value,
-        'Test to check that the metric endpoint is working' AS help,
+        'Checks that the ClickHouse metric endpoint is working' AS help,
         'gauge' AS type
   SQL
   override = try(local.deployment.overrides["custom_metrics_test"], {})
