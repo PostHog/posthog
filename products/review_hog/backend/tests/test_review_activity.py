@@ -488,8 +488,8 @@ async def test_single_agent_review_persists_mapped_findings_under_the_arm_dedup_
     dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
     assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
     assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
-        "gpt-6-luna",
-        ReasoningEffort.XHIGH,
+        "gpt-6.1-sol",
+        ReasoningEffort.MEDIUM,
     )
     persisted = next(iter(mock_persist.call_args.kwargs["results"].values())).issues
     assert [(i.priority, i.lines, i.suggestion_code) for i in persisted] == [

@@ -139,8 +139,13 @@ FLASH_ARM = ReviewArm(
 LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
-# Fixed at xhigh, whatever the user's Flash effort setting, because no validator runs after it.
-SINGLE_AGENT_FLASH_ARM = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+# Every single-agent session runs on this arm, whatever the user's Flash effort setting.
+SINGLE_AGENT_FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-6.1-sol",
+    reasoning_effort=ReasoningEffort.MEDIUM,
+    initial_permission_mode="full-access",
+)
 
 # Reserved so the single agent's persisted result never collides with a pipeline pass.
 SINGLE_AGENT_PASS_NUMBER = 2000
