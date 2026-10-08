@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]):
     # Kustomer exposes both a v1.0 and a v2 API version, but the resources we sync
-    # (customers, conversations, users, teams, tags, brands) are served under `/v1/`
+    # are served under `/v1/`
     # for both — the "v2" docs toggle keeps these list endpoints at `/v1/`. So the
     # version is a pin recorded on the source, not a request-layer branch: every
     # version resolves to the same `/v1/<resource>` requests (see settings.py).
