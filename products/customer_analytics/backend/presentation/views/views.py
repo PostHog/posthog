@@ -1987,6 +1987,17 @@ class AccountViewSet(
                 enum=["name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"],
                 description="Sort order. Defaults to '-created_at'.",
             ),
+            OpenApiParameter(
+                name="inactive_last",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description=(
+                    "When true, active and tracked accounts come before churned or ignored ones, "
+                    "and `ordering` applies within each group. Use with `include_churned` or `include_ignored`."
+                ),
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -2006,6 +2017,7 @@ class AccountViewSet(
                 include_churned=request.query_params.get("include_churned", "").lower() == "true",
                 include_ignored=request.query_params.get("include_ignored", "").lower() == "true",
                 ordering=ordering,
+                inactive_last=request.query_params.get("inactive_last", "").lower() == "true",
             ),
             AccountSerializer,
         )
@@ -2294,6 +2306,7 @@ class AccountViewSet(
                     tags=_account_tags_input(serializer),
                     slack_summary_cadence=data.slack_summary_cadence,
                     churned_at=data.churned_at,
+                    ignored_at=data.ignored_at,
                 ),
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
@@ -2329,6 +2342,8 @@ class AccountViewSet(
                     slack_summary_cadence_provided="slack_summary_cadence" in request.data,
                     churned_at=data.churned_at if "churned_at" in request.data else None,
                     churned_at_provided="churned_at" in request.data,
+                    ignored_at=data.ignored_at if "ignored_at" in request.data else None,
+                    ignored_at_provided="ignored_at" in request.data,
                 ),
                 user_access_control=self.user_access_control,
                 required_level=_object_required_level(request, write=True),

@@ -4864,10 +4864,10 @@ Today (16): `activities`, `app_events`, `apps`, `deployment_events`, `deployment
 
 Diffed against: <https://raw.githubusercontent.com/koyeb/koyeb-api-client-go/main/api/v1/koyeb/api/openapi.yaml>
 
-- [ ] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high)
-- [ ] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high)
-- [ ] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high)
-- [ ] `/v1/usages` — org-level usage rollup; PostHog syncs only usages/details, so totals must be re-derived (medium)
+- [x] `/v1/catalog/instances` — lookup resolving the instance_type on services/deployments to vCPU, memory and price (high). Added as `catalog_instances`.
+- [x] `/v1/catalog/regions` — lookup resolving region codes carried on regional_deployments and instances (high). Added as `catalog_regions`.
+- [x] `/v1/projects` — lookup that groups apps and services; project_id is unresolvable today (high). Added as `projects`.
+- ~~`/v1/usages`~~ — not table material: the reply is one nested object per period that sums `duration_seconds` by app, service, region and instance type. `usage_details` already holds those per-run durations, so the rollup is a `GROUP BY` over it.
 - [ ] `/v1/volume_events` — volume lifecycle history, the only event stream missing while app/service/deployment/instance events are synced (medium)
 - [ ] `/v1/regional_deployment_events` — per-region deployment transition history to explain rollout failures (medium)
 - [ ] `/v1/catalog/datacenters` — lookup mapping datacenter ids on regional deployments to physical locations (medium)
@@ -4921,14 +4921,14 @@ Note: Kustomer's ReadMe-hosted reference blocks machine-readable spec fetches (s
 
 ## Lacework — gaps
 
-Today (10): `agent_info`, `alerts`, `audit_logs`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_machines`, `vulnerabilities_containers`, `vulnerabilities_hosts`
+Today (17): `agent_info`, `alerts`, `audit_logs`, `cloud_accounts`, `compliance_evaluations_aws`, `compliance_evaluations_azure`, `compliance_evaluations_gcp`, `compliance_evaluations_k8s`, `entities_containers`, `entities_images`, `entities_machines`, `inventory_aws`, `inventory_azure`, `inventory_gcp`, `policies`, `vulnerabilities_containers`, `vulnerabilities_hosts`
 
 Diffed against: <https://api.lacework.net/api/v2/docs/lacework-api-v2.0.yaml>
 
-- [ ] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
-- [ ] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
-- [ ] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
-- [ ] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
+- [x] `GET /api/v2/Policies (and /Policies/search)` — lookup resolving the policyId carried on every synced alert and compliance evaluation (high)
+- [x] `POST /api/v2/Inventory/search` — the full cloud resource inventory that compliance evaluations are scored against (high)
+- [x] `POST /api/v2/Entities/Containers/search and /Entities/Images/search` — container and image inventory needed to join vulnerabilities_containers back to running workloads (high)
+- [x] `GET /api/v2/CloudAccounts (and /CloudAccounts/search)` — lookup resolving cloud account ids on aws/azure/gcp compliance evaluations (high)
 - [ ] `POST /api/v2/CloudActivities/search` — cloud control-plane activity trail, the main behavioral dataset alongside alerts (medium)
 - [ ] `POST /api/v2/Entities/Packages/search` — installed package inventory that vulnerability findings reference (medium)
 - [ ] `POST /api/v2/Activities/UserLogins/search` — login activity for identity-risk analysis (medium)
@@ -4989,10 +4989,10 @@ Today (6): `annotation_queues`, `datasets`, `examples`, `feedback`, `projects`, 
 
 Diffed against: <https://api.smith.langchain.com/openapi.json>
 
-- [ ] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high)
-- [ ] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high)
-- [ ] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high)
-- [ ] `GET /v2/datasets/{dataset_id}/experiment-runs` — experiment results per dataset, the core evaluation output (high)
+- [x] `POST /v2/threads/query (and /v2/threads/{thread_id}/stats)` — thread-level grouping of runs, the unit conversational agent quality is measured on (high) — synced as `threads`; the query already returns each thread's stats, so the per-thread stats call is not used
+- [x] `GET /api/v1/workspaces (and /api/v1/tenants)` — lookup resolving the tenant/workspace id carried on every session, dataset and run (high) — synced as `workspaces`; `/tenants` returns the same list and can create a personal workspace when called, so it is not used
+- [x] `GET /api/v1/annotation-queues/{queue_id}/runs` — the membership junction between annotation_queues and runs; queues are synced but their contents are not (high) — synced as `annotation_queue_runs`
+- ~~`GET /v2/datasets/{dataset_id}/experiment-runs`~~ — not a separate table: it is a POST that needs the experiment ids up front and returns each dataset example with its experiment runs nested inside. Experiments are tracing projects, so their runs already land in `runs` (with `session_id` and `reference_example_id`) and their examples in `examples`; this endpoint only joins the two (high)
 - [ ] `GET /api/v1/model-price-map` — lookup mapping model names on runs to token prices, so run cost can be recomputed (medium)
 - [ ] `GET /api/v1/datasets/{dataset_id}/versions and /splits` — dataset version history and split assignment, needed to compare experiments fairly (medium)
 - [ ] `GET /api/v1/orgs/current/members and /api/v1/workspaces/current/members` — membership tables resolving the user ids that appear on feedback and annotations (medium)
@@ -7828,11 +7828,14 @@ Note: Coverage is solid for the images and videos verticals (categories, collect
 
 ## SigmaComputing — gaps
 
-Today (10): `Connections`, `DataModels`, `Members`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
+Today (13): `Connections`, `DataModels`, `Members`, `ReportElements`, `ReportPages`, `ReportQueries`, `Reports`, `Teams`, `WorkbookElements`, `WorkbookPages`, `WorkbookQueries`, `Workbooks`, `Workspaces`
 
 Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api>
 
 - [x] `reports (GET /v2/reports)` — org-level catalog of saved reports, the same top-level content shape as workbooks and data models, added here
+- [x] `report elements (GET /v2/reports/{reportId}/elements)` — per-report charts, tables, and controls, fanned out from reports like the workbook elements table, added here
+- [x] `report pages (GET /v2/reports/{reportId}/pages)` — per-report page list, fanned out from reports, added here
+- [x] `report queries (GET /v2/reports/{reportId}/queries)` — SQL behind each report element for query auditing, fanned out from reports, added here
 
 ## SigNoz — gaps
 
