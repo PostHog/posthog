@@ -1,7 +1,14 @@
 import { estimateSourceCostsUsd } from './sourceUsageCost'
 
+interface CostCase {
+    name: string
+    rows: Record<string, number>
+    product: Parameters<typeof estimateSourceCostsUsd>[1]
+    expected: Record<string, number> | null
+}
+
 describe('estimateSourceCostsUsd', () => {
-    test.each([
+    test.each<CostCase>([
         {
             name: 'splits the organization amount by share of organization rows',
             rows: { a: 300, b: 100 },
