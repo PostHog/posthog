@@ -29,7 +29,6 @@ const mockCreate = autoresearchCreate as jest.Mock
 const mockValidate = autoresearchValidateCreate as jest.Mock
 const mockTemplates = autoresearchTemplatesList as jest.Mock
 const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
-const mockCreate = autoresearchCreate as jest.Mock
 const mockTrain = autoresearchTrainCreate as jest.Mock
 
 function validation(
