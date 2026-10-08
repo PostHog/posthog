@@ -119,6 +119,13 @@ class SavedQueryListQuerySerializer(serializers.Serializer):
     )
 
 
+class SavedQueryRetrieveQuerySerializer(serializers.Serializer):
+    include_last_read = serializers.BooleanField(
+        default=False,
+        help_text="Fill last_read_at. Costs one extra ClickHouse query, so leave it off unless you show the value.",
+    )
+
+
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -132,10 +139,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     search_fields = ["name"]
     ordering = "-created_at"
     _include_columns: bool = True
+    _include_last_read: bool = False
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
+        context["include_last_read"] = self._include_last_read
         context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
@@ -156,6 +165,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         self._include_columns = request.validated_query_data["include_columns"]
         return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        query_serializer=SavedQueryRetrieveQuerySerializer,
+        responses={200: OpenApiResponse(response=editing.DataWarehouseSavedQuerySerializer)},
+    )
+    def retrieve(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        self._include_last_read = request.validated_query_data["include_last_read"]
+        return super().retrieve(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action == "list":

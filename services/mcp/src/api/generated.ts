@@ -29456,6 +29456,11 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
+      /**
+         * When a query last read this view, directly or through another view. Counted once a day and kept for 60 days. Null when no read is known, or when the request did not set include_last_read.
+         * @nullable
+         */
+      readonly last_read_at: string | null;
     }
 
     /**
@@ -77265,6 +77270,11 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
+      /**
+         * When a query last read this view, directly or through another view. Counted once a day and kept for 60 days. Null when no read is known, or when the request did not set include_last_read.
+         * @nullable
+         */
+      readonly last_read_at?: string | null;
     }
 
     /**
@@ -127280,6 +127290,13 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WarehouseSavedQueriesRetrieveParams = {
+    /**
+     * Fill last_read_at. Costs one extra ClickHouse query, so leave it off unless you show the value.
+     */
+    include_last_read?: boolean;
     };
 
     export type WarehouseSavedQueryDraftsListParams = {

@@ -421,7 +421,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node?.saved_query_id) {
                     return null
                 }
-                return await api.dataWarehouseSavedQueries.get(node.saved_query_id)
+                return await api.dataWarehouseSavedQueries.get(node.saved_query_id, { include_last_read: true })
             },
         },
         lineageGraph: {

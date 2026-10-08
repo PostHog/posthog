@@ -424,6 +424,15 @@ export const WarehouseSavedQueriesRetrieveParams = () => zod.object({
         ),
 })
 
+export const warehouseSavedQueriesRetrieveQueryIncludeLastReadDefault = false
+
+export const WarehouseSavedQueriesRetrieveQueryParams = () => zod.object({
+    include_last_read: zod
+        .boolean()
+        .default(warehouseSavedQueriesRetrieveQueryIncludeLastReadDefault)
+        .describe('Fill last_read_at. Costs one extra ClickHouse query, so leave it off unless you show the value.'),
+})
+
 /**
  * Create, Read, Update and Delete Warehouse Tables.
  */

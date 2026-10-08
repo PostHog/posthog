@@ -6368,6 +6368,7 @@ export interface DataWarehouseSavedQuery {
     created_by?: UserBasicType | null
     created_at?: string
     updated_at?: DataWarehouseSavedQueryApi['updated_at']
+    last_read_at?: DataWarehouseSavedQueryApi['last_read_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean

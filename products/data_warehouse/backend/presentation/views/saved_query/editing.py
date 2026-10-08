@@ -2,7 +2,7 @@
 
 import copy
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
@@ -41,6 +41,7 @@ from products.data_modeling.backend.facade.models import (
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
+from products.data_warehouse.backend.logic import saved_query_reads
 from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
 from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
@@ -220,6 +221,10 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
+    last_read_at = serializers.SerializerMethodField(
+        help_text="When a query last read this view, directly or through another view. Counted once a day "
+        "and kept for 60 days. Null when no read is known, or when the request did not set include_last_read."
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -254,6 +259,7 @@ class DataWarehouseSavedQuerySerializer(
             "expires_at",
             "user_access_level",
             "suspended",
+            "last_read_at",
         ]
         read_only_fields = [
             "id",
@@ -277,6 +283,7 @@ class DataWarehouseSavedQuerySerializer(
             "origin",
             "expires_at",
             "suspended",
+            "last_read_at",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -305,6 +312,12 @@ class DataWarehouseSavedQuerySerializer(
     @extend_schema_field(serializers.BooleanField())
     def get_has_incremental_history(self, view: DataWarehouseSavedQuery) -> bool:
         return has_incremental_history(view)
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_last_read_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
+        if not self.context.get("include_last_read", False):
+            return None
+        return saved_query_reads.last_read_at(view.team_id, str(view.id))
 
     def _report_view_action(
         self, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
