@@ -357,6 +357,12 @@ class TestConvexRetryableErrors:
             ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/v1/data/sync"),
             ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/v1/data/sync"),
             ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/v1/data/sync"),
+            (
+                "read_timeout_exhausted",
+                "HTTPSConnectionPool(host='x.convex.cloud', port=443): Max retries exceeded with url: "
+                "/api/v1/data/sync (Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='x.convex.cloud', "
+                'port=443): Read timed out. (read timeout=60)"))',
+            ),
         ]
     )
     def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:
