@@ -136,7 +136,6 @@ class _PRDiff:
     commit_shas: list[str]
     merge_shas: set[str]
     files: list[_ChangedFile]
-    # The commits whose GitHub author is the ReviewHog app.
     reviewhog_shas: set[str]
 
 
