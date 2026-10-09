@@ -131,6 +131,11 @@ class Ticket(Taggable, UUIDTModel):
     # (team + zendesk_ticket_id), mirroring the GitHub issue-number pattern.
     zendesk_ticket_id = models.BigIntegerField(null=True, blank=True)
 
+    # Flat string map that workflows own, to keep an external reference such as a Slack thread
+    # timestamp or a Linear issue key on the ticket it belongs to. A value the product itself
+    # reads gets its own column instead, because nothing constrains the keys here.
+    metadata = models.JSONField(default=dict, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

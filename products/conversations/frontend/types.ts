@@ -183,6 +183,7 @@ export interface Ticket {
     organization_id_source?: string | null
     person?: TicketPerson | null
     tags?: string[]
+    metadata?: Record<string, string>
     ai_triage?: AITriage
     /** The effective access level the current user has for this ticket. */
     user_access_level?: AccessControlLevel

@@ -109,6 +109,27 @@ describe('posthog conversations ticket templates', () => {
         })
     })
 
+    describe('update ticket metadata', () => {
+        const tester = new TemplateTester(updateTicketTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+            tester.mockInternalFetchResponse({ status: 200, body: { ok: true } })
+        })
+
+        it('sends the pairs and turns a blank value into a key removal', async () => {
+            await tester.invoke({
+                ticket_id: TICKET_UUID,
+                metadata: { slack_thread_ts: '1712345678.000100', linear_issue: '' },
+            })
+
+            const [, options] = tester.mockInternalFetch.mock.calls[0] as unknown as [string, { body: string }]
+            expect(parseJSON(options.body)).toEqual({
+                metadata: { slack_thread_ts: '1712345678.000100', linear_issue: null },
+            })
+        })
+    })
+
     describe('get ticket first_customer_message_text opt-in', () => {
         const tester = new TemplateTester(getTicketTemplate)
 

@@ -62,6 +62,29 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    metadata: function onMetadata(change) {
+        const before = (change?.before ?? {}) as Record<string, string>
+        const after = (change?.after ?? {}) as Record<string, string>
+        const setKeys = Object.keys(after).filter((key) => after[key] !== before[key])
+        const removedKeys = Object.keys(before).filter((key) => !(key in after))
+
+        const description: Description[] = []
+        if (setKeys.length > 0) {
+            description.push(
+                <>
+                    set metadata <strong>{setKeys.join(', ')}</strong>
+                </>
+            )
+        }
+        if (removedKeys.length > 0) {
+            description.push(
+                <>
+                    removed metadata <strong>{removedKeys.join(', ')}</strong>
+                </>
+            )
+        }
+        return description.length > 0 ? { description } : null
+    },
     sla_due_at: function onSlaDueAt(change) {
         const before = change?.before as string | null
         const after = change?.after as string | null
