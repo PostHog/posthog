@@ -127,37 +127,21 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
 
 
 def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
-    """Batch-delete the teams' rows in the retired session-summary tables.
-
-    A table is skipped when it no longer exists, so team deletion keeps working once the migration
-    that drops these tables lands.
-    """
-    if not team_ids:
-        return
-
-    db_connection = connections["default"]
-    for table in RETIRED_SESSION_SUMMARY_TABLES:
-        # The table name is a module constant, never user input, so interpolating it is safe.
-        statement = f'DELETE FROM "{table}" WHERE ctid IN (SELECT ctid FROM "{table}" WHERE team_id = ANY(%s) LIMIT %s)'
-        with db_connection.cursor() as cursor:
-            cursor.execute("SELECT to_regclass(%s)", [table])
-            row = cursor.fetchone()
-            if row is None or row[0] is None:
-                continue
-
-            while True:
-                cursor.execute(statement, [team_ids, batch_size])
-                if cursor.rowcount < batch_size:
-                    break
-                time.sleep(0.1)
+    """Batch-delete the teams' rows in the retired session-summary tables."""
+    _delete_retired_team_rows(RETIRED_SESSION_SUMMARY_TABLES, team_ids, batch_size)
 
 
 def _delete_retired_loops_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    _delete_retired_team_rows(RETIRED_LOOP_TABLES, team_ids, batch_size)
+
+
+def _delete_retired_team_rows(tables: tuple[str, ...], team_ids: list[int], batch_size: int) -> None:
     if not team_ids:
         return
 
     db_connection = connections["default"]
-    for table in RETIRED_LOOP_TABLES:
+    for table in tables:
+        # Table names are module constants; values remain parameterized.
         statement = f'DELETE FROM "{table}" WHERE ctid IN (SELECT ctid FROM "{table}" WHERE team_id = ANY(%s) LIMIT %s)'
         with db_connection.cursor() as cursor:
             cursor.execute("SELECT to_regclass(%s)", [table])

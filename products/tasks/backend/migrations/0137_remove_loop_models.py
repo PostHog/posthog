@@ -4,6 +4,8 @@ from posthog.migration_helpers import DropForeignKey
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("tasks", "0136_untrack_task_loop"),
     ]
