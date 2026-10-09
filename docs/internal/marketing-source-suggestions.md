@@ -90,5 +90,15 @@ Table resolution uses schema metadata when available and otherwise recognizes so
 The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
 Source health polling refreshes metadata without forcing every dashboard query.
 Campaign reporting waits for all required schemas to complete their first sync.
+
+## Source connection components
+
+The integration catalog includes a search field and orders native sources by usage.
+Connection panels distinguish scanning, errors, pending first sync, and ready sources.
+Search connections use a separate card controlled by `marketing-analytics-organic-keywords`.
+
+Review fixes preserve source data after request failures and provide a retry for connection errors.
+Blocked required imports show Needs attention with a Manage source link.
+Dashboard dismissals use the shared Setup restore controls.
 Source refresh failures retain the previous list and allow a later retry.
 Native source readiness checks include required schema failures and paused imports.
