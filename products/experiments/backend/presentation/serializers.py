@@ -10,6 +10,7 @@ import logging
 from copy import deepcopy
 from typing import Annotated, Any, Final, TypeGuard
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -1587,13 +1588,20 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentTimeseriesResultsStatus(models.TextChoices):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
     """Day-by-day results of one metric under the experiment's current settings."""
 
     experiment_id = serializers.IntegerField(help_text="Experiment id.")
     metric_uuid = serializers.CharField(help_text="UUID of the metric the series belongs to.")
     status = serializers.ChoiceField(
-        choices=["pending", "completed", "partial", "failed"],
+        choices=ExperimentTimeseriesResultsStatus.choices,
         help_text=(
             "'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result "
             "and some failed, 'pending' when no day was calculated yet."
