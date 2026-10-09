@@ -239,8 +239,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 <aside className="flex flex-col gap-2 @3xl:sticky @3xl:top-4 @3xl:self-start">
                                     <div className="text-sm font-semibold">What you get</div>
                                     <p className="text-xs text-secondary m-0">
-                                        The scanner watches each new matching recording and writes an observation like
-                                        these, citing the moment it found.
+                                        For each recording it watches, the scanner writes an observation like these and
+                                        cites the moment it found.
                                     </p>
                                     <ExampleObservations compact />
                                 </aside>
