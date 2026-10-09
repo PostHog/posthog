@@ -62,13 +62,10 @@ def _nesting_exceeds(value: Any, limit: int) -> bool:
 class WorkflowClassifyJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = WORKFLOW_CLASSIFY_PURPOSE
 
-    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
-        user, _ = super()._authenticate_claims(request, claims)
-        hog_flow_id = claims.get("hog_flow_id")
-        if not hog_flow_id:
+    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
+        if not claims.get("hog_flow_id"):
             raise AuthenticationFailed("Service token is missing its workflow claim.")
-        return user, str(hog_flow_id)
+        return super()._authenticate_claims(request, claims)
 
 
 class WorkflowClassificationRequestSerializer(serializers.Serializer):
@@ -178,7 +175,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                         )
                     },
                     ai_product="workflows",
-                    properties={"hog_flow_id": cast(str, request.auth)},
+                    properties={"hog_flow_id": str(cast(dict[str, Any], request.auth)["hog_flow_id"])},
                     # The context carries person and event data, which must stay out of the internal AI observability project.
                     privacy_mode=True,
                 ),
