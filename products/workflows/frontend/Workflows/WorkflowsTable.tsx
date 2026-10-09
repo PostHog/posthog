@@ -32,6 +32,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { AutomationEmptyState } from '../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
+import { WorkflowDataSuggestionsLane } from '../setupGuide/suggestions/WorkflowDataSuggestionsLane'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -119,6 +120,7 @@ export function WorkflowsTable(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
+    const dataSuggestionsEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS]
     const logic = workflowsLogic()
     const {
         workflowsLoading,
@@ -404,6 +406,7 @@ export function WorkflowsTable(): JSX.Element {
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
                 {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
+                {dataSuggestionsEnabled && <WorkflowDataSuggestionsLane />}
                 <div className="mb-3">
                     <LemonSegmentedButton<WorkflowTypeFilter>
                         size="small"

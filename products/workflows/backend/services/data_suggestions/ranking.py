@@ -22,6 +22,8 @@ STAGE_WEIGHTS: dict[LifecycleStage, float] = {
 
 MIN_WEEKLY_COUNT = 3
 
+FLAT_WEIGHTS: dict[LifecycleStage, float] = dict.fromkeys(STAGE_WEIGHTS, 1.0)
+
 # Only pick which events Jev gets to classify, so lifecycle-looking names are not cut by the limit. Checked in
 # order. Deletion counts only for accounts and their owners, because most `*_deleted` events are routine product
 # actions, not churn.
