@@ -2,6 +2,7 @@ import uuid
 import logging
 from typing import Any, cast, get_args
 
+from django.db import models
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -251,6 +252,15 @@ _TRIGGER_REFUSAL_STATUS = {
 }
 
 
+# Values come from `requested_reviews`, so the API and the comment trigger name the same modes. A
+# class (not an inline list) pins the generated enum name.
+class ReviewTriggerRequestRunMode(models.TextChoices):
+    REVIEW = RUN_MODE_REVIEW, "Review"
+    REVIEW_ONLY = RUN_MODE_REVIEW_ONLY, "Review only"
+    RESOLVE_ONLY = RUN_MODE_RESOLVE_ONLY, "Resolve only"
+    FLASH = RUN_MODE_FLASH, "Flash"
+
+
 class ReviewTriggerRequestSerializer(serializers.Serializer):
     pr_url = serializers.CharField(
         help_text="GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. "
@@ -258,8 +268,8 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=RUN_MODE_REVIEW,
-        choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY, RUN_MODE_FLASH],
+        default=ReviewTriggerRequestRunMode.REVIEW,
+        choices=ReviewTriggerRequestRunMode.choices,
         help_text="What to run on the pull request. 'review' (default) reviews it and, when the pull "
         "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
         "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
