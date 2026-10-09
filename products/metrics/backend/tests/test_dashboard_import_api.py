@@ -1,6 +1,7 @@
 import io
 import json
 import base64
+from datetime import datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -254,8 +255,11 @@ class TestDashboardImportAPI(APIBaseTest):
         assert "short" not in json.dumps(tiles["Orders"][0])
         assert Dashboard.objects.get(id=body["dashboard_id"]).name == "Checkout"
 
+    @parameterized.expand([("layout_matches", True), ("same_answer_again", False)])
     @override_settings(BROWSERLESS_CDP_URL="ws://browserless.test")
-    def test_screenshot_import_moves_the_tiles_until_a_picture_matches_the_screenshot(self) -> None:
+    def test_screenshot_import_moves_the_tiles_until_a_picture_matches_the_screenshot(
+        self, _name: str, says_it_matches: bool
+    ) -> None:
         started = self._start(source="screenshot", image_base64=_png())
         assert TaskRun.objects.get(task_id=started["id"]).state["caller_ends_run"] is True
 
@@ -270,19 +274,22 @@ class TestDashboardImportAPI(APIBaseTest):
                 "layout": layout,
             }
 
+        saved_at: list[datetime] = []
+
         def answer(output: dict[str, Any]) -> dict[str, Any]:
             run = TaskRun.objects.get(task_id=started["id"])
             run.output = output
             with (
                 patch(
                     "products.metrics.backend.tasks.tasks.check_metrics_dashboard_import_layout.delay",
-                    side_effect=lambda team_id, task_id: check_dashboard_import_layout(
-                        team_id=team_id, import_id=task_id
+                    side_effect=lambda team_id, task_id, saved: check_dashboard_import_layout(
+                        team_id=team_id, import_id=task_id, saved_at=datetime.fromisoformat(saved)
                     ),
                 ),
                 self.captureOnCommitCallbacks(execute=True),
             ):
-                run.save(update_fields=["output"])
+                run.save(update_fields=["output", "updated_at"])
+            saved_at.append(run.updated_at)
             return self.client.get(f"{self.url}{started['id']}/").json()
 
         def layouts(dashboard_id: int) -> dict[str, dict[str, int]]:
@@ -303,7 +310,9 @@ class TestDashboardImportAPI(APIBaseTest):
             patch(f"{IMPORTER}.tasks_facade.signal_workflow_completion") as complete,
         ):
             checking = answer(first)
-            repeated = answer(first)
+            # A second delivery of the first save is no reply to the picture, so the check keeps waiting.
+            check_dashboard_import_layout(team_id=self.team.id, import_id=started["id"], saved_at=saved_at[0])
+            redelivered = self.client.get(f"{self.url}{started['id']}/").json()
             dashboard_id = checking["dashboard_id"]
             side_by_side = {
                 **first,
@@ -313,10 +322,10 @@ class TestDashboardImportAPI(APIBaseTest):
                 ],
             }
             moved = answer(side_by_side)
-            matched = answer({**side_by_side, "layout_matches": True})
+            matched = answer({**side_by_side, "layout_matches": True} if says_it_matches else side_by_side)
 
         assert (checking["status"], checking["phase"], checking["layout_round"]) == ("running", "checking_layout", 1)
-        assert repeated["layout_round"] == 1
+        assert (redelivered["status"], redelivered["layout_round"]) == ("running", 1)
         assert render.call_args.kwargs["dashboard_id"] == dashboard_id
         assert (moved["status"], moved["layout_round"]) == ("running", 2)
         assert "check 2 of 3" in send.call_args.kwargs["content"]
@@ -324,6 +333,30 @@ class TestDashboardImportAPI(APIBaseTest):
         complete.assert_called_once()
         assert Dashboard.objects.filter(team=self.team).count() == 1
         assert layouts(dashboard_id) == {"s1": {"x": 0, "y": 0, "w": 6, "h": 4}, "s2": {"x": 6, "y": 0, "w": 6, "h": 4}}
+
+    @override_settings(BROWSERLESS_CDP_URL="ws://browserless.test")
+    def test_a_layout_check_run_that_times_out_still_builds_its_answer(self) -> None:
+        started = self._start(source="screenshot", image_base64=_png())
+        answer = {
+            "dashboard_name": "Checkout",
+            "panels": [
+                {
+                    "key": "s1",
+                    "title": "Orders",
+                    "outcome": "imported",
+                    "reason": "",
+                    "query": {"language": "promql", "promql": "sum(rate(orders_total))"},
+                    "display": {"type": "line"},
+                    "layout": {"x": 0, "y": 0, "w": 12, "h": 4},
+                }
+            ],
+        }
+
+        self._finish_run(started["id"], run_status=TaskRun.Status.FAILED, output=answer)
+        body = self.client.get(f"{self.url}{started['id']}/").json()
+
+        assert (body["status"], body["summary"]["imported"]) == ("completed", 1)
+        assert Dashboard.objects.filter(id=body["dashboard_id"], team=self.team).exists()
 
     @parameterized.expand(
         [
@@ -340,6 +373,18 @@ class TestDashboardImportAPI(APIBaseTest):
                 "ai",
             ),
             ("not_json", {"source": "grafana", "grafana_json": "{panels"}, status.HTTP_400_BAD_REQUEST, None),
+            (
+                "nested_too_deeply",
+                {"source": "grafana", "grafana_json": "[" * 100_000},
+                status.HTTP_400_BAD_REQUEST,
+                None,
+            ),
+            (
+                "unreadable_number",
+                {"source": "grafana", "grafana_json": '{"panels": [{"type": "text", "gridPos": {"w": 1e999}}]}'},
+                status.HTTP_400_BAD_REQUEST,
+                None,
+            ),
             ("not_an_image", {"source": "screenshot", "image_base64": "aGVsbG8="}, status.HTTP_400_BAD_REQUEST, None),
         ]
     )

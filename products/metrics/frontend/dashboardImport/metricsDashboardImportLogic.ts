@@ -193,7 +193,12 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
         ],
         screenshotLoading: [
             false,
-            { setScreenshotFile: () => true, setScreenshot: () => false, setScreenshotError: () => false },
+            {
+                setScreenshotFile: () => true,
+                setScreenshot: () => false,
+                setScreenshotError: () => false,
+                resetImport: () => false,
+            },
         ],
         screenshotError: [
             null as string | null,
@@ -291,10 +296,18 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
             // An import that runs continues on the server, and the recent imports keep track of it.
             actions.resetImport()
         },
+        resetImport: () => {
+            cache.readCount = (cache.readCount ?? 0) + 1
+        },
         setScreenshotFile: async ({ file }, breakpoint) => {
+            // A reset while the file is read means that the user left the form, so the screenshot must not come back.
+            const readCount = cache.readCount
             try {
                 const screenshot = await readScreenshot(file)
                 breakpoint()
+                if (cache.readCount !== readCount) {
+                    return
+                }
                 actions.setScreenshot(screenshot)
             } catch (error) {
                 const failure = error instanceof Error ? error : new Error('Could not read the screenshot.')
@@ -335,7 +348,14 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
         },
         startImportSuccess: ({ dashboardImport }) => {
             if (dashboardImport.status === 'running') {
-                actions.loadRecentImports()
+                // Poll even when this list request fails, so the new import does not stay on its first status.
+                startPolling(cache, actions.loadRecentImports)
+                if (cache.loadInFlight) {
+                    // That request started before the import, so it can miss it. Load again after it.
+                    cache.loadAgain = true
+                } else {
+                    actions.loadRecentImports()
+                }
             }
         },
         loadRecentImports: async () => {
@@ -349,6 +369,10 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                 // The list is a convenience. The next refresh tries again.
             } finally {
                 cache.loadInFlight = false
+                if (cache.loadAgain) {
+                    cache.loadAgain = false
+                    actions.loadRecentImports()
+                }
             }
         },
         setRecentImports: ({ recentImports }) => {
@@ -368,10 +392,7 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                 }
             }
             if (cache.runningIds.size > 0) {
-                cache.disposables.add(() => {
-                    const intervalId = setInterval(() => actions.loadRecentImports(), POLL_INTERVAL_MS)
-                    return () => clearInterval(intervalId)
-                }, POLL_KEY)
+                startPolling(cache, actions.loadRecentImports)
             } else {
                 cache.disposables.dispose(POLL_KEY)
             }
@@ -385,6 +406,14 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
         actions.loadRecentImports()
     }),
 ])
+
+function startPolling(cache: Record<string, any>, loadRecentImports: () => void): void {
+    // The same key replaces a timer that runs already, so this never starts two.
+    cache.disposables.add(() => {
+        const intervalId = setInterval(loadRecentImports, POLL_INTERVAL_MS)
+        return () => clearInterval(intervalId)
+    }, POLL_KEY)
+}
 
 function notifyFinished(
     dashboardImport: DashboardImportApi,

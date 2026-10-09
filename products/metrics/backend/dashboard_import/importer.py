@@ -54,7 +54,7 @@ from products.dashboards.backend.facade.dashboard_creation import (
 from products.exports.backend.facade.api import render_png_export
 from products.metrics.backend.dashboard_import.catalog import HISTOGRAM_TYPES, MetricCatalog
 from products.metrics.backend.dashboard_import.display import agent_unit
-from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError
+from products.metrics.backend.dashboard_import.grafana import MAX_PANELS, GrafanaDashboardParser, GrafanaImportError
 from products.metrics.backend.dashboard_import.layout import (
     MIN_INSIGHT_HEIGHT,
     MIN_INSIGHT_WIDTH,
@@ -449,10 +449,17 @@ class DashboardImporter:
             raw = json.loads(grafana_json)
         except json.JSONDecodeError as error:
             raise DashboardImportError(f"The text is not valid JSON: {error.msg} on line {error.lineno}.") from None
+        except ValueError:
+            raise DashboardImportError("The text has a number that is too long to read.") from None
+        except RecursionError:
+            raise DashboardImportError("The JSON is nested too deeply to read.") from None
         try:
             return GrafanaDashboardParser(raw).parse()
         except GrafanaImportError as error:
             raise DashboardImportError(str(error)) from None
+        except (ValueError, TypeError, OverflowError):
+            logger.warning("metrics_dashboard_import_grafana_unreadable", exc_info=True)
+            raise DashboardImportError("The dashboard JSON has a value that PostHog cannot read.") from None
 
     @staticmethod
     def _prepare_image(image: bytes | None) -> bytes:
@@ -635,7 +642,7 @@ class DashboardImporter:
         answers: dict[str, AgentPanel] = {}
         for answer in output.panels:
             known = answer.key in spec_panels if state.spec else True
-            if known and answer.key not in resolved_keys and answer.key not in answers:
+            if known and answer.key not in resolved_keys and answer.key not in answers and len(answers) < MAX_PANELS:
                 answers[answer.key] = answer
         queries = {
             key: answer.query
@@ -931,6 +938,9 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> None:
     verdicts: list[PanelVerdict] | None = None
     agent_dashboard_name = ""
     error = _run_failure(run)
+    # A run that checks the layout stays open after its answer, so a lost check step leaves it to end by timeout.
+    if error is not None and state.layout_check is not None and run is not None and run.output:
+        error = None
     if error is None and run is not None:
         try:
             output = AgentImportOutput.model_validate(run.output or {})
@@ -1020,6 +1030,8 @@ def _record_checks(
         checks = dict(state.checks)
         for result in results:
             previous = checks.get(result.key)
+            if previous is None and len(checks) >= MAX_PANELS:
+                continue
             checks[result.key] = PanelCheck(
                 title=titles.get(result.key) or (previous.title if previous else ""),
                 ok=result.valid or (previous is not None and previous.ok),
@@ -1088,13 +1100,25 @@ def _claim_layout_round(team_id: int, task_id: str, digest: str) -> ImportState 
     return _update_state(team_id, task_id, change)
 
 
-def _end_layout_check(importer: DashboardImporter, *, team_id: int, task_id: str, run: TaskRunDTO) -> None:
+def _end_layout_check(
+    importer: DashboardImporter,
+    *,
+    team_id: int,
+    task_id: str,
+    run: TaskRunDTO,
+    only_if: Callable[[LayoutCheck], bool] | None = None,
+) -> None:
+    """End the check and the agent run. With `only_if`, end them only when it holds while the task row is locked."""
+
     def change(state: ImportState) -> ImportState | None:
-        if state.layout_check is None or state.layout_check.done:
+        check = state.layout_check
+        if check is None or check.done or (only_if is not None and not only_if(check)):
             return None
         return _with_layout_check(state, done=True)
 
     state = _update_state(team_id, task_id, change)
+    if only_if is not None and state is None:
+        return
     # The run ends here, so the agent sandbox stops. Without a result, the task run receiver then builds one.
     tasks_facade.signal_workflow_completion(run.id, tasks_facade.TaskRunStatus.COMPLETED, None)
     if state is not None and state.result is not None:
@@ -1135,11 +1159,34 @@ def _send_picture(
     return sent is True
 
 
-def check_import_layout(*, team_id: int, task_id: str) -> None:
+def _end_on_repeated_answer(*, team_id: int, task_id: str, run: TaskRunDTO, digest: str, saved_at: dt.datetime) -> None:
+    """End the check when the agent answered a picture with its previous answer, so it keeps that layout.
+
+    Only an answer saved after the picture counts. A second delivery of the save that started the round came before
+    the picture, and the agent still has to answer that picture.
+    """
+    state = _parse_state(tasks_facade.read_task_state_entry(task_id, team_id, IMPORT_STATE_KEY))
+    if state is None:
+        return
+
+    def replied_with_same_answer(check: LayoutCheck) -> bool:
+        return (
+            check.round > 0
+            and check.answer_digest == digest
+            and check.picture_sent_at is not None
+            and saved_at > dt.datetime.fromisoformat(check.picture_sent_at)
+        )
+
+    importer = DashboardImporter(team=Team.objects.get(id=team_id), user=User.objects.get(id=state.user_id))
+    _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run, only_if=replied_with_same_answer)
+
+
+def check_import_layout(*, team_id: int, task_id: str, saved_at: dt.datetime | None = None) -> None:
     """Use the latest answer of a screenshot import's agent, then send the agent a picture of the dashboard.
 
     The first answer builds the dashboard and a later answer moves its tiles. The check ends the agent run
-    when the agent says the picture matches, when the rounds run out, or when a step fails.
+    when the agent says the picture matches, repeats its last answer, when the rounds run out, or when a step fails.
+    `saved_at` is when the answer was saved, so that a repeated answer can be told apart from a second delivery.
     """
     run = tasks_facade.get_latest_run_by_task([task_id]).get(task_id)
     if run is None or run.team_id != team_id or run.is_terminal or not run.output:
@@ -1147,6 +1194,8 @@ def check_import_layout(*, team_id: int, task_id: str) -> None:
     digest = hashlib.sha256(json.dumps(run.output, sort_keys=True).encode()).hexdigest()
     state = _claim_layout_round(team_id, task_id, digest)
     if state is None or state.layout_check is None:
+        if saved_at is not None:
+            _end_on_repeated_answer(team_id=team_id, task_id=task_id, run=run, digest=digest, saved_at=saved_at)
         return
     importer = DashboardImporter(team=Team.objects.get(id=team_id), user=User.objects.get(id=state.user_id))
     layout_round = state.layout_check.round
@@ -1170,7 +1219,13 @@ def check_import_layout(*, team_id: int, task_id: str) -> None:
         if picture is None:
             _end_layout_check(importer, team_id=team_id, task_id=task_id, run=run)
             return
-        _update_state(team_id, task_id, lambda latest: _with_layout_check(latest, round=layout_round + 1))
+        _update_state(
+            team_id,
+            task_id,
+            lambda latest: _with_layout_check(
+                latest, round=layout_round + 1, picture_sent_at=timezone.now().isoformat()
+            ),
+        )
         if not _send_picture(
             team_id=team_id,
             task_id=task_id,

@@ -36,10 +36,14 @@ def schedule_import_finalization(sender: type, instance: Any, created: bool, **k
         finalize_metrics_dashboard_import,
     )
 
-    task = finalize_metrics_dashboard_import if finishes else check_metrics_dashboard_import_layout
     team_id, import_id = instance.team_id, str(instance.task_id)
+    # The save time tells the layout check whether an answer replies to the latest picture.
+    saved_at = instance.updated_at.isoformat() if update_fields and "updated_at" in update_fields else None
 
     def enqueue() -> None:
-        task.delay(team_id, import_id)
+        if finishes:
+            finalize_metrics_dashboard_import.delay(team_id, import_id)
+        else:
+            check_metrics_dashboard_import_layout.delay(team_id, import_id, saved_at)
 
     transaction.on_commit(enqueue, robust=True)

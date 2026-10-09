@@ -5,6 +5,8 @@ Async entrypoints that call the facade (facade/api.py).
 Keep task functions thin - only call facade methods.
 """
 
+from datetime import datetime
+
 from celery import shared_task
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -36,6 +38,10 @@ def finalize_metrics_dashboard_import(team_id: int, import_id: str) -> None:
     time_limit=FINALIZE_SOFT_TIME_LIMIT_SECONDS + HARD_TIME_LIMIT_GRACE_SECONDS,
 )
 @with_team_scope()
-def check_metrics_dashboard_import_layout(team_id: int, import_id: str) -> None:
+def check_metrics_dashboard_import_layout(team_id: int, import_id: str, saved_at: str | None = None) -> None:
     with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
-        api.check_dashboard_import_layout(team_id=team_id, import_id=import_id)
+        api.check_dashboard_import_layout(
+            team_id=team_id,
+            import_id=import_id,
+            saved_at=datetime.fromisoformat(saved_at) if saved_at else None,
+        )

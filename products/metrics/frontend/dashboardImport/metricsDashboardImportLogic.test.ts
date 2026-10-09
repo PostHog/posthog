@@ -102,12 +102,16 @@ describe('metricsDashboardImportLogic', () => {
     ])('polls the recent imports while one runs, and tells the user when it %s', async (_, ended, expectMessage) => {
         jest.useFakeTimers()
         mockCreate.mockResolvedValue(importStatus())
-        mockList.mockResolvedValue([importStatus({ phase: 'matching' })])
+        // The refresh right after the start fails, so only the poll can bring the next status.
+        mockList.mockRejectedValueOnce(new Error('Bad gateway'))
         logic.actions.openImportModal('grafana')
         logic.actions.setGrafanaJson('{"panels": []}')
         logic.actions.startImport()
         await jest.advanceTimersByTimeAsync(0)
         logic.actions.closeImportModal()
+
+        mockList.mockResolvedValue([importStatus({ phase: 'matching' })])
+        await jest.advanceTimersByTimeAsync(5000)
         expect(logic.values.runningImports.map((item) => item.phase)).toEqual(['matching'])
 
         mockList.mockResolvedValue([ended])
