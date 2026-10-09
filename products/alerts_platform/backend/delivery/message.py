@@ -83,6 +83,11 @@ class AlertMessage:
         return (self.data_link, view_alert) if self.data_link is not None else (view_alert,)
 
 
+def state_symbol(kind: AlertEventKind) -> str:
+    """The symbol a message about `kind` leads with, so an edited root matches its own messages."""
+    return _SYMBOLS[kind]
+
+
 def alert_url(project_id: int, configuration_id: str) -> str:
     # pinned: the platform alert page route in products/alerts_platform/manifest.tsx.
     return absolute_uri(f"/project/{project_id}/platform-alerts/{configuration_id}")

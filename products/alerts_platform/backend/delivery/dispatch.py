@@ -5,16 +5,25 @@ it. Which destinations an alert has is resolved before this, so a change to that
 reaches no transport.
 """
 
+from django.utils import timezone
+
+import structlog
+
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
+from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle, RootEditor
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
 )
+from products.alerts_platform.backend.logic.platform_reads import alert_snapshot
+from products.alerts_platform.backend.temporal.metrics import increment_root_edit_failures, safe_record
+
+logger = structlog.get_logger(__name__)
 
 
 def deliver(
@@ -72,6 +81,11 @@ def deliver(
         except Exception:
             thread_store.release(claim)
             raise
+        if claim.handle is not None:
+            # A reply landed under an opening message, so the opening message catches up. It runs
+            # before `delivered` releases the claim, so edits to one root happen in send order and
+            # a slow edit cannot land after a newer one.
+            _edit_root(transport=transport, team_id=team_id, target=target, root=claim.handle, key=key)
         thread_store.delivered(claim, sent)
 
     if busy:
@@ -98,6 +112,30 @@ def _send(
         raise
     record_delivery(team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True)
     return sent
+
+
+def _edit_root(
+    *,
+    transport: DeliveryTransport,
+    team_id: int,
+    target: AlertDestinationData,
+    root: MessageHandle,
+    key: ThreadKey,
+) -> None:
+    """Puts the group's current state on the message that opened its conversation.
+
+    Best effort: the reply already landed, so a failed edit is logged and never fails the send.
+    """
+    if not isinstance(transport, RootEditor) or not root.root_content:
+        return
+    try:
+        snapshot = alert_snapshot(team_id, key.configuration_id, key.grouping_key)
+        line = state_line(snapshot, episode_started_at=key.episode_started_at, as_of=timezone.now())
+        if line is not None:
+            transport.edit_root(team_id=team_id, target=target, root=root, state_line=line)
+    except Exception:
+        logger.exception("alerts_platform.root_edit_failed", provider=transport.provider)
+        safe_record(increment_root_edit_failures, transport.provider)
 
 
 def _thread_key(
