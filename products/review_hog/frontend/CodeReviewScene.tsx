@@ -1161,8 +1161,7 @@ function TriggersSection(): JSX.Element {
                     : 'Choose whether reviews also resolve comment threads and how clean reviews appear on your pull requests.'}
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
-                {/* Inbox reviews start in any project with a saved opt-in, so a switch that is on stays visible
-                and the user can turn it off. */}
+                {/* A switch that is on stays visible, so the user can clear a saved opt-in. */}
                 {(showInternalFeatures || settings?.review_inbox_prs) && (
                     <div className="flex items-center gap-4 p-4">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">

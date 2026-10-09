@@ -30,6 +30,9 @@ whose PR never opens is spend with no reader, and the PR save re-fires this rece
 for the PR costs only the head start. The workflow and client keep their branch-target support for
 callers that know what they are doing; this receiver just never uses it.
 
+Both reviews start only in projects with the `review-hog-internal` flag, the same flag that shows
+the Inbox switches in settings. A saved opt-in in any other project starts nothing.
+
 The `TaskRun.branch` FIELD is never used as a target: auto-start seeds it with the BASE branch and
 the agent server later overwrites it with the work branch, so its meaning depends on the path taken.
 
@@ -54,6 +57,8 @@ from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_r
 # posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
 # the temporal client and the stamphog task module reach all four, so those two imports stay
 # function-local in _start_review / _start_stamphog_review per the budget test's own prescription.
+# The internal flag check reaches posthog.permissions, which loads webauthn and zxcvbn, so it is
+# function-local too.
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +110,10 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         # Only the self-driving implementation run reviews. Report research and repo selection share
         # both signal_report_id and internal=True with it, so only ai_stage tells them apart.
         if (instance.state or {}).get("ai_stage") != "implementation":
+            return
+        from products.review_hog.backend.internal_features import has_internal_features  # noqa: PLC0415
+
+        if not has_internal_features(instance.team_id):
             return
         repository = (task.repository or "").strip() or None
         resolved = resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
@@ -161,6 +170,10 @@ def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, prefer
     approval while somebody is still opted in. ``preferred_user_id`` (the task's creator, or the
     reviewer a queued job was attributed to) wins while still opted in, keeping attribution stable.
     """
+    from products.review_hog.backend.internal_features import has_internal_features  # noqa: PLC0415
+
+    if not has_internal_features(team_id):
+        return None
     resolved = resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
         return None
