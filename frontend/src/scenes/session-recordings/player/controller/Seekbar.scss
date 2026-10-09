@@ -178,6 +178,11 @@
 
         &--danger {
             --tick-color: var(--danger);
+            --tick-width: 4px;
+
+            .PlayerSeekbarTick__line {
+                opacity: 1;
+            }
         }
 
         &--primary {
