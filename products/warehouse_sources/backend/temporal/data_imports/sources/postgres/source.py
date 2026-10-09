@@ -52,6 +52,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     cdc_pg_connection,
     drop_slot_and_publication,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    CLIENT_DEADLINE_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
@@ -159,6 +162,8 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
     "Could not connect to the database on the host and port given. Check the host and port are "
     "correct, and that PostHog's IP addresses are allowed through your firewall."
 )
+
+_CONNECT_TIMEOUT_VALIDATION_ERROR = "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option."
 
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
@@ -282,7 +287,7 @@ PostgresErrors = {
     "No route to host": _HOST_UNREACHABLE_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
-    "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
+    "timeout expired": _CONNECT_TIMEOUT_VALIDATION_ERROR,
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
@@ -395,6 +400,13 @@ _CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
     "and failovers. This sync is still enabled and will run again on its next schedule."
 )
 
+_CLIENT_DEADLINE_EXHAUSTED_MESSAGE = (
+    "Your database stopped answering in the middle of the sync, and it did so again on every retry. "
+    "A connection pooler, a firewall, or an overloaded database can hold a query without an answer. "
+    "Check those, and check that your database has capacity for the read. This sync is still "
+    "enabled and will run again on its next schedule."
+)
+
 _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
     "Your database wasn't accepting connections, and it was still unavailable after every retry. It "
     "reported that it's starting up, recovering, or shutting down. Check that the database is "
@@ -469,6 +481,13 @@ class PostgresSource(
     @property
     def get_implementation(self) -> PostgresImplementation:
         return _POSTGRES_IMPLEMENTATION
+
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        return error in (
+            _CONNECT_TIMEOUT_VALIDATION_ERROR,
+            _HOST_UNREACHABLE_ERROR,
+            _HOST_UNREACHABLE_VALIDATION_ERROR,
+        )
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -1379,7 +1398,12 @@ class PostgresSource(
         # The bounded lookup in front of every connect raises these two when the resolver does not
         # answer in time or answers "try again". Neither is a verdict on the host, and a fresh
         # attempt recovers, so they belong with the other self-recovering connect failures.
+        #
+        # `CLIENT_DEADLINE_ERROR` is the client-side statement deadline. It acts only when the
+        # server's own statement timeout did not, so it reports a pooler or a server that stopped
+        # answering, not a query that is too slow for its index.
         return {
+            CLIENT_DEADLINE_ERROR,
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1405,6 +1429,7 @@ class PostgresSource(
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
+            CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }

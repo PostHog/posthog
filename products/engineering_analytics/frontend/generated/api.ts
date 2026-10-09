@@ -15,9 +15,11 @@ import type {
     BranchPRMatchApi,
     BrokenTestsResultApi,
     CICardSummaryApi,
+    CIDataFreshnessApi,
     CIFailureLogsApi,
     CISignalsConfigApi,
     CISignalsConfigUpdateApi,
+    CITimingContextApi,
     CurrentBranchHealthApi,
     DeliveryComparisonApi,
     DeliverySummaryApi,
@@ -28,13 +30,16 @@ import type {
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
+    EngineeringAnalyticsCiDataFreshnessParams,
     EngineeringAnalyticsCiFailureLogsParams,
+    EngineeringAnalyticsCiTimingContextParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
     EngineeringAnalyticsDeliveryComparisonParams,
     EngineeringAnalyticsDeliverySummaryParams,
     EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
+    EngineeringAnalyticsJobLogInsightsParams,
     EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
@@ -59,6 +64,7 @@ import type {
     EngineeringAnalyticsWorkflowRunsParams,
     FlakyTestListApi,
     GitHubSourceApi,
+    JobLogInsightsApi,
     MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
@@ -315,6 +321,39 @@ export const engineeringAnalyticsCiCards = async (
     })
 }
 
+export const getEngineeringAnalyticsCiDataFreshnessUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsCiDataFreshnessParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_data_freshness/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_data_freshness/`
+}
+
+/**
+ * When the stored CI data of a repository was last synced from its source: one time for workflow runs and one for workflow jobs. Every stored row is at least that fresh, so use these times, not the time of the request, to say how current a CI answer is. Each time is when the last completed sync started. For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot CI time.
+ */
+export const engineeringAnalyticsCiDataFreshness = async (
+    projectId: string,
+    params: EngineeringAnalyticsCiDataFreshnessParams,
+    options?: RequestInit
+): Promise<CIDataFreshnessApi> => {
+    return apiMutator<CIDataFreshnessApi>(getEngineeringAnalyticsCiDataFreshnessUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsCiFailureLogsUrl = (
     projectId: string,
     params: EngineeringAnalyticsCiFailureLogsParams
@@ -343,6 +382,39 @@ export const engineeringAnalyticsCiFailureLogs = async (
     options?: RequestInit
 ): Promise<CIFailureLogsApi> => {
     return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsCiTimingContextUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsCiTimingContextParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_timing_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_timing_context/`
+}
+
+/**
+ * How long a selected workflow, matrix, job or step usually takes: compares it with runs of the same workflow on the repository's default branch over the last 7 days, from stored data only. A run counts only when it ran the same jobs on the same runner tiers, so the answer never mixes in a different workflow, job or runner. Pull request runs and merge queue runs are left out. At most the newest 40 default-branch runs are checked, and `sampled` is true when more existed. `average_seconds` and `sample_count` cover successful samples only, and `recent` lists the newest three matches of any status. `average_seconds` is null when no comparable run exists. `unavailable_reason` says why no comparison was made. Answers are cached for 5 minutes.
+ */
+export const engineeringAnalyticsCiTimingContext = async (
+    projectId: string,
+    params: EngineeringAnalyticsCiTimingContextParams,
+    options?: RequestInit
+): Promise<CITimingContextApi> => {
+    return apiMutator<CITimingContextApi>(getEngineeringAnalyticsCiTimingContextUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -547,6 +619,39 @@ export const engineeringAnalyticsJobAggregates = async (
     options?: RequestInit
 ): Promise<WorkflowJobAggregateApi[]> => {
     return apiMutator<WorkflowJobAggregateApi[]>(getEngineeringAnalyticsJobAggregatesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsJobLogInsightsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsJobLogInsightsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/job_log_insights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/job_log_insights/`
+}
+
+/**
+ * What one GitHub Actions job's log says it did: cache restores (hit, older cache, miss, restore failed) and migrations applied, for the job and per step. Reads the log from GitHub on demand. Only a completed job's answer is cached. `log_read` is false, never an error, when there is no log to read: a Depot CI job, a job the source does not hold, an expired log, or a failed fetch.
+ */
+export const engineeringAnalyticsJobLogInsights = async (
+    projectId: string,
+    params: EngineeringAnalyticsJobLogInsightsParams,
+    options?: RequestInit
+): Promise<JobLogInsightsApi> => {
+    return apiMutator<JobLogInsightsApi>(getEngineeringAnalyticsJobLogInsightsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

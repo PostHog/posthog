@@ -1,4 +1,11 @@
-import { PREDICTION_SEGMENTS, predictionSegmentCohortFilters, predictionSegmentFor } from './predictionSegments'
+import { parseWorkflowTriggerPrefill } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
+
+import {
+    PREDICTION_SEGMENTS,
+    likelySegmentWorkflowUrl,
+    predictionSegmentCohortFilters,
+    predictionSegmentFor,
+} from './predictionSegments'
 
 function cohortMatches(filters: ReturnType<typeof predictionSegmentCohortFilters>, probability: number): boolean {
     return filters.properties.values.every((group) =>
@@ -22,4 +29,13 @@ describe('predictionSegments', () => {
             expect(matching.map(({ key }) => key)).toEqual([predictionSegmentFor(probability).key])
         }
     )
+
+    test('the workflow link opens a batch workflow whose audience is the likely segment', () => {
+        const raw = new URLSearchParams(likelySegmentWorkflowUrl('p_signed_up').split('?')[1]).get('trigger')
+
+        expect(parseWorkflowTriggerPrefill(raw ?? undefined)).toEqual({
+            type: 'batch',
+            filters: { properties: [{ type: 'person', key: 'p_signed_up', operator: 'gte', value: 0.6 }] },
+        })
+    })
 })

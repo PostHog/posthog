@@ -57,13 +57,26 @@ Before you add a case, name the branch or line that only it reaches.
 ### `tests/test_<source>.py`: the transport
 
 This is where most bugs live.
-Use parameterized cases and mock HTTP (`responses`) or the vendor client. Never use the network.
+Use parameterized cases. Never use the network.
+
+Run the source against scripted vendor answers with the helpers in `sources/common/testing`.
+They answer the real request at the socket, so the test asserts what goes on the wire.
+
+- `SourceDriver(source, config).run(schema_name, script)` runs an extraction through `source_for_pipeline`. The result holds `rows`, `requests`, `saved_states` and `committed_states`.
+- `scripted_network(script)` covers a call outside an extraction, such as a credential probe or a webhook call.
+- A script is a list of `ScriptedResponse`, or `route({path: [...]})` when the source mixes endpoints. A request the script does not answer fails the run.
+
+`sources/zylo/tests/test_zylo.py` shows the pattern.
+For a source built on a vendor SDK, mock the SDK client instead.
+
+Do not patch `make_tracked_session`, mock `ResumableSourceManager`, or patch a private name in `sources/common`.
+Each one lets a test pass against wrong behavior, and `posthog/test/repo_invariants/test_warehouse_source_test_shapes.py` fails a new test file that does it.
 
 - **Pagination:** one test that walks at least two pages to the terminal page, and asserts the request parameters of each page. Add the cases where the vendor's termination signal is unusual (an empty page with a cursor, a `has_more` flag that lies).
 - **Request shaping:** an incremental request sends the watermark in the vendor's filter and sort; a full refresh sends no watermark. One parameterized test.
 - **Ordering:** if the source sorts or windows rows itself, assert the order it yields, because `sort_mode` trusts it.
 - **Error mapping:** drive a real vendor response through the transport (status code and body) and assert the error it raises, or the message `validate_credentials` returns. Keep the vendor's verbatim error text in the fixture: it records what the vendor actually sends.
-- **Resume:** for a `ResumableSource`, one test that resumes from saved state and one that asserts state is saved before the batch it covers is yielded.
+- **Resume:** for a `ResumableSource`, one test that resumes from saved state (`resume_state=`) and one that asserts state is saved before the batch it covers is yielded (`committed_states`).
 - **Row shaping:** mappers, type conversions, fan-out parent fields, flattening. Use edge-case inputs such as nulls, nested objects, and timezones.
 - **Incremental cursor pagination:** the walk stops once a page predates the watermark, and continues when there is no watermark.
 

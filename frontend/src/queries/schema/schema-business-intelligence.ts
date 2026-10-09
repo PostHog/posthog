@@ -62,6 +62,16 @@ export interface BIField {
     type: DatabaseSerializedFieldType
     source: BIDataSource
     dateBucket?: BIDateBucket
+    localDefinition?: BILocalFieldDefinition
+}
+
+export type BILocalFieldDefinition =
+    | { kind: 'groups'; expression: string; groups: BICategoryGroup[]; other: string }
+    | { kind: 'bins'; expression: string; width: number; origin: number }
+
+export interface BICategoryGroup {
+    name: string
+    values: string[]
 }
 
 export interface BIValue {
@@ -117,10 +127,14 @@ export interface BIFilter {
 
 export interface BIConfig {
     source: BIDataSource | null
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIField[]
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange
     compareFilter?: CompareFilter
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: 'previous' | null
     chartType: ChartDisplayType
     rows: BIField[]
     columns: BIField[]

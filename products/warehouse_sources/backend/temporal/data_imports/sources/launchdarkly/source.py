@@ -51,7 +51,7 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
             keywords=["feature flags"],
             label="LaunchDarkly",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, metrics, members, and audit log into the PostHog Data warehouse.
+            caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, flag statuses, segments, experiments, holdouts, metrics, members, and audit log into the PostHog Data warehouse.
 
 You can create a personal or service access token in your [LaunchDarkly account settings](https://app.launchdarkly.com/settings/authorization). A token with the **Reader** role grants read access to every resource this source syncs.""",
             iconPath="/static/services/launchdarkly.png",
@@ -122,7 +122,9 @@ You can create a personal or service access token in your [LaunchDarkly account 
         if schema_name is not None:
             endpoint = LAUNCHDARKLY_ENDPOINTS.get(schema_name)
             if endpoint is not None:
-                probe_path = "/projects" if endpoint.requires_project else endpoint.path
+                probe_path = (
+                    "/projects" if endpoint.requires_project or endpoint.requires_environment else endpoint.path
+                )
 
         status = validate_launchdarkly_credentials(config.access_token, probe_path)
 

@@ -1720,9 +1720,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label fires
-    # its workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
-    # strip it).
+    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
+    # its review (ReviewHog's label consumer accepts stamphog[bot] as a labeler and strips other bots' labels).
     #
     # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
     # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
@@ -2282,6 +2281,20 @@ _VERDICT_HEADLINES: dict[str, str] = {
 }
 
 
+_PATH_DENY_GATES = frozenset({"deny-list", "tier"})
+
+
+def _only_a_human_can_approve(parsed: ReviewerVerdict) -> bool:
+    """True when the changed paths alone refused the PR, so a re-review of the same files refuses again.
+
+    A deny on migrations alone is excluded: it lifts once the `Migration risk` check passes.
+    """
+    gates = [g for g in parsed.gate_result.get("gates") or [] if isinstance(g, dict)]
+    failed = {g.get("gate") for g in gates if not g.get("passed", True)}
+    deny_categories = (parsed.gate_result.get("classification") or {}).get("deny_categories") or []
+    return bool(failed) and failed <= _PATH_DENY_GATES and deny_categories != ["migrations"]
+
+
 def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
     """The review body: the outcome in words, what to do next, then whatever the engine rendered.
 
@@ -2293,7 +2306,13 @@ def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | No
     prepended to both, so the outcome is stated whichever one is available.
     """
     headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
-    if relabel_label:
+    if _only_a_human_can_approve(parsed):
+        headline = _VERDICT_HEADLINES[ReviewVerdict.REFUSED]
+        if relabel_label:
+            headline += (
+                f"\n\nRe-adding the `{relabel_label}` label gives the same result unless the changed files change."
+            )
+    elif relabel_label:
         headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
     detail = parsed.review_body or _reasoning_detail(parsed)
     return f"{headline}\n\n{neutralize_active_markdown(detail)}".rstrip()

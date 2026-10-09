@@ -142,6 +142,21 @@ class TestPagination:
         assert [r["video_id"] for r in rows] == ["c"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unpaginated_endpoint_fetches_once_without_page_params(self, MockSession) -> None:
+        # /memory-stores returns every store with no total_count, so a full page must not trigger page 1.
+        session = MockSession.return_value
+        stores = [{"memory_store_id": f"m_{i}", "pal_id": "p_1", "participant_tag": f"user_{i}"} for i in range(100)]
+        params = _wire(session, [_response(stores)])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager, endpoint="memory_stores"))
+
+        assert len(rows) == 100
+        assert session.send.call_count == 1
+        assert "page" not in params[0] and "limit" not in params[0]
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_data_key_raises_loudly(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response(None, drop_data=True)])
@@ -197,6 +212,7 @@ class TestTavusSourceResponse:
             ("replicas", "replica_id"),
             ("personas", "persona_id"),
             ("conversations", "conversation_id"),
+            ("memory_stores", "memory_store_id"),
         ]
     )
     def test_primary_key_matches_endpoint_config(self, endpoint: str, primary_key: str) -> None:
@@ -213,5 +229,6 @@ class TestTavusSourceResponse:
             "replicas": ["replica_id"],
             "personas": ["persona_id"],
             "conversations": ["conversation_id"],
+            "memory_stores": ["memory_store_id"],
         }
         assert set(TAVUS_ENDPOINTS) == set(ENDPOINTS)
