@@ -71,6 +71,37 @@ class ArtifactStorageUnavailable(RuntimeError):
 # ── Model-backed read contracts ────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class LiveTrainingRun:
+    """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
+
+    id: UUID
+    iteration_budget: int
+    experiment_count: int
+    best_holdout_score: float | None
+    latest_agent_description: str
+
+
+@dataclass(frozen=True)
+class PredictionCoverage:
+    """How much of the inference population had a champion score when a live run scored, and how old the scores were."""
+
+    population: int
+    with_score: int
+    never_scored: int
+    age_days_avg: float | None
+    age_days_p50: float | None
+    age_days_p90: float | None
+    age_days_max: float | None
+    lookback_days: int
+
+
+@dataclass(frozen=True)
+class RealizedAucPoint:
+    prediction_date: date
+    realized_auc: float
+
+
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
 class Pipeline:
     """One prediction pipeline: a target, a population, and a horizon.
@@ -104,6 +135,12 @@ class Pipeline:
     champion_realized_auc: float | None
     champion_lift_at_10: float | None
     champion_is_preliminary: bool | None
+    champion_realized_auc_trend: list[RealizedAucPoint]
+    people_scored: int | None
+    coverage: PredictionCoverage | None
+    training_run_count: int
+    experiment_count: int
+    live_training_run: LiveTrainingRun | None
 
 
 @dataclass(frozen=True)
@@ -238,6 +275,7 @@ class Run:
     status: str
     rows_scored: int | None
     metrics: dict[str, Any]
+    coverage: PredictionCoverage | None
     error: str
     started_at: datetime | None
     completed_at: datetime | None
@@ -357,6 +395,24 @@ class CalibrationBin:
 
 
 @dataclass(frozen=True)
+class ConfusionCounts:
+    tp: int
+    fp: int
+    fn: int
+    tn: int
+    n_flagged: int
+    precision: float | None
+    recall: float | None
+
+
+@dataclass(frozen=True)
+class ConfusionByCutoff:
+    top_10: ConfusionCounts
+    top_20: ConfusionCounts
+    likely: ConfusionCounts
+
+
+@dataclass(frozen=True)
 class OnlinePerformanceRow:
     """One model's realized metrics for one validated prediction date."""
 
@@ -378,6 +434,8 @@ class OnlinePerformanceRow:
     calibration_error: float | None
     lift_at_10: float | None
     lift_at_20: float | None
+    average_precision: float | None
+    confusion: ConfusionByCutoff | None
     calibration_bins: list[CalibrationBin] | None
     warning: str | None
     validated_at: datetime | None

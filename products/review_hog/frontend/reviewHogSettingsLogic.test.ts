@@ -63,7 +63,6 @@ describe('reviewHogSettingsLogic', () => {
                     200,
                     {
                         review_inbox_prs: false,
-                        review_labeled_prs: true,
                         resolve_comments: true,
                         urgency_threshold: 'should_fix',
                     },
@@ -104,6 +103,46 @@ describe('reviewHogSettingsLogic', () => {
         // The auto-default must not write the URL: hydrating `?reviews_scope=` from a link marks
         // the scope as explicitly chosen, so mirroring the fallback would make it permanent.
         expect(router.values.searchParams.reviews_scope).toBeUndefined()
+    })
+
+    it('following the project default writes the project value, so the server drops the own value', async () => {
+        const patches: Record<string, unknown>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/settings/': () => [
+                    200,
+                    {
+                        urgency_threshold: 'must_fix',
+                        sources: { urgency_threshold: 'user' },
+                        project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                    },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [
+                        200,
+                        {
+                            urgency_threshold: 'should_fix',
+                            sources: { urgency_threshold: 'project' },
+                            project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSettingsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.followProjectDefault('urgency_threshold')).toDispatchActions([
+            'updateSettings',
+            'updateSettingsSuccess',
+        ])
+
+        expect(patches).toEqual([{ urgency_threshold: 'should_fix' }])
+        expect(logic.values.settings?.sources.urgency_threshold).toBe('project')
     })
 
     it('a started review clears the input, reloads the list, and resets the in-flight flag', async () => {
@@ -405,6 +444,21 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic).toDispatchActions(['openReviewDetailById'])
         router.actions.push(urls.codeReview(), {})
         expect(logic.values.reviewDrawerOpen).toBe(false)
+    })
+
+    it('opens the tab from ?tab= and mirrors tab changes back to the URL', async () => {
+        logic.mount()
+        router.actions.push(urls.codeReview(), { tab: 'settings' })
+        expect(logic.values.activeTab).toBe('settings')
+
+        // Activity is the default, so it keeps the URL clean; other params survive the write.
+        router.actions.push(urls.codeReview(), { tab: 'settings', reviews_scope: 'everyone' })
+        logic.actions.setActiveTab('activity')
+        expect(router.values.searchParams.tab).toBeUndefined()
+        expect(router.values.searchParams.reviews_scope).toBe('everyone')
+
+        logic.actions.setActiveTab('settings')
+        expect(router.values.searchParams.tab).toBe('settings')
     })
 
     it('closes a deep-linked drawer when the review fails to load', async () => {

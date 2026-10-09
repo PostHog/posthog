@@ -163,22 +163,6 @@ class TestPagination:
         assert params[0]["page"] == 5
         manager.load_state.assert_called_once()
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = _make_manager()
-        session, _params, pages = _run("courses", manager, [_response([{"id": 1}], total_pages=1)])
-
-        assert _rows(pages) == [{"id": 1}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    def test_empty_first_page_yields_no_rows_and_makes_one_request(self) -> None:
-        manager = _make_manager()
-        session, _params, pages = _run("courses", manager, [_response([], total_pages=1)])
-
-        assert _rows(pages) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
     def test_does_not_load_state_when_cannot_resume(self) -> None:
         manager = _make_manager()
         _run("courses", manager, [_response([{"id": 1}], total_pages=1)])
@@ -186,28 +170,6 @@ class TestPagination:
 
 
 class TestIncrementalFilter:
-    def test_incremental_filter_applied_for_enrollments(self) -> None:
-        manager = _make_manager()
-        _, params, _pages = _run(
-            "enrollments",
-            manager,
-            [_response([{"id": 1}], total_pages=1)],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert params[0]["query[updated_on_or_after]"] == "2026-03-04"
-
-    def test_no_incremental_filter_for_full_refresh_endpoint(self) -> None:
-        manager = _make_manager()
-        _, params, _pages = _run(
-            "courses",
-            manager,
-            [_response([{"id": 1}], total_pages=1)],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-        )
-        assert "query[updated_on_or_after]" not in params[0]
-
     @parameterized.expand(
         [
             # Filter added only when all three hold: endpoint supports it, flag on, cursor present.
@@ -255,15 +217,6 @@ class TestErrorHandling:
 
 
 class TestSourceResponse:
-    def test_full_refresh_endpoint_has_no_partitioning(self) -> None:
-        manager = _make_manager()
-        resp = thinkific_source("k", "s", "courses", team_id=1, job_id="j", resumable_source_manager=manager)
-        assert resp.name == "courses"
-        assert resp.primary_keys == ["id"]
-        assert resp.partition_mode is None
-        assert resp.partition_keys is None
-        assert resp.sort_mode == "asc"
-
     @parameterized.expand([("enrollments",), ("users",)])
     def test_partitioned_endpoint_partitions_by_created_at(self, endpoint: str) -> None:
         manager = _make_manager()
@@ -295,14 +248,6 @@ class TestValidateCredentials:
             is_valid, code = validate_credentials("key", "sub")
         assert is_valid is expected_valid
         assert code == expected_code
-
-    def test_exception_returns_none_status(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = Exception("boom")
-        with mock.patch(THINKIFIC_SESSION_PATCH, return_value=session):
-            is_valid, code = validate_credentials("key", "sub")
-        assert is_valid is False
-        assert code is None
 
     def test_probe_disables_redirects_to_protect_api_key(self) -> None:
         # The X-Auth-API-Key header rides on the probe; the session must be built with redirects

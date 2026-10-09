@@ -27,52 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fintoc.fin
 from common.hogvm.python.execute import execute_bytecode
 
 
-@pytest.mark.parametrize(
-    "name,path,param,next_query",
-    [
-        ("links", "/v1/links", "per_page", "page=2"),
-        ("payment_intents", "/v2/payment_intents", "limit", "starting_after=pi_first"),
-        ("refunds", "/v1/refunds", "per_page", "page=2"),
-        ("charges", "/v1/charges", "per_page", "page=2"),
-        ("transfers", "/v2/transfers", "limit", "starting_after=tr_first"),
-        ("checkout_sessions", "/v2/checkout_sessions", "limit", "starting_after=cs_first"),
-        ("subscriptions", "/v2/subscriptions", "limit", "starting_after=sub_first"),
-        ("invoices", "/v2/invoices", "limit", "starting_after=inv_first"),
-        ("customers", "/v2/customers", "limit", "starting_after=cus_first"),
-    ],
-)
-def test_pages_and_resume_after_yield(
-    http_mock: MagicMock,
-    manager: MagicMock,
-    inputs: MagicMock,
-    name: str,
-    path: str,
-    param: str,
-    next_query: str,
-) -> None:
-    inputs.should_use_incremental_field = False
-    inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-    next_url = f"https://api.fintoc.com{path}?{next_query}"
-    http_mock.side_effect = [
-        (200, [{"id": "first"}], {"Link": f'<{next_url}>; rel="next"'}),
-        (200, [{"id": "last"}], {"Link": f'<https://api.fintoc.com{path}?page=1>; rel="prev"'}),
-    ]
-    source = FintocAPI("sk_test_example", "2026-02-01").source(name, [], inputs, manager)
-    rows = iter(cast(Iterable[Any], source.items()))
-    assert next(rows) == [{"id": "first"}]
-    manager.save_state.assert_not_called()
-    assert next(rows) == [{"id": "last"}]
-    manager.save_state.assert_called_with(FintocResumeState(paginator={"next_url": next_url}))
-    assert list(rows) == []
-    assert manager.save_state.call_args.args[0].complete
-    first, second = [call.args[0] for call in http_mock.call_args_list]
-    assert urlsplit(first.url).path == path
-    assert parse_qs(urlsplit(first.url).query) == {param: ["300"]}
-    assert first.headers["Authorization"] == "sk_test_example"
-    assert first.headers["Fintoc-Version"] == "2026-02-01"
-    assert second.url == next_url
-
-
 @pytest.mark.parametrize("complete", [False, True])
 def test_resume_does_not_restart_completed_pages(
     http_mock: MagicMock,

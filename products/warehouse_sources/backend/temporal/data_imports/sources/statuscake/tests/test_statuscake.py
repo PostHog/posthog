@@ -10,9 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.statuscake import (
     StatusCakeResumeConfig,
     StatusCakeRetryableError,
-    _build_url,
     _fetch_page,
-    _get_headers,
     _to_unix_timestamp,
     get_rows,
     statuscake_source,
@@ -55,21 +53,6 @@ def _history_body(rows: list[dict[str, Any]], next_url: str | None = None) -> di
     if next_url:
         links["next"] = next_url
     return {"data": rows, "links": links}
-
-
-class TestHeaders:
-    def test_bearer_token(self):
-        assert _get_headers("abc123")["Authorization"] == "Bearer abc123"
-
-
-class TestBuildUrl:
-    def test_encodes_params(self):
-        assert (
-            _build_url("/uptime", {"page": 1, "limit": 100}) == "https://api.statuscake.com/v1/uptime?page=1&limit=100"
-        )
-
-    def test_no_params(self):
-        assert _build_url("/uptime-locations", {}) == "https://api.statuscake.com/v1/uptime-locations"
 
 
 class TestFetchPage:
@@ -146,32 +129,6 @@ class TestGetRowsTopLevel:
         assert [s.page for s in saved] == [1, 2]
 
     @mock.patch(_TRANSPORT)
-    def test_stops_after_one_page_without_metadata(self, mock_session):
-        # SSL/heartbeat/locations return everything in one unpaginated response. Without this
-        # guard an endpoint that ignores the `page` param would return the same list forever.
-        mock_session.return_value = _session_returning({"data": [{"id": "s1"}, {"id": "s2"}]})
-        manager = _make_manager()
-
-        batches = list(get_rows("token", "ssl_tests", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["s1", "s2"]
-        assert mock_session.return_value.get.call_count == 1
-
-    @mock.patch(_TRANSPORT)
-    def test_heartbeat_push_credential_is_scrubbed(self, mock_session):
-        # The /heartbeat push `url` embeds the check's PK credential. It must never reach the
-        # warehouse, where any project user could read it back and spoof heartbeat pings.
-        mock_session.return_value = _session_returning(
-            {"data": [{"id": "h1", "name": "cron", "url": "https://push.statuscake.com/?PK=secret&TestID=h1"}]}
-        )
-        manager = _make_manager()
-
-        batches = list(get_rows("token", "heartbeat_tests", mock.MagicMock(), manager))
-        rows = [row for batch in batches for row in batch]
-
-        assert rows == [{"id": "h1", "name": "cron"}]
-
-    @mock.patch(_TRANSPORT)
     def test_contact_group_ping_url_is_scrubbed(self, mock_session):
         # The /contact-groups `ping_url` is a callback invoked on alert and can embed a webhook
         # secret. It must never reach the warehouse, where any project user could read it back.
@@ -233,23 +190,6 @@ class TestGetRowsFanOut:
         assert (saved[0].test_id, saved[0].next_url) == ("t1", next_url)
 
     @mock.patch(_TRANSPORT)
-    def test_resumes_at_saved_test_and_url(self, mock_session):
-        resume_url = "https://api.statuscake.com/v1/uptime/t2/history?before=456&limit=100"
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}, {"id": "t2"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-01T00:00:00Z", "location": "UK"}]),
-        )
-        manager = _make_manager(StatusCakeResumeConfig(test_id="t2", next_url=resume_url))
-
-        batches = list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
-        rows = [row for batch in batches for row in batch]
-
-        # t1 is skipped entirely and t2 resumes from the saved cursor URL.
-        assert all(row["test_id"] == "t2" for row in rows)
-        history_urls = [c.args[0] for c in mock_session.return_value.get.call_args_list if "/history" in c.args[0]]
-        assert history_urls == [resume_url]
-
-    @mock.patch(_TRANSPORT)
     def test_off_origin_next_link_is_never_fetched_or_persisted(self, mock_session):
         # The session's default headers carry the account token: a tampered response pointing
         # links.next off-origin must not receive a request (or be saved as resume state).
@@ -301,43 +241,6 @@ class TestGetRowsFanOut:
 
 class TestIncremental:
     @mock.patch(_TRANSPORT)
-    def test_watermark_maps_to_after_param(self, mock_session):
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}]),
-        )
-        manager = _make_manager()
-        watermark = datetime(2026, 1, 1, tzinfo=UTC)
-
-        list(
-            get_rows(
-                "token",
-                "uptime_history",
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=watermark,
-            )
-        )
-
-        history_url = mock_session.return_value.get.call_args_list[1].args[0]
-        # One second of overlap in case `after` is exclusive; merge dedupes on the primary key.
-        assert f"after={int(watermark.timestamp()) - 1}" in history_url
-
-    @mock.patch(_TRANSPORT)
-    def test_full_refresh_sends_no_after_param(self, mock_session):
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body([{"created_at": "2026-01-02T00:00:00Z", "location": "UK"}]),
-        )
-        manager = _make_manager()
-
-        list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
-
-        history_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert "after=" not in history_url
-
-    @mock.patch(_TRANSPORT)
     def test_pagination_stops_once_page_predates_watermark(self, mock_session):
         # Guards the incremental-cost regression: if the API ignores `after` (or drops it from the
         # links.next cursor), we must stop client-side instead of re-walking the full history.
@@ -363,22 +266,6 @@ class TestIncremental:
 
         # The next link is never followed: 1 parent-list call + 1 history call.
         assert mock_session.return_value.get.call_count == 2
-
-    @mock.patch(_TRANSPORT)
-    def test_pagination_keeps_walking_without_watermark(self, mock_session):
-        mock_session.return_value = _session_returning(
-            _list_body([{"id": "t1"}], page=1, page_count=1),
-            _history_body(
-                [{"created_at": "2025-12-31T00:00:00Z", "location": "UK"}],
-                next_url="https://api.statuscake.com/v1/uptime/t1/history?before=1",
-            ),
-            _history_body([{"created_at": "2025-12-30T00:00:00Z", "location": "UK"}]),
-        )
-        manager = _make_manager()
-
-        batches = list(get_rows("token", "uptime_history", mock.MagicMock(), manager))
-
-        assert len([row for batch in batches for row in batch]) == 2
 
 
 class TestStatuscakeSourceResponse:

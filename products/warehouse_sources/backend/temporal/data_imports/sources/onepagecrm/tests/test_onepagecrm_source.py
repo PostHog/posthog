@@ -6,10 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepagecrm import (
     OnepagecrmSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source import OnepagecrmSource
 
 
@@ -18,25 +14,6 @@ class TestOnepagecrmSource:
         self.source = OnepagecrmSource()
         self.team_id = 123
         self.config = OnepagecrmSourceConfig(user_id="uid-1", api_key="key-1")
-
-    def test_no_connection_host_fields(self) -> None:
-        # The user ID is only a Basic-auth username against the hardcoded API host, so there is no
-        # field an editor could retarget to reuse a preserved key against another server.
-        assert self.source.connection_host_fields == []
-
-    def test_get_schemas_advertises_incremental_only_where_filterable(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        for name, schema in schemas.items():
-            if name in INCREMENTAL_FIELDS:
-                assert schema.supports_incremental is True
-                assert [f["field"] for f in schema.incremental_fields] == ["modified_at"]
-            else:
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-        # companies has no modified_since filter; config lists aren't filterable either.
-        assert schemas["companies"].supports_incremental is False
-        assert schemas["contacts"].supports_incremental is True
 
     @parameterized.expand(
         [

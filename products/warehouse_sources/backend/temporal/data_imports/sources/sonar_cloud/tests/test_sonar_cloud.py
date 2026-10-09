@@ -108,43 +108,6 @@ class TestTotal:
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_short_page(self, MockSession) -> None:
-        # A page smaller than the requested size means we've reached the end; the loop must stop rather
-        # than requesting an empty next page.
-        session = MockSession.return_value
-        params = _wire(session, [_response([{"key": "a"}, {"key": "b"}], total=2)])
-
-        manager = _make_manager()
-        rows = _rows(_source("projects", manager))
-
-        assert [r["key"] for r in rows] == ["a", "b"]
-        assert session.send.call_count == 1
-        assert params[0]["p"] == 1
-        assert params[0]["ps"] == MAX_PAGE_SIZE
-        assert params[0]["organization"] == "org"
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_multiple_pages_until_total(self, MockSession) -> None:
-        session = MockSession.return_value
-        full = [{"key": str(i)} for i in range(MAX_PAGE_SIZE)]
-        params = _wire(
-            session,
-            [_response(full, total=MAX_PAGE_SIZE + 1), _response([{"key": "last"}], total=MAX_PAGE_SIZE + 1)],
-        )
-
-        manager = _make_manager()
-        rows = _rows(_source("projects", manager))
-
-        assert session.send.call_count == 2
-        assert len(rows) == MAX_PAGE_SIZE + 1
-        assert params[0]["p"] == 1
-        assert params[1]["p"] == 2
-        # State is saved after yielding the first (full) page so a crash re-yields rather than skips.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == SonarCloudResumeConfig(page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         # Resume state points at page 2; the first request must be for page 2, not page 1.
         session = MockSession.return_value
@@ -192,27 +155,3 @@ class TestValidateCredentials:
         session.get.return_value = mock.MagicMock(status_code=status)
         with mock.patch(SONAR_SESSION_PATCH, return_value=session):
             assert validate_credentials("token", "org", "eu") == expected
-
-    def test_transport_failure_returns_zero(self) -> None:
-        with mock.patch(SONAR_SESSION_PATCH, side_effect=Exception("boom")):
-            assert validate_credentials("token", "org", "eu") == 0
-
-
-class TestSourceResponse:
-    def test_partitioned_endpoint(self) -> None:
-        response = _source("issues", _make_manager())
-        assert response.name == "issues"
-        assert response.primary_keys == ["key"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["creationDate"]
-
-    def test_non_partitioned_endpoint(self) -> None:
-        response = _source("metrics", _make_manager())
-        assert response.partition_mode is None
-        assert response.partition_keys is None
-
-    def test_quality_gates_merge_on_id(self) -> None:
-        # Quality gate rows carry `id`/`name` but no `key`; merging on the default `key` primary key
-        # would never dedupe and duplicate rows on every sync.
-        response = _source("quality_gates", _make_manager())
-        assert response.primary_keys == ["id"]

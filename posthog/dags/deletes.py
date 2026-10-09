@@ -1,8 +1,9 @@
 import abc
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 
 from django.conf import settings
@@ -12,6 +13,7 @@ from django.utils import timezone
 import dagster
 import pydantic
 from clickhouse_driver.client import Client
+from dateutil.relativedelta import relativedelta
 from more_itertools import chunked
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -47,6 +49,7 @@ from posthog.models.deletion_targets import (
     surviving_rows_sql,
     sweep_clusters,
 )
+from posthog.models.events_retention_config import effective_events_retention
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -119,25 +122,39 @@ class SweepTargetsConfig(dagster.Config):
 
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
-        min_length=1,
-        description="Team IDs to clean up old events for. Required: every run names its teams explicitly.",
+        default_factory=list,
+        description="Only clean up these teams. Empty means every team with an events retention in Django admin. "
+        "A listed team with no events retention is ignored.",
     )
     partitions: list[int] = pydantic.Field(
-        min_length=1,
-        description="Events partitions to clean up, as YYYYMM (e.g. [202407]). Required: the run deletes only "
-        "in these months, and only where old rows for the teams exist.",
-    )
-    min_age_months: int = pydantic.Field(
-        default=13,
-        description="Minimum age in months for events to be deleted",
+        default_factory=list,
+        description="Only clean up these months, as YYYYMM (e.g. [202407]). Empty means every month that is due.",
     )
 
 
 @frozen
-class OldEventsCleanupPlan:
+class PartitionCleanup:
+    partition: int
     team_ids: list[int]
-    partitions: list[int]
-    min_age_months: int
+
+
+@frozen
+class OldEventsCleanupPlan:
+    partitions: list[PartitionCleanup]
+
+
+def whole_month_cutoff(now: datetime, retention_months: int) -> datetime:
+    """Start of the month that holds the instant ``retention_months`` before ``now``."""
+    return (now - relativedelta(months=retention_months)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _yyyymm(moment: datetime) -> int:
+    return moment.year * 100 + moment.month
+
+
+def _start_of_month_after(partition: int) -> datetime:
+    year, month = divmod(partition, 100)
+    return datetime(year, month, 1) + relativedelta(months=1)
 
 
 # Reads only team_id, person_id, timestamp, uuid and inserted_at, which every registered target
@@ -1235,42 +1252,71 @@ def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) ->
 
 
 @dagster.op
-def find_partitions_to_cleanup(
+def plan_old_events_cleanup(
     context: dagster.OpExecutionContext,
     config: MonthlyCleanupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> OldEventsCleanupPlan:
-    """Find which of the requested partitions contain old events for the specified teams."""
-    parameters = {
-        "team_ids": config.team_ids,
-        "partitions": config.partitions,
-        "min_age_months": config.min_age_months,
-    }
+    """Find every team with an events retention, and for each month the teams whose events in it are all past it."""
+    retention = effective_events_retention()
+    if config.team_ids:
+        if ignored := sorted(set(config.team_ids) - {item.team_id for item in retention}):
+            context.log.info(f"Ignoring teams with no events retention: {ignored}")
+        retention = [item for item in retention if item.team_id in config.team_ids]
+    if not retention:
+        context.log.info("No team has an events retention to enforce")
+        return OldEventsCleanupPlan(partitions=[])
 
-    # Each events table is read on every shard of its own cluster: a month can hold old rows in one
-    # table or shard and none in the others, and the cleanup only visits the months found here.
-    found: set[int] = set()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    team_cutoffs: dict[int, datetime] = {}
+    for item in retention:
+        team_cutoffs[item.team_id] = whole_month_cutoff(now, item.months)
+        context.log.info(
+            f"org {item.organization_id}, team {item.team_id}, {item.months} months: "
+            f"months before {team_cutoffs[item.team_id]:%Y-%m} are due"
+        )
+
+    partition_filter = "AND toYYYYMM(timestamp) IN %(partitions)s" if config.partitions else ""
+    parameters = {
+        "team_ids": sorted(team_cutoffs),
+        "partitions": config.partitions,
+        "cutoff": max(team_cutoffs.values()),
+    }
+    # Each events table is read on every shard of its own cluster: a month can hold events in one
+    # table or shard and none in the others.
+    team_months: set[tuple[int, int]] = set()
     for placement in resolve_placements(cluster, EVENTS_TARGETS):
         query = f"""
-            SELECT DISTINCT toYYYYMM(timestamp) as partition
+            SELECT DISTINCT team_id, toYYYYMM(timestamp) AS partition
             FROM {placement.target.data_table}
             WHERE team_id IN %(team_ids)s
-            AND toYYYYMM(timestamp) IN %(partitions)s
-            AND age('month', timestamp, now()) >= %(min_age_months)s
+            AND timestamp < %(cutoff)s
+            {partition_filter}
         """
         results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
-        found.update(partition for rows in results.values() for (partition,) in rows)
-    partitions = sorted(found & set(config.partitions), reverse=True)
+        team_months.update((team_id, partition) for rows in results.values() for team_id, partition in rows)
+
+    teams_by_partition: dict[int, list[int]] = defaultdict(list)
+    for team_id, partition in sorted(team_months):
+        if partition < _yyyymm(team_cutoffs[team_id]):
+            teams_by_partition[partition].append(team_id)
+
+    plan = OldEventsCleanupPlan(
+        partitions=[
+            PartitionCleanup(partition=partition, team_ids=team_ids)
+            for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
+        ]
+    )
+    for partition_cleanup in plan.partitions:
+        context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
 
     context.add_output_metadata(
         {
-            "partitions_found": dagster.MetadataValue.int(len(partitions)),
-            "partitions": dagster.MetadataValue.text(", ".join(str(p) for p in partitions)),
-            "team_ids": dagster.MetadataValue.text(", ".join(str(tid) for tid in config.team_ids)),
+            "teams": dagster.MetadataValue.int(len(team_cutoffs)),
+            "partitions": dagster.MetadataValue.int(len(plan.partitions)),
         }
     )
-
-    return OldEventsCleanupPlan(team_ids=config.team_ids, partitions=partitions, min_age_months=config.min_age_months)
+    return plan
 
 
 @dagster.op
@@ -1279,35 +1325,36 @@ def cleanup_old_events_by_partition(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     plan: OldEventsCleanupPlan,
 ) -> None:
-    """Delete old events from the plan's teams in each of the plan's partitions."""
+    """Delete each planned month's events for the teams the plan lists for that month."""
     if not plan.partitions:
         context.log.info("No partitions found to clean up")
         return
 
     total_partitions = len(plan.partitions)
     # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
-    # deleting IN PARTITION on a partition a table doesn't have is a no-op.
+    # deleting IN PARTITION on a partition a table doesn't have is a no-op. sharded_events_json
+    # clamps timestamps before 2020 into its 202001 partition, so it keeps events dated before 2020.
     #
-    # Events only, deliberately: this enforces a multi-year retention floor for a named set of
-    # teams, and every other personal-data table already expires sooner under its own TTL.
+    # Events only, deliberately: this enforces a multi-year retention floor for the teams a run
+    # names, and every other personal-data table already expires sooner under its own TTL.
     placements = resolve_placements(cluster, EVENTS_TARGETS)
     reuse_floor = _mutation_reuse_floor(cluster)
 
-    for idx, partition in enumerate(plan.partitions, 1):
-        context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
+    for idx, item in enumerate(plan.partitions, 1):
+        context.log.info(f"Deleting {item.partition} for teams {item.team_ids} ({idx}/{total_partitions})")
 
         for placement in placements:
             delete_mutation_runner = LightweightDeleteMutationRunner(
                 table=placement.target.data_table,
                 predicate="""
                 team_id IN %(team_ids)s
-                AND age('month', timestamp, now()) >= %(min_age_months)s
+                AND timestamp < %(before)s
             """,
                 parameters={
-                    "team_ids": plan.team_ids,
-                    "min_age_months": plan.min_age_months,
+                    "team_ids": item.team_ids,
+                    "before": _start_of_month_after(item.partition),
                 },
-                partition=str(partition),
+                partition=str(item.partition),
                 settings={"lightweight_deletes_sync": 0},
                 reuse_since=reuse_floor,
                 patch_parts=placement.target.uses_patch_parts,
@@ -1325,17 +1372,38 @@ def cleanup_old_events_by_partition(
                 }
             ).result()
 
-        context.log.info(f"Completed deletion for partition {partition}")
+        context.log.info(f"Completed deletion for partition {item.partition}")
 
     context.add_output_metadata(
         {
             "partitions_processed": dagster.MetadataValue.int(total_partitions),
-            "team_ids": dagster.MetadataValue.text(", ".join(str(tid) for tid in plan.team_ids)),
+            "team_ids": dagster.MetadataValue.text(
+                ", ".join(str(tid) for tid in sorted({tid for item in plan.partitions for tid in item.team_ids}))
+            ),
         }
     )
 
 
-@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        "deletes_job_concurrency": "v1",
+    }
+)
 def monthly_old_events_cleanup_job():
-    """Delete old events for the named teams in the named partitions. Launched by hand, with no schedule."""
-    cleanup_old_events_by_partition(find_partitions_to_cleanup())
+    """Delete events past each team's events retention set in Django admin, a whole month at a time."""
+    cleanup_old_events_by_partition(plan_old_events_cleanup())
+
+
+@dagster.schedule(
+    job=monthly_old_events_cleanup_job,
+    cron_schedule="0 0 1 * *",
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)
+def monthly_old_events_cleanup_schedule(
+    context: dagster.ScheduleEvaluationContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    if not effective_events_retention():
+        return dagster.SkipReason("No team or organization has an events retention set")
+    return dagster.RunRequest(run_key=f"{context.scheduled_execution_time:%Y%m}")

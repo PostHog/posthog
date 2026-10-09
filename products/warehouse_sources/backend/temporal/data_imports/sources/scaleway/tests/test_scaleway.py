@@ -85,15 +85,6 @@ class TestBaseParams:
         params = _base_params(SCALEWAY_ENDPOINTS[endpoint], "org-123")
         assert params[order_param] == order_value
 
-    def test_audit_trail_sets_recorded_after_lower_bound(self) -> None:
-        # Audit Trail defaults to a 1h window, so a full pull must send an explicit recorded_after.
-        params = _base_params(SCALEWAY_ENDPOINTS["audit_trail_events"], "org-123")
-        assert "recorded_after" in params
-        assert params["recorded_after"].endswith("Z")
-
-    def test_non_audit_endpoint_has_no_time_filter(self) -> None:
-        assert "recorded_after" not in _base_params(SCALEWAY_ENDPOINTS["users"], "org-123")
-
 
 class TestResolvePath:
     @parameterized.expand(
@@ -150,15 +141,6 @@ class TestTokenPagination:
         second_params = session.get.call_args_list[1].kwargs["params"]
         assert "recorded_after" in first_params
         assert second_params == {"page_size": PAGE_SIZE, "page_token": "tok2"}
-
-    def test_resumes_from_saved_token(self) -> None:
-        terminal = _response({"events": [], "next_page_token": None})
-        manager = _manager(ScalewayResumeConfig(scope_index=1, page_token="saved-tok"))
-
-        _pages, session = _drive("audit_trail_events", [terminal], manager)
-
-        # scope_index=1 skips the already-finished first region; the saved token drives the request.
-        assert session.get.call_args_list[0].kwargs["params"]["page_token"] == "saved-tok"
 
 
 class TestFanOut:

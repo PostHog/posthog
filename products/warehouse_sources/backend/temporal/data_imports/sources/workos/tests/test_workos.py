@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from requests import Request, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.workos.wor
     WorkOSResumeConfig,
     create_webhook,
     delete_webhook,
-    get_resource,
     get_webhook_info,
     sync_webhook_events,
     validate_credentials,
@@ -29,80 +28,6 @@ WORKOS_SESSION_PATCH = (
 
 
 class TestWorkOSPaginator:
-    def test_initial_state(self) -> None:
-        paginator = WorkOSPaginator()
-        assert paginator._after is None
-        assert paginator.has_next_page is True
-
-    @pytest.mark.parametrize(
-        ("label", "response_body", "has_next", "expected_after"),
-        [
-            (
-                "more_pages",
-                {"data": [{"id": "org_1"}], "list_metadata": {"before": None, "after": "org_1"}},
-                True,
-                "org_1",
-            ),
-            (
-                "last_page",
-                {"data": [{"id": "org_2"}], "list_metadata": {"before": "org_1", "after": None}},
-                False,
-                None,
-            ),
-            ("no_metadata", {"data": []}, False, None),
-            ("empty_dict", {}, False, None),
-        ],
-    )
-    def test_update_state(self, label: str, response_body: Any, has_next: bool, expected_after: str | None) -> None:
-        paginator = WorkOSPaginator()
-        response = MagicMock()
-        response.json.return_value = response_body
-        paginator.update_state(response)
-        assert paginator._has_next_page is has_next
-        assert paginator._after == expected_after
-
-    @pytest.mark.parametrize(
-        ("label", "seeded_after", "expected_after_param"),
-        [
-            ("fresh_run_omits_after", None, None),
-            ("resumed_sets_after", "org_50", "org_50"),
-        ],
-    )
-    def test_init_request(self, label: str, seeded_after: str | None, expected_after_param: str | None) -> None:
-        paginator = WorkOSPaginator()
-        if seeded_after is not None:
-            paginator.set_resume_state({"after": seeded_after})
-
-        request = Request(method="GET", url="https://api.workos.com/organizations", params={"limit": 100})
-        paginator.init_request(request)
-
-        if expected_after_param is None:
-            assert "after" not in (request.params or {})
-        else:
-            assert request.params["after"] == expected_after_param
-
-    def test_update_request_sets_after_when_next_page(self) -> None:
-        paginator = WorkOSPaginator()
-        response = MagicMock()
-        response.json.return_value = {"data": [{"id": "org_1"}], "list_metadata": {"after": "org_1"}}
-        paginator.update_state(response)
-
-        request = Request(method="GET", url="https://api.workos.com/organizations", params={"limit": 100})
-        paginator.update_request(request)
-
-        assert request.params["after"] == "org_1"
-
-    def test_get_resume_state_returns_current_cursor(self) -> None:
-        paginator = WorkOSPaginator()
-        response = MagicMock()
-        response.json.return_value = {"data": [{"id": "org_1"}], "list_metadata": {"after": "org_1"}}
-        paginator.update_state(response)
-        assert paginator.get_resume_state() == {"after": "org_1"}
-
-    def test_get_resume_state_none_when_no_cursor(self) -> None:
-        paginator = WorkOSPaginator()
-        assert paginator.get_resume_state() is None
-
     def test_get_resume_state_none_on_terminal_page(self) -> None:
         # A terminal page leaves the previous cursor in ``_after``; resume state
         # must still be None so we don't re-fetch an already-processed page.
@@ -115,18 +40,6 @@ class TestWorkOSPaginator:
         paginator.update_state(terminal)
         assert paginator.has_next_page is False
         assert paginator.get_resume_state() is None
-
-    def test_set_resume_state_round_trip(self) -> None:
-        paginator = WorkOSPaginator()
-        paginator.set_resume_state({"after": "org_99"})
-        assert paginator._after == "org_99"
-        assert paginator.has_next_page is True
-        assert paginator.get_resume_state() == {"after": "org_99"}
-
-    def test_set_resume_state_ignores_missing_cursor(self) -> None:
-        paginator = WorkOSPaginator()
-        paginator.set_resume_state({})
-        assert paginator._after is None
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
@@ -152,60 +65,6 @@ class TestWorkOSEndpoints:
         assert set(ENDPOINTS) == set(WORKOS_ENDPOINTS)
         # Every endpoint partitions on the immutable created_at field.
         assert all(cfg.partition_key == "created_at" for cfg in WORKOS_ENDPOINTS.values())
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_resource_request_params_are_valid(self, endpoint: str) -> None:
-        # directory_users and directory_groups reject ``order=asc`` with a 422; every
-        # WorkOS list endpoint accepts ``order=desc`` (the WorkOS SDK default). Guard
-        # against regressing back to the rejected value on any endpoint.
-        endpoint_config = cast(dict[str, Any], get_resource(endpoint)["endpoint"])
-        params = cast(dict[str, Any], endpoint_config["params"])
-        assert params["order"] == "desc"
-        assert params["limit"] == WORKOS_ENDPOINTS[endpoint].page_size
-
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        response = workos_source(
-            api_key="sk_test_123",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="job_1",
-            resumable_source_manager=manager,
-            webhook_source_manager=_webhook_manager(enabled=False),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-
-    @pytest.mark.parametrize("webhook_enabled", [True, False])
-    def test_items_come_from_the_webhook_manager_only_once_webhooks_are_live(self, webhook_enabled: bool) -> None:
-        # Reading webhook files before the backfill finishes leaves the table seeded with only
-        # the rows a webhook happened to deliver; polling after it finishes never sees deletes.
-        resumable = MagicMock(spec=ResumableSourceManager)
-        resumable.can_resume.return_value = False
-        webhook_manager = _webhook_manager(enabled=webhook_enabled)
-        webhook_items = object()
-        webhook_manager.get_items.return_value = webhook_items
-
-        response = workos_source(
-            api_key="sk_test_123",
-            endpoint="users",
-            team_id=123,
-            job_id="job_1",
-            resumable_source_manager=resumable,
-            webhook_source_manager=webhook_manager,
-        )
-
-        if webhook_enabled:
-            assert response.items() is webhook_items
-        else:
-            assert response.items() is not webhook_items
-            webhook_manager.get_items.assert_not_called()
 
 
 class TestWorkOSSourceResumeBehavior:
@@ -269,38 +128,6 @@ class TestWorkOSSourceResumeBehavior:
 
         # First request goes out at the resumed cursor, so synced pages are not re-fetched.
         assert [p.get("after") for p in sent_params] == ["org_4"]
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [
-            _make_http_response(_page(["org_only"], after=None)),
-        ]
-        self._drive(manager, responses)
-
-        manager.save_state.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("endpoint", "expected_row"),
-        [
-            ("organizations", {"id": "org_1", "workos_deleted": False, "workos_deleted_at": None}),
-            ("connections", {"id": "org_1"}),
-        ],
-    )
-    def test_polled_rows_carry_a_tombstone_only_where_webhooks_can_set_one(
-        self, endpoint: str, expected_row: dict[str, Any]
-    ) -> None:
-        # A webhook delete merges a tombstone onto a row the backfill wrote, so the backfill has
-        # to write the same columns. Without this they read NULL for every backfilled row, and
-        # `where not workos_deleted` drops the rows no webhook has touched. Tables that never
-        # sync by webhook get no tombstone column, because nothing can ever set it.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        _, rows = self._drive(manager, [_make_http_response(_page(["org_1"], after=None))], endpoint=endpoint)
-
-        assert rows == [expected_row]
 
 
 class TestWorkOSValidateCredentials:

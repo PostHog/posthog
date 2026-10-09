@@ -15,6 +15,23 @@ These counts guide connection suggestions; they do not change report attribution
 
 Spend and conversions require a synced ad platform source in the current search filters.
 Google Search Console reports organic traffic metrics only.
+The Traffic view always includes the Position column when Google Search Console, Google Ads, or Bing Ads is ready.
+The Position cell shows the organic average position for Google Search Console, or top and first-position impression percentages for Google Ads keywords and Bing Ads.
+Hover over each label or value, or focus it with the keyboard, for its definition.
+Google Ads keyword placement comes from the `keyword_placement_stats` table, selected by default for new connections.
+For existing connections, enable it in the Google Ads source settings and wait for its first successful sync to see Top and First percentages.
+These percentages use Google Search impressions, weighted by impressions, and exclude Search partners.
+The placement table does not include click-type segmentation, which Google Ads does not allow with these metrics.
+Clicks, spend, conversions, and total impressions continue to come from `keyword_stats`.
+When keyword traffic tables are ready but placement data is unavailable, a separate notice explains how to enable or restore `keyword_placement_stats`.
+Traffic remains visible while placement data is pending.
+If the placement table is missing or the user cannot access it, the report omits its placement data and shows an access notice.
+Google Ads landing page breakdowns show no placement percentages because Google Ads does not support these metrics for the landing page resource.
+Historical placement columns in `keyword_stats` and `landing_page_stats` are ignored.
+Bing Ads percentages use Microsoft Advertising report values, weighted by impressions.
+They do not identify second or third position, or the search results page.
+Bing Ads connections need to sync `keyword_performance_report` or `destination_url_performance_report`.
+Older rows without placement data show no value.
 When no paid source is ready, the disabled control directs users to check their source settings or filters.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 
@@ -60,3 +77,9 @@ Keyword reporting continues to use `keyword_performance_report`.
 Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
 The current schema takes precedence when both are available.
 Table resolution uses schema metadata when available and otherwise recognizes source and custom table-name prefixes.
+
+## Source scan caching and readiness
+
+The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
+Source health polling refreshes metadata without forcing every dashboard query.
+Campaign reporting waits for all required schemas to complete their first sync.

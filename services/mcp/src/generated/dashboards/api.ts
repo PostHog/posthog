@@ -486,6 +486,12 @@ export const DashboardsPartialUpdateBody = () => zod
                         .describe(
                             "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request."
                         ),
+                    show_description: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard."
+                        ),
                     widget: zod
                         .object({
                             id: zod
@@ -495,6 +501,7 @@ export const DashboardsPartialUpdateBody = () => zod
                             widget_type: zod
                                 .enum([
                                     'activity_events_list',
+                                    'canvas_app',
                                     'conversations_recent_tickets',
                                     'error_tracking_list',
                                     'experiment_results',
@@ -505,11 +512,11 @@ export const DashboardsPartialUpdateBody = () => zod
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `canvas_app` - canvas_app\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 ),
                             config: zod
                                 .union([
@@ -1193,6 +1200,14 @@ export const DashboardsPartialUpdateBody = () => zod
                                                 'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
                                             ),
                                     }),
+                                    zod.object({
+                                        canvasId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Canvas to render in the tile. Null until the user picks one in the widget settings.'
+                                            ),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -1644,6 +1659,8 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchDefau
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax = 200
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
@@ -2842,12 +2859,83 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                             })
                             .describe('Configuration for the recent tickets widget.'),
                     }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['canvas_app']),
+                        config: zod
+                            .object({
+                                canvasId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Canvas to render in the tile. Null until the user picks one in the widget settings.'
+                                    ),
+                            })
+                            .describe('Configuration for the canvas app widget.'),
+                    }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -2946,6 +3034,8 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchDefau
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax = 200
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
@@ -3756,6 +3846,34 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             })
                             .optional()
                             .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['canvas_app']),
+                        config: zod
+                            .object({
+                                canvasId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Canvas to render in the tile. Null until the user picks one in the widget settings.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('New configuration for the canvas app widget. Omit to leave unchanged.'),
                     }),
                 ])
             )
