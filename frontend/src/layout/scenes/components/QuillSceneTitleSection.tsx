@@ -93,8 +93,11 @@ export function QuillSceneTitleSection({
                             isGeneratingMetadata={isGeneratingMetadata}
                             suffix={
                                 <>
-                                    {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
-                                    {nameSuffix}
+                                    {/* Lemon tags read --success and --warning, which quill redefines as pale fills */}
+                                    <span data-not-quill className="contents">
+                                        {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
+                                        {nameSuffix}
+                                    </span>
                                     {hasDescription && !descriptionAlwaysVisible && (
                                         <Button
                                             variant="default"
