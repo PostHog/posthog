@@ -160,6 +160,8 @@ The playground keeps the provider's explanation so users can correct the setting
 Backfills dispatch evaluations concurrently using the existing batch size and wait for their outcomes before advancing progress.
 The batch size defaults to 500 and is bounded between 1 and 1,000.
 The existing shared ClickHouse concurrency limiter still applies across background AI observability queries.
+Trace and session backfills run at most 4 evaluations at once (`LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT`), because each one holds a slot of that limiter, which every team's live evaluations share.
+Generation backfills start the whole batch at once.
 Backfill fetch and judge activities retry temporary database, DNS, connection, and rate-limit failures for up to 30 minutes per activity.
 Backoff starts at 10 seconds and increases to at most one minute; successful requests do not wait for that interval.
 Live evaluation retry budgets remain unchanged.

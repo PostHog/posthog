@@ -342,6 +342,12 @@ LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # A tick costs one candidate query whatever it dispatches, so a larger batch means fewer ticks and
 # less ClickHouse work for the same backfill.
 LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
+# Trace and session children each hold one of the fleet-wide CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
+# slots, which every team's live evaluations share. Keep this under that budget so a backfill cannot
+# starve live work.
+LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT: int = get_from_env(
+    "LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT", 4, type_cast=int
+)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

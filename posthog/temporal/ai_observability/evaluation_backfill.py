@@ -117,6 +117,8 @@ class PrepareTickOutput:
     settle: dict[str, Any] | None = None
     rerun_existing: bool = False
     batch_size: int = 0
+    # 0 starts the whole page at once.
+    max_in_flight: int = 0
 
 
 @frozen
@@ -360,6 +362,9 @@ def _prepare_backfill_tick(inputs: EvaluationBackfillInputs) -> PrepareTickOutpu
         settle=evaluation.target_config,
         rerun_existing=row.rerun_existing,
         batch_size=max(MIN_BACKFILL_BATCH_SIZE, min(settings.LLMA_EVAL_BACKFILL_BATCH_SIZE, MAX_BACKFILL_BATCH_SIZE)),
+        max_in_flight=0
+        if row.target == EvaluationTarget.GENERATION.value
+        else max(1, settings.LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT),
     )
 
 
@@ -594,8 +599,14 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
+        slots = asyncio.Semaphore(tick.max_in_flight or max(1, len(found.candidates)))
+
+        async def run_in_slot(candidate: CandidatePayload) -> BackfillChildOutcome:
+            async with slots:
+                return await self._run_child(inputs, tick, candidate)
+
         # boffin: advance only after every child in this batch has a known outcome.
-        results = await asyncio.gather(*(self._run_child(inputs, tick, candidate) for candidate in found.candidates))
+        results = await asyncio.gather(*(run_in_slot(candidate) for candidate in found.candidates))
         advance = await temporalio.workflow.execute_activity(
             advance_evaluation_backfill_cursor_activity,
             AdvanceCursorInputs(

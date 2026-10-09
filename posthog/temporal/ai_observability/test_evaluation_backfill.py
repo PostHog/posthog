@@ -335,7 +335,8 @@ class TestEvaluationBackfillWorkflow:
         )
 
     @pytest.mark.asyncio
-    async def test_batch_dispatch_waits_for_outcomes_before_advancing(self) -> None:
+    @pytest.mark.parametrize("max_in_flight,peak", [(0, 19), (4, 4)])
+    async def test_batch_dispatch_waits_for_outcomes_before_advancing(self, max_in_flight: int, peak: int) -> None:
         found = dataclasses.replace(
             _found([_candidate(f"u{i}") for i in range(19)], exhausted=True),
             next_cursor_timestamp=(UNIT_TIMESTAMP - timedelta(hours=1)).isoformat(),
@@ -343,7 +344,7 @@ class TestEvaluationBackfillWorkflow:
         )
         mocks = _BackfillMocks(
             activity_results={
-                prepare_evaluation_backfill_tick_activity: _tick(),
+                prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=max_in_flight),
                 find_evaluation_backfill_candidates_activity: found,
             }
         )
@@ -351,7 +352,7 @@ class TestEvaluationBackfillWorkflow:
         await _run(mocks, bounded=True)
 
         advances = [value for fn, value in mocks.activity_calls if fn is advance_evaluation_backfill_cursor_activity]
-        assert mocks.peak_children == 19
+        assert mocks.peak_children == peak
         assert mocks.active_at_advance == [0]
         assert len(advances) == 1
         assert advances[0].completed_delta == 19
@@ -972,6 +973,15 @@ class TestEvaluationBackfillActivities:
             rerun_existing=False,
             batch_size=expected,
         )
+
+    @pytest.mark.parametrize("target,expected", [("generation", 0), ("trace", 3), ("session", 3)])
+    def test_prepare_caps_in_flight_children_for_aggregate_targets(self, backfill_data, target, expected) -> None:
+        _update_backfill(backfill_data, target=target)
+
+        with override_settings(LLMA_EVAL_BACKFILL_AGGREGATE_MAX_IN_FLIGHT=3):
+            result = async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
+
+        assert result.max_in_flight == expected
 
     def test_find_serializes_candidates_and_cursor(self, backfill_data) -> None:
         _update_backfill(backfill_data, cursor_timestamp=UNIT_TIMESTAMP + timedelta(hours=1), cursor_unit_id="u0")
