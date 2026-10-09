@@ -306,12 +306,231 @@ describe('getInsightWithRetry', () => {
         jest.useRealTimers()
     })
 
+    it.each([429, 503])('honors retry guidance from %s before requesting again', async (status) => {
+        const onCapacityWaitChange = jest.fn()
+        const getResponse = jest.spyOn(api, 'getResponse')
+        getResponse.mockRejectedValueOnce(new ApiError('Busy', status, new Headers({ 'Retry-After': '47' })))
+        getResponse.mockResolvedValue(insightResponse({ ...insight, result: [] }))
+
+        const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking', { onCapacityWaitChange })
+        await jest.advanceTimersByTimeAsync(46_999)
+        expect(getResponse).toHaveBeenCalledTimes(1)
+        expect(onCapacityWaitChange.mock.calls).toEqual([[true]])
+        await jest.advanceTimersByTimeAsync(1)
+        expect((await request)?.result).toEqual([])
+        expect(getResponse).toHaveBeenCalledTimes(2)
+        expect(onCapacityWaitChange.mock.calls).toEqual([[true], [false]])
+    })
+
+    it.each([
+        { name: 'missing hint', retryAfter: undefined },
+        { name: 'negative hint', retryAfter: -5 },
+        { name: 'non-finite hint', retryAfter: Number.POSITIVE_INFINITY },
+    ])('uses jittered exponential backoff for $name', async ({ retryAfter }) => {
+        jest.spyOn(Math, 'random').mockReturnValue(0.5)
+        const getResponse = jest
+            .spyOn(api, 'getResponse')
+            .mockResolvedValueOnce(
+                insightResponse({
+                    ...insight,
+                    result: null,
+                    query_status: { ...capacityStatus, retry_after: retryAfter },
+                })
+            )
+            .mockResolvedValueOnce(
+                insightResponse({
+                    ...insight,
+                    result: null,
+                    query_status: { ...capacityStatus, retry_after: retryAfter },
+                })
+            )
+            .mockResolvedValue(insightResponse({ ...insight, result: [] }))
+
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'q',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            5,
+            1000
+        )
+        await jest.advanceTimersByTimeAsync(749)
+        expect(getResponse).toHaveBeenCalledTimes(1)
+        await jest.advanceTimersByTimeAsync(1)
+        expect(getResponse).toHaveBeenCalledTimes(2)
+        await jest.advanceTimersByTimeAsync(1499)
+        expect(getResponse).toHaveBeenCalledTimes(2)
+        await jest.advanceTimersByTimeAsync(1)
+        expect((await request)?.result).toEqual([])
+    })
+
+    it.each(['429', '503'])('falls back to jitter for a malformed %s Retry-After', async (status) => {
+        jest.spyOn(Math, 'random').mockReturnValue(0.5)
+        const getResponse = jest
+            .spyOn(api, 'getResponse')
+            .mockRejectedValueOnce(new ApiError('Busy', Number(status), new Headers({ 'Retry-After': 'later' })))
+            .mockResolvedValue(insightResponse({ ...insight, result: [] }))
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'q',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            5,
+            1000
+        )
+        await jest.advanceTimersByTimeAsync(749)
+        expect(getResponse).toHaveBeenCalledTimes(1)
+        await jest.advanceTimersByTimeAsync(1)
+        expect((await request)?.result).toEqual([])
+    })
+
+    it('waits out a tile cooldown, then retries the blocking request before any async fallback', async () => {
+        const onCapacityWaitChange = jest.fn()
+        const getResponse = jest
+            .spyOn(api, 'getResponse')
+            .mockResolvedValueOnce(
+                insightResponse({ ...insight, result: null, query_status: { ...capacityStatus, retry_after: 15 } })
+            )
+            .mockResolvedValue(insightResponse({ ...insight, result: [] }))
+        const get = jest.spyOn(api, 'get')
+        const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking', { onCapacityWaitChange })
+        await jest.advanceTimersByTimeAsync(14_999)
+        expect(getResponse).toHaveBeenCalledTimes(1)
+        expect(onCapacityWaitChange.mock.calls).toEqual([[true]])
+        await jest.advanceTimersByTimeAsync(1)
+        expect((await request)?.result).toEqual([])
+        expect(getResponse).toHaveBeenCalledTimes(2)
+        expect(get).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { name: 'a 429 hint longer than the budget', status: 429, retryAfter: '120', expectedRequests: 1 },
+        { name: 'a 503 hint longer than the budget', status: 503, retryAfter: '120', expectedRequests: 1 },
+        { name: 'repeated 503 hints', status: 503, retryAfter: '30', expectedRequests: 2 },
+    ])('stops HTTP retries within the retry budget for $name', async ({ status, retryAfter, expectedRequests }) => {
+        const onCapacityWaitChange = jest.fn()
+        const error = new ApiError('Busy', status, new Headers({ 'Retry-After': retryAfter }))
+        const getResponse = jest.spyOn(api, 'getResponse').mockRejectedValue(error)
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'q',
+            'blocking',
+            { onCapacityWaitChange },
+            undefined,
+            undefined,
+            undefined,
+            5,
+            1000,
+            50_000
+        )
+        await Promise.all([expect(request).rejects.toBe(error), jest.runAllTimersAsync()])
+        expect(getResponse).toHaveBeenCalledTimes(expectedRequests)
+        expect(onCapacityWaitChange.mock.calls).toEqual(expectedRequests === 1 ? [] : [[true], [false]])
+    })
+
+    it('does not retry when a suspended tab resumes after the retry deadline', async () => {
+        let elapsedMs = 0
+        jest.spyOn(performance, 'now').mockImplementation(() => elapsedMs)
+        const getResponse = jest
+            .spyOn(api, 'getResponse')
+            .mockResolvedValue(
+                insightResponse({ ...insight, result: null, query_status: { ...capacityStatus, retry_after: 30 } })
+            )
+        const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking')
+        await jest.advanceTimersByTimeAsync(1)
+        elapsedMs = 100_000
+        await jest.runAllTimersAsync()
+        expect((await request)?.query_status?.error).toBe(true)
+        expect(getResponse).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        { name: 'a long hint', retryAfter: 120, responseMs: 0 },
+        { name: 'time spent awaiting responses', retryAfter: 30, responseMs: 25_000 },
+    ])('stops retrying within its elapsed budget for $name', async ({ retryAfter, responseMs }) => {
+        jest.spyOn(lemonToast, 'error').mockImplementation()
+        const failedInsight = { ...insight, result: null, query_status: { ...capacityStatus, retry_after: retryAfter } }
+        const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async () => {
+            jest.advanceTimersByTime(responseMs)
+            return insightResponse(failedInsight)
+        })
+        const get = jest.spyOn(api, 'get').mockResolvedValue({})
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'q',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            5,
+            1000,
+            50_000
+        )
+        await jest.runAllTimersAsync()
+        expect((await request)?.query_status).toMatchObject({ error: true, retry_after: retryAfter })
+        expect(getResponse).toHaveBeenCalledTimes(1)
+        expect(get).not.toHaveBeenCalled()
+    })
+
+    it.each(['before first request', 'during backoff', 'before async fallback'] as const)(
+        'cancels %s without sending another request',
+        async (stage) => {
+            const controller = new AbortController()
+            const onCapacityWaitChange = jest.fn()
+            const getResponse = jest
+                .spyOn(api, 'getResponse')
+                .mockResolvedValue(
+                    insightResponse({ ...insight, result: null, query_status: { ...capacityStatus, retry_after: 30 } })
+                )
+            const get = jest.spyOn(api, 'get').mockResolvedValue({})
+            if (stage === 'before first request') {
+                controller.abort()
+            }
+            const request = getInsightWithRetry(
+                1,
+                insight,
+                60,
+                'q',
+                'blocking',
+                { signal: controller.signal, onCapacityWaitChange },
+                undefined,
+                undefined,
+                undefined,
+                stage === 'before async fallback' ? 1 : 5
+            )
+            const outcome = request.catch((error: unknown) => error)
+            await jest.advanceTimersByTimeAsync(1)
+            controller.abort()
+            expect(await outcome).toMatchObject({ name: 'AbortError' })
+            await jest.runAllTimersAsync()
+            expect(getResponse).toHaveBeenCalledTimes(stage === 'before first request' ? 0 : 1)
+            expect(get).not.toHaveBeenCalled()
+            expect(onCapacityWaitChange.mock.calls).toEqual(stage === 'before first request' ? [] : [[true], [false]])
+        }
+    )
+
     it.each<[string, number, number | undefined]>([
         ['a deterministic 400 (e.g. query validation error)', 1, 400],
         ['a 429 (rate limited)', MAX_ATTEMPTS, 429],
         ['a 500 (transient server error)', MAX_ATTEMPTS, 500],
         ['a network failure without a status', MAX_ATTEMPTS, undefined],
     ])('on %s, requests %i time(s) before throwing', async (_, expectedAttempts, status) => {
+        const onCapacityWaitChange = jest.fn()
         const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('some error', status))
 
         const request = getInsightWithRetry(
@@ -320,7 +539,7 @@ describe('getInsightWithRetry', () => {
             60,
             'query-id',
             'blocking',
-            undefined,
+            { onCapacityWaitChange },
             undefined,
             undefined,
             undefined,
@@ -329,6 +548,7 @@ describe('getInsightWithRetry', () => {
         )
         await Promise.all([expect(request).rejects.toThrow('some error'), jest.runAllTimersAsync()])
         expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
+        expect(onCapacityWaitChange.mock.calls).toEqual(status === 429 ? [[true], [false], [true], [false]] : [])
     })
 
     it.each([

@@ -19,7 +19,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, RefreshDashboardItemsAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -2867,6 +2867,301 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it.each([false, true])('clears a cooldown replaced by a batch (old request batch: %s)', async (batch) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const tile = logic.values.insightTiles[0]
+                const insights = logic.values.insightTiles.map((item) => item.insight!)
+                let replacement = false
+                const originalGetResponse = api.getResponse.bind(api)
+                const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url, options) => {
+                    const insight = insights.find((item) => String(url).includes(`/insights/${item.id}/`))
+                    if (!insight) {
+                        return originalGetResponse(url, options)
+                    }
+                    if (!replacement) {
+                        throw new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
+                    }
+                    return new Response(JSON.stringify({ ...insight, result: [{ count: 42 }] }))
+                })
+                jest.useFakeTimers()
+                try {
+                    if (batch) {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    } else {
+                        logic.actions.refreshDashboardItem({ tile })
+                    }
+                    await jest.advanceTimersByTimeAsync(1)
+                    expect(logic.values.capacityRetryQueryIds[tile.insight!.short_id]).toBeTruthy()
+                    const oldSignal = getResponse.mock.calls.find(([url]) =>
+                        String(url).includes(`/insights/${tile.insight!.id}/`)
+                    )?.[1]?.signal
+
+                    replacement = true
+                    logic.actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Refresh,
+                        forceRefresh: true,
+                    })
+                    await jest.advanceTimersByTimeAsync(1)
+
+                    expect(oldSignal?.aborted).toBe(true)
+                    expect(logic.values.insightTiles[0].insight!.result).toEqual([{ count: 42 }])
+                    expect(logic.values.capacityRetryQueryIds).toEqual({})
+                    expect(logic.values.isRefreshing(tile.insight!.short_id)).toBe(false)
+                    const completedRequests = getResponse.mock.calls.length
+                    await jest.advanceTimersByTimeAsync(60_000)
+                    expect(getResponse).toHaveBeenCalledTimes(completedRequests)
+                } finally {
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
+
+            it.each([
+                { action: 'unmount', batch: false },
+                { action: 'cancel', batch: false },
+                { action: 'unmount', batch: true },
+                { action: 'cancel', batch: true },
+            ])('cancels a retry cooldown on $action (batch: $batch)', async ({ action, batch }) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const tile = logic.values.dashboard!.tiles.find((tile) => !!tile.insight)!
+                const getResponse = jest.spyOn(api, 'getResponse').mockResolvedValue(
+                    new Response(
+                        JSON.stringify({
+                            ...tile.insight,
+                            result: null,
+                            query_status: {
+                                id: 'q',
+                                team_id: 2,
+                                query_async: true,
+                                complete: true,
+                                error: true,
+                                error_code: 'rate_limited',
+                                error_message: 'Busy',
+                                retry_after: 30,
+                            },
+                        }),
+                        { status: 200 }
+                    )
+                )
+                getResponse.mockClear()
+                jest.useFakeTimers()
+                try {
+                    if (batch) {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    } else {
+                        logic.actions.refreshDashboardItem({ tile })
+                    }
+                    await jest.advanceTimersByTimeAsync(1)
+                    const initialRequests = getResponse.mock.calls.length
+                    expect(initialRequests).toBeGreaterThan(0)
+                    expect(logic.values.capacityRetryQueryIds[tile.insight!.short_id]).toBeTruthy()
+                    if (action === 'unmount') {
+                        logic.unmount()
+                    } else {
+                        logic.actions.cancelDashboardRefresh()
+                    }
+                    expect(getResponse.mock.calls[0][1]?.signal?.aborted).toBe(true)
+                    await jest.advanceTimersByTimeAsync(60_000)
+                    expect(getResponse).toHaveBeenCalledTimes(initialRequests)
+                    if (action === 'cancel') {
+                        expect(logic.values.capacityRetryQueryIds).toEqual({})
+                    }
+                } finally {
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
+
+            it.each([false, true])('clears the capacity wait before the next response (batch: %s)', async (batch) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const tile = logic.values.insightTiles[0]
+                const seenUrls = new Set<string>()
+                let finishRequests!: () => void
+                const responsesReady = new Promise<void>((resolve) => {
+                    finishRequests = resolve
+                })
+                const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                    if (!seenUrls.has(String(url))) {
+                        seenUrls.add(String(url))
+                        throw new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
+                    }
+                    await responsesReady
+                    const insight = logic.values.insightTiles.find((item) =>
+                        String(url).includes(`/insights/${item.insight!.id}/`)
+                    )!.insight!
+                    return new Response(JSON.stringify({ ...insight, result: [{ count: 42 }] }), { status: 200 })
+                })
+                jest.useFakeTimers()
+                try {
+                    if (batch) {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    } else {
+                        logic.actions.refreshDashboardItem({ tile })
+                    }
+                    await jest.advanceTimersByTimeAsync(1)
+                    expect(logic.values.capacityRetryQueryIds[tile.insight!.short_id]).toBeTruthy()
+                    await jest.advanceTimersByTimeAsync(30_000)
+                    expect(logic.values.capacityRetryQueryIds).toEqual({})
+                    expect(logic.values.isRefreshing(tile.insight!.short_id)).toBe(true)
+                    finishRequests()
+                    await jest.advanceTimersByTimeAsync(0)
+                    expect(logic.values.isRefreshing(tile.insight!.short_id)).toBe(false)
+                    expect(logic.values.insightTiles[0].insight!.result).toEqual([{ count: 42 }])
+                } finally {
+                    finishRequests()
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
+                }
+            })
+
+            it.each(['cooldown', 'in-flight'] as const)(
+                'keeps the new override when it replaces a batch tile during %s',
+                async (phase) => {
+                    await expectLogic(logic).toFinishAllListeners()
+                    const [tile, sibling] = logic.values.insightTiles
+                    const insight = tile.insight!
+                    const siblingInsight = sibling.insight!
+                    let finishOld!: () => void
+                    let finishSibling!: () => void
+                    const oldReady = new Promise<void>((resolve) => {
+                        finishOld = resolve
+                    })
+                    const siblingReady = new Promise<void>((resolve) => {
+                        finishSibling = resolve
+                    })
+                    let oldAttempts = 0
+                    const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                        if (String(url).includes(`/insights/${siblingInsight.id}/`)) {
+                            await siblingReady
+                            return new Response(JSON.stringify({ ...siblingInsight, result: [{ count: 84 }] }))
+                        }
+                        const override = new URL(String(url), 'https://example.com').searchParams.get(
+                            'tile_filters_override'
+                        )
+                        if (override) {
+                            return new Response(JSON.stringify({ ...insight, result: [{ count: 7 }] }))
+                        }
+                        oldAttempts++
+                        if (phase === 'cooldown' && oldAttempts === 1) {
+                            throw new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
+                        }
+                        await oldReady
+                        return new Response(JSON.stringify({ ...insight, result: [{ count: 30 }] }))
+                    })
+                    jest.useFakeTimers()
+                    try {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                        await jest.advanceTimersByTimeAsync(1)
+                        const oldSignal = getResponse.mock.calls.find(([url]) =>
+                            String(url).includes(`/insights/${insight.id}/`)
+                        )?.[1]?.signal
+                        const siblingSignal = getResponse.mock.calls.find(([url]) =>
+                            String(url).includes(`/insights/${siblingInsight.id}/`)
+                        )?.[1]?.signal
+                        logic.actions.refreshDashboardItem({
+                            tile: { ...tile, filters_overrides: { date_from: '-7d' } },
+                        })
+                        await jest.advanceTimersByTimeAsync(1)
+                        expect(logic.values.insightTiles.find((item) => item.id === tile.id)?.insight?.result).toEqual([
+                            { count: 7 },
+                        ])
+                        finishOld()
+                        finishSibling()
+                        await jest.advanceTimersByTimeAsync(60_000)
+                        expect(logic.values.insightTiles.find((item) => item.id === tile.id)?.insight?.result).toEqual([
+                            { count: 7 },
+                        ])
+                        expect(
+                            logic.values.insightTiles.find((item) => item.id === sibling.id)?.insight?.result
+                        ).toEqual([{ count: 84 }])
+                        expect(oldSignal?.aborted).toBe(true)
+                        expect(siblingSignal?.aborted).toBe(false)
+                        expect(oldAttempts).toBe(1)
+                        expect(logic.values.capacityRetryQueryIds).toEqual({})
+                    } finally {
+                        finishOld()
+                        finishSibling()
+                        getResponse.mockRestore()
+                        jest.useRealTimers()
+                    }
+                }
+            )
+
+            it.each([
+                { scenario: 'keeps a manual refresh when only another tile is stale', manualTileIsStale: false },
+                { scenario: 'replaces a manual refresh when the same tile is stale', manualTileIsStale: true },
+            ])('$scenario', async ({ manualTileIsStale }) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const [manualTile, staleTile] = logic.values.insightTiles
+                const manualInsight = manualTile.insight!
+                const staleInsight = staleTile.insight!
+                dashboardsModel.actions.updateDashboardInsight(
+                    {
+                        ...manualInsight,
+                        cache_target_age: now()
+                            .add(manualTileIsStale ? -1 : 60, 'minute')
+                            .toISOString(),
+                    },
+                    undefined,
+                    5
+                )
+                dashboardsModel.actions.updateDashboardInsight(
+                    { ...staleInsight, cache_target_age: now().subtract(1, 'minute').toISOString() },
+                    undefined,
+                    5
+                )
+                let finishManual!: (response: Response) => void
+                const manualResponse = new Promise<Response>((resolve) => {
+                    finishManual = resolve
+                })
+                const getResponse = jest
+                    .spyOn(api, 'getResponse')
+                    .mockImplementationOnce(() => manualResponse)
+                    .mockImplementation((url) =>
+                        Promise.resolve(
+                            new Response(
+                                JSON.stringify(
+                                    String(url).includes(`/insights/${manualInsight.id}/`)
+                                        ? { ...manualInsight, result: [{ count: 84 }] }
+                                        : staleInsight
+                                ),
+                                { status: 200 }
+                            )
+                        )
+                    )
+                try {
+                    logic.actions.refreshDashboardItem({ tile: manualTile })
+                    await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                    const signal = getResponse.mock.calls[0][1]?.signal
+                    await expectLogic(logic, () => {
+                        logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                    }).toDispatchActions(['refreshDashboardItems', 'setRefreshStatus'])
+                    expect(signal?.aborted).toBe(manualTileIsStale)
+                    finishManual(
+                        new Response(JSON.stringify({ ...manualInsight, result: [{ count: 42 }] }), { status: 200 })
+                    )
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(
+                        logic.values.insightTiles.find((tile) => tile.insight?.id === manualInsight.id)?.insight?.result
+                    ).toEqual([{ count: manualTileIsStale ? 84 : 42 }])
+                } finally {
+                    finishManual(new Response(JSON.stringify(manualInsight), { status: 200 }))
+                    getResponse.mockRestore()
+                }
+            })
+
             it('allows another manual dashboard refresh after five minutes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 for (const tile of logic.values.dashboard!.tiles) {

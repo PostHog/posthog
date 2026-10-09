@@ -10,6 +10,7 @@ import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { delay } from 'lib/utils/async'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
@@ -246,9 +247,6 @@ export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boo
     return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
 }
 
-// Helper function for exponential backoff
-const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
-
 /**
  * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
  * Important to be in order so that we poll dashboard insights in the
@@ -304,6 +302,10 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
     return itemLayouts
 }
 
+function isValidRetryAfter(retryAfterSeconds: number | undefined): retryAfterSeconds is number {
+    return typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+}
+
 /**
  * Records whether a tile rerun after an expired status poll recovers, because the 404 alone does not show it.
  * The insights endpoint bypasses performQuery, so its query submission telemetry never sees this rerun.
@@ -337,13 +339,15 @@ export async function getInsightWithRetry(
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
-    methodOptions?: ApiMethodOptions,
+    options?: ApiMethodOptions & { onCapacityWaitChange?: (waiting: boolean) => void },
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
-    initialDelay: number = 1200
+    initialDelay: number = 1200,
+    maxRetryTimeMs: number = 90_000
 ): Promise<InsightModel | null> {
+    const { onCapacityWaitChange, ...methodOptions } = options ?? {}
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -356,6 +360,32 @@ export async function getInsightWithRetry(
 
     let attempt = 0
     let rateLimitedAttempts = 0
+    const retryDeadline = performance.now() + maxRetryTimeMs
+
+    const waitForRetry = async (retryAfterSeconds?: number, atCapacity = false): Promise<boolean> => {
+        if (methodOptions?.signal?.aborted) {
+            throw new DOMException('Aborted', 'AbortError')
+        }
+        const backoffMs = Math.min(initialDelay * Math.pow(2, attempt - 1), 30_000)
+        const jitteredBackoffMs = backoffMs * (0.5 + Math.random() * 0.5)
+        const serverDelayMs = isValidRetryAfter(retryAfterSeconds) ? retryAfterSeconds * 1000 : 0
+        const waitMs = Math.max(serverDelayMs, jitteredBackoffMs)
+        if (performance.now() + waitMs >= retryDeadline) {
+            return false
+        }
+        if (atCapacity) {
+            onCapacityWaitChange?.(true)
+        }
+        try {
+            await delay(waitMs, methodOptions?.signal)
+        } finally {
+            if (atCapacity) {
+                onCapacityWaitChange?.(false)
+            }
+        }
+        // A background tab can resume after the scheduled timer and the retry window have passed.
+        return performance.now() < retryDeadline
+    }
 
     const captureRecovery = (result: InsightModel | null): void => {
         if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
@@ -369,6 +399,9 @@ export async function getInsightWithRetry(
 
     while (attempt < maxAttempts) {
         try {
+            if (methodOptions?.signal?.aborted) {
+                throw new DOMException('Aborted', 'AbortError')
+            }
             const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
                 from_dashboard: dashboardId, // needed to load insight in correct context
@@ -390,8 +423,12 @@ export async function getInsightWithRetry(
                 attempt++
                 rateLimitedAttempts++
 
+                // Async fallback also starts a query, so it must respect the same cooldown.
+                if (!(await waitForRetry(result.query_status.retry_after, true))) {
+                    return result
+                }
+
                 if (attempt >= maxAttempts) {
-                    // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
                         const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
                             `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
@@ -502,8 +539,6 @@ export async function getInsightWithRetry(
                         return result
                     }
                 }
-                const delay = initialDelay * Math.pow(1.2, attempt - 1) // Exponential backoff
-                await wait(delay)
                 continue // Retry
             }
 
@@ -519,12 +554,11 @@ export async function getInsightWithRetry(
             }
 
             attempt++
-            if (attempt >= maxAttempts) {
+            const atCapacity = e instanceof ApiError && (e.status === 429 || e.status === 503)
+            const retryAfterSeconds = e instanceof ApiError ? (e.retryAfterSeconds ?? undefined) : undefined
+            if (attempt >= maxAttempts || !(await waitForRetry(retryAfterSeconds, atCapacity))) {
                 throw e // Re-throw the error after max attempts
             }
-
-            const delay = initialDelay * Math.pow(1.2, attempt - 1)
-            await wait(delay)
         }
     }
 
