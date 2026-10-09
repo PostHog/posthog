@@ -100,6 +100,7 @@ class TestScoutTrialState(APIBaseTest):
         second = ScoutTrialStore(self.scout_run, initial_memory=[])
         first.remember(key="first", content="First value")
         latest = SignalScoutRun.objects.for_team(self.team.id).get(pk=self.scout_run.pk)
+        assert latest.metadata is not None
         latest.metadata["derived"] = {"has_emit_report": False}
         latest.save(update_fields=["metadata"])
         TaskRun.update_state_atomic(self.scout_run.task_run_id, updates={"sandbox_id": "existing-sandbox"})
@@ -110,6 +111,7 @@ class TestScoutTrialState(APIBaseTest):
         assert self.scout_run.task_run.state["sandbox_id"] == "existing-sandbox"
         assert SCOUT_TRIAL_STATE_KEY not in self.scout_run.task_run.state
         self.scout_run.refresh_from_db()
+        assert self.scout_run.metadata is not None
         assert self.scout_run.metadata["derived"] == {"has_emit_report": False}
 
     @parameterized.expand(["completed", "cancelled", "failed"])
@@ -133,6 +135,7 @@ class TestScoutTrialState(APIBaseTest):
             ScoutTrialStore(ordinary, initial_memory=[])
 
     def test_missing_scout_state_cannot_read_or_write_task_state(self) -> None:
+        assert self.scout_run.metadata is not None
         self.scout_run.metadata.pop(SCOUT_TRIAL_STATE_KEY)
         self.scout_run.save(update_fields=["metadata"])
         TaskRun.update_state_atomic(self.scout_run.task_run_id, updates={SCOUT_TRIAL_STATE_KEY: {}})
@@ -273,6 +276,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
     @parameterized.expand(["untrusted_run", "revoked_actor", "revoked_membership"])
     def test_gateway_credential_rejects_invalid_trial_identity(self, condition: str) -> None:
         if condition == "untrusted_run":
+            assert self.scout_run.metadata is not None
             self.scout_run.metadata["scout_trial"] = {}
             self.scout_run.save(update_fields=["metadata"])
         elif condition == "revoked_actor":

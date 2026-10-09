@@ -594,6 +594,7 @@ class TestScoutTrialEvaluation(BaseTest):
             task.origin_key = "ordinary-task"
             task.save(update_fields=["origin_key"])
         elif invalid == "source_state":
+            assert self.scout_run.metadata is not None
             self.scout_run.metadata["scout_trial"] = {}
             self.scout_run.save(update_fields=["metadata"])
         elif invalid == "excluded_evidence":
@@ -708,6 +709,7 @@ class TestScoutTrialEvaluation(BaseTest):
             TrialReport(id=f"synthetic-report-{index}", document={"summary": f"Finding {index}. " * 3000})
             for index in range(4)
         ]
+        assert self.scout_run.metadata is not None
         self.scout_run.metadata["scout_trial_private"] = {
             "reports": {report.id: report.model_dump(mode="json") for report in reports}
         }
@@ -771,6 +773,7 @@ class TestScoutTrialEvaluation(BaseTest):
             operator_metadata={"skipped_automatic_repository_selection": False},
             artefacts=[{"type": "note", "content": "Synthetic diagnostic detail. " * 250}],
         )
+        assert self.scout_run.metadata is not None
         self.scout_run.metadata["scout_trial_private"] = {
             "reports": {captured_report.id: captured_report.model_dump(mode="json")}
         }

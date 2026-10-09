@@ -473,7 +473,7 @@ def bound_trial_run(team_id: int, task_id: UUID | str | None) -> SignalScoutRun 
         .select_related("task_run__task")
         .first()
     )
-    if run is None:
+    if run is None or run.metadata is None:
         return None
     launch_id = run.metadata["scout_trial"].get("launch_id")
     if not isinstance(launch_id, str) or run.task_run.task.origin_key != f"scout-trial:{launch_id}":

@@ -113,8 +113,12 @@ def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID, token_id
     )
 
     run = bound_trial_run(team_id, task_id)
-    if run is None or not is_sandbox_run_request(
-        team_id=team_id, task_id=str(task_id), run_id=str(run.task_run_id), token_id=token_id
+    if (
+        run is None
+        or run.metadata is None
+        or not is_sandbox_run_request(
+            team_id=team_id, task_id=str(task_id), run_id=str(run.task_run_id), token_id=token_id
+        )
     ):
         return None
     launch = read_trial_launch(team_id, run.metadata["scout_trial"]["launch_id"])
