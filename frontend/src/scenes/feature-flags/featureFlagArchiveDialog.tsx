@@ -44,22 +44,20 @@ function FeatureFlagArchiveDialogContent({
 
     // The cleanup PR runs as a PostHog Desktop task, so the user needs Code access.
     const cleanupAvailable = !!featureFlags[FEATURE_FLAGS.TASKS] && featureFlag.id != null
-    const withCleanupPr = cleanupAvailable && openCleanupPr
-    const { cleanupTarget, cleanupTargetLoading } = useValues(
-        featureFlagCleanupTargetLogic({ featureFlagId: featureFlag.id ?? 0 })
-    )
+    const { cleanupTarget } = useValues(featureFlagCleanupTargetLogic({ featureFlagId: featureFlag.id ?? 0 }))
+    // The checkbox stays locked until the repository lookup answers, so an opt-in always has a target to check.
+    const withCleanupPr =
+        cleanupAvailable && openCleanupPr && cleanupTarget != null && cleanupTarget.source !== 'no_integration'
     // With several connected repositories and no default, the backend refuses to guess, so a pick is required.
     const needsRepositoryPick = cleanupTarget?.source === 'ambiguous'
 
     const archiveDisabledReason = !withCleanupPr
         ? undefined
-        : cleanupTargetLoading || !cleanupTarget
-          ? 'Checking which repository the cleanup PR would target'
-          : !keep
-            ? 'Choose the code to keep'
-            : needsRepositoryPick && !repository
-              ? 'Select a repository for the cleanup PR'
-              : undefined
+        : !keep
+          ? 'Choose the code to keep'
+          : needsRepositoryPick && !repository
+            ? 'Select a repository for the cleanup PR'
+            : undefined
 
     return (
         <>

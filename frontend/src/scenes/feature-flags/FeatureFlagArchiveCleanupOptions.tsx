@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { CleanupKeepOption } from './featureFlagCleanupKeep'
 import { featureFlagCleanupTargetLogic } from './featureFlagCleanupTargetLogic'
@@ -30,7 +30,9 @@ export function FeatureFlagArchiveCleanupOptions({
     repository,
     onRepositoryChange,
 }: FeatureFlagArchiveCleanupOptionsProps): JSX.Element {
-    const { cleanupTarget } = useValues(featureFlagCleanupTargetLogic({ featureFlagId }))
+    const logic = featureFlagCleanupTargetLogic({ featureFlagId })
+    const { cleanupTarget, cleanupTargetLoading, cleanupTargetFailed } = useValues(logic)
+    const { loadCleanupTarget } = useActions(logic)
     const needsRepositoryPick = cleanupTarget?.source === 'ambiguous'
 
     return (
@@ -40,8 +42,13 @@ export function FeatureFlagArchiveCleanupOptions({
                 onChange={onOpenCleanupPrChange}
                 data-attr="feature-flag-archive-open-cleanup-pr"
                 disabledReason={
-                    cleanupTarget?.source === 'no_integration' &&
-                    'Connect GitHub in your project settings to open cleanup PRs'
+                    cleanupTargetLoading
+                        ? 'Checking connected repositories'
+                        : cleanupTargetFailed
+                          ? 'Could not check connected repositories'
+                          : cleanupTarget?.source === 'no_integration'
+                            ? 'Connect GitHub in your project settings to open cleanup PRs'
+                            : undefined
                 }
                 label={
                     <span>
@@ -49,6 +56,14 @@ export function FeatureFlagArchiveCleanupOptions({
                     </span>
                 }
             />
+            {cleanupTargetFailed && (
+                <div className="text-xs text-muted flex items-center gap-1">
+                    Could not check which repositories are connected.
+                    <LemonButton size="xsmall" type="secondary" onClick={() => loadCleanupTarget()}>
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
             {openCleanupPr && (
                 <>
                     <div>

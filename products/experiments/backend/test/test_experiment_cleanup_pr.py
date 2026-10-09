@@ -72,7 +72,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "posthog/posthog"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "posthog/posthog"}]
         )
         task_id = uuid4()
         mock_create_task.return_value = SimpleNamespace(task_id=task_id)
@@ -188,9 +188,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         if cached_repos is None:
             mock_resolve_github.return_value = None
         else:
-            mock_resolve_github.return_value = SimpleNamespace(
-                list_all_cached_repositories=lambda max_repos: cached_repos
-            )
+            mock_resolve_github.return_value = SimpleNamespace(list_all_cached_repositories=lambda **_: cached_repos)
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         if team_default:
             config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
@@ -226,7 +224,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         # Several cached repos would otherwise be ambiguous and skip the cleanup — the
         # repository picked in the end request must resolve it.
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
         )
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         experiment = self._running_experiment()
@@ -254,7 +252,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         _mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
         )
         experiment = self._running_experiment()
 
@@ -291,7 +289,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         _mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
         )
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         experiment = self._running_experiment()
@@ -332,7 +330,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         _mock_report,
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
         )
         experiment = self._running_experiment()
 
@@ -386,7 +384,7 @@ class TestExperimentsConfigFlagCleanupRepository(APIBaseTest):
         self, _name, submitted, expected_status, expected_stored, mock_resolve_github
     ):
         mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "PostHog/posthog"}]
+            list_all_cached_repositories=lambda **_: [{"full_name": "PostHog/posthog"}]
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

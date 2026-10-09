@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,6 +19,7 @@ export interface featureFlagCleanupTargetLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     cleanupTarget: FeatureFlagCleanupTargetApi | null
+    cleanupTargetFailed: boolean
     cleanupTargetLoading: boolean
 }
 
@@ -69,6 +70,16 @@ export const featureFlagCleanupTargetLogic = kea<featureFlagCleanupTargetLogicTy
             },
         ],
     })),
+    reducers({
+        cleanupTargetFailed: [
+            false,
+            {
+                loadCleanupTarget: () => false,
+                loadCleanupTargetSuccess: () => false,
+                loadCleanupTargetFailure: () => true,
+            },
+        ],
+    }),
     afterMount(({ actions, props, values }) => {
         // The cleanup PR runs as a Code task, so the target is only needed for users with Code access.
         if (props.featureFlagId && values.featureFlags[FEATURE_FLAGS.TASKS]) {

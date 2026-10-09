@@ -184,6 +184,7 @@ from products.feature_flags.backend.version_history import (
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
@@ -5696,6 +5697,8 @@ class FeatureFlagViewSet(
         one via `repository` on `cleanup_pr`.
         """
         self.get_object()
+        if access_response := code_access_required_response(request, self.organization):
+            return access_response
         target = resolve_cleanup_repository(
             self.team,
             requested_repository=None,
@@ -5729,6 +5732,8 @@ class FeatureFlagViewSet(
         is not archived, the chosen path does not exist on the flag, or no repository can be determined.
         """
         feature_flag = self.get_object()
+        if access_response := code_access_required_response(request, self.organization):
+            return access_response
         data = request.validated_data
         if not feature_flag.archived:
             raise exceptions.ValidationError("Archive the flag before opening a cleanup pull request.")
@@ -5771,6 +5776,8 @@ class FeatureFlagViewSet(
             create_pr=True,
             interaction_origin="feature_flags",
             ai_stage="implementation",
+            # Opening a PR needs repository access only, so the run gets no write access to PostHog data.
+            posthog_mcp_scopes="read_only",
         )
         return Response({"task_id": created.task_id, "repository": repository})
 
