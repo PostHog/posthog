@@ -1,5 +1,6 @@
 import re
 import dataclasses
+from collections.abc import Callable, Iterable
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -9,16 +10,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
     LIGHTSPEED_RETAIL_ENDPOINTS,
+    PAGE_SIZE,
 )
-
-# X-Series v2.0 list pages cap at 200 items.
-PAGE_SIZE = 200
 
 
 @dataclasses.dataclass
@@ -26,7 +29,10 @@ class LightspeedRetailResumeConfig:
     # X-Series keyset pagination: `after=<version>` where version is the max
     # record version of the previous page — one integer fully describes where
     # to pick back up.
-    after: int
+    after: Optional[int] = None
+    # Fan-out endpoints checkpoint the `build_dependent_resource` shape instead: which parent
+    # consignments finished and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _clean_domain_prefix(domain_prefix: str) -> str:
@@ -123,13 +129,40 @@ def lightspeed_retail_source(
 ) -> SourceResponse:
     config = LIGHTSPEED_RETAIL_ENDPOINTS[endpoint]
 
+    client_config: ClientConfig = {
+        "base_url": _base_url(domain_prefix, api_version),
+        # Bearer auth via the framework so the token is redacted from logs and errors.
+        "auth": {"type": "bearer", "token": api_token},
+        "paginator": LightspeedRetailPaginator(),
+    }
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(LightspeedRetailResumeConfig(fanout_state=state))
+
+        child = build_dependent_resource(
+            endpoint_configs=LIGHTSPEED_RETAIL_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"},
+            page_size_param="page_size",
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        )
+        return _source_response(endpoint, lambda: child)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(domain_prefix, api_version),
-            # Bearer auth via the framework so the token is redacted from logs and errors.
-            "auth": {"type": "bearer", "token": api_token},
-            "paginator": LightspeedRetailPaginator(),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
@@ -147,10 +180,8 @@ def lightspeed_retail_source(
     # The version cursor doubles as the incremental watermark: on a resumed run seed
     # from saved state, otherwise (incremental) seed from the stored watermark.
     initial_after: Optional[int] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_after = resume.after
+    if resume is not None:
+        initial_after = resume.after
     elif should_use_incremental_field:
         initial_after = _to_version(db_incremental_field_last_value)
 
@@ -171,10 +202,17 @@ def lightspeed_retail_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(endpoint, lambda: resource, resource.column_hints)
+
+
+def _source_response(
+    endpoint: str, items: Callable[[], Iterable[Any]], column_hints: Optional[dict[str, Any]] = None
+) -> SourceResponse:
+    config = LIGHTSPEED_RETAIL_ENDPOINTS[endpoint]
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
-        primary_keys=[config.primary_key],
+        items=items,
+        primary_keys=config.primary_key,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
@@ -182,7 +220,7 @@ def lightspeed_retail_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         # Keyset pagination on the monotonic version yields ascending version order.
         sort_mode="asc",
-        column_hints=resource.column_hints,
+        column_hints=column_hints,
     )
 
 
