@@ -22,7 +22,7 @@ export function LiveModelCard(): JSX.Element | null {
                     </Tooltip>
                 )}
             </div>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3">
                 <MetricCard
                     label="Holdout AUC"
                     value={champion.holdout_score?.toFixed(3) ?? '—'}
