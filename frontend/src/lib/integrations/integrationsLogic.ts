@@ -97,7 +97,6 @@ export interface integrationsLogicValues {
     accessRequestReason: string
     domainGroupedEmailIntegrations: EmailIntegrationDomainGroupedType[]
     getGitHubRepositories: (integrationId: number) => string[]
-    getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
     getGitHubRepositoriesTotal: (integrationId: number) => number | null
     getIntegrationsByKind: (
         kinds: (
@@ -741,9 +740,6 @@ export interface integrationsLogicMeta {
         getGitHubRepositories: (
             githubRepositories: Record<number, GitHubRepoApi[]>
         ) => (integrationId: number) => string[]
-        getGitHubRepositoriesFull: (
-            githubRepositories: Record<number, GitHubRepoApi[]>
-        ) => (integrationId: number) => GitHubRepoApi[]
         getGitHubRepositoriesTotal: (
             githubRepositoriesTotal: Record<number, number>
         ) => (integrationId: number) => number | null
@@ -1465,12 +1461,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.githubRepositories],
             (githubRepositories: Record<number, GitHubRepoApi[]>) => {
                 return (integrationId: number) => (githubRepositories[integrationId] || []).map((r) => r.name)
-            },
-        ],
-        getGitHubRepositoriesFull: [
-            (s) => [s.githubRepositories],
-            (githubRepositories: Record<number, GitHubRepoApi[]>) => {
-                return (integrationId: number): GitHubRepoApi[] => githubRepositories[integrationId] || []
             },
         ],
         getGitHubRepositoriesTotal: [
