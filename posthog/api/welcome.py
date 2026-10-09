@@ -1,5 +1,7 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
+from functools import reduce
+from operator import or_
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -186,14 +188,21 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
             "organization_name": organization.name,
             "team_members": _get_team_members(organization),
             "recent_activity": _get_recent_activity(accessible_team_ids, since),
-            "popular_dashboards": _get_popular_dashboards(accessible_team_ids, access_control),
             "products_in_use": _get_products_in_use(organization),
         }
         cache.set(cache_key, cacheable, _CACHE_TTL_SECONDS)
 
+    # Dashboard visibility depends on per-user object access, so the result is cached per user.
+    dashboards_cache_key = f"{cache_key}:dashboards:{user.id}"
+    popular_dashboards = cache.get(dashboards_cache_key)
+    if popular_dashboards is None:
+        popular_dashboards = _get_popular_dashboards(accessible_team_ids, access_control)
+        cache.set(dashboards_cache_key, popular_dashboards, _CACHE_TTL_SECONDS)
+
     # Construct the user-specific response fresh each request — never mutate the cached dict.
     return {
         **cacheable,
+        "popular_dashboards": popular_dashboards,
         "inviter": _get_inviter(user, organization),
         "team_members": _filter_self(_filter_visible(cacheable["team_members"], organization, user), user),
         "suggested_next_steps": _build_suggested_next_steps(user, cacheable["products_in_use"]),
@@ -492,7 +501,14 @@ def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessContr
     # Apply per-object access control so restricted dashboard names/descriptions don't leak via
     # this aggregation endpoint (same pattern as the main dashboards viewset).
     try:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        if not access_control.is_organization_admin:
+            # Access rules are project-scoped, so each project filters its own dashboards
+            # with an access control bound to that project.
+            per_team_querysets = [
+                team_access_control.filter_queryset_by_access_level(queryset.filter(team_id=team_id))
+                for team_id, team_access_control in access_control.for_team_ids(team_ids).items()
+            ]
+            queryset = reduce(or_, per_team_querysets, Dashboard.objects.none())
     except Exception:
         logger.exception(
             "welcome.dashboard_access_control_failed",
