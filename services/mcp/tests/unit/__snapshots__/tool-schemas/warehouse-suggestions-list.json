@@ -18,6 +18,10 @@
             "description": "Only return suggestions in this status.\n\n* `proposed` - Proposed\n* `accepted` - Accepted\n* `dismissed` - Dismissed\n* `expired` - Expired\n* `auto_resolved` - Auto-resolved",
             "enum": ["proposed", "accepted", "dismissed", "expired", "auto_resolved"],
             "type": "string"
+        },
+        "subject_id": {
+            "description": "Only return suggestions about the view or table with this ID.",
+            "type": "string"
         }
     },
     "type": "object"
