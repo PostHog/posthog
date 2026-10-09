@@ -9,6 +9,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_warehouse.backend.logic.external_data_source.alerts import emit_terminal_run_alerts
 from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import (
@@ -72,6 +73,9 @@ def update_external_job_status(
     gap of its next runs (see `retry_limits`).
     """
     is_first_terminal_transition = False
+    schema_status_written = False
+    previous_schema_status: str | None = None
+    previous_failed_runs = 0
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
 
@@ -157,6 +161,9 @@ def update_external_job_status(
                 requested_status=schema_status,
             )
         else:
+            schema_status_written = True
+            previous_schema_status = schema.status
+            previous_failed_runs = schema.failed_runs_in_a_row
             schema.status = schema_status
             if not billing_limited_run:
                 schema.latest_error = error_to_persist
@@ -194,6 +201,19 @@ def update_external_job_status(
                 schedule_external_data_failure_digest(team_id)
             except Exception:
                 logger.exception("Failed to schedule external data failure digest")
+
+        # A CDC-halted schema kept its status, so this run changed nothing a destination should hear
+        # about. The CDC code sends its own alert when it halts a schema.
+        if schema_status_written:
+            emit_terminal_run_alerts(
+                team_id=team_id,
+                schema_id=str(model.schema_id),
+                job_id=job_id,
+                status=status,
+                previous_schema_status=previous_schema_status,
+                previous_failed_runs=previous_failed_runs,
+                counts_as_source_failure=counts_as_source_failure,
+            )
 
     return model
 
