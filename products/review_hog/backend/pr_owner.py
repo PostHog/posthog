@@ -2,7 +2,7 @@
 
 1. The author, when the GitHub login maps to an active member of the project's organization.
 2. A self-driving pull request, which the PostHog GitHub App authors for an Inbox report: the report's
-   canonical reviewer (`receivers.pick_reviewer`).
+   canonical reviewer among the active members (`receivers.pick_reviewer`).
 3. Else nobody. A pull request without an owner never gets writes, because nobody opted in to them.
 
 `pick_pr_owner` is pure. `PullRequestOwnerResolver.resolve` loads what it needs. Callers pass the head
@@ -74,7 +74,12 @@ class PullRequestOwnerResolver:
         run = find_signal_implementation_run(team_id=team_id, repository=repository, head_branch=head_branch)
         if run is None or run.team_id != team_id:
             return None
-        reviewers = resolve_assigned_reviewers(team_id, run.signal_report_id)
+        # An inactive reviewer cannot act or opt in, so ownership falls to the next active one.
+        reviewers = [
+            user
+            for user in resolve_assigned_reviewers(team_id, run.signal_report_id)
+            if is_active_member(team_id=team_id, user_id=user.id)
+        ]
         return pick_reviewer(reviewers, run.task_created_by_id) if reviewers else None
 
     @classmethod

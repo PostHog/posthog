@@ -86,10 +86,17 @@ class TestPullRequestOwnerResolver(BaseTest):
     def test_an_active_author_owns_the_pull_request(self) -> None:
         assert self._resolve("octocat") == PullRequestOwner(user_id=self.user.id, source="author")
 
-    def test_an_inactive_author_owns_nothing(self) -> None:
-        self.user.is_active = False
-        self.user.save(update_fields=["is_active"])
-        assert self._resolve("octocat") == PullRequestOwner(user_id=None, source="none")
+    @parameterized.expand(
+        [
+            ("author", "user", "octocat"),
+            ("inbox_reviewer", "reviewer", "posthog-app[bot]"),
+        ]
+    )
+    def test_an_inactive_user_owns_nothing(self, _name: str, user_attribute: str, author_login: str) -> None:
+        user: User = getattr(self, user_attribute)
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        assert self._resolve(author_login) == PullRequestOwner(user_id=None, source="none")
 
     @parameterized.expand(
         [
