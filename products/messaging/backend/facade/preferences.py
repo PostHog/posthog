@@ -1,0 +1,108 @@
+"""Recipient opt-outs: who opted out of which message category, and changes to that list."""
+
+from collections.abc import Iterator, Sequence
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+from posthog.dataclasses import frozen
+
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.services import preferences as preferences_service
+from products.messaging.backend.services.lazy_list import LazyList
+from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, UnknownCategoryError
+
+
+class MessageCategoryNotFound(Exception):
+    """No category with the requested key exists for the team. The message names the key when known."""
+
+
+@frozen
+class RecipientPreferences:
+    id: UUID
+    identifier: str
+    updated_at: datetime
+    # Category id (or the reserved `$all` key) to OPTED_IN, OPTED_OUT or NO_PREFERENCE.
+    preferences: dict[str, Any]
+
+
+@frozen
+class ChangedPreferences:
+    preferences: RecipientPreferences
+    created: bool
+
+
+@frozen
+class OptOutRequest:
+    identifier: str
+    category_key: str | None = None
+
+
+@frozen
+class BulkOptOutOutcome:
+    total: int
+    opted_out: int
+    skipped: int
+    errors: list[str]
+
+
+def _to_contract(row: MessageRecipientPreference) -> RecipientPreferences:
+    return RecipientPreferences(
+        id=row.id, identifier=row.identifier, updated_at=row.updated_at, preferences=row.preferences
+    )
+
+
+def list_opt_outs(team_id: int, category_key: str | None, search: str | None) -> Sequence[RecipientPreferences]:
+    """Recipients opted out of the category, or of all marketing when no key is given. Most recent first.
+
+    Sizing is a COUNT, and a slice reads one page. Raises MessageCategoryNotFound for an unknown key.
+    """
+    try:
+        rows = preferences_service.opted_out(team_id, category_key, search)
+    except preferences_service.CategoryNotFound as e:
+        raise MessageCategoryNotFound("Category not found") from e
+    return LazyList(rows, _to_contract)
+
+
+def add_opt_out(
+    team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
+) -> ChangedPreferences:
+    """Opt the recipient out of the category, or of all marketing. Syncs to Customer.io after commit."""
+    try:
+        row, created = preferences_service.add_opt_out(team_id, identifier, category_key, created_by_id)
+    except preferences_service.CategoryNotFound as e:
+        raise MessageCategoryNotFound("Category not found") from e
+    return ChangedPreferences(preferences=_to_contract(row), created=created)
+
+
+def remove_opt_out(
+    team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
+) -> ChangedPreferences:
+    """Opt the recipient back in, lifting a global opt-out without widening it. Syncs after commit."""
+    try:
+        row, created = preferences_service.remove_opt_out(team_id, identifier, category_key, created_by_id)
+    except preferences_service.CategoryNotFound as e:
+        raise MessageCategoryNotFound("Category not found") from e
+    return ChangedPreferences(preferences=_to_contract(row), created=created)
+
+
+def export_opt_outs_csv(team_id: int, category_key: str | None) -> Iterator[str]:
+    """CSV rows of the opt-out list, in the format the CSV import reads back."""
+    try:
+        return preferences_service.export_rows(team_id, category_key)
+    except UnknownCategoryError as e:
+        raise MessageCategoryNotFound(str(e)) from e
+
+
+def bulk_opt_out(
+    team_id: int, requests: list[OptOutRequest], default_category_key: str | None, created_by_id: int | None
+) -> BulkOptOutOutcome:
+    """Opt every recipient out of its own category, or the default one. Unknown categories are skipped."""
+    entries = [BulkOptOutEntry(identifier=r.identifier, category_key=r.category_key) for r in requests]
+    try:
+        result = preferences_service.bulk_opt_out(team_id, entries, default_category_key, created_by_id)
+    except UnknownCategoryError as e:
+        raise MessageCategoryNotFound(str(e)) from e
+    return BulkOptOutOutcome(
+        total=result.total, opted_out=result.opted_out, skipped=result.skipped, errors=result.errors
+    )
