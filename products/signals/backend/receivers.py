@@ -798,6 +798,23 @@ def sync_report_latest_actionability_on_delete(
     _sync_report_latest_actionability(instance)
 
 
+def _status_change_properties(
+    instance: SignalReport, previous_status: str, *, pending_reason: str | None
+) -> dict[str, Any]:
+    return {
+        "team_id": instance.team_id,
+        "report_id": str(instance.id),
+        "previous_status": previous_status,
+        "status": instance.status,
+        "signal_count": instance.signal_count,
+        "total_weight": instance.total_weight,
+        "run_count": instance.run_count,
+        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
+        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
+        "pending_reason": pending_reason,
+    }
+
+
 @receiver(post_save, sender=SignalReport)
 def capture_status_change_analytics(
     sender: type[SignalReport],
@@ -879,23 +896,6 @@ def capture_status_change_analytics(
     # After commit so a rolled-back transition never emits a phantom label. Post-commit also means
     # artefacts written in the same transaction (e.g. the dismissal) are visible to the snapshot.
     transaction.on_commit(_capture)
-
-
-def _status_change_properties(
-    instance: SignalReport, previous_status: str, *, pending_reason: str | None
-) -> dict[str, Any]:
-    return {
-        "team_id": instance.team_id,
-        "report_id": str(instance.id),
-        "previous_status": previous_status,
-        "status": instance.status,
-        "signal_count": instance.signal_count,
-        "total_weight": instance.total_weight,
-        "run_count": instance.run_count,
-        "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
-        "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
-        "pending_reason": pending_reason,
-    }
 
 
 def capture_verdict_reason_added_analytics(instance: SignalReport) -> None:
