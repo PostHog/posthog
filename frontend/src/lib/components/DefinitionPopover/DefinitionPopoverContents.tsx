@@ -9,6 +9,7 @@ import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopove
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
@@ -184,6 +185,7 @@ export function DefinitionView({
             ) : (
                 <DefinitionPopover.DescriptionEmpty />
             )}
+            <FlagCalledMoveNotice name={definition.name} groupType={group.type} className="mb-2" />
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
             {definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags

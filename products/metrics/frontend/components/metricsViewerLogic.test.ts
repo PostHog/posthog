@@ -906,7 +906,7 @@ describe('metricsViewerLogic', () => {
             formula: 'a / b',
             dateRange: { date_from: '-6h' },
             interval: 'minute_5',
-            display: { type: 'area' },
+            display: { type: 'stat', reduce: 'mean' },
         }
 
         // The editor writes this node back to the insight; if it differs from the saved
@@ -954,6 +954,20 @@ describe('metricsViewerLogic', () => {
         editor.mount()
         expect(editor.values.rangeFunction).toBe('rate')
         expect(editor.values.aggregation).toBe('sum')
+        editor.unmount()
+    })
+
+    it('rewrites a legacy stat summary as the matching reducer', () => {
+        const editor = metricsViewerLogic({
+            key: 'legacy-test',
+            initialQuery: {
+                kind: NodeKind.MetricsQuery,
+                clauses: [{ name: 'a', metricName: 'active_sessions', aggregation: 'sum' }],
+                display: { type: 'stat', statSummary: 'average' },
+            },
+        })
+        editor.mount()
+        expect(editor.values.metricsQueryNode?.display).toEqual({ type: 'stat', reduce: 'mean' })
         editor.unmount()
     })
 

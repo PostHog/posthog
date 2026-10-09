@@ -206,21 +206,39 @@ _ESTIMATED_COST = Counter(
 )
 
 
-def watch_feed_ranker(team_id: int) -> RankerMode:
-    """The team's arm of the watch feed ranker experiment. Any flag failure reads as the default
-    arm, so the sweep and the feed never fail on flag evaluation."""
+def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None:
+    """The team's variant of the ranker flag, or None when the team takes no part in the experiment.
+
+    Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
+    them. A region without the decision service has no sweep to fill the cache, so its teams take
+    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
+    if not decision_api.decisions_available_here():
+        return None
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
+        # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
+        # and matches on the group below.
         f"team-{team_id}",
-        groups={"project": str(team_id)},
-        group_properties={"project": {"id": team_id}},
+        groups={"project": str(team_uuid)},
+        group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    if value == "jev-shadow":
+    return value if isinstance(value, str) else None
+
+
+def ranker_mode(variant: str | None) -> RankerMode:
+    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    if variant == "jev-shadow":
         return "jev-shadow"
-    if value == "jev":
+    if variant == "jev":
         return "jev"
     return "weighted-score"
+
+
+def watch_feed_ranker(team_id: int, team_uuid: UUID | str) -> RankerMode:
+    """The team's arm of the watch feed ranker experiment. Any flag failure reads as the default
+    arm, so the sweep and the feed never fail on flag evaluation."""
+    return ranker_mode(watch_feed_ranker_variant(team_id, team_uuid))
 
 
 @frozen
