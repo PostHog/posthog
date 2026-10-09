@@ -528,7 +528,7 @@ class TestSyncAlertEvents:
                 team_id=team.pk,
                 status=status,
                 logger=MagicMock(),
-                latest_error="boom" if status == ExternalDataJobStatus.FAILED else None,
+                latest_error=kwargs.pop("latest_error", "boom") if status == ExternalDataJobStatus.FAILED else None,
                 **kwargs,
             )
         assert all(call.kwargs["team_id"] == team.pk for call in mock_produce.call_args_list)
@@ -708,6 +708,20 @@ class TestSyncAlertEvents:
                 "finished_at": job.finished_at.isoformat(),
             }
         ]
+
+    def test_failed_event_error_masks_the_stored_credentials_of_the_source(self):
+        team, source, _schema, job = _create_org_team_source_schema_job()
+        source.job_inputs = {"stripe_secret_key": "sk_live_stored_credential"}
+        source.save()
+
+        produced = self._finalize(
+            team,
+            job,
+            ExternalDataJobStatus.FAILED,
+            latest_error="401 for key sk_live_stored_credential at https://api.example.com?api_key=other_secret_value",
+        )
+
+        assert produced[0]["error"] == "401 for key *** at https://api.example.com?api_key=***"
 
     def test_a_produce_error_does_not_fail_the_status_update(self):
         team, _source, _schema, job = _create_org_team_source_schema_job()

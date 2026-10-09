@@ -12,7 +12,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.exceptions_capture import capture_exception
 
 from products.cdp.backend.facade.models import HogFunction
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.api import get_sync_alert_context
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
@@ -159,33 +159,32 @@ def _build_properties(
     kind: SyncAlertKind | None,
     job_id: str | None,
 ) -> dict[str, Any] | None:
-    schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id, team_id=team_id).first()
-    if schema is None:
+    include_error = event == SyncAlertEvent.FAILED
+    context = get_sync_alert_context(team_id, schema_id, job_id, include_error=include_error)
+    if context is None:
         return None
 
-    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).first() if job_id else None
-    source = schema.source
-    source_url = f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{source.id}/syncs"
+    source_url = f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{context.source_id}/syncs"
 
     # Only a failed event carries the error. A billing-limited run keeps the error of the last real
     # failure on the schema, which is not the reason for a billing event. `latest_error` is the copy
     # the Syncs tab shows. The internal error can hold driver text and connection details.
-    error = (schema.latest_error or "Unknown error")[:MAX_ERROR_LENGTH] if event == SyncAlertEvent.FAILED else None
+    error = (context.latest_error or "Unknown error")[:MAX_ERROR_LENGTH] if include_error else None
 
     return {
-        "source_id": str(source.id),
-        "source_type": source.source_type,
-        "source_prefix": (source.prefix or "").rstrip("_"),
-        "schema_id": str(schema.id),
-        "schema_name": schema.label or schema.name,
-        "job_id": str(job.id) if job else None,
-        "status": schema.status,
+        "source_id": str(context.source_id),
+        "source_type": context.source_type,
+        "source_prefix": (context.source_prefix or "").rstrip("_"),
+        "schema_id": str(context.schema_id),
+        "schema_name": context.schema_label or context.schema_name,
+        "job_id": str(context.job_id) if context.job_id else None,
+        "status": context.status,
         "kind": kind.value if kind else None,
         "error": error,
-        "rows_synced": job.rows_synced if job else None,
-        "paused": schema.sync_halted,
-        "failed_runs_in_a_row": schema.failed_runs_in_a_row,
+        "rows_synced": context.rows_synced,
+        "paused": context.sync_halted,
+        "failed_runs_in_a_row": context.failed_runs_in_a_row,
         "source_url": source_url,
-        "schema_url": f"{source_url}?schema={quote(schema.name)}",
-        "finished_at": job.finished_at.isoformat() if job and job.finished_at else None,
+        "schema_url": f"{source_url}?schema={quote(context.schema_name)}",
+        "finished_at": context.finished_at.isoformat() if context.finished_at else None,
     }
