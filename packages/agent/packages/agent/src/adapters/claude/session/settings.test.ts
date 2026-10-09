@@ -199,7 +199,9 @@ describe("SettingsManager per-repo persistence", () => {
     await fs.promises.mkdir(path.join(worktree, ".claude"), {
       recursive: true,
     });
-    await fs.promises.mkdir(path.join(mainRepo, ".claude"), { recursive: true });
+    await fs.promises.mkdir(path.join(mainRepo, ".claude"), {
+      recursive: true,
+    });
     await fs.promises.writeFile(
       path.join(worktree, ".claude", "settings.json"),
       JSON.stringify({
