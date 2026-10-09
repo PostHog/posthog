@@ -95,6 +95,17 @@ export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PU
     )
 
 /**
+ * Mark this project's access rules as managed by Terraform, or hand them back to the UI. With `managed: true` the caller's own account becomes the one account that may change the rules, so Terraform calls this with the API key it applies with. Project admins and organization admins may call it.
+ */
+export const OrganizationsProjectsAccessControlManagementUpdateBody = /* @__PURE__ */ zod.object({
+    managed: zod
+        .boolean()
+        .describe(
+            "True hands this project's access rules to the caller's own account, which is how Terraform marks the project it applies to. False hands them back to the UI."
+        ),
+})
+
+/**
  * Set or clear one member's rule for a scope. A member rule applies to that person only and takes precedence over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.
  */
 export const OrganizationsProjectsAccessControlMemberRulesUpdateBody = /* @__PURE__ */ zod

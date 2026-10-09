@@ -24,11 +24,13 @@ from uuid import UUID
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
@@ -243,6 +245,22 @@ def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
         .exclude(managed_by__user_id=user_id)
         .exists()
     )
+
+
+def get_terraform_management(*, team_id: int) -> contracts.TerraformManagement:
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id, managed_by__isnull=False).first()
+    return contracts.TerraformManagement(managed=config is not None, managed_at=config.managed_at if config else None)
+
+
+def set_terraform_management(*, team_id: int, membership_id: UUID | None) -> contracts.TerraformManagement:
+    """Hand the project's access rules to the account behind `membership_id`, or back to the UI with
+    None. The caller passes its own membership, which is how Terraform marks the project it applies to."""
+    team = get_object_or_404(Team, id=team_id)
+    config = get_or_create_team_extension(team, TeamAccessControlConfig)
+    config.managed_by_id = membership_id
+    config.managed_at = timezone.now() if membership_id else None
+    config.save(update_fields=["managed_by", "managed_at"])
+    return get_terraform_management(team_id=team_id)
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:

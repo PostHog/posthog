@@ -294,6 +294,21 @@ class AccessControlPropertyRulesResponseSerializer(serializers.Serializer):
     )
 
 
+class AccessControlManagementRequestSerializer(serializers.Serializer):
+    managed = serializers.BooleanField(
+        help_text="True hands this project's access rules to the caller's own account, which is how Terraform marks "
+        "the project it applies to. False hands them back to the UI."
+    )
+
+
+class AccessControlManagementSerializer(serializers.Serializer):
+    managed = serializers.BooleanField(
+        help_text="Whether Terraform manages this project's access rules. While true, only the account that marked "
+        "the project may change them."
+    )
+    managed_at = serializers.DateTimeField(allow_null=True, help_text="When the project was marked, or null.")
+
+
 class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
     uses_most_specific_access_resolution = serializers.BooleanField(
         help_text="Always true: the organization now resolves access with the most specific rule."

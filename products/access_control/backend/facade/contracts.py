@@ -133,3 +133,11 @@ class ObjectAccessControlRule:
     access_level: str
     organization_member_id: UUID | None
     role_id: UUID | None
+
+
+@frozen
+class TerraformManagement:
+    """Whether Terraform manages a project's access rules, and since when."""
+
+    managed: bool
+    managed_at: datetime | None

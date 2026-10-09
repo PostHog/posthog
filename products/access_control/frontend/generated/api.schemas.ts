@@ -1000,6 +1000,21 @@ export interface AccessControlDefaultsResponseApi {
     object_rule_resources: AccessControlObjectRuleResourceApi[]
 }
 
+export interface AccessControlManagementApi {
+    /** Whether Terraform manages this project's access rules. While true, only the account that marked the project may change them. */
+    managed: boolean
+    /**
+     * When the project was marked, or null.
+     * @nullable
+     */
+    managed_at: string | null
+}
+
+export interface AccessControlManagementRequestApi {
+    /** True hands this project's access rules to the caller's own account, which is how Terraform marks the project it applies to. False hands them back to the UI. */
+    managed: boolean
+}
+
 /**
  * A rule for one organization member.
  */

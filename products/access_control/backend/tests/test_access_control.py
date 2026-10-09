@@ -3105,3 +3105,50 @@ class TestAccessControlManagedByTerraform(BaseAccessControlTest):
         assert (
             self.client.delete(f"/api/organizations/@current/roles/{role.id}").status_code == status.HTTP_204_NO_CONTENT
         )
+
+
+class TestAccessControlTerraformManagementAPI(BaseAccessControlTest):
+    URL = "/api/projects/@current/access_control_management"
+
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+    def test_marking_the_project_records_the_caller_and_locks_the_rules(self):
+        assert self.client.get(self.URL).json() == {"managed": False, "managed_at": None}
+
+        response = self.client.put(self.URL, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert response.json()["managed_at"] is not None
+        assert TeamAccessControlConfig.objects.get(team=self.team).managed_by == self.organization_membership
+
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+        other_admin = User.objects.create_and_join(
+            self.organization, "other-admin@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.client.force_login(other_admin)
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_handing_the_rules_back_clears_the_account(self):
+        self.client.put(self.URL, {"managed": True}, format="json")
+        response = self.client.put(self.URL, {"managed": False}, format="json")
+        assert response.json() == {"managed": False, "managed_at": None}
+        assert TeamAccessControlConfig.objects.get(team=self.team).managed_by is None
+
+    def test_a_member_can_read_but_not_change_it(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        assert self.client.get(self.URL).status_code == status.HTTP_200_OK
+        response = self.client.put(self.URL, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_terraform_marks_the_project_through_its_api_key(self):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="terraform", secure_value=hash_key_value(key_value), scopes=["access_control:write"]
+        )
+        response = self.client.put(
+            self.URL, {"managed": True}, format="json", headers={"authorization": f"Bearer {key_value}"}
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert TeamAccessControlConfig.objects.get(team=self.team).managed_by == self.organization_membership

@@ -702,6 +702,21 @@ export namespace Schemas {
       Manager: 'manager',
     } as const;
 
+    export interface AccessControlManagement {
+      /** Whether Terraform manages this project's access rules. While true, only the account that marked the project may change them. */
+      managed: boolean;
+      /**
+         * When the project was marked, or null.
+         * @nullable
+         */
+      managed_at: string | null;
+    }
+
+    export interface AccessControlManagementRequest {
+      /** True hands this project's access rules to the caller's own account, which is how Terraform marks the project it applies to. False hands them back to the UI. */
+      managed: boolean;
+    }
+
     /**
      * * `object` - object
      * * `parent_object` - parent_object

@@ -64,6 +64,8 @@ from products.access_control.backend.models.role import Role, RoleMembership
 from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
     AccessControlDefaultsResponseSerializer,
+    AccessControlManagementRequestSerializer,
+    AccessControlManagementSerializer,
     AccessControlMemberRuleRequestSerializer,
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
@@ -157,6 +159,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_role_properties",
             "access_control_object_search",
             "access_control_resolution_preview",
+            "access_control_management",
         ]:
             return ["access_control:read"]
         if request.method == "PUT" and self.action in [
@@ -164,6 +167,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_default_rules",
             "access_control_member_rules",
             "access_control_role_rules",
+            "access_control_management",
         ]:
             return ["access_control:write"]
         if request.method == "POST" and self.action == "access_control_resolution_accept":
@@ -265,6 +269,42 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return Response(
             AccessControlResolutionAcceptResponseSerializer({"uses_most_specific_access_resolution": True}).data
         )
+
+    @extend_schema(
+        methods=["GET"],
+        description="Whether Terraform manages this project's access rules.",
+        responses={200: AccessControlManagementSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
+    @extend_schema(
+        methods=["PUT"],
+        description="Mark this project's access rules as managed by Terraform, or hand them back to the UI. With "
+        "`managed: true` the caller's own account becomes the one account that may change the rules, so Terraform "
+        "calls this with the API key it applies with. Project admins and organization admins may call it.",
+        request=AccessControlManagementRequestSerializer,
+        responses={200: AccessControlManagementSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
+    @action(methods=["GET", "PUT"], detail=True, url_path="access_control_management")
+    def access_control_management(self, request: Request, *args, **kwargs) -> Response:
+        team = cast(Team, self.team)  # type: ignore
+        if request.method == "PUT":
+            user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+            if not user_access_control.check_can_modify_access_levels_for_object(team):
+                raise exceptions.PermissionDenied(
+                    "Only project admins and organization admins can change whether Terraform manages access control."
+                )
+            serializer = AccessControlManagementRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            membership_id = None
+            if serializer.validated_data["managed"]:
+                membership_id = get_object_or_404(
+                    OrganizationMembership, organization=team.organization, user=request.user
+                ).id
+            state = access_control_api.set_terraform_management(team_id=team.id, membership_id=membership_id)
+        else:
+            state = access_control_api.get_terraform_management(team_id=team.id)
+        return Response(AccessControlManagementSerializer(state).data)
 
     @extend_schema(
         description="The project's default access. Returns the level that applies to the project and to each "

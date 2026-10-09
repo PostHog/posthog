@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccessControlDefaultsResponseApi,
+    AccessControlManagementApi,
+    AccessControlManagementRequestApi,
     AccessControlMemberRuleRequestApi,
     AccessControlMembersResponseApi,
     AccessControlObjectRulesResponseApi,
@@ -152,6 +154,51 @@ export const organizationsProjectsAccessControlDefaultsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlManagementRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_management/`
+}
+
+/**
+ * Whether Terraform manages this project's access rules.
+ */
+export const organizationsProjectsAccessControlManagementRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<AccessControlManagementApi> => {
+    return apiMutator<AccessControlManagementApi>(
+        getOrganizationsProjectsAccessControlManagementRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlManagementUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_management/`
+}
+
+/**
+ * Mark this project's access rules as managed by Terraform, or hand them back to the UI. With `managed: true` the caller's own account becomes the one account that may change the rules, so Terraform calls this with the API key it applies with. Project admins and organization admins may call it.
+ */
+export const organizationsProjectsAccessControlManagementUpdate = async (
+    organizationId: string,
+    id: number,
+    accessControlManagementRequestApi: AccessControlManagementRequestApi,
+    options?: RequestInit
+): Promise<AccessControlManagementApi> => {
+    return apiMutator<AccessControlManagementApi>(
+        getOrganizationsProjectsAccessControlManagementUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accessControlManagementRequestApi),
         }
     )
 }
