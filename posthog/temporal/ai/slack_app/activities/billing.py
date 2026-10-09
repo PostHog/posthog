@@ -38,7 +38,9 @@ def enforce_posthog_code_billing_quota_activity(
     # under every reply people write in a thread PostHog owns, chitchat included. Stop
     # the run without the message and keep the message for a mention or a confirmed
     # reply, which are the turns that asked for work.
-    unrequested = inputs.unaddressed
+    unrequested = (inputs.untagged_followup and not inputs.untagged_followup_confirmed) or (
+        inputs.untagged_question and not inputs.untagged_question_confirmed
+    )
     blocked = block_if_team_over_quota(
         integration=integration,
         slack=slack,

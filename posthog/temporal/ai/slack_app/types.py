@@ -77,13 +77,6 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # than the messages.
     fork_source_task_id: str | None = None
 
-    @property
-    def unaddressed(self) -> bool:
-        """Whether nobody has asked the app for anything yet, so the run stays silent until a gate lets it through."""
-        unconfirmed_followup = self.untagged_followup and not self.untagged_followup_confirmed
-        unconfirmed_question = self.untagged_question and not self.untagged_question_confirmed
-        return unconfirmed_followup or unconfirmed_question
-
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
     """Normalise an activity's ``inputs`` back into the dataclass.
