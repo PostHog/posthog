@@ -68,6 +68,10 @@ class PropertyDefinitionNotFoundError(Exception):
     """Raised when the target property definition cannot be found for the team."""
 
 
+class NoTerraformAccountError(Exception):
+    """The lock was turned on for a project that Terraform has never written access rules to."""
+
+
 class PropertyAccessControlRuleNotFoundError(Exception):
     """Raised when trying to delete a rule that does not exist."""
 
@@ -249,28 +253,43 @@ def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
 
 
 def get_terraform_management(*, team_id: int) -> contracts.TerraformManagement:
-    config = TeamAccessControlConfig.objects.filter(team_id=team_id, managed_by__isnull=False).first()
-    return contracts.TerraformManagement(managed=config is not None, managed_at=config.managed_at if config else None)
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
+    has_account = config is not None and config.managed_by_id is not None
+    managed = has_account and config.is_managed_by_terraform
+    return contracts.TerraformManagement(
+        managed=managed,
+        managed_at=config.managed_at if managed else None,
+        has_terraform_account=has_account,
+    )
 
 
 def mark_terraform_managed(*, team_id: int, user_id: int) -> None:
-    """Record the user behind the Terraform API key that just wrote this project's access rules. A
-    second Terraform account takes over, so that a rotated service account keeps working."""
+    """Record the user behind the Terraform API key that just wrote this project's access rules and
+    turn the lock on. A second Terraform account takes over, so that a rotated service account keeps
+    working."""
     team = get_object_or_404(Team, id=team_id)
     membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user_id).first()
     if membership is None:
         return
     config = get_or_create_team_extension(team, TeamAccessControlConfig)
-    if config.managed_by_id == membership.id:
+    if config.managed_by_id == membership.id and config.is_managed_by_terraform:
         return
-    config.managed_by = membership
-    config.managed_at = timezone.now()
-    config.save(update_fields=["managed_by", "managed_at"])
+    if config.managed_by_id != membership.id:
+        config.managed_by = membership
+        config.managed_at = timezone.now()
+    config.is_managed_by_terraform = True
+    config.save(update_fields=["managed_by", "managed_at", "is_managed_by_terraform"])
 
 
-def clear_terraform_management(*, team_id: int) -> contracts.TerraformManagement:
-    """Hand the project's access rules back to the UI. The next Terraform write marks it again."""
-    TeamAccessControlConfig.objects.filter(team_id=team_id).update(managed_by=None, managed_at=None)
+def set_terraform_lock(*, team_id: int, enabled: bool) -> contracts.TerraformManagement:
+    """Turn the lock off or on. Off keeps the Terraform account, so that the lock can be turned on
+    again. The next Terraform write turns it on in any case."""
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
+    if enabled and (config is None or config.managed_by_id is None):
+        raise NoTerraformAccountError()
+    if config is not None:
+        config.is_managed_by_terraform = enabled
+        config.save(update_fields=["is_managed_by_terraform"])
     return get_terraform_management(team_id=team_id)
 
 

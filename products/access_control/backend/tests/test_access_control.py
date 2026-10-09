@@ -3145,7 +3145,11 @@ class TestAccessControlTerraformManagementAPI(BaseAccessControlTest):
         return config.managed_by.user if config and config.managed_by else None
 
     def test_a_terraform_write_marks_the_project_with_the_key_owner(self):
-        assert self.client.get(self.url).json() == {"managed": False, "managed_at": None}
+        assert self.client.get(self.url).json() == {
+            "managed": False,
+            "managed_at": None,
+            "has_terraform_account": False,
+        }
 
         self.client.logout()
         assert self._terraform_write(self.terraform_key).status_code == status.HTTP_200_OK
@@ -3183,13 +3187,37 @@ class TestAccessControlTerraformManagementAPI(BaseAccessControlTest):
         self.client.force_login(self.user)
 
         response = self.client.put(self.url, {"managed": False}, format="json")
-        assert response.json() == {"managed": False, "managed_at": None}
+        assert response.json() == {"managed": False, "managed_at": None, "has_terraform_account": True}
         assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
 
-    def test_turning_it_on_through_the_endpoint_is_refused(self):
+    def test_turning_it_back_on_locks_to_the_terraform_account(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+        self.client.put(self.url, {"managed": False}, format="json")
+
+        response = self.client.put(self.url, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert self._managed_by_user() == self.terraform_user
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_turning_it_on_without_a_terraform_account_is_refused(self):
         response = self.client.put(self.url, {"managed": True}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert self._managed_by_user() is None
+
+    def test_a_terraform_write_turns_it_back_on(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+        self.client.put(self.url, {"managed": False}, format="json")
+
+        self.client.logout()
+        self._terraform_write(self.terraform_key, resource="dashboard")
+        self.client.force_login(self.user)
+        assert self.client.get(self.url).json()["managed"] is True
 
     def test_a_member_can_read_but_not_turn_it_off(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)

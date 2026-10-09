@@ -278,9 +278,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     )
     @extend_schema(
         methods=["PUT"],
-        description="Hand this project's access rules back to the UI. Terraform marks a project itself when it "
-        "writes access rules with its API key, so this only turns it off, and the next Terraform write turns it "
-        "on again. Project admins and organization admins may call it.",
+        description="Turn the Terraform lock off or on. Off hands this project's access rules back to the UI. On "
+        "locks them to the account behind Terraform's API key again. A Terraform write of an access rule turns it "
+        "on in any case. Project admins and organization admins may call it.",
         request=AccessControlManagementRequestSerializer,
         responses={200: AccessControlManagementSerializer},
         extensions=_SCHEMA_EXTENSIONS,
@@ -294,8 +294,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 raise exceptions.PermissionDenied(
                     "Only project admins and organization admins can change whether Terraform manages access control."
                 )
-            AccessControlManagementRequestSerializer(data=request.data).is_valid(raise_exception=True)
-            state = access_control_api.clear_terraform_management(team_id=team.id)
+            serializer = AccessControlManagementRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            try:
+                state = access_control_api.set_terraform_lock(
+                    team_id=team.id, enabled=serializer.validated_data["managed"]
+                )
+            except access_control_api.NoTerraformAccountError:
+                raise exceptions.ValidationError(
+                    {"managed": "Terraform hasn't applied access rules to this project yet."}
+                )
         else:
             state = access_control_api.get_terraform_management(team_id=team.id)
         return Response(AccessControlManagementSerializer(state).data)

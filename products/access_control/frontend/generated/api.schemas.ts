@@ -1004,14 +1004,16 @@ export interface AccessControlManagementApi {
     /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
     managed: boolean
     /**
-     * When the project was marked, or null.
+     * When Terraform's account started managing the project, or null.
      * @nullable
      */
     managed_at: string | null
+    /** Whether Terraform has written access rules to this project, so that the lock can be turned on. */
+    has_terraform_account: boolean
 }
 
 export interface AccessControlManagementRequestApi {
-    /** Must be false, which hands this project's access rules back to the UI. Terraform marks a project itself when it writes access rules with its API key. */
+    /** False hands this project's access rules back to the UI. True locks them to the account behind Terraform's API key again, which needs Terraform to have written access rules to this project before. */
     managed: boolean
 }
 

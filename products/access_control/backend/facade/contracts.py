@@ -137,7 +137,9 @@ class ObjectAccessControlRule:
 
 @frozen
 class TerraformManagement:
-    """Whether Terraform manages a project's access rules, and since when."""
+    """Whether Terraform manages a project's access rules, since when, and whether the lock can be
+    turned on, which needs an account that Terraform has written with."""
 
     managed: bool
     managed_at: datetime | None
+    has_terraform_account: bool
