@@ -655,12 +655,15 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 SELECT 1 AS team_id, '$identify' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
                     CAST('{}', %(person_type)s) AS person_properties,
-                    CAST('{}', %(temporary_type)s) AS temporary_properties
+                    CAST(%(temporary_document)s, %(temporary_type)s) AS temporary_properties
             ) """
             + printed,
             {
                 **context.values,
-                "document": '{"email":"event-level","$set":{"email":"hidden","name":"visible"},"$set_once":{"email":"hidden"}}',
+                "document": '{"email":"event-level"}',
+                # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
+                # container comes from that document.
+                "temporary_document": '{"$set":{"email":"hidden","name":"visible"},"$set_once":{"email":"hidden"}}',
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
