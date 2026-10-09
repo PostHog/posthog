@@ -39,6 +39,7 @@ import {
     fitsOneRequest,
     getBillingUsageError,
     isDayOrCoarser,
+    relabelSessionReplaySeries,
 } from './billingUsageLogic'
 import type { BillingUsageError } from './billingUsageLogic'
 import { DEFAULT_TOP_PROJECTS } from './constants'
@@ -579,7 +580,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     return []
                 }
 
-                return response.results
+                return response.results.map(relabelSessionReplaySeries)
             },
         ],
         dates: [
