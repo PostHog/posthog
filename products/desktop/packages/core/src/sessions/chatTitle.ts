@@ -77,16 +77,30 @@ export function decideTitleGeneration(input: {
   return { shouldGenerateFromPrompts, shouldGenerateFromTaskDescription };
 }
 
-// Prompt-window fires past the first prompt describe the recent conversation,
-// not the task, so the title must stay pinned to the original prompt context.
-// Later fires may only fill in a title that is still the raw-description
-// placeholder (e.g. an earlier generation failed); the summary always
-// refreshes regardless.
+function normalizePromptText(text: string): string {
+  return xmlToPlainText(text).replace(/\s+/g, " ").trim();
+}
+
+// Prompt-window fires describe the recent conversation, not the task, so the
+// title must stay pinned to the original prompt context. A window with one
+// prompt is not always the opening one: a resumed, reloaded or tail-loaded
+// transcript can hold only a later prompt. So a fire may rename a real title
+// only when its single prompt is the task's own description. Other fires may
+// only fill in a title that is still the raw-description placeholder (e.g. an
+// earlier generation failed); the summary always refreshes regardless.
 export function canApplyTitleFromPrompts(
-  promptCount: number,
+  prompts: string[],
   task: Pick<Task, "title" | "description">,
+  openingDescription: string,
 ): boolean {
-  return promptCount <= 1 || isPlaceholderTaskTitle(task);
+  if (isPlaceholderTaskTitle(task)) {
+    return true;
+  }
+  if (prompts.length !== 1) {
+    return false;
+  }
+  const opening = normalizePromptText(openingDescription);
+  return opening.length > 0 && normalizePromptText(prompts[0]) === opening;
 }
 
 export function selectPromptsForTitle(
