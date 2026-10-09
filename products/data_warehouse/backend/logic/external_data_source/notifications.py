@@ -14,6 +14,7 @@ from products.data_warehouse.backend.logic.external_data_source.alerts import (
     emit_failure_digest,
     failure_email_destination_enabled,
 )
+from products.warehouse_sources.backend.facade.api import get_sync_alert_context
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
@@ -167,10 +168,19 @@ def notify_external_data_sync_failures(
             )
 
         omitted_count = max(0, len(failing_schemas) - MAX_SCHEMAS_PER_DIGEST_EMAIL)
-        team = Team.objects.get(pk=team_id)
+        team = Team.objects.filter(pk=team_id).first()
+        if team is None:
+            return
         sent: bool | None = None
         if failure_email_destination_enabled(team):
-            sent = emit_failure_digest(team, items, omitted_count)
+            # Any destination can subscribe to the event, so its errors get the source's
+            # stored credentials masked. The Python email goes to project members only.
+            event_items: list[ExternalDataFailureDigestItem] = []
+            for schema, item in zip(ordered_schemas, items):
+                context = get_sync_alert_context(team_id, str(schema.id), include_error=True)
+                error = context.latest_error if context else None
+                event_items.append({**item, "error": error or "Unknown error"})
+            sent = emit_failure_digest(team, event_items, omitted_count)
         # None means the event path cannot deliver here, so the email goes out the old way.
         if sent is None:
             sent = send_external_data_failure_digest(team_id, items, omitted_count=omitted_count)

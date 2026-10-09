@@ -155,6 +155,31 @@ class TestNotifyExternalDataSyncFailures:
             send_feature_flag_events=False,
         )
 
+    def test_event_masks_credentials_in_errors(self, destination_flag: MagicMock) -> None:
+        destination_flag.return_value = True
+        team, source = _create_team_and_source()
+        _create_recipient(team)
+        _create_email_template()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="GET https://api.example.com/v1?api_key=sk_live_abcdef123456 failed",
+        )
+        with (
+            patch(SENDER_PATH) as sender,
+            patch(f"{ALERTS_PATH}.produce_internal_event") as produce,
+            patch("posthog.plugins.plugin_server_api.publish_message"),
+        ):
+            notify_external_data_sync_failures(team.pk)
+
+        sender.assert_not_called()
+        properties = produce.call_args.kwargs["event"].properties
+        assert "sk_live_abcdef123456" not in properties["summary"]
+        assert "sk_live_abcdef123456" not in properties["schemas"][0]["error"]
+        assert "api_key=***" in properties["schemas"][0]["error"]
+
     @pytest.mark.parametrize("state", ["enabled", "deleted", "disabled"])
     def test_preserves_default_destination(self, destination_flag: MagicMock, state: str) -> None:
         destination_flag.return_value = True
