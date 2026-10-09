@@ -34,7 +34,7 @@ The backend and scout orchestration worker use their existing `AI_GATEWAY_URL` a
 API-side token calls bypass environment proxies, matching the other service gateway clients. Sandbox token calls keep their existing proxy behavior.
 Enable `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` only after confirming query/task telemetry and warehouse replicas do not expose trial content to the inspected project. The gateway must acknowledge capture suppression when minting tokens.
 This setting also installs the private-trial analytics filter when backend and worker processes start. Leave it enabled while saved trial data remains accessible, even after disabling new launches or the `scout-trials` flag. Deployments without this setting keep their existing analytics callbacks.
-Keep the worker and backend on the same code revision; use `TEMPORAL_DISABLE_HOT_RELOAD=1` during paid runs.
+Deploy the backend, scout orchestration worker and Tasks worker from the same code revision before enabling trials; use `TEMPORAL_DISABLE_HOT_RELOAD=1` during paid runs. The scout worker uses the video-export queue. The Tasks worker provisions the sandboxes. Removing the old Tasks validation does not change the ordinary judge path, but new scout launches require the updated Tasks worker.
 Revoke or expire private tokens before rolling the gateway back to a version without private capture support.
 
 ## Run one trial
@@ -53,11 +53,15 @@ Suggestion generation captures the complete scout instructions and reference fil
 
 Variants and retries share a saved copy of the project's scout memory, notes and recent scout runs. This starting context lives in private object storage and can exceed the 16 MiB limit on launch settings without being shortened.
 
+Each trial scout stores its own memory changes and reports in a separate `trial_state` field on its Signals scout-run record. The small trial marker stays in metadata so ordinary history queries can exclude trials without reading their documents. Tasks run state contains execution settings and token bindings, not trial documents. Signals verifies the sandbox token belongs to that exact run before serving private context. Tasks grants the restricted scout credential only the necessary log, summary and lifecycle writes for its own run; it cannot change another task or steer a trial. Ordinary scout responses omit the private state.
+
 Each completed scout run gets its own judge sandbox. The judge reads the saved rubric and searches attached copies of the complete rubric reference, run log, reports, summary, candidate instructions and starting context. These files live in private object storage; Temporal receives only their identifiers. Evidence larger than 128 MiB is refused explicitly instead of being silently shortened.
 
 Signals checks the operator's access, source run and saved evidence before attaching files and dispatching the judge through the existing internal Tasks path used by rubric generation. Queued judges do not repeat Signals-specific staff, skill or source-run checks at sandbox startup. Ordinary account and project permissions still apply when downloading evidence, and Signals checks operator access again before publishing the report.
 
 Judges use ordinary Tasks permissions and logging rather than the scout runs' private credentials and capture suppression. Other sandboxes acting as the same operator in the same project can read judge prompts and attached evidence through the Tasks API.
+
+Scout sandboxes keep private gateway capture and exclude shared context-layer inputs. Tasks no longer calls Signals to interpret trial documents or judge credentials. Shared dispatch preparation, file attachments and budget-stop handling remain unchanged.
 
 The judge has no live project tools, external MCP connections or repository credentials. Its run disables live context, so the Tasks worker neither mounts the current wiki nor adds Store skill descriptions. Internal Tasks also exclude project and personal instructions. A retry to correct its JSON response uses the same sandbox and keeps these inputs disabled. Deploy the Tasks worker's support for this run setting before starting new judges.
 
