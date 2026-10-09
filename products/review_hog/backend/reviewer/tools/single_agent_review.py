@@ -529,17 +529,17 @@ def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
     """
     current = _diff_sequence(pr_file)
     before = _diff_sequence(earlier) if earlier is not None else []
+    # The default junk heuristic keeps a repetitive patch from making the match quadratic. It can only
+    # leave lines unmatched, which marks them as changed.
     matcher = SequenceMatcher(
-        None,
-        [(line.kind, line.code) for line in before],
-        [(line.kind, line.code) for line in current],
-        autojunk=False,
+        None, [(line.kind, line.code) for line in before], [(line.kind, line.code) for line in current]
     )
     new_lines: set[int] = set()
     for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
         if tag == "equal":
             continue
-        new_lines.update(line.head_line for line in current[current_start:current_end] if line.kind != "context")
+        # Context lines count too, so a statement moved into new surroundings is changed code.
+        new_lines.update(line.head_line for line in current[current_start:current_end])
         # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
         if any(line.kind != "context" for line in before[before_start:before_end]):
             new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])

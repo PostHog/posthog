@@ -490,6 +490,9 @@ class TestDedupeFlashFindings:
             pytest.param(
                 "d.py", LineRange(start=10), IssuePriority.SHOULD_FIX, True, id="p2_on_a_copy_above_the_original"
             ),
+            pytest.param(
+                "e.py", LineRange(start=31), IssuePriority.SHOULD_FIX, True, id="p2_on_a_statement_moved_elsewhere"
+            ),
         ],
     )
     async def test_a_follow_up_drops_p2_and_p3_findings_on_unchanged_code(
@@ -502,6 +505,7 @@ class TestDedupeFlashFindings:
             _patched("a.py", ("addition", 10, ["x = 1", "y = 2", "z = 3"])),
             _patched("c.py", ("context", 9, ["def delete(request):"]), ("addition", 10, ["    check()", "    drop()"])),
             _patched("d.py", ("context", 99, ["def g():"]), ("addition", 100, ["    return None"])),
+            _patched("e.py", ("context", 9, ["def save():"]), ("addition", 10, ["    notify()"])),
         ]
         current = [
             _patched("a.py", ("addition", 15, ["x = 1", "y = 2", "z = 3"]), ("addition", 40, ["w = 4"])),
@@ -514,6 +518,7 @@ class TestDedupeFlashFindings:
                 ("context", 103, ["def g():"]),
                 ("addition", 104, ["    return None"]),
             ),
+            _patched("e.py", ("context", 30, ["def delete():"]), ("addition", 31, ["    notify()"])),
         ]
         issue = _issue("2000-1-1", priority).model_copy(update={"file": file, "lines": [lines]})
 
