@@ -29,9 +29,6 @@ export interface MetricCardProps {
     data?: number[]
     /** Labels paired with `data`. Used for the default subtitle on hover. */
     labels?: string[]
-    /** Formats a label for the default subtitle, e.g. an ISO time as a short date. The sparkline
-     *  keeps the raw `labels`, which must stay unique. */
-    formatLabel?: (label: string) => React.ReactNode
     /** Required when `data` is present. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
@@ -44,9 +41,6 @@ export interface MetricCardProps {
     /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
     sparklineDashedFromIndex?: number
     formatValue?: (value: number) => string
-    /** Classes for the headline number. Replaces the default `text-4xl` size, e.g. with container
-     *  query sizes so a narrow tile keeps the number on one line. */
-    headlineClassName?: string
     formatChange?: (percent: number) => string
     showChange?: boolean
     /** Fixed comparison pill. Supplied → no hover-driven fallback. Pass `null` to suppress. */
@@ -93,7 +87,6 @@ function MetricCardInner({
     value,
     data,
     labels,
-    formatLabel,
     theme,
     color,
     sparklineHeight = 120,
@@ -102,7 +95,6 @@ function MetricCardInner({
     sparklineClassName = 'mt-4',
     sparklineDashedFromIndex,
     formatValue = DEFAULT_FORMAT_VALUE,
-    headlineClassName = 'text-4xl',
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
     change,
@@ -158,9 +150,8 @@ function MetricCardInner({
     // The tooltip describes the resting comparison, so hide it once the pill shows the per-point delta.
     const activeChangeTooltip = usePrevPointHover ? undefined : changeTooltip
     const headlineDisplay = sparklineData ? formatValue(animatedValue) : formatValue(restingValue)
-    const activeLabel = labels?.[activeIndex]
-    const pointLabel = activeLabel != null && formatLabel ? formatLabel(activeLabel) : activeLabel
-    const resolvedSubtitle = subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : pointLabel)
+    const resolvedSubtitle =
+        subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex])
 
     const positive = delta != null && delta.value >= 0
     const isGood = goodDirection === 'up' ? positive : !positive
@@ -170,7 +161,7 @@ function MetricCardInner({
     const showHeader = title != null || headerDelta != null
     const headerJustify = title != null ? 'justify-between' : 'justify-end'
     const renderedHeadline = (
-        <div className={`${headlineClassName} font-bold tracking-tight tabular-nums${showHeader ? ' mt-2' : ''}`}>
+        <div className={`text-4xl font-bold tracking-tight tabular-nums${showHeader ? ' mt-2' : ''}`}>
             {headlineDisplay}
         </div>
     )
@@ -193,8 +184,7 @@ function MetricCardInner({
             )}
 
             {changeInline && delta != null ? (
-                // Wraps so a narrow card moves the pill under the number instead of clipping it.
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2">
                     {renderedHeadline}
                     <ChangePill
                         positive={positive}

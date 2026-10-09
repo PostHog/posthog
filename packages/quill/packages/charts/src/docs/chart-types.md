@@ -101,11 +101,9 @@ Bars use `hitArea: 'band'`.
 A left-aligned tile: headline number, change pill, sparkline.
 
 - `title={null}` drops the title row. The header band collapses when there is no title and no change pill, and the subtitle row is omitted when there is no subtitle and no `labels`, so a value-only card renders just the number.
-- `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header. The inline pill wraps under the headline when the card is too narrow for both.
-- `headlineClassName` replaces the headline's default `text-4xl`, for example with container query sizes so a narrow tile keeps the number on one line.
+- `changeSize="md"` renders a larger pill (default `sm`); `changeInline` puts it beside the headline instead of in the header.
 - `sparklineFill` makes the sparkline fill the card's remaining height instead of a fixed `sparklineHeight`; `sparklineDashedFromIndex` dashes it from that index onward (an in-progress trailing period).
 - `subtitle` always wins. `restingSubtitle` (`'Avg'`) shows only at rest and yields to the hovered point's label on hover; pair it with a `value` that summarizes the series.
-- `formatLabel` formats the point label in the default subtitle, for example an ISO time as a short date. The sparkline keeps the raw `labels`, so they stay unique.
 - `hoverChangeFromPreviousPoint` keeps the resting `change` pill at rest but, while hovering, swaps it for the hovered point's change versus the previous point (hidden at the first point).
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
 
