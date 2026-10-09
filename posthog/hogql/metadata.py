@@ -316,9 +316,12 @@ def _flag_called_announcement_url(payload: object) -> str | None:
     if url is None:
         return None
     if isinstance(url, str):
-        parsed = urlparse(url)
-        if parsed.scheme == "https" and parsed.netloc:
-            return url
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme == "https" and parsed.hostname:
+                return url
+        except ValueError:
+            pass
     logger.warning("hogql_flag_called_announcement_url_invalid", url=str(url))
     return None
 

@@ -424,6 +424,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 1,
                 _move_notices({"url": "command:editor.action.deleteLines"}),
             ),
+            (
+                "malformed_announcement_url",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called'",
+                True,
+                1,
+                _move_notices({"url": "https://[broken"}),
+            ),
         ]
     )
     def test_metadata_warns_for_flag_called_read_from_events(
