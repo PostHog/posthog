@@ -22,7 +22,7 @@ from products.review_hog.backend.reviewer.artefact_content import ResolutionRunA
 from products.review_hog.backend.reviewer.constants import RESOLUTION_MAX_ATTEMPTS
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolution
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.models.thread_resolution import ThreadResolution
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
 from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
@@ -31,6 +31,7 @@ from products.review_hog.backend.temporal.resolution import (
     ResolveThreadsInput,
     _append_run_note,
     _append_task_run,
+    _commit_hold,
     _deliver_side_effects,
     _fail_resolution,
     _fold_overlong_reply,
@@ -118,6 +119,53 @@ def _mock_installation() -> Mock:
     github.get_pull_request_merge_queue_state.return_value = None
     github.has_open_pull_request_with_base.return_value = False
     return github
+
+
+class TestBranchProtectionHold(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unprotected", {"protected": False}, None, None),
+            (
+                "classic_protection",
+                {"protected": True, "protection": {"enabled": True}},
+                None,
+                CommitHold.BRANCH_PROTECTED,
+            ),
+            ("protection_details_missing", {"protected": True}, None, CommitHold.BRANCH_PROTECTED),
+            (
+                "ruleset_signed_commits_only",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "required_signatures"}, {"type": "non_fast_forward"}],
+                None,
+            ),
+            (
+                "ruleset_requires_pull_request",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "required_signatures"}, {"type": "pull_request"}],
+                CommitHold.BRANCH_PROTECTED,
+            ),
+            (
+                "ruleset_unknown_rule_type",
+                {"protected": True, "protection": {"enabled": False}},
+                [{"type": "file_path_restriction"}],
+                CommitHold.BRANCH_PROTECTED,
+            ),
+        ]
+    )
+    def test_holds_only_when_protection_can_refuse_the_push(
+        self, _name: str, branch: dict, rules: list | None, expected: CommitHold | None
+    ) -> None:
+        def github_read(method: str, path: str, *, endpoint: str, **kwargs: object) -> Mock:
+            body = rules if endpoint == "/repos/{owner}/{repo}/rules/branches/{branch}" else branch
+            return Mock(json=Mock(return_value=body))
+
+        input = ResolveThreadsInput(
+            team_id=1, user_id=1, acting_user_id=None, owner="posthog", repo="posthog", pr_number=123
+        )
+        with patch(f"{_RESOLUTION}.github_api_request", side_effect=github_read):
+            hold = _commit_hold(input, _mock_installation(), "feature/x", queue_state=None, queue_state_at_start=None)
+
+        assert hold == expected
 
 
 class TestReplyBodyRendering(SimpleTestCase):
