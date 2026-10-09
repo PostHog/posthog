@@ -255,7 +255,7 @@ class MatrixManager:
         delete_group_type_mappings(cls.MASTER_TEAM_ID)
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
-        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
@@ -269,6 +269,7 @@ class MatrixManager:
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
         copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
 
