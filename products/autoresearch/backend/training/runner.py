@@ -230,6 +230,7 @@ def build_agent_description(
     report_notebook: bool = False,
     unscorable_champion: UnscorableChampion | None = None,
     realized_context: RealizedContext | None = None,
+    rescue: bool = False,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -253,7 +254,7 @@ def build_agent_description(
         )
 
     sample_clause = _describe_training_sample(training_sample)
-    unscorable_clause = _describe_unscorable_champion(unscorable_champion)
+    unscorable_clause = _describe_unscorable_champion(unscorable_champion, rescue=rescue)
     realized_clause = _describe_realized_context(realized_context)
 
     today_iso = date.today().isoformat()
@@ -863,9 +864,17 @@ def _realized_context_for_brief(pipeline: AutoresearchPipeline) -> RealizedConte
         return None
 
 
-def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
+def _describe_unscorable_champion(unscorable: UnscorableChampion | None, *, rescue: bool = False) -> str:
     if unscorable is None:
         return ""
+    rescue_text = ""
+    if rescue:
+        rescue_text = """
+
+            **This is a rescue run.** The pipeline has no iteration budget left, so this run gets a
+            small fixed budget only to make scoring work again. Prefer a cheap, simple model whose
+            `features.sql` scores today's inference population well inside the query limits over a
+            model with a higher `holdout_score`."""
     # Indented to the brief's level, because the brief is dedented after this text goes in.
     return textwrap.indent(
         textwrap.dedent(f"""
@@ -876,7 +885,7 @@ def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
             replaces it. Do not reuse its `features.sql` as it is. Find what makes it fail first.
             `limit_exceeded` means a query hit a memory, time, rows or bytes limit. `query_failed` means
             the query is not valid for today's data. `model_load_failed` means `predict.py` could not
-            load or run the fitted model."""),
+            load or run the fitted model.{rescue_text}"""),
         " " * 8,
     )
 
@@ -912,6 +921,7 @@ def run_training(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
     user_id: int | None,
+    rescue: bool = False,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -972,6 +982,7 @@ def run_training(
             report_notebook=report_notebook,
             unscorable_champion=_unscorable_champion_for_brief(pipeline),
             realized_context=_realized_context_for_brief(pipeline),
+            rescue=rescue,
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"
