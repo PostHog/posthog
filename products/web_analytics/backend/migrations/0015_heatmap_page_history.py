@@ -9,7 +9,6 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("exports", "0015_exportedasset_session_index"),
         ("posthog", "1394_backfill_secret_tokens_to_psak"),
         ("web_analytics", "0014_content_autopilot_opportunities"),
     ]
@@ -29,6 +28,7 @@ class Migration(migrations.Migration):
                 ("day_end", models.DateTimeField()),
                 ("expires_at", models.DateTimeField(db_index=True)),
                 ("revision", models.UUIDField(blank=True, null=True)),
+                ("has_thumbnail", models.BooleanField(default=False)),
                 (
                     "trigger",
                     models.CharField(
@@ -49,15 +49,6 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "full_asset",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="exports.exportedasset",
-                    ),
-                ),
-                (
                     "heatmap",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
@@ -72,15 +63,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.team",
-                    ),
-                ),
-                (
-                    "thumbnail_asset",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="exports.exportedasset",
                     ),
                 ),
             ],
@@ -134,15 +116,6 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("completed_at", models.DateTimeField(null=True)),
                 (
-                    "full_asset",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="exports.exportedasset",
-                    ),
-                ),
-                (
                     "heatmap",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
@@ -157,15 +130,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.team",
-                    ),
-                ),
-                (
-                    "thumbnail_asset",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
-                        to="exports.exportedasset",
                     ),
                 ),
                 (

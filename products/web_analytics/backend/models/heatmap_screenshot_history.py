@@ -7,22 +7,7 @@ from posthog.models.utils import UUIDModel
 from products.web_analytics.backend.models.heatmap_saved import SavedHeatmap
 
 
-class _HistoryAssets(models.Model):
-    full_asset = models.ForeignKey("exports.ExportedAsset", on_delete=models.SET_NULL, null=True, related_name="+")
-    thumbnail_asset = models.ForeignKey("exports.ExportedAsset", on_delete=models.SET_NULL, null=True, related_name="+")
-
-    class Meta:
-        abstract = True
-
-    @property
-    def asset_ids(self) -> list[int]:
-        return [asset_id for asset_id in (self.full_asset_id, self.thumbnail_asset_id) if asset_id is not None]
-
-    def asset_id_for(self, variant: str) -> int | None:
-        return self.full_asset_id if variant == "full" else self.thumbnail_asset_id
-
-
-class HeatmapScreenshotHistory(TeamScopedRootMixin, UUIDModel, _HistoryAssets):
+class HeatmapScreenshotHistory(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         OK = "ok", "Captured"
         PENDING = "pending", "Capture pending"
@@ -46,6 +31,7 @@ class HeatmapScreenshotHistory(TeamScopedRootMixin, UUIDModel, _HistoryAssets):
     day_end = models.DateTimeField()
     expires_at = models.DateTimeField(db_index=True)
     revision = models.UUIDField(null=True, blank=True)
+    has_thumbnail = models.BooleanField(default=False)
     trigger = models.CharField(max_length=20, choices=Trigger, default=Trigger.SCHEDULED)
     status = models.CharField(max_length=20, choices=Status)
     failure_cause = models.CharField(max_length=100, null=True, blank=True)
@@ -64,10 +50,10 @@ class HeatmapScreenshotHistory(TeamScopedRootMixin, UUIDModel, _HistoryAssets):
 
     @property
     def has_content(self) -> bool:
-        return self.full_asset_id is not None
+        return self.revision is not None
 
 
-class HeatmapCaptureRequest(TeamScopedRootMixin, UUIDModel, _HistoryAssets):
+class HeatmapCaptureRequest(TeamScopedRootMixin, UUIDModel):
     class State(models.TextChoices):
         QUEUED = "queued", "Queued"
         RUNNING = "running", "Running"

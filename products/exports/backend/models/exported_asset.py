@@ -69,7 +69,6 @@ class ExportedAsset(models.Model):
 
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
-        JPEG = "image/jpeg", "image/jpeg"
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
         XLSX = (
