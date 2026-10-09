@@ -2,10 +2,9 @@
 //!
 //! The v0 and v1 pipelines stamp their overflow and rate-limit decisions in
 //! opposite orders (v0 runs the global rate limiter before the burst limiter,
-//! v1 after) and reach the broker through separate sinks. Both must still put
-//! the same event on the same lane, with the same partition-key presence and
-//! the same person-processing header, because those three things are the wire
-//! contract downstream ingestion reads.
+//! v1 after). Both must still put the same event on the same lane, with the
+//! same partition-key presence and the same person-processing header, because
+//! those three things are the wire contract downstream ingestion reads.
 //!
 //! Each case runs the real pipeline on both paths and asserts both against an
 //! explicit expectation, not merely against each other, so two paths that drift

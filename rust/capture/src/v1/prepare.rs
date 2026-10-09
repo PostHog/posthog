@@ -113,7 +113,7 @@ where
             // per-event work is short CPU, so worker_threads bounds the
             // concurrency and excess events queue cheaply. One spawn_blocking
             // task per event would saturate the shared blocking pool on huge
-            // batches. The v0 Kafka sink's parallel prep does the same.
+            // batches. The Kafka sink's parallel prep does the same.
             set.spawn(async move { (i, run_one(&events[i], &ctx)) });
         }
 

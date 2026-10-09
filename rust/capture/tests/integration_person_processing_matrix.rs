@@ -315,8 +315,8 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     }
 }
 
-/// Drive the v1 endpoint (`/i/v1/analytics/events`) through its own router and
-/// sink, reading every record off the v1 mock producer, in request order.
+/// Drive the v1 endpoint (`/i/v1/analytics/events`) through its router and the
+/// shared outputs, reading every record off the mock producer, in request order.
 async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();

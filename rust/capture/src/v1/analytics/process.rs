@@ -210,8 +210,8 @@ async fn run_pipeline(
     let (mut events, serialized) =
         serialize_batch(events, context, state.capture_v1_scatter_gather_min_batch).await;
 
-    let sink_results = state.outputs.publish_prepared(serialized.prepared).await;
-    merge_sink_results(&mut events, &serialized.failures, &sink_results);
+    let publish_results = state.outputs.publish_prepared(serialized.prepared).await;
+    merge_publish_results(&mut events, &serialized.failures, &publish_results);
 
     Ok(events)
 }
@@ -295,19 +295,15 @@ fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
     .increment(1);
 }
 
-// ---------------------------------------------------------------------------
-// SinkResult → WrappedEvent merge
-// ---------------------------------------------------------------------------
-
-/// Sets `result` and `details` on each published event from its serialize failure or sink result.
-pub fn merge_sink_results(
+/// Sets `result` and `details` on each published event from its serialize failure or publish result.
+pub fn merge_publish_results(
     events: &mut [WrappedEvent],
     failures: &[SerializationFailure],
-    sink_results: &[SinkResult],
+    publish_results: &[SinkResult],
 ) {
     enum Merged<'a> {
         Serialization(&'a SerializationFailure),
-        Sink(&'a Outcome),
+        Publish(&'a Outcome),
     }
 
     // Uuids are unique here: validation rejects a batch with a duplicate.
@@ -315,9 +311,9 @@ pub fn merge_sink_results(
         .iter()
         .map(|f| (f.uuid(), Merged::Serialization(f)))
         .chain(
-            sink_results
+            publish_results
                 .iter()
-                .map(|r| (r.uuid, Merged::Sink(&r.outcome))),
+                .map(|r| (r.uuid, Merged::Publish(&r.outcome))),
         )
         .collect();
 
@@ -331,16 +327,16 @@ pub fn merge_sink_results(
         };
 
         match merged {
-            Merged::Sink(Outcome::Published) => {}
-            Merged::Sink(Outcome::Failed(CaptureError::RetryableSinkError)) => {
+            Merged::Publish(Outcome::Published) => {}
+            Merged::Publish(Outcome::Failed(CaptureError::RetryableSinkError)) => {
                 event.result = EventResult::Retry;
                 event.details = Some("not_persisted");
             }
-            Merged::Sink(Outcome::Failed(CaptureError::EventTooBig(_))) => {
+            Merged::Publish(Outcome::Failed(CaptureError::EventTooBig(_))) => {
                 event.result = EventResult::Drop;
                 event.details = Some("event_too_big");
             }
-            Merged::Sink(Outcome::Failed(_)) => {
+            Merged::Publish(Outcome::Failed(_)) => {
                 event.result = EventResult::Drop;
                 event.details = Some("rejected");
             }
@@ -894,7 +890,7 @@ async fn apply_restrictions(
         // Overflow only applies to the overflowing lanes: AnalyticsMain, and
         // AiEvents once the AI overflow valve is armed (each rerouting to its
         // own overflow destination). AnalyticsHistorical must never overflow
-        // (legacy sink invariant). Today this stage runs before historical
+        // (v0's `pipeline::resolve` rule). Today this stage runs before historical
         // rerouting so an analytics event is always AnalyticsMain here; the
         // explicit guard makes the invariant ordering-independent.
         let force_overflow_destination = match event.destination {
@@ -1148,7 +1144,7 @@ async fn apply_token_distinct_id_limits(
             // Reroute to overflow to spread a hot token:distinct_id across
             // partitions. Gated to AnalyticsMain only: this stage runs after
             // historical rerouting, and AnalyticsHistorical must never overflow
-            // (matches the legacy sink invariant). Other lanes (exceptions,
+            // (matches v0's `pipeline::resolve`). Other lanes (exceptions,
             // heatmaps, etc.) keep their own destination.
             if event.destination == Destination::AnalyticsMain {
                 event.destination = Destination::Overflow;
@@ -3163,8 +3159,8 @@ mod tests {
     async fn td_limits_historical_event_not_rerouted_to_overflow() {
         // Invariant: AnalyticsHistorical must never be rerouted to Overflow.
         // A globally rate-limited historical event still gets person processing
-        // disabled, but stays on the historical lane (matches the legacy sink,
-        // where the AnalyticsHistorical arm never overflows).
+        // disabled, but stays on the historical lane (matches v0's
+        // `pipeline::resolve`, where the historical arm never overflows).
         let limiter = mock_limiter(vec!["phc_tok:user-1"]);
         let ctx = td_context();
         let mut events =
@@ -4170,38 +4166,36 @@ mod tests {
         assert_eq!(
             topics,
             vec!["ai_events", "events_main"],
-            "the over-budget AI event must not reach the sink, and the analytics event must be untouched"
+            "the over-budget AI event must not be published, and the analytics event must be untouched"
         );
     }
 
     // =========================================================================
-    // merge_sink_results tests
+    // merge_publish_results tests
     // =========================================================================
 
-    use crate::sinks::sink::SinkResult as OutputResult;
-
-    type Results = (Vec<SerializationFailure>, Vec<OutputResult>);
+    type Results = (Vec<SerializationFailure>, Vec<SinkResult>);
 
     fn published(uuid: Uuid) -> Results {
-        (vec![], vec![OutputResult::published(uuid)])
+        (vec![], vec![SinkResult::published(uuid)])
     }
 
     fn retriable(uuid: Uuid) -> Results {
         (
             vec![],
-            vec![OutputResult::failed(uuid, CaptureError::RetryableSinkError)],
+            vec![SinkResult::failed(uuid, CaptureError::RetryableSinkError)],
         )
     }
 
     fn too_big(uuid: Uuid) -> Results {
         let err = CaptureError::EventTooBig("rejected by the broker".to_string());
-        (vec![], vec![OutputResult::failed(uuid, err)])
+        (vec![], vec![SinkResult::failed(uuid, err)])
     }
 
     fn non_retriable(uuid: Uuid) -> Results {
         (
             vec![],
-            vec![OutputResult::failed(
+            vec![SinkResult::failed(
                 uuid,
                 CaptureError::NonRetryableSinkError,
             )],
@@ -4234,9 +4228,9 @@ mod tests {
         #[case] expected_details: Option<&'static str>,
     ) {
         let mut events = vec![wrapped_event("$pageview", "user-1")];
-        let (failures, sink_results) = results(events[0].uuid);
+        let (failures, publish_results) = results(events[0].uuid);
 
-        merge_sink_results(&mut events, &failures, &sink_results);
+        merge_publish_results(&mut events, &failures, &publish_results);
 
         assert_eq!(events[0].result, expected_result);
         assert_eq!(events[0].details, expected_details);
@@ -4248,8 +4242,8 @@ mod tests {
         events[0].result = EventResult::Warning;
         events[0].details = Some("person_processing_disabled");
 
-        let (failures, sink_results) = published(events[0].uuid);
-        merge_sink_results(&mut events, &failures, &sink_results);
+        let (failures, publish_results) = published(events[0].uuid);
+        merge_publish_results(&mut events, &failures, &publish_results);
 
         assert_eq!(events[0].result, EventResult::Warning);
         assert_eq!(events[0].details, Some("person_processing_disabled"));
@@ -4265,9 +4259,9 @@ mod tests {
         events[0].details = Some("billing_limit_exceeded");
         events[0].destination = Destination::Drop;
 
-        // Only one sink result (for the published event)
-        let (failures, sink_results) = published(events[1].uuid);
-        merge_sink_results(&mut events, &failures, &sink_results);
+        // Only one publish result (for the published event)
+        let (failures, publish_results) = published(events[1].uuid);
+        merge_publish_results(&mut events, &failures, &publish_results);
 
         // Dropped event unchanged
         assert_eq!(events[0].result, EventResult::Drop);
@@ -4290,12 +4284,12 @@ mod tests {
             "boom".to_string(),
         )];
         // Deliberately out of event order: results correlate by uuid.
-        let sink_results = vec![
-            OutputResult::failed(events[1].uuid, CaptureError::RetryableSinkError),
-            OutputResult::published(events[0].uuid),
+        let publish_results = vec![
+            SinkResult::failed(events[1].uuid, CaptureError::RetryableSinkError),
+            SinkResult::published(events[0].uuid),
         ];
 
-        merge_sink_results(&mut events, &failures, &sink_results);
+        merge_publish_results(&mut events, &failures, &publish_results);
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].details.is_none());
@@ -4312,10 +4306,10 @@ mod tests {
         events[0].details = Some("missing_event_name");
 
         // Should be unreachable in practice (dropped events aren't published
-        // so they won't have a SinkResult), but even if a result exists for
+        // so they won't have a publish result), but even if a result exists for
         // this UUID, the event shouldn't be touched because should_publish is false
-        let (failures, sink_results) = retriable(events[0].uuid);
-        merge_sink_results(&mut events, &failures, &sink_results);
+        let (failures, publish_results) = retriable(events[0].uuid);
+        merge_publish_results(&mut events, &failures, &publish_results);
 
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].details, Some("missing_event_name"));
@@ -4420,7 +4414,7 @@ mod tests {
     #[tokio::test]
     async fn import_mode_publishes_historical_batch(#[case] flag: serde_json::Value) {
         // The happy path: a properly flagged historical batch flows through
-        // Import mode exactly like Events mode and reaches the sink.
+        // Import mode exactly like Events mode and is published.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
@@ -5251,8 +5245,8 @@ mod tests {
         let (mut events, serialized) =
             serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
-        let sink_results = outputs.publish_prepared(serialized.prepared).await;
-        merge_sink_results(&mut events, &serialized.failures, &sink_results);
+        let publish_results = outputs.publish_prepared(serialized.prepared).await;
+        merge_publish_results(&mut events, &serialized.failures, &publish_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -5282,8 +5276,8 @@ mod tests {
 
         assert_eq!(serialized.prepared.len(), 2); // only Ok + Warning are published
 
-        let sink_results = outputs.publish_prepared(serialized.prepared).await;
-        merge_sink_results(&mut events, &serialized.failures, &sink_results);
+        let publish_results = outputs.publish_prepared(serialized.prepared).await;
+        merge_publish_results(&mut events, &serialized.failures, &publish_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -5316,8 +5310,8 @@ mod tests {
 
         assert!(serialized.prepared.is_empty());
 
-        let sink_results = outputs.publish_prepared(serialized.prepared).await;
-        merge_sink_results(&mut events, &serialized.failures, &sink_results);
+        let publish_results = outputs.publish_prepared(serialized.prepared).await;
+        merge_publish_results(&mut events, &serialized.failures, &publish_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -5338,8 +5332,8 @@ mod tests {
         let (mut events, serialized) =
             serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
-        let sink_results = outputs.publish_prepared(serialized.prepared).await;
-        merge_sink_results(&mut events, &serialized.failures, &sink_results);
+        let publish_results = outputs.publish_prepared(serialized.prepared).await;
+        merge_publish_results(&mut events, &serialized.failures, &publish_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);

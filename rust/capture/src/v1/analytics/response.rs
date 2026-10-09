@@ -47,7 +47,7 @@ pub struct BatchResponse {
 
 impl BatchResponse {
     /// Build the response from a processed batch of WrappedEvents.
-    /// Call this after sink publishing and result merging are complete.
+    /// Call this after publishing and result merging are complete.
     pub fn build(ctx: &RequestContext, events: &[WrappedEvent]) -> Self {
         let mut has_retry = false;
         let entries: Vec<(Uuid, BatchEntryStatus)> = events

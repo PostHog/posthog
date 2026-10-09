@@ -147,7 +147,7 @@ pub trait Publishable: Send + Sync {
     /// ingestion to skip identity resolution and is not a partitioning signal.
     fn partition_key(&self, ctx: &RequestContext) -> String;
 
-    /// The ordering guarantee this event's destination must preserve. The sink
+    /// The ordering guarantee this event's destination must preserve. The Kafka sink
     /// realizes [`OrderingGuarantee::None`] by publishing without a partition
     /// key so the broker round-robins; every other guarantee uses
     /// [`Publishable::partition_key`], which supplies the value that preserves it.
@@ -161,7 +161,7 @@ pub trait Publishable: Send + Sync {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
-    use crate::sinks::registry::Destination as Output;
+    use crate::sinks::registry::Destination as V0Destination;
 
     #[test]
     fn is_analytics_pipeline_true_for_main_and_historical() {
@@ -182,25 +182,34 @@ mod destination_tests {
         assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
     }
 
-    /// Each v1 destination publishes to the same output as its v0 counterpart.
+    /// Each v1 destination names the same routed slot as its v0 counterpart.
     #[rstest::rstest]
-    #[case(Destination::AnalyticsMain, Some(Output::AnalyticsMain))]
-    #[case(Destination::AnalyticsHistorical, Some(Output::AnalyticsHistorical))]
-    #[case(Destination::Overflow, Some(Output::AnalyticsOverflow))]
-    #[case(Destination::Dlq, Some(Output::Dlq))]
-    #[case(Destination::Custom("admin_topic".into()), Some(Output::Custom("admin_topic".into())))]
-    #[case(Destination::ExceptionErrorTracking, Some(Output::ErrorTrackingMain))]
-    #[case(Destination::HeatmapMain, Some(Output::HeatmapsMain))]
-    #[case(Destination::ClientIngestionWarning, Some(Output::ClientWarningsMain))]
-    #[case(Destination::AiEvents, Some(Output::AiMain))]
-    #[case(Destination::AiEventsOverflow, Some(Output::AiOverflow))]
+    #[case(Destination::AnalyticsMain, Some(V0Destination::AnalyticsMain))]
+    #[case(
+        Destination::AnalyticsHistorical,
+        Some(V0Destination::AnalyticsHistorical)
+    )]
+    #[case(Destination::Overflow, Some(V0Destination::AnalyticsOverflow))]
+    #[case(Destination::Dlq, Some(V0Destination::Dlq))]
+    #[case(Destination::Custom("admin_topic".into()), Some(V0Destination::Custom("admin_topic".into())))]
+    #[case(
+        Destination::ExceptionErrorTracking,
+        Some(V0Destination::ErrorTrackingMain)
+    )]
+    #[case(Destination::HeatmapMain, Some(V0Destination::HeatmapsMain))]
+    #[case(
+        Destination::ClientIngestionWarning,
+        Some(V0Destination::ClientWarningsMain)
+    )]
+    #[case(Destination::AiEvents, Some(V0Destination::AiMain))]
+    #[case(Destination::AiEventsOverflow, Some(V0Destination::AiOverflow))]
     #[case(Destination::Drop, None)]
-    fn address_selects_the_destinations_output(
+    fn address_matches_the_v0_destination(
         #[case] destination: Destination,
-        #[case] expected: Option<Output>,
+        #[case] expected: Option<V0Destination>,
     ) {
-        let output = destination.address().and_then(Output::for_address);
-        assert_eq!(output, expected);
+        let v0 = destination.address().and_then(V0Destination::for_address);
+        assert_eq!(v0, expected);
     }
 
     #[test]
