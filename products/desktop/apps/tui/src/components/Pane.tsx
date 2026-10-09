@@ -24,7 +24,7 @@ import {
 } from "../runs";
 import { renderSheet, type Sheet } from "../sheet";
 import type { StatusChip } from "../status";
-import { blue } from "../theme";
+import { orange } from "../theme";
 import { type TodayHit, type TodayState, todayLines } from "../today";
 import {
   type PendingShell,
@@ -394,7 +394,7 @@ export function Pane({
   const noticeLines =
     paneNotice && width > 1
       ? wrapTextWithAnsi(paneNotice, width - 1).map((line) =>
-          shade(`${" ".repeat(width - visibleWidth(line))}${blue(line)}`),
+          shade(`${" ".repeat(width - visibleWidth(line))}${orange(line)}`),
         )
       : chat.isScrolledUp()
         ? []

@@ -61,7 +61,7 @@ export function detectBackground(
   });
 }
 
-// PostHog orange (#F54E00), for modes that should stand out, such as shell commands.
+// PostHog orange (#F54E00), for what should catch the eye: shell mode, notices, inline code and links.
 export const orange = (text: string): string =>
   `\u001b[38;2;245;78;0m${text}\u001b[39m`;
 
@@ -105,15 +105,5 @@ export const userMessageBackground = (): string =>
 // The fill behind the selected sidebar row: a stronger step, so it reads as picked without inverse video's glare.
 export const selectionBackground = (): string => hexOf(tint(0.16));
 
-// PostHog blue (#1D4AFF), for what should catch the eye: notices, inline code and links.
-// Dark terminals get a lighter step of it, since the brand blue is hard to read on black.
-export const posthogBlue = (): string =>
-  kept.__posthogTuiTheme === "light" ? "#1D4AFF" : "#6384FF";
-
-export const blue = (text: string): string => {
-  const hex = posthogBlue();
-  const [red, green, blueValue] = [1, 3, 5].map((at) =>
-    Number.parseInt(hex.slice(at, at + 2), 16),
-  );
-  return `\u001b[38;2;${red};${green};${blueValue}m${text}\u001b[39m`;
-};
+// The same orange as an Ink colour, for what should catch the eye: notices, inline code and links.
+export const posthogOrange = (): string => "#F54E00";
