@@ -33,11 +33,11 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
 }
 
 // Atomic so concurrent sends to one person cannot both slip under the cap. A step visit that already
-// holds a slot passes again, because the email queue and send retries re-enter the same step.
+// holds a slot passes again, because the email queue and send retries re-enter the same step. The
+// re-entry moves the slot to now, so the window starts at the send and not before email queue pacing.
 const FREQUENCY_CAP_SCRIPT = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
-if redis.call('ZSCORE', KEYS[1], ARGV[4]) then return 0 end
-if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
+if not redis.call('ZSCORE', KEYS[1], ARGV[4]) and redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
 return 0
