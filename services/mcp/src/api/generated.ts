@@ -112056,7 +112056,38 @@ export namespace Schemas {
       latest_ci_engine?: CIEngineEnum | null;
     }
 
+    export interface WorkflowJobStep {
+      /** 1-based position of the step in the job. */
+      number: number;
+      /** Step name. */
+      name: string;
+      /** Raw step status: 'queued', 'in_progress', 'completed', etc. */
+      status: string;
+      /**
+         * Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the step finishes.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * When the step started, or null if it has not started.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the step finished, or null while it runs.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Wall-clock duration in seconds; null until the step finishes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+    }
+
     export interface WorkflowJob {
+      /** The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job. */
+      steps: WorkflowJobStep[];
       /** Integer job id; unique only together with ci_engine. */
       id: number;
       /** The workflow run id this job belongs to. */

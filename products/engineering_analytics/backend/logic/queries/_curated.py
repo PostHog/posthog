@@ -250,17 +250,20 @@ class CuratedGitHubSource:
         )
         return f"({query})"
 
-    def jobs_source(self, *, created_floor: bool = False) -> str | None:
+    def jobs_source(self, *, created_floor: bool = False, include_steps: bool = False) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
-        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
+        ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
+
+        ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run."""
         if not self._tables.workflow_jobs:
             return None
-        return (
-            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
+        query = workflow_jobs.build_query(
+            self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, include_steps=include_steps
         )
+        return f"({query})"
 
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
