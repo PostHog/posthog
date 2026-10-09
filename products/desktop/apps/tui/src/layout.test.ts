@@ -7,6 +7,7 @@ import {
   adoptSharedLayout,
   allPanes,
   assignTask,
+  backToPrevious,
   closeFocused,
   cycleFocus,
   expandPane,
@@ -113,6 +114,10 @@ describe("layout", () => {
     expect(allPanes(fromSplit).map((pane) => pane.taskId)).toEqual([null, "b"]);
     expect(activeWorkspace(fromSplit).focusedPaneId).toBe(paneA);
     expect(fromSplit.workspaces).toHaveLength(1);
+
+    const back = backToPrevious(fromSplit, paneA);
+    expect(allPanes(back).map((pane) => pane.taskId)).toEqual(["a", "b"]);
+    expect(backToPrevious(back, paneA)).toBe(back);
 
     const withMain = openTask(focusPane(split, paneB), "c");
     const main = withMain.workspaces.find((w) => w.root.kind === "pane");

@@ -16,6 +16,8 @@ export type PaneNode = {
   title?: string;
   // An empty main view showing Today's briefing instead of a new chat.
   today?: true;
+  // The chat a new chat replaced, so a double Esc on the empty pane can bring it back.
+  previous?: { taskId: string; title?: string };
 };
 export type LayoutNode =
   | PaneNode
@@ -197,6 +199,19 @@ export function openTask(
   };
 }
 
+function cleared(pane: PaneNode): PaneNode {
+  const previous = pane.taskId
+    ? { taskId: pane.taskId, title: pane.title }
+    : pane.previous;
+  return {
+    ...pane,
+    taskId: null,
+    title: undefined,
+    today: undefined,
+    previous,
+  };
+}
+
 // Empties the main view (making one if only splits exist) and focuses it.
 export function newChat(state: LayoutState): LayoutState {
   const main = state.workspaces.find((w) => w.root.kind === "pane");
@@ -211,12 +226,7 @@ export function newChat(state: LayoutState): LayoutState {
   const pane = main.root as PaneNode;
   return {
     workspaces: state.workspaces.map((w) =>
-      w.id === main.id
-        ? {
-            ...w,
-            root: { ...pane, taskId: null, title: undefined, today: undefined },
-          }
-        : w,
+      w.id === main.id ? { ...w, root: cleared(pane) } : w,
     ),
     activeWorkspaceId: main.id,
     focus: "pane",
@@ -246,9 +256,7 @@ export function newChatIn(state: LayoutState, paneId: string): LayoutState {
         ? {
             ...w,
             root: mapPanes(w.root, (pane) =>
-              pane.id === paneId
-                ? { ...pane, taskId: null, title: undefined, today: undefined }
-                : pane,
+              pane.id === paneId ? cleared(pane) : pane,
             ),
             focusedPaneId: paneId,
           }
@@ -257,6 +265,26 @@ export function newChatIn(state: LayoutState, paneId: string): LayoutState {
     activeWorkspaceId: workspace.id,
     focus: "pane",
   };
+}
+
+// Brings back the chat an empty pane's new chat replaced; the state as it was when there is none.
+export function backToPrevious(
+  state: LayoutState,
+  paneId: string,
+): LayoutState {
+  const pane = findPane(state, paneId);
+  if (!pane || pane.taskId !== null || !pane.previous) return state;
+  const { taskId, title } = pane.previous;
+  const forgotten = {
+    ...state,
+    workspaces: state.workspaces.map((w) => ({
+      ...w,
+      root: mapPanes(w.root, (p) =>
+        p.id === paneId ? { ...p, previous: undefined } : p,
+      ),
+    })),
+  };
+  return openTask(focusPane(forgotten, paneId), taskId, title);
 }
 
 // The panes in reading order, laid out in rows as the desktop app's Optimize does: as many columns as the square root
