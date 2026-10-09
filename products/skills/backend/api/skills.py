@@ -42,7 +42,7 @@ from posthog.event_usage import report_user_action
 from posthog.git import get_git_commit_short
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
-from posthog.permissions import AccessControlPermission, is_scout_sandbox_request, posthog_feature_flag_value
+from posthog.permissions import AccessControlPermission, is_scout_sandbox_request
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
@@ -50,14 +50,7 @@ from products.access_control.backend.presentation.access_control import AccessCo
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.signals.backend.facade.api import get_scout_trial_skill_override
 
-from ..marketplace.adapters import (
-    MARKETPLACE_NAME,
-    PLUGIN_NAME,
-    SANDBOX_SKILLS_FEATURE_FLAG,
-    build_skill_bundle,
-    load_skill_export,
-    sandbox_skills_flag_distinct_id,
-)
+from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -1376,22 +1369,6 @@ class LLMSkillViewSet(
                 "Scout trials must fetch individual skills or use a stub bundle instead of a full bundle."
             )
         user = cast(User, request.user)
-        flag_value = posthog_feature_flag_value(
-            SANDBOX_SKILLS_FEATURE_FLAG,
-            sandbox_skills_flag_distinct_id(user),
-            organization_id=self.organization.id,
-            team_id=self.team.id,
-        )
-        # None means the flag service did not answer. A sandbox treats 404 as "not enabled", so
-        # do not hand it that on an outage; 503 lets the caller tell the two apart.
-        if flag_value is None:
-            return Response(
-                {"detail": "Feature flag evaluation is unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
-            )
-        # A plain 404 Response, not NotFound: @monitor counts raised exceptions as endpoint errors,
-        # and every sandbox in a non-flagged project hits this path once per run.
-        if not flag_value:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Same object-level filter the list endpoint applies, so the bundle never carries a skill the
         # list would hide from this user.

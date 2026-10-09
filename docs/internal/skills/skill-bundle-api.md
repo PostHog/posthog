@@ -28,9 +28,6 @@ Error responses are JSON either way.
 ## Authentication and gating
 
 - Session, personal API key and OAuth callers all work. The action requires `llm_skill:read`, which the sandbox OAuth token already carries.
-- Gated by the `skills-store-in-sandbox` feature flag, evaluated for the requesting user with the organization and project groups.
-  Flag off returns `404`, so a consumer can treat it as "not enabled".
-  Flag service unavailable returns `503`, so a consumer can tell an outage from a disabled flag.
 - Throttled per user (`30/minute`, `300/hour`), so one caller cannot exhaust the budget for the rest of the project.
 
 ## Which skills are in the zip
