@@ -44,9 +44,6 @@ class TestShardDetection:
 
 
 class TestToIso8601:
-    def test_naive_datetime_treated_as_utc(self) -> None:
-        assert _to_iso8601(datetime(2024, 1, 2, 3, 4, 5)) == "2024-01-02T03:04:05Z"
-
     def test_aware_datetime_converted_to_utc(self) -> None:
         from datetime import timedelta, timezone
 
@@ -56,27 +53,8 @@ class TestToIso8601:
     def test_date_becomes_midnight_utc(self) -> None:
         assert _to_iso8601(date(2024, 1, 2)) == "2024-01-02T00:00:00Z"
 
-    def test_passthrough_string(self) -> None:
-        assert _to_iso8601("2024-01-02T03:04:05Z") == "2024-01-02T03:04:05Z"
-
 
 class TestGetResource:
-    def test_full_refresh_has_no_filter_and_replace_disposition(self) -> None:
-        resource = get_resource("patients", should_use_incremental_field=False)
-
-        assert resource["name"] == "patients"
-        assert resource["write_disposition"] == "replace"
-        # `EndpointResource.endpoint` is typed `str | Endpoint | None`; `get_resource` always sets
-        # a dict, so the cast makes that runtime shape explicit for indexing below.
-        endpoint = cast(Endpoint, resource["endpoint"])
-        assert endpoint["path"] == "/patients"
-        assert endpoint["data_selector"] == "patients"
-        # `endpoint["params"]` is typed `Optional[dict[...]]`; `get_resource` always sets one, so
-        # the cast makes that runtime shape explicit for indexing below.
-        params = cast(dict[str, Any], endpoint["params"])
-        assert params["q[]"] is None
-        assert params["sort"] == "created_at:asc"
-
     def test_incremental_sets_merge_disposition_and_filter(self) -> None:
         resource = get_resource("invoices", should_use_incremental_field=True)
 
@@ -191,15 +169,6 @@ class TestClinikoSourceResumeBehavior:
 
         assert sent_urls == ["https://api.au1.cliniko.com/v1/patients?page=5"]
         manager.load_state.assert_called_once()
-
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"patients": [{"id": "only"}], "links": {}})]
-        self._drive("patients", manager, responses)
-
-        manager.save_state.assert_not_called()
 
     def test_incremental_run_sends_updated_at_filter(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

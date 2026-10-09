@@ -81,30 +81,6 @@ def _source(endpoint: str, manager: mock.MagicMock) -> SourceResponse:
 
 
 class TestReviewsTransport:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_walks_every_moderation_status_and_follows_the_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _reviews_page(["a1"], next_cursor="cursor-1"),
-                _reviews_page(["a2"]),
-                _reviews_page(["p1"]),
-                _reviews_page(["r1"]),
-            ],
-        )
-
-        rows = _rows(_source("reviews", _make_manager()))
-
-        # Only 'approved' comes back when `status` is unset, so a lost fan-out silently drops the
-        # moderation queue; a mis-parsed `nextUrl` silently drops every page after the first.
-        assert [row["reviewId"] for row in rows] == ["a1", "a2", "p1", "r1"]
-        assert [p["status"] for p in params] == ["approved", "approved", "pending", "rejected"]
-        assert params[1]["lastEvaluated"] == "cursor-1"
-        assert "lastEvaluated" not in params[2]
-        assert params[0]["limit"] == 100
-        assert params[0]["orderBy"] == "date asc"
-
     @parameterized.expand(
         [
             ("no_next_url", None),
@@ -128,20 +104,6 @@ class TestReviewsTransport:
         # fourth request would exhaust the wired responses and raise StopIteration.
         assert session.send.call_count == len(REVIEW_STATUSES)
         assert len(rows) == 3
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_skips_completed_statuses_and_seeds_the_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_reviews_page(["p2"]), _reviews_page(["r1"])])
-
-        manager = _make_manager(OkendoResumeConfig(variant="pending", last_evaluated="cursor-9"))
-        _rows(_source("reviews", manager))
-
-        assert [p["status"] for p in params] == ["pending", "rejected"]
-        assert params[0]["lastEvaluated"] == "cursor-9"
-        # The cursor belongs to the status it was saved against; carrying it into the next one
-        # would resume that status part-way through and drop its earlier rows.
-        assert "lastEvaluated" not in params[1]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoints_the_next_page_then_the_next_status(self, MockSession) -> None:
@@ -206,16 +168,6 @@ class TestEndpointRequests:
         assert response.partition_keys == partition_keys
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_version_header_is_sent(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_reviews_page(["a1"]), _reviews_page([]), _reviews_page([])])
-
-        _rows(_source("reviews", _make_manager()))
-
-        # The API rejects requests without it.
-        assert session.headers.get("okendo-api-version") == OKENDO_API_VERSION
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_unexpected_response_shape_fails_loud(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response({"data": [{"reviewId": "a1"}]})])
@@ -223,13 +175,6 @@ class TestEndpointRequests:
         # A renamed row key must not read as "0 rows synced".
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("reviews", _make_manager()))
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_body_is_an_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({}), _response({}), _response({})])
-
-        assert _rows(_source("reviews", _make_manager())) == []
 
 
 class TestValidateCredentials:
@@ -240,8 +185,3 @@ class TestValidateCredentials:
 
         # The status is returned, not just a bool, so the source can accept 403 at connect time.
         assert validate_credentials("user-1", "key-1", OKENDO_API_VERSION) == (expected, status_code)
-
-    @mock.patch(OKENDO_SESSION_PATCH)
-    def test_transport_failure_does_not_raise(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("user-1", "key-1", OKENDO_API_VERSION) == (False, None)

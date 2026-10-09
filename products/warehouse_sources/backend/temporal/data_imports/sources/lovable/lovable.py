@@ -17,11 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.settings import (
     LOVABLE_API_BASE_URL,
-    LOVABLE_ENDPOINTS,
+    LOVABLE_URL_VERSION_SEGMENT,
     LovableEndpointConfig,
+    version_config,
 )
 
 API_KEY_HEADER = "Lovable-API-Key"
+VERSION_HEADER = "Lovable-Version"
 
 # Bounded connect/read timeout so a host that accepts the TCP connection but never responds can't
 # hold an import worker indefinitely.
@@ -48,10 +50,15 @@ class _ParentRef:
     project_id: Optional[str] = None
 
 
-def _client(api_key: str) -> RESTClient:
+def _version_headers(api_version: str) -> dict[str, str]:
+    header = version_config(api_version).version_header
+    return {VERSION_HEADER: header} if header else {}
+
+
+def _client(api_key: str, api_version: str) -> RESTClient:
     return RESTClient(
         base_url=LOVABLE_API_BASE_URL,
-        headers={"Accept": "application/json"},
+        headers={"Accept": "application/json", **_version_headers(api_version)},
         auth=APIKeyAuth(api_key=api_key, name=API_KEY_HEADER, location="header"),
         # Lovable-API-Key is a custom header, which `requests` does not strip on a cross-origin
         # redirect, so pin every request to the API host instead of replaying the key elsewhere.
@@ -68,8 +75,8 @@ def _paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="pagination.next_cursor", cursor_param="cursor")
 
 
-def _path(api_version: str, config: LovableEndpointConfig, parent: _ParentRef) -> str:
-    return f"/{api_version}{config.path}".format(
+def _path(config: LovableEndpointConfig, parent: _ParentRef) -> str:
+    return f"/{LOVABLE_URL_VERSION_SEGMENT}{config.path}".format(
         workspace_id=parent.workspace_id or "",
         project_id=parent.project_id or "",
     )
@@ -92,10 +99,9 @@ def _iter_parents(client: RESTClient, api_version: str, config: LovableEndpointC
         yield _ParentRef()
         return
 
-    workspaces = LOVABLE_ENDPOINTS["Workspaces"]
-    for workspace in _iter_rows(
-        client, _path(api_version, workspaces, _ParentRef()), _params(workspaces, _ParentRef())
-    ):
+    endpoints = version_config(api_version).endpoints
+    workspaces = endpoints["Workspaces"]
+    for workspace in _iter_rows(client, _path(workspaces, _ParentRef()), _params(workspaces, _ParentRef())):
         workspace_id = workspace.get("id")
         if not workspace_id:
             continue
@@ -103,11 +109,9 @@ def _iter_parents(client: RESTClient, api_version: str, config: LovableEndpointC
             yield _ParentRef(workspace_id=workspace_id)
             continue
 
-        projects = LOVABLE_ENDPOINTS["Projects"]
+        projects = endpoints["Projects"]
         workspace_ref = _ParentRef(workspace_id=workspace_id)
-        for project in _iter_rows(
-            client, _path(api_version, projects, workspace_ref), _params(projects, workspace_ref)
-        ):
+        for project in _iter_rows(client, _path(projects, workspace_ref), _params(projects, workspace_ref)):
             project_id = project.get("id")
             if project_id:
                 yield _ParentRef(workspace_id=workspace_id, project_id=project_id)
@@ -167,7 +171,7 @@ def _iter_endpoint(
             )
 
         for page in client.paginate(
-            path=_path(api_version, config, parent),
+            path=_path(config, parent),
             params=_params(config, parent),
             paginator=_paginator(),
             data_selector="data",
@@ -190,8 +194,8 @@ def lovable_source(
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[LovableResumeConfig],
 ) -> SourceResponse:
-    config = LOVABLE_ENDPOINTS[endpoint]
-    client = _client(api_key)
+    config = version_config(api_version).endpoints[endpoint]
+    client = _client(api_key, api_version)
 
     return SourceResponse(
         name=endpoint,
@@ -210,8 +214,8 @@ def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | No
         # capture=False: the probe's response body carries the caller's real account/workspace
         # details, which the generic scrubber's name-based denylist won't catch.
         lambda: make_tracked_session(redact_values=(api_key,), capture=False),
-        f"{LOVABLE_API_BASE_URL}/{api_version}/me",
-        headers={API_KEY_HEADER: api_key},
+        f"{LOVABLE_API_BASE_URL}/{LOVABLE_URL_VERSION_SEGMENT}{version_config(api_version).probe_path}",
+        headers={API_KEY_HEADER: api_key, **_version_headers(api_version)},
         # The key rides a custom header, which `requests` replays across a cross-origin redirect.
         allow_redirects=False,
     )
@@ -219,6 +223,13 @@ def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | No
         return True, None
     if status_code == 401:
         return False, "Invalid Lovable API key. Create a new key in Lovable and reconnect."
+    if status_code == 402:
+        return False, "Lovable's API needs the Business plan or higher. Upgrade the workspace in Lovable and reconnect."
+    if status_code == 403:
+        return (
+            False,
+            "This Lovable API key can't read workspaces. Create a key with the workspaces:read scope and reconnect.",
+        )
     return False, "Could not connect to Lovable. Check the API key and try again."
 
 
@@ -234,9 +245,9 @@ def _probe_status(client: RESTClient, path: str, params: dict[str, Any]) -> int 
     return 200
 
 
-def _first_id(client: RESTClient, api_version: str, config: LovableEndpointConfig, parent: _ParentRef) -> str | None:
+def _first_id(client: RESTClient, config: LovableEndpointConfig, parent: _ParentRef) -> str | None:
     try:
-        for row in _iter_rows(client, _path(api_version, config, parent), {**_params(config, parent), "limit": 1}):
+        for row in _iter_rows(client, _path(config, parent), {**_params(config, parent), "limit": 1}):
             row_id = row.get("id")
             if row_id:
                 return str(row_id)
@@ -251,16 +262,14 @@ def check_endpoint_permissions(api_key: str, api_version: str, endpoints: list[s
     Most tables sit behind a Lovable plan tier and answer 402 below it, so probing turns a table
     that could only ever fail into one the schema picker shows as unavailable and leaves off.
     """
-    client = _client(api_key)
-    workspaces = LOVABLE_ENDPOINTS["Workspaces"]
-    workspace_id = _first_id(client, api_version, workspaces, _ParentRef())
+    client = _client(api_key, api_version)
+    catalog = version_config(api_version).endpoints
+    workspace_id = _first_id(client, catalog["Workspaces"], _ParentRef())
     # A saved schema whose endpoint left the catalog must not fail the whole schema picker.
-    known = {name: LOVABLE_ENDPOINTS[name] for name in endpoints if name in LOVABLE_ENDPOINTS}
+    known = {name: catalog[name] for name in endpoints if name in catalog}
     project_id: str | None = None
     if workspace_id and any(config.scope == "project" for config in known.values()):
-        project_id = _first_id(
-            client, api_version, LOVABLE_ENDPOINTS["Projects"], _ParentRef(workspace_id=workspace_id)
-        )
+        project_id = _first_id(client, catalog["Projects"], _ParentRef(workspace_id=workspace_id))
 
     permissions: dict[str, str | None] = dict.fromkeys(endpoints)
     for name, config in known.items():
@@ -271,7 +280,7 @@ def check_endpoint_permissions(api_key: str, api_version: str, endpoints: list[s
             permissions[name] = None
             continue
 
-        status = _probe_status(client, _path(api_version, config, parent), {**_params(config, parent), "limit": 1})
+        status = _probe_status(client, _path(config, parent), {**_params(config, parent), "limit": 1})
         if status == 402:
             plan = config.minimum_plan or "paid"
             permissions[name] = f"This table needs Lovable's {plan} plan or higher."

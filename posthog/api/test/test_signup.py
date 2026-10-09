@@ -3033,6 +3033,23 @@ class TestInviteSignupAPI(APIBaseTest):
             1,
         )
 
+    def test_api_social_sign_up_accepts_a_blank_role(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "blank_role@posthog.com"})
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup",
+            {
+                "organization_name": "Org blank role",
+                "first_name": "Max",
+                "role_at_organization": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
@@ -3165,7 +3182,9 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
         nonexistent_id = str(uuid.uuid4())
-        result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
+        result = process_social_invite_signup(
+            mock.MagicMock(), nonexistent_id, "test@example.com", "Test User", backend=mock.MagicMock()
+        )
         self.assertIsNone(result)
 
     @pytest.mark.skip_on_multitenancy

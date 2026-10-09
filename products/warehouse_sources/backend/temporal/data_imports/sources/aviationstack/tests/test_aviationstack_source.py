@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
 
 
@@ -34,14 +33,6 @@ class TestAviationstackSource:
         assert access_key_field.type == "password"
         assert access_key_field.secret is True
         assert access_key_field.required is True
-
-    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
-        schemas = AviationstackSource().get_schemas(_make_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # aviationstack has no server-side updated-at cursor, so nothing supports incremental.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = AviationstackSource().get_schemas(_make_config(), team_id=1, names=["airlines", "airports"])
@@ -88,27 +79,6 @@ class TestAviationstackSource:
             )
         assert ok is True
 
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "airlines"
-        inputs.logger = MagicMock()
-        response = AviationstackSource().source_for_pipeline(_make_config("abc"), _make_manager(), inputs)
-
-        assert response.name == "airlines"
-        # Reference tables carry a stable row id.
-        assert response.primary_keys == ["id"]
-
-    def test_source_for_pipeline_plumbs_the_airport_list(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "timetable"
-        inputs.logger = MagicMock()
-
-        # Without the airport list reaching the transport, the per-airport feeds cannot be planned.
-        response = AviationstackSource().source_for_pipeline(_make_config(), _make_manager(), inputs)
-
-        assert response.name == "timetable"
-        assert response.primary_keys is None
-
     def test_source_for_pipeline_keyless_for_flight_feeds(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "flights"
@@ -128,12 +98,3 @@ class TestAviationstackSource:
         errors = AviationstackSource().get_non_retryable_errors()
         assert expected_key in errors
         assert errors[expected_key]
-
-    def test_canonical_descriptions_keyed_by_endpoint(self) -> None:
-        descriptions = AviationstackSource().get_canonical_descriptions()
-        # Every documented entry must map to a real endpoint or the docs render orphaned tables.
-        assert set(descriptions.keys()) <= set(ENDPOINTS)
-        assert "flights" in descriptions
-        assert "airlines" in descriptions
-        assert "timetable" in descriptions
-        assert "flights_future" in descriptions

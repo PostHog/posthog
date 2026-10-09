@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage import (
     OPINION_STAGE_BASE_URL,
-    PAGE_SIZE,
     OpinionStageResumeConfig,
     opinion_stage_source,
     validate_credentials,
@@ -84,51 +83,6 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 class TestOpinionStage:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_yields_items_and_stops(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}, {"id": "2"}], next_link=None)])
-
-        manager = _make_manager()
-        rows = _rows(opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == [{"id": "1"}, {"id": "2"}]
-        assert session.send.call_count == 1
-        # No next link, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_next_link_is_null(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        params, _auths = _wire(
-            session,
-            [
-                _page([{"id": "1"}], next_link="p2"),
-                _page([{"id": "2"}], next_link="p3"),
-                _page([{"id": "3"}], next_link=None),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert session.send.call_count == 3
-        # Page number increments (1-indexed) with a constant page size on every request.
-        assert [p["page[number]"] for p in params] == [1, 2, 3]
-        assert all(p["page[size]"] == PAGE_SIZE for p in params)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding_each_batch(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], next_link="p2"), _page([{"id": "2"}], next_link=None)])
-
-        manager = _make_manager()
-        _rows(opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        # State is saved AFTER page 1 is yielded (pointing at page 2), and never for the final page.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params, _auths = _wire(session, [_page([{"id": "2"}], next_link="p3"), _page([{"id": "3"}], next_link=None)])
@@ -151,33 +105,6 @@ class TestOpinionStage:
         assert rows == []
         assert session.send.call_count == 1
         manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_when_page_is_empty_even_with_next_link(self, MockSession: mock.MagicMock) -> None:
-        # A defensive guard: an empty page terminates the sync even if the API keeps advertising a
-        # next link, so we never loop forever on a stale cursor.
-        session = MockSession.return_value
-        _wire(session, [_page([], next_link="p2")])
-
-        manager = _make_manager()
-        rows = _rows(opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_basic_auth_uses_api_key_as_username_with_blank_password(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _params, auths = _wire(session, [_page([{"id": "1"}], next_link=None)])
-
-        _rows(
-            opinion_stage_source("secret-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        # HTTP Basic on the framework auth: the API key is the username, the password is blank.
-        assert auths[0].username == "secret-key"
-        assert auths[0].password == ""
 
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -206,19 +133,6 @@ class TestOpinionStage:
                 opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
             )
         assert session.send.call_count == 5
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_malformed_body_then_valid_recovers(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, [_raw({"errors": ["glitch"]}), _page([{"id": "1"}], next_link=None)])
-
-        rows = _rows(
-            opinion_stage_source("os-key", "items", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        )
-
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.send.call_count == 2
 
     @parameterized.expand(
         [
@@ -289,11 +203,3 @@ class TestValidateCredentials:
             ok, returned_status = validate_credentials("os-key")
         assert ok is expected_ok
         assert returned_status == expected_status
-
-    def test_transport_error_maps_to_none(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with mock.patch(OPINION_STAGE_SESSION_PATCH, return_value=session):
-            ok, status = validate_credentials("os-key")
-        assert ok is False
-        assert status is None

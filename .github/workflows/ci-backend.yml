@@ -7,16 +7,8 @@ on:
     push:
         branches:
             - master
-    schedule:
-        # Hourly full-matrix run against the newest master state. Master pushes no
-        # longer run the test matrices per commit — the merge queue's trunk-merge/**
-        # run already gated every commit before it landed — so this is where master's
-        # matrix coverage, flaky-test baseline, and per-test timing data come from.
-        # Only the every-third-hour cron runs the events_json leg. The merge queue
-        # already runs that leg before every commit lands, and this cadence still gives
-        # Trunk's master monitors enough runs. EVENTS_JSON_SCHEDULE in env repeats this string.
-        - cron: '23 */3 * * *'
-        - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
+    # No schedule trigger: the hourly full-matrix master run is on Depot CI, from the schedule
+    # trigger of .depot/workflows/ci-backend.yml.
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -54,8 +46,6 @@ on:
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    # Scheduled runs share the ref group without cancellation, so a slow hourly
-    # run queues the next one instead of stacking runs.
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -85,11 +75,8 @@ env:
     CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
     # The root conftest ends a green pytest session with os._exit once every report is written.
-    # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
-    POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
-    # The on.schedule cron whose runs keep the events_json leg. GitHub cannot reference a cron
-    # from an expression, so this copy must match it.
-    EVENTS_JSON_SCHEDULE: '23 */3 * * *'
+    # The hourly run on Depot CI turns this off, because it also hides a crash during interpreter teardown.
+    POSTHOG_PYTEST_HARD_EXIT: '1'
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
@@ -163,7 +150,9 @@ jobs:
             backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
-            migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            # Added and modified files only. A squash retirement deletes thousands of
+            # migrations, and a step env string over 128 KiB fails the spawn (E2BIG).
+            migrations_review_files: ${{ steps.filter.outputs.migrations_review_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             # What the replay gate in check-migrations keys off. A ClickHouse or
             # async-migration change does not pay for a replay of a history the Django
@@ -211,11 +200,8 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
-              # Skipped on master push and on the hourly schedule: every output then
-              # defaults to true. See "The hourly master lane" in
-              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
-              # diff, and what breaks if this guard is dropped.
-              if: github.event_name != 'push' && github.event_name != 'schedule'
+              # Skipped on master push: every output then defaults to true.
+              if: github.event_name != 'push'
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
@@ -407,6 +393,10 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      migrations_review:
+                        - added|modified: 'posthog/migrations/*.py'
+                        - added|modified: 'products/*/backend/migrations/*.py'
+                        - added|modified: 'products/*/migrations/*.py'
                       # Any migration file in any app (broader than `migrations` above,
                       # which omits ee/ and posthog sub-package dirs). Gates the
                       # deleted-migration check in repo-checks.
@@ -1443,7 +1433,7 @@ jobs:
     # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
     sdk-major-guard:
         needs: [changes]
-        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        if: needs.changes.outputs.sdk_manifests == 'true' && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 5
         permissions: {}
         name: SDK major-version guard
@@ -1456,8 +1446,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        # A per-commit check — the hourly scheduled run skips it as already covered.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1504,6 +1493,14 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
 
+            # Above the boundary for the same reason. product:lint compares the crossings ledger
+            # with the merge commit's first parent, so the clone needs one more level of history.
+            - name: Fetch the pull request base
+              if: github.event_name == 'pull_request'
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -1522,6 +1519,8 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
 
             - name: Lint product structure
+              env:
+                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
               run: ./bin/hogli product:lint --all
 
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
@@ -1684,13 +1683,11 @@ jobs:
     # in check-openapi-types below.
     check-migrations:
         needs: [changes]
-        # A per-commit check — every master push runs it (it saves the schema dump
-        # caches), so the hourly scheduled run skips it as already covered.
         # migration_replay is listed because it reaches files the other three miss:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true' || needs.changes.outputs.migration_replay == 'true') && needs.changes.outputs.engine != 'depot'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -1882,7 +1879,7 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_review_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # The PR checkout above uses the PR branch, which on unrebased PRs
@@ -2294,8 +2291,6 @@ jobs:
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
-              env:
-                  MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
@@ -2449,8 +2444,7 @@ jobs:
 
     check-openapi-types:
         needs: [changes]
-        # A per-commit check — the hourly scheduled run skips it as already covered.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -2743,7 +2737,6 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
-                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == env.EVENTS_JSON_SCHEDULE }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -3057,11 +3050,6 @@ jobs:
                       # The doubled matrices exclude some curated paths, such as Dagster tests.
                       # Discovery keeps only those paths so the other tests do not run a third time.
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
-                  fi
-
-                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
-                      echo "Skipping the events_json rows on this hourly run"
-                      json_targets_count=0
                   fi
 
                   # The events_json rows: Core jobs over the listed paths with the
@@ -3707,11 +3695,7 @@ jobs:
                           JSON_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
                                       --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
-                      if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-                          # The hourly run keeps every listed test and records which ones read the
-                          # JSON tables. The timing workflow builds the prune manifest from it.
-                          export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
-                      elif [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$GITHUB_HEAD_REF" != trunk-merge/* && -f events-schema-prune.json ]]; then
+                      if [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$GITHUB_HEAD_REF" != trunk-merge/* && -f events-schema-prune.json ]]; then
                           # Skips the tests that a recording showed never read the JSON tables. The
                           # merge queue runs every listed test, so a skipped test whose code starts
                           # to read those tables still fails before the change reaches master.
@@ -4019,17 +4003,6 @@ jobs:
                   path: |
                       junit-*.xml
                       !junit-*-retry-failures.xml
-
-            - name: Upload events schema recording
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ always() && matrix.json-targets && github.event_name == 'schedule' }}
-              with:
-                  name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
-                  path: events-schema-record.json
-                  # A successful run must carry every shard's recording, because the prune
-                  # manifest is built from successful runs only.
-                  if-no-files-found: error
-                  retention-days: 14
 
             # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
@@ -4666,7 +4639,7 @@ jobs:
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
         # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
         # attempt-suffixed artifact names so only they are emitted for the new attempt.
-        # Scheduled master runs and all in-repo PRs. Skip forks (no secrets access)
+        # Manual master runs and all in-repo PRs. Skip forks (no secrets access)
         # and master pushes (their matrices are skipped, so there are no traces).
         # Both matrices skipped also means no JUnit was uploaded, so there are no
         # traces to emit. This job sits on the tail of the run, so skipping it takes

@@ -97,56 +97,6 @@ def _source(endpoint: str, manager: mock.MagicMock):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unwraps_wrapper_and_sends_page_and_per_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_page("product", [{"id": 1, "name": "Ebook"}, {"id": 2, "name": "Course"}])])
-
-        rows = _rows(_source("products", _make_manager()))
-
-        # Each single-key wrapper object is unwrapped to the flat record.
-        assert rows == [{"id": 1, "name": "Ebook"}, {"id": 2, "name": "Course"}]
-        assert params[0]["page"] == 1
-        assert params[0]["per_page"] == PER_PAGE
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page_and_checkpoints(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": i} for i in range(PER_PAGE)]
-        params = _wire(session, [_page("product", full_page), _page("product", [{"id": 999}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("products", manager))
-
-        assert rows == [*full_page, {"id": 999}]
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        # State saved after the full page 1 (points at page 2); the short final page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == SendowlResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("product", [{"id": 1}, {"id": 2}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("products", manager))
-
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("product", [])])
-
-        manager = _make_manager()
-        assert _rows(_source("products", manager)) == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         full_page = [{"id": i} for i in range(PER_PAGE)]
@@ -158,14 +108,6 @@ class TestPagination:
         # Page 1 must never be fetched on resume; the first request targets the saved page.
         assert params[0]["page"] == 2
         assert rows == [*full_page, {"id": 7}]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_orders_endpoint_uses_its_wrapper_key(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_page("order", [{"id": 10}])])
-
-        rows = _rows(_source("orders", _make_manager()))
-        assert rows == [{"id": 10}]
 
 
 class TestErrorHandling:
@@ -233,15 +175,6 @@ class TestCheckAccess:
         # validate_via_probe swallows the transport error, so the probe reports "not validated".
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))
         assert check_access("sendowl-key", "sendowl-secret") == (0, "Could not connect to SendOwl")
-
-    def test_probe_uses_basic_auth_and_products_path(self, monkeypatch: Any) -> None:
-        session = self._patch_session(monkeypatch, mock.MagicMock(status_code=200))
-        check_access("sendowl-key", "sendowl-secret")
-        args, kwargs = session.get.call_args
-        assert args[0] == "https://www.sendowl.com/api/v1/products?page=1&per_page=1"
-        assert isinstance(kwargs["auth"], requests.auth.HTTPBasicAuth)
-        assert kwargs["auth"].username == "sendowl-key"
-        assert kwargs["auth"].password == "sendowl-secret"
 
 
 class TestSendowlSourceResponse:

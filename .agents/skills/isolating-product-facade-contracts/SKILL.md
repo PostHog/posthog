@@ -41,7 +41,7 @@ Before changing code, get the baseline:
 
 ```bash
 hogli product:maturity <name>       # scores models, facade, presentation, boundaries, codegen
-hogli product:lint <name>           # structural lint + isolation chain (strict if facade/contracts.py exists)
+hogli product:lint <name>           # structural lint + isolation chain, prints the rung: Lenient → Strict → Sealed → Isolated
 hogli product:isolate:scan <name>   # the recon: import map, coupling gate, preflight (see below)
 ```
 
