@@ -6,6 +6,8 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -53,6 +55,20 @@ const limitedCompanion: BillingProductV2Type = {
     projected_amount_usd: '80.00',
 }
 
+const otherNoLimitCompanion: BillingProductV2Type = {
+    ...customRetention(),
+    type: 'logs_other_extra',
+    name: 'Logs other extra',
+    current_amount_usd: '5.00',
+    projected_amount_usd: '10.00',
+}
+
+const setCustomRetentionHidden = (hidden: boolean): void => {
+    const flag = 'billing_hide_product_logs_retention_custom'
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags(hidden ? [flag] : [], { [flag]: hidden })
+}
+
 const seedBilling = async (products: BillingProductV2Type[], overrides: Partial<BillingType> = {}): Promise<void> => {
     useMocks({ get: { '/api/billing': () => [200, { ...billingJson, ...overrides, products }] } })
     billingLogic.mount()
@@ -74,6 +90,7 @@ describe('BillingCompanionSection', () => {
 
     afterEach(() => {
         cleanup()
+        localStorage.clear()
     })
 
     it('shows a held companion with its amounts and a total that adds it to the parent', async () => {
@@ -259,6 +276,43 @@ describe('BillingCompanionSection', () => {
         const section = screen.getByTestId('billing-companions-logs')
         expect(screen.getByTestId('billing-product-logs')).toContainElement(section)
         expect(limit.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it.each([
+        {
+            hidden: true,
+            rows: ['billing-companion-logs_other_extra'],
+            total: 'Total including this section: $105.00 month-to-date, $210.00 projected',
+        },
+        {
+            hidden: false,
+            rows: ['billing-companion-logs_retention_custom', 'billing-companion-logs_other_extra'],
+            total: 'Total including this section: $117.50 month-to-date, $240.25 projected',
+        },
+    ])(
+        'shows and totals a companion only when its billing_hide_product flag is off (hidden: $hidden)',
+        async ({ hidden, rows, total }) => {
+            setCustomRetentionHidden(hidden)
+            await seedBilling([logs, customRetention(), otherNoLimitCompanion])
+            renderSection(logs)
+
+            expect(
+                screen.getAllByTestId(/^billing-companion-logs_/).map((row) => row.getAttribute('data-attr'))
+            ).toEqual(rows)
+            expect(screen.getByTestId('billing-companions-total-logs')).toHaveTextContent(total)
+        }
+    )
+
+    it('renders nothing when the billing_hide_product flag hides the only companion', async () => {
+        setCustomRetentionHidden(true)
+        await seedBilling([logs, customRetention()])
+        const { container } = render(
+            <Provider>
+                <BillingCompanionSection product={logs} cardShowsBillingLimit cardShowsProjection />
+            </Provider>
+        )
+
+        expect(container).toBeEmptyDOMElement()
     })
 
     describe('a companion outside its parent card', () => {

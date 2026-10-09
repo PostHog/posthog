@@ -8,6 +8,7 @@ import React from 'react'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -524,7 +525,8 @@ export interface billingProductLogicMeta {
                 projectedTotal: number
                 rawCurrentTotal: string
                 rawProjectedTotal: string
-            }
+            },
+            featureFlags: FeatureFlagsSet
         ) => {
             companion: BillingProductV2Type
             currentAmount: number
@@ -1149,15 +1151,19 @@ export const billingProductLogic = kea<billingProductLogicType>([
             ): BillingProductV2Type[] => getHeldCompanions(billing?.products, product.type),
         ],
         noLimitCompanionAmounts: [
-            (s) => [s.heldCompanions, s.combinedMonetaryData],
+            (s) => [s.heldCompanions, s.combinedMonetaryData, s.featureFlags],
             (
                 heldCompanions: BillingProductV2Type[],
-                monetaryData: { discountPercent: number }
+                monetaryData: { discountPercent: number },
+                featureFlags: FeatureFlagsSet
             ): { companion: BillingProductV2Type; currentAmount: number; projectedAmount: number }[] => {
                 const discountMultiplier = 1 - monetaryData.discountPercent / 100
                 // A companion that can have its own billing limit gets its own look later.
                 return heldCompanions
                     .filter((companion) => !canHaveBillingLimit(companion))
+                    .filter(
+                        (companion) => featureFlags[`billing_hide_product_${companion.type}` as FeatureFlagKey] !== true
+                    )
                     .map((companion) => ({
                         companion,
                         currentAmount: roundToCents(
