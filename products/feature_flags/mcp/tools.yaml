@@ -862,6 +862,10 @@ tools:
             an existing condition, such as an `is_not` filter, removes access from some users who match that condition
             today. Add a property filter to an existing condition only when the user asks to restrict access. When the
             request can mean either, ask the user which one they mean before you write.
+
+            When you send `filters`, the response includes `filters_change`. Read its `summary`. When
+            `filters_change.narrows` is true, tell the user which condition now serves fewer users, and confirm that
+            they asked to restrict access.
         include_params:
             - key
             - name
