@@ -1,7 +1,10 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconCode2 } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -17,6 +20,7 @@ export function TeamAccessControl(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const [terraformModalOpen, setTerraformModalOpen] = useState(false)
 
     return (
         <div className="space-y-6">
@@ -36,7 +40,44 @@ export function TeamAccessControl(): JSX.Element {
                             'Access control will start using the most specific rule. Review the changes before they take effect.'}
                     </LemonBanner>
                 )}
-            {currentTeam?.id ? <ResourcesAccessControlsV2 projectId={`${currentTeam.id}`} /> : null}
+            {currentTeam?.id ? (
+                <ResourcesAccessControlsV2
+                    projectId={`${currentTeam.id}`}
+                    tabsRightSlot={
+                        currentOrganization?.id && hasAvailableFeature(AvailableFeature.ACCESS_CONTROL) ? (
+                            <>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    className="group/terraform-button"
+                                    icon={
+                                        <IconCode2 className="text-secondary group-hover/terraform-button:text-primary" />
+                                    }
+                                    onClick={() => setTerraformModalOpen(true)}
+                                    data-attr="access-control-manage-with-terraform"
+                                >
+                                    <span className="font-normal text-secondary group-hover/terraform-button:text-primary">
+                                        Manage with Terraform
+                                    </span>
+                                </LemonButton>
+                                <TerraformExportModal
+                                    isOpen={terraformModalOpen}
+                                    onClose={() => setTerraformModalOpen(false)}
+                                    resource={{
+                                        type: 'access_control',
+                                        data: {
+                                            projectId: currentTeam.id,
+                                            projectName: currentTeam.name,
+                                            organizationId: currentOrganization.id,
+                                        },
+                                    }}
+                                    data-attr="access-control-terraform-modal"
+                                />
+                            </>
+                        ) : undefined
+                    }
+                />
+            ) : null}
         </div>
     )
 }

@@ -10,14 +10,16 @@ import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNoti
 import { AlertType } from 'products/alerts/frontend/types'
 
 import api from '../../api'
+import { AccessControlExportResult, AccessControlRule, generateAccessControlHCL } from './accessControlHclExporter'
 import { DashboardExportResult, generateDashboardHCL } from './dashboardHclExporter'
 import { InsightExportResult, generateInsightHCL } from './insightHclExporter'
 
-export type TerraformExportResult = DashboardExportResult | InsightExportResult
+export type TerraformExportResult = DashboardExportResult | InsightExportResult | AccessControlExportResult
 
 export type TerraformExportResource =
     | { type: 'insight'; data: Partial<InsightModel> }
     | { type: 'dashboard'; data: DashboardType }
+    | { type: 'access_control'; data: { projectId: number; projectName: string; organizationId: string } }
 
 export interface TerraformExportState {
     loading: boolean
@@ -122,6 +124,31 @@ async function exportInsight(
     }
 }
 
+async function exportAccessControl(
+    { projectId, organizationId }: { projectId: number; organizationId: string },
+    checkStale: () => boolean
+): Promise<AccessControlExportResult> {
+    const [projectResponse, resourceResponse, rolesResponse, members] = await Promise.all([
+        api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/access_controls`),
+        api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/resource_access_controls`),
+        api.roles.list(),
+        api.organizationMembers.listAll(),
+    ])
+
+    if (checkStale()) {
+        throw new Error('Fetch cancelled')
+    }
+
+    return generateAccessControlHCL({
+        projectId,
+        organizationId,
+        projectRules: projectResponse.access_controls,
+        resourceRules: resourceResponse.access_controls,
+        roles: rolesResponse.results,
+        members,
+    })
+}
+
 async function exportDashboard(
     dashboard: DashboardType,
     checkStale: () => boolean,
@@ -207,6 +234,9 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
             }
             if (res.type === 'dashboard') {
                 return exportDashboard(res.data, checkStale, currentTeamId)
+            }
+            if (res.type === 'access_control') {
+                return exportAccessControl(res.data, checkStale)
             }
             return exportInsight(res.data, checkStale, currentTeamId)
         },
