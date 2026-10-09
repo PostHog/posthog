@@ -50063,6 +50063,83 @@ export namespace Schemas {
 
     export type FeatureFlagActionConflict = FlagActionError | FlagApprovalConflict;
 
+    /**
+     * * `enabled` - Enabled
+     * * `disabled` - Disabled
+     * * `variant` - Variant
+     */
+    export type FlagCleanupKeepEnum = typeof FlagCleanupKeepEnum[keyof typeof FlagCleanupKeepEnum];
+
+
+    export const FlagCleanupKeepEnum = {
+      Enabled: 'enabled',
+      Disabled: 'disabled',
+      Variant: 'variant',
+    } as const;
+
+    export interface FeatureFlagCleanupPrRequest {
+      /** Which code path survives the cleanup. `enabled` keeps the path that runs when the flag is on and `disabled` keeps the path that runs when it is off. `variant` keeps one variant of a multivariate flag and needs `variant_key`.
+       *
+       * * `enabled` - Enabled
+       * * `disabled` - Disabled
+       * * `variant` - Variant */
+      keep: FlagCleanupKeepEnum;
+      /**
+         * The variant whose code path is kept. Required when `keep` is `variant`, and rejected otherwise.
+         * @nullable
+         */
+      variant_key?: string | null;
+      /**
+         * GitHub repository to open the pull request in, in `organization/repository` format. It must be one of the team's connected repositories (see the `cleanup_target` action). When omitted, the environment's default cleanup repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+    }
+
+    export interface FeatureFlagCleanupPrResponse {
+      /** The Code task that opens the draft pull request. */
+      task_id: string;
+      /** Repository the pull request is opened in. */
+      repository: string;
+    }
+
+    /**
+     * * `explicit` - Explicit
+     * * `team_default` - Team default
+     * * `single_repo` - Single repository
+     * * `ambiguous` - Ambiguous
+     * * `no_integration` - No integration
+     */
+    export type FlagCleanupRepositorySourceEnum = typeof FlagCleanupRepositorySourceEnum[keyof typeof FlagCleanupRepositorySourceEnum];
+
+
+    export const FlagCleanupRepositorySourceEnum = {
+      Explicit: 'explicit',
+      TeamDefault: 'team_default',
+      SingleRepo: 'single_repo',
+      Ambiguous: 'ambiguous',
+      NoIntegration: 'no_integration',
+    } as const;
+
+    export interface FeatureFlagCleanupTarget {
+      /**
+         * Repository a flag-cleanup pull request would be opened in, or null when none can be determined.
+         * @nullable
+         */
+      repository: string | null;
+      /** How the repository was determined: `explicit` (requested on the call), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+       *
+       * * `explicit` - Explicit
+       * * `team_default` - Team default
+       * * `single_repo` - Single repository
+       * * `ambiguous` - Ambiguous
+       * * `no_integration` - No integration */
+      source: FlagCleanupRepositorySourceEnum;
+      /** Repositories connected to the team's GitHub integration, to choose a target from. */
+      candidates: string[];
+    }
+
     export interface FeatureFlagConditionPropertyAnalysis {
       /** Property key */
       key: string;
