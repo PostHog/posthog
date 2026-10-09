@@ -47,12 +47,22 @@ describe('PatternMessageKeysCache', () => {
         await expect(cache.getMessageKeys(1)).rejects.toBeInstanceOf(DependencyUnavailableError)
     })
 
-    it('serves the last-known keys when a later refresh fails', async () => {
+    it('serves the last-known keys after a failed refresh, and waits before querying again', async () => {
+        const start = Date.now()
+        const now = jest.spyOn(Date, 'now').mockReturnValue(start)
         query.mockResolvedValueOnce({ rows: [{ logs_pattern_message_keys: [] }] })
         await cache.getMessageKeys(1)
 
-        jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
-        query.mockRejectedValueOnce(new Error('relation "logs_teamlogsconfig" does not exist'))
+        now.mockReturnValue(start + 60_000)
+        query.mockRejectedValue(new Error('relation "logs_teamlogsconfig" does not exist'))
+        const results = await Promise.all(Array.from({ length: 50 }, () => cache.getMessageKeys(1)))
+        expect(results).toEqual(Array(50).fill([]))
         expect(await cache.getMessageKeys(1)).toEqual([])
+        expect(query).toHaveBeenCalledTimes(2)
+
+        now.mockReturnValue(start + 66_000)
+        query.mockResolvedValueOnce({ rows: [{ logs_pattern_message_keys: ['msg'] }] })
+        expect(await cache.getMessageKeys(1)).toEqual(['msg'])
+        expect(query).toHaveBeenCalledTimes(3)
     })
 })
