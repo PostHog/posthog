@@ -29,6 +29,7 @@ import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/em
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { SystemEmailService } from './messaging/system-email.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,
@@ -66,6 +67,7 @@ export interface HogExecutorAsyncDependencies {
     emailService: EmailService
     recipientTokensService: RecipientTokensService
     pushNotificationService: PushNotificationService
+    systemEmailService: SystemEmailService
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -272,6 +274,7 @@ export class HogExecutorAsyncService {
                             internalApiBaseUrl: this.config.internalApiBaseUrl,
                             conversationsTicketsJwt: this.deps.conversationsTicketsJwt,
                             customerAnalyticsAccountsJwt: this.deps.customerAnalyticsAccountsJwt,
+                            systemEmailService: this.deps.systemEmailService,
                             consumeInlineAsyncBudget,
                         },
                         result

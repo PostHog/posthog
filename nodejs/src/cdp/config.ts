@@ -156,6 +156,16 @@ export type CdpConfig = ClickhouseConfig & {
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
 
+    // System email: alert mail from a PostHog-owned address to members of the team's organization.
+    // Comma-separated team IDs, or "*" for every team. Empty turns the feature off.
+    CDP_SYSTEM_EMAIL_ENABLED_TEAMS: string
+    // Empty means the sender is not provisioned, and nothing is sent.
+    CDP_SYSTEM_EMAIL_FROM_ADDRESS: string
+    CDP_SYSTEM_EMAIL_FROM_NAME: string
+    CDP_SYSTEM_EMAIL_REPLY_TO: string
+    // SES tenant that all system email is attributed to, apart from the per-team tenants.
+    CDP_SYSTEM_EMAIL_SES_TENANT: string
+
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
@@ -372,6 +382,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
+        CDP_SYSTEM_EMAIL_ENABLED_TEAMS: '',
+        CDP_SYSTEM_EMAIL_FROM_ADDRESS: '',
+        CDP_SYSTEM_EMAIL_FROM_NAME: 'PostHog',
+        CDP_SYSTEM_EMAIL_REPLY_TO: '',
+        CDP_SYSTEM_EMAIL_SES_TENANT: 'posthog-system',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
