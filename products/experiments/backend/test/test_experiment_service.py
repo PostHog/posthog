@@ -3803,7 +3803,7 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0)],
+                [("launch_endpoint", 0, [])],
             ),
             (
                 "launch_endpoint_on_older_flag",
@@ -3811,7 +3811,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400)],
+                [("launch_endpoint", 266400, [])],
             ),
             (
                 "create_with_start_date",
@@ -3822,7 +3822,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0)],
+                [("create_request", 0, ["no_metric"])],
             ),
             (
                 "create_draft",
@@ -3838,7 +3838,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0)],
+                [("update_start_date", 0, [])],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -3862,7 +3862,9 @@ class TestExperimentService(APIBaseTest):
         launched = [
             call.args[2] for call in mock_report_user_action.call_args_list if call.args[1] == "experiment launched"
         ]
-        assert [(event["launch_path"], event["flag_age_seconds"]) for event in launched] == expected
+        assert [
+            (event["launch_path"], event["flag_age_seconds"], event["health_finding_codes"]) for event in launched
+        ] == expected
 
     @parameterized.expand(
         [
@@ -5446,6 +5448,7 @@ class TestExperimentService(APIBaseTest):
             ("archived_true", {"archived": "true"}, {"Archived search"}),
             ("archived_false", {"archived": "false"}, {"Creator self", "Creator other", "Search match"}),
             ("search", {"search": "Search"}, {"Search match"}),
+            ("search_flag_key", {"search": "CREATED-BY"}, {"Creator self", "Creator other"}),
         ]
     )
     def test_filter_experiments_queryset_filters_by_common_query_params(

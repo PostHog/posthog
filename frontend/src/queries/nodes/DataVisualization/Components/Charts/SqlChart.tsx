@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react'
+
+import type { XAxisConfig, ChartMargins } from '@posthog/quill-charts'
+
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
@@ -35,11 +39,15 @@ export type SqlChartProps = {
      *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
     pointClickHint?: string
+    directPointClick?: boolean
+    xAxis?: XAxisConfig
+    margins?: Partial<ChartMargins>
+    children?: ReactNode
 }
 
 /**
  * Picks the @posthog/quill-charts renderer for a SQL insight: combo for mixed bar + line/area
- * series, bar for bar-only, line/area otherwise. (Pie has its own wrapper — see PieChart.)
+ * series, bar for bar-only, line/area otherwise. (Pie, donut and proportion bar have their own wrapper — see PartOfWholeChart.)
  */
 export function sqlChartComponentFor(props: SqlChartProps): (props: SqlChartProps) => JSX.Element {
     switch (sqlChartKind(props)) {

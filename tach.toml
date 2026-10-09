@@ -143,6 +143,7 @@ depends_on = [
     "products.today",
     "products.tracing",
     "products.visual_review",
+    "products.warehouse_suggestions",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
@@ -179,11 +180,6 @@ expose = [
 from = [
     "products.aeo",
 ]
-
-[[modules]]
-path = "products.ai_gateway"
-depends_on = ["posthog"]
-layer = "modules"
 
 [[modules]]
 path = "products.alerts"
@@ -302,6 +298,8 @@ depends_on = [
     "products.product_analytics",
     "products.conversations",
     "products.surveys", "products.access_control",
+    # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
+    "products.canvas",
 ]
 layer = "modules"
 
@@ -635,6 +633,9 @@ depends_on = [
     # Facade-only: template writes publish the realtime edited-elsewhere event through
     # products.notifications.backend.facade.api.
     "products.notifications",
+    # Facade-only: the recipient preferences page reads EmailTrackingConsentMode through
+    # products.workflows.backend.facade.enums.
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -998,6 +999,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # Object access checks on canvases served as contracts (via the access_control facade).
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -1079,7 +1082,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
+    "products\\.(autoresearch|batch_exports|canvas|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|messaging|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|visual_review|warehouse_sources|workflows)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1662,6 +1665,7 @@ path = "products.warehouse_suggestions"
 depends_on = [
     "posthog",
     "products.access_control",
+    "products.data_catalog",
     "products.data_modeling",
     "products.warehouse_sources",
 ]

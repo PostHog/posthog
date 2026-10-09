@@ -32,7 +32,7 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     scope_ids_problem,
 )
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, SourceSuggestion, priority_from_judgment
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
@@ -1146,6 +1146,16 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
 
 
+class ReportSourceSuggestionSerializer(serializers.Serializer):
+    product = serializers.ChoiceField(
+        choices=SuggestedSourceProduct.choices,
+        help_text="The product the team does not use and could turn on to give reports like this one better evidence.",
+    )
+    reason = serializers.CharField(
+        help_text="One sentence on what the product would have shown for this report.",
+    )
+
+
 class ReportRankingSerializer(serializers.Serializer):
     served_key = serializers.CharField(
         help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
@@ -1305,6 +1315,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "other users, and null when the report has no score."
         ),
     )
+    source_suggestion = serializers.SerializerMethodField(
+        help_text=(
+            "A product the team does not use that would have given this report better evidence, from the "
+            "latest source suggestion artefact. Null when there is none, or when the team now uses the "
+            "product. Always null in list responses, because its in-use check can query ClickHouse."
+        ),
+    )
     collapsed_note_count = serializers.SerializerMethodField(
         help_text=(
             "How many scout notes this report received beyond the few its work log keeps as entries. "
@@ -1361,6 +1378,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "charts",
             "metrics",
             "suggested_prompts",
+            "source_suggestion",
             "priority",
             "actionability",
             "already_addressed",
@@ -1666,6 +1684,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if report_id not in claims:
             claims[report_id] = get_active_claim(team_id=obj.team_id, report_id=report_id)
         return claims[report_id]
+
+    @extend_schema_field(ReportSourceSuggestionSerializer(allow_null=True))
+    def get_source_suggestion(self, obj: SignalReport) -> dict | None:
+        suggestions_map: dict[str, SourceSuggestion | None] = self.context.get("source_suggestions_map", {})
+        suggestion = suggestions_map.get(str(obj.id))
+        return suggestion.model_dump(mode="json") if suggestion else None
 
     def get_collapsed_note_count(self, obj: SignalReport) -> int:
         return max(0, (obj.corroboration_count or 0) - MAX_SCOUT_REPORT_NOTES)
@@ -2494,7 +2518,7 @@ _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
     + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
-    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new "
+    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."
 )
 

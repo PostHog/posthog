@@ -7504,6 +7504,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "scout_trial": trial_context,
                 "scout_trial_private": trial_private,
                 "github_credential_source": "caller_token",
+                "include_live_context": False,
                 "analytics_query_context": [],
                 "sandbox_oauth_token_ids": ["server-token-id"],
                 "resume_from_run_id": "server-resume-id",
@@ -7584,6 +7585,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "scout_trial": {"version": 2},
                     "scout_trial_private": {"reports": {}},
                     "github_credential_source": "server_integration",
+                    "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
                     "resume_from_run_id": "caller-resume-id",
@@ -7673,6 +7675,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["github_credential_source"] == "caller_token"
+        assert run.state["include_live_context"] is False
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
         assert run.state["sandbox_id"] == "sb-real"
@@ -7746,6 +7749,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "state_remove_keys": [
                     "scout_trial",
                     "scout_trial_private",
+                    "include_live_context",
                     "analytics_query_context",
                     "sandbox_oauth_token_ids",
                     "resume_from_run_id",
@@ -7807,6 +7811,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["claude_subscription_user_id"] == self.user.id
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["include_live_context"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
         assert run.state["agent_proxy_keep_stream_open"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
@@ -7864,6 +7869,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state_append": {
+                    "include_live_context": True,
                     "analytics_query_context": [{"kind": "private"}],
                     "sandbox_oauth_token_ids": ["forged-token-id"],
                     "systemPrompt": "Caller-controlled instructions",
@@ -7886,6 +7892,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["resume_from_run_id"] == "server-resume-id"
         assert run.state["sandbox_oauth_token_ids"] == ["server-token-id"]
         assert run.state["scratch"] == ["ok"]
+        assert run.state["include_live_context"] is False
         assert run.state["task_management_ci_idle_skips"] == 1
         assert run.state["task_management_ci_wait_checks"] == 10
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}

@@ -15,6 +15,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     RESOLUTION_SECTION_START,
     FinalizeStatusCommentInput,
@@ -46,11 +47,21 @@ _STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
     ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
 ]
 
+_SINGLE_AGENT_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
+    (None, "Step 2/3 · Reviewing the pull request"),
+    ({"review_stage": "single_agent_finalizing", "done": None, "total": None}, "Step 3/3 · Finalizing the review"),
+]
+
 
 class TestRenderInProgressBody:
-    @parameterized.expand(_STAGE_LINE_CASES)
-    def test_renders_the_stage_line_and_marker(self, progress: dict[str, Any] | None, expected_line: str) -> None:
-        body = render_in_progress_body("rid", progress)
+    @parameterized.expand(
+        [(progress, line, REVIEW_DESIGN_PIPELINE) for progress, line in _STAGE_LINE_CASES]
+        + [(progress, line, REVIEW_DESIGN_SINGLE_AGENT) for progress, line in _SINGLE_AGENT_STAGE_LINE_CASES]
+    )
+    def test_renders_the_stage_line_and_marker(
+        self, progress: dict[str, Any] | None, expected_line: str, review_design: str
+    ) -> None:
+        body = render_in_progress_body("rid", progress, review_design=review_design)
         assert f"**{expected_line}**" in body
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
 
@@ -227,6 +238,40 @@ class TestRenderFinalBody:
             mock_choice.assert_not_called()
         if review_mode == REVIEW_MODE_FLASH:
             assert "Nothing worth raising." in body
+
+    @parameterized.expand(
+        [
+            # A clean turn posts no review, so the status comment is the only place a note can appear.
+            ("clean_large_pr", 0, 4, 0, True, False),
+            ("large_pr_with_findings", 2, 4, 0, True, False),
+            ("normal_pr", 2, None, 0, False, False),
+            ("clean_additional_review", 0, None, 2, False, True),
+        ]
+    )
+    def test_turn_notes_show_whether_or_not_a_review_posts(
+        self,
+        _name: str,
+        must_fix: int,
+        capped_lens_parts: int | None,
+        already_raised: int,
+        expect_large_note: bool,
+        expect_skipped_note: bool,
+    ) -> None:
+        body = render_final_body(
+            "rid",
+            counts={IssuePriority.MUST_FIX: must_fix, IssuePriority.SHOULD_FIX: 0, IssuePriority.CONSIDER: 0},
+            published_count=must_fix,
+            held_back_count=0,
+            threshold=IssuePriority.SHOULD_FIX,
+            review_url=None,
+            review_mode=REVIEW_MODE_FLASH,
+            capped_lens_parts=capped_lens_parts,
+            already_raised=already_raised,
+        )
+
+        large_note = "This pull request is large, so the review ran in 4 parts with less depth than usual."
+        skipped_note = "Skipped 2 findings that other comments on this pull request already raise."
+        assert ((large_note in body), (skipped_note in body)) == (expect_large_note, expect_skipped_note)
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:

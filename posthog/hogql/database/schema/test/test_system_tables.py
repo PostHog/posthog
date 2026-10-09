@@ -94,6 +94,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.messaging.backend.facade.testing import (
+    create_message_category_for_test,
+    create_recipient_preference_for_test,
+)
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
@@ -547,17 +551,13 @@ def _create_hog_flow(team: Team, label: str) -> str:
     return create_workflow_for_test(team_id=team.id, name=f"flow_{label}").id
 
 
-def _create_message_category(team: Team, label: str):
-    from products.messaging.backend.models.message_category import MessageCategory
-
-    return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
+def _create_message_category(team: Team, label: str) -> uuid.UUID:
+    return create_message_category_for_test(team_id=team.pk, key=f"category_{label}", name=f"Category {label}")
 
 
-def _create_message_recipient_preference(team: Team, label: str):
-    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
-    return MessageRecipientPreference.objects.create(
-        team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+def _create_message_recipient_preference(team: Team, label: str) -> uuid.UUID:
+    return create_recipient_preference_for_test(
+        team_id=team.pk, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
     )
 
 
@@ -1199,6 +1199,26 @@ class TestSystemTablesCanvasDeletedExclusion(BaseTest):
         assert "system__canvases.deleted" in query
         assert "system___task_public_channels" in query
         assert f"equals(system__canvases.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesJoinOnHiddenBackedFields(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_joined_tables_filtered_on_deleted_are_not_ambiguous(self):
+        tile = _create_dashboard_tile(self.team, "join")
+
+        response = execute_hogql_query(
+            "SELECT i.id, d.id FROM system.insights i "
+            "JOIN system.dashboard_tiles dt ON dt.insight_id = i.id "
+            "JOIN system.dashboards d ON d.id = dt.dashboard_id "
+            "WHERE i.deleted = 0 AND dt.deleted = 0 AND d.deleted = 0",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [(str(row[0]), str(row[1])) for row in response.results] == [
+            (str(tile.insight_id), str(tile.dashboard_id))
+        ]
 
 
 class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):

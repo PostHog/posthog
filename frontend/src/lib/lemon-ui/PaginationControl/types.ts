@@ -9,6 +9,7 @@ export interface PaginationAuto extends PaginationBase {
     controlled?: false
     /** Size of each page (except the last one which can be smaller). */
     pageSize: number
+    showPageSelector?: boolean
 }
 
 export interface PaginationManual extends PaginationBase {

@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import type { AnyPropertyFilter, IntervalType, TeamBasicType } from '~/types'
 
+import { crossProjectDashboardTracking } from './crossProjectDashboardTracking'
 import { changedTileLayouts, layoutsDiffer, layoutsForTiles, type ResponsiveTileLayouts } from './crossProjectLayouts'
 import { findMissingPropertyKeys, propertyKeysIn } from './crossProjectPropertyKeys'
 import {
@@ -321,6 +322,8 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
         let saves: Promise<boolean> = Promise.resolve(true)
         // Undo stays clickable while its toast closes, and a second restore of the same tile fails as a duplicate.
         const restoringTileIds = new Set<string>()
+        // Saves and tile edits also land through loadDashboardSuccess, and only the first load is a view.
+        let viewTracked = false
         const saveDashboard = (
             changes: () => PatchedCrossProjectDashboardApi,
             errorMessage: string
@@ -365,8 +368,16 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
         }
 
         return {
+            loadDashboardSuccess: ({ dashboard }) => {
+                if (dashboard && !viewTracked) {
+                    viewTracked = true
+                    crossProjectDashboardTracking.viewed(props.id, dashboard.tiles)
+                }
+            },
             updateDashboard: async ({ details }) => {
-                await saveDashboard(() => details, 'Could not save that change. Try again.')
+                if (await saveDashboard(() => details, 'Could not save that change. Try again.')) {
+                    crossProjectDashboardTracking.edited(props.id, details.name !== undefined ? 'name' : 'description')
+                }
             },
             deleteDashboard: () => {
                 const organizationId = organizationLogic.values.currentOrganization?.id
@@ -375,21 +386,28 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 }
                 openDeleteCrossProjectDashboardDialog(values.dashboard.name, async () => {
                     await crossProjectDashboardsDestroy(organizationId, props.id)
+                    crossProjectDashboardTracking.deleted(props.id, 'dashboard')
                     router.actions.push(combineUrl(urls.dashboards(), { tab: DashboardsTab.CrossProject }).url)
                 })
             },
             setDates: async ({ dateFrom, dateTo }) => {
-                await saveFilters((filters) => {
+                const saved = await saveFilters((filters) => {
                     // An unset bound is dropped, so the stored blob carries only the bounds actually chosen
                     // and each tile keeps its own insight's value for the other one.
                     dateFrom ? (filters.date_from = dateFrom) : delete filters.date_from
                     dateTo ? (filters.date_to = dateTo) : delete filters.date_to
                 }, 'Could not apply that date range. Try again.')
+                if (saved) {
+                    crossProjectDashboardTracking.edited(props.id, 'date_range')
+                }
             },
             setInterval: async ({ interval }) => {
-                await saveFilters((filters) => {
+                const saved = await saveFilters((filters) => {
                     interval ? (filters.interval = interval) : delete filters.interval
                 }, 'Could not apply that interval. Try again.')
+                if (saved) {
+                    crossProjectDashboardTracking.edited(props.id, 'interval')
+                }
             },
             enterLayoutEdit: () => {
                 lemonToast.info('Now editing the dashboard. Press E or click Save to persist changes.')
@@ -417,6 +435,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                     applySavedTiles(saved)
                     actions.exitLayoutEdit()
                     lemonToast.success('Dashboard saved')
+                    crossProjectDashboardTracking.edited(props.id, 'layout')
                 } catch (error: any) {
                     lemonToast.error(error?.detail || 'Could not save the layout. Try again.')
                     actions.saveLayoutFailed()
@@ -449,6 +468,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 if (saved) {
                     // Checked here rather than on open: the answer only changes when the filter does.
                     actions.checkPropertyKeys()
+                    crossProjectDashboardTracking.edited(props.id, 'property_filter')
                 }
             },
             setTileOverride: async ({ tileId, overrides }) => {
@@ -462,6 +482,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                     })
                     applySavedTiles([saved])
                     lemonToast.success('Tile filters saved')
+                    crossProjectDashboardTracking.edited(props.id, 'tile_filters')
                 } catch (error: any) {
                     lemonToast.error(error?.detail || 'Could not save the tile filters. Try again.')
                 }
@@ -475,6 +496,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                     applySavedTiles([
                         await crossProjectDashboardsTilesPartialUpdate(organizationId, props.id, tileId, { color }),
                     ])
+                    crossProjectDashboardTracking.edited(props.id, 'tile_color')
                 } catch (error: any) {
                     lemonToast.error(error?.detail || 'Could not change the tile color. Try again.')
                 }
@@ -487,9 +509,14 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 const removedTile = values.tiles.find((tile) => tile.id === tileId)
                 try {
                     await crossProjectDashboardsTilesDestroy(organizationId, props.id, tileId)
+                    crossProjectDashboardTracking.tileRemoved(props.id)
                     if (removedTile) {
                         lemonToast.info('Tile removed from the dashboard', {
-                            button: { label: 'Undo', action: () => actions.restoreTile(removedTile) },
+                            button: {
+                                label: 'Undo',
+                                action: () => actions.restoreTile(removedTile),
+                                dataAttr: 'cross-project-dashboard-tile-undo',
+                            },
                         })
                     }
                 } catch (error: any) {
@@ -513,6 +540,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                         filters_overrides: tile.filters_overrides,
                     })
                     lemonToast.success('Tile restored')
+                    crossProjectDashboardTracking.tileRestored(props.id)
                 } catch (error: any) {
                     lemonToast.error(error?.detail || 'Could not restore the tile. Add the insight again.')
                 } finally {

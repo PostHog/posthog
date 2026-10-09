@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -64,7 +64,11 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunEvidence,
     TrialRunJudgment,
 )
-from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
+from products.signals.backend.scout_harness.trial_judge import (
+    TrialJudgeExecutionError,
+    judge_trial_run,
+    parse_trial_judgment,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     ScoutTrialsDisabled,
@@ -668,6 +672,33 @@ class TestScoutTrialEvaluation(BaseTest):
             assert mint.call_args.kwargs["sandbox_task_id"] == judge_task.id
 
     @parameterized.expand(
+        ["source_origin", "source_state", "excluded_evidence", "unfinished_evidence", "foreign_evidence"]
+    )
+    def test_changed_source_or_ineligible_evidence_cannot_dispatch_a_judge(self, invalid: str) -> None:
+        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        evidence = snapshot.runs[0]
+        if invalid == "source_origin":
+            task = self.scout_run.task_run.task
+            task.origin_key = "ordinary-task"
+            task.save(update_fields=["origin_key"])
+        elif invalid == "source_state":
+            self.scout_run.task_run.state["scout_trial"] = {}
+            self.scout_run.task_run.save(update_fields=["state"])
+        elif invalid == "excluded_evidence":
+            evidence = evidence.model_copy(update={"exclusion_reason": "Synthetic excluded run."})
+            snapshot = snapshot.model_copy(update={"runs": [evidence]})
+        elif invalid == "unfinished_evidence":
+            evidence = evidence.model_copy(update={"execution_status": "failed"})
+            snapshot = snapshot.model_copy(update={"runs": [evidence]})
+        else:
+            evidence = evidence.model_copy(update={"launch_id": uuid4()})
+
+        with patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start:
+            with self.assertRaises(TrialJudgeExecutionError):
+                async_to_sync(judge_trial_run)(snapshot, evidence)
+        start.assert_not_awaited()
+
+    @parameterized.expand(
         [(bound, status, None) for bound in (False, True) for status in ("pending", "unknown", "not_started")]
         + [
             (True, status, task_status)
@@ -947,17 +978,66 @@ class TestScoutTrialEvaluation(BaseTest):
                 report.runs[0].error or ""
             )
 
-    def test_worker_rechecks_operator_access_before_judging(self) -> None:
+    @parameterized.expand(
+        [
+            "staff_revoked",
+            "inactive",
+            "membership_revoked",
+            "project_revoked",
+            "historical_skill_removed",
+            "source_skill",
+            "source_config_team",
+            "source_invalidated",
+        ]
+    )
+    def test_worker_rechecks_source_and_operator_access_before_judging(self, revoked: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        self.user.is_staff = False
-        self.user.save(update_fields=["is_staff"])
-        judge = AsyncMock()
-        with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
+        if revoked == "staff_revoked":
+            self.user.is_staff = False
+            self.user.save(update_fields=["is_staff"])
+        elif revoked == "inactive":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif revoked == "membership_revoked":
+            self.user.organization_memberships.filter(organization_id=self.organization.id).delete()
+        elif revoked == "project_revoked":
+            self.enterContext(
+                patch(
+                    "products.access_control.backend.facade.user_access_control.UserAccessControl.has_project_access",
+                    new_callable=PropertyMock,
+                    return_value=False,
+                )
+            )
+        elif revoked == "historical_skill_removed":
+            self.skill.delete()
+            LLMSkill.objects.create(
+                team=self.team,
+                name=self.skill.name,
+                version=2,
+                body="Updated synthetic instructions.",
+                allowed_tools=["emit_report"],
+            )
+        elif revoked == "source_skill":
+            self.scout_run.skill_name = "signals-scout-other"
+            self.scout_run.save(update_fields=["skill_name"])
+        elif revoked == "source_config_team":
+            self.config.team = Team.objects.create(organization=self.organization, name="Other synthetic project")
+            self.config.save(update_fields=["team"])
+        else:
+            ScoutTrialStore(self.scout_run).invalidate("Synthetic invalidation", allow_terminal=True)
+
+        with (
+            patch(f"{JUDGE_MODULE}.get_or_create_signals_sandbox_env", return_value=None),
+            patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start,
+        ):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
-        judge.assert_not_called()
-        self.user.is_staff = True
-        self.user.save(update_fields=["is_staff"])
-        assert finish_trial_evaluation(self.team.id, snapshot.evaluation_id).runs[0].status == "judge_error"
+        start.assert_not_awaited()
+        judgment = TrialRunJudgment.model_validate_json(
+            self.documents[
+                f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/runs/{self.launch.id}.json"
+            ]
+        )
+        assert judgment.status == "judge_error"
 
     @parameterized.expand(["before_start", "during_judging"])
     def test_flag_disable_preserves_unstarted_attempts_and_active_results(self, timing: str) -> None:

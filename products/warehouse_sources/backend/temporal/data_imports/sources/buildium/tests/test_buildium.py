@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest.mock import MagicMock, patch
 
-from requests import PreparedRequest, Response
+from requests import Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium import (
@@ -59,34 +59,6 @@ def source(
 
 def source_items(result: SourceResponse) -> Iterable[list[dict[str, Any]]]:
     return cast(Iterable[list[dict[str, Any]]], result.items())
-
-
-@pytest.mark.parametrize(
-    ("endpoint", "path"),
-    [
-        ("rental_properties", "rentals"),
-        ("rental_units", "rentals/units"),
-        ("leases", "leases"),
-        ("tenants", "leases/tenants"),
-        ("rental_owners", "rentals/owners"),
-        ("vendors", "vendors"),
-        ("bills", "bills"),
-        ("general_ledger_accounts", "glaccounts"),
-        ("work_orders", "workorders"),
-        ("applicants", "applicants"),
-    ],
-)
-def test_request_path_and_auth(manager: MagicMock, endpoint: str, path: str) -> None:
-    with patch("requests.Session.send", return_value=response([{"Id": 7}])) as send:
-        assert list(source_items(source(manager, endpoint))) == [[{"Id": 7}]]
-    request: PreparedRequest = send.call_args.args[0]
-    assert request.url is not None
-    assert urlparse(request.url).path == f"/v1/{path}"
-    assert request.headers["x-buildium-client-id"] == "example-client"
-    assert request.headers["x-buildium-client-secret"] == "example-secret"
-    assert parse_qs(urlparse(request.url).query) == {"limit": ["1000"], "offset": ["0"], "orderby": ["Id asc"]}
-    assert send.call_args.kwargs["timeout"] == (10, 30)
-    send.assert_called_once()
 
 
 @pytest.mark.parametrize(

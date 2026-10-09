@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -141,8 +141,8 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 }
 
 export function BroadcastRecipientsStep(): JSX.Element {
-    const { audienceProperties } = useValues(broadcastWizardLogic)
-    const { setAudienceProperties } = useActions(broadcastWizardLogic)
+    const { audienceProperties, linkAudienceRejected } = useValues(broadcastWizardLogic)
+    const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const [audienceListOpen, setAudienceListOpen] = useState(false)
 
     return (
@@ -153,6 +153,19 @@ export function BroadcastRecipientsStep(): JSX.Element {
                     Filter by person properties or cohorts. Without filters, the broadcast goes to everyone.
                 </p>
             </div>
+            {linkAudienceRejected && audienceProperties.length === 0 && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Send to everyone',
+                        onClick: sendToEveryoneAfterRejectedLink,
+                        'data-attr': 'broadcast-rejected-link-send-to-everyone',
+                    }}
+                >
+                    The link you followed had recipients we couldn't read, so none were added. Add a condition below, or
+                    send to everyone.
+                </LemonBanner>
+            )}
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <span className="font-semibold">This broadcast will reach</span> <AudienceSizePreview />

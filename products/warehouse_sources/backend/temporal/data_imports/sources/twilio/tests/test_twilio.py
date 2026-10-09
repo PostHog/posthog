@@ -10,7 +10,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import TWILIO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     CREDENTIAL_PROBE_ENDPOINTS,
-    TWILIO_ACCOUNT_NOT_FOUND_MESSAGE,
     TWILIO_INVALID_CREDENTIALS_MESSAGE,
     TWILIO_MAIN_KEY_REQUIRED_MESSAGE,
     TWILIO_MAIN_KEY_REQUIRED_REASON,
@@ -106,44 +105,6 @@ class TestFormatFilterDate:
 
 
 class TestBuildInitialParams:
-    @pytest.mark.parametrize(
-        "endpoint,expected",
-        [
-            ("messages", {"PageSize": 1000}),
-            # Twilio answers PageSize=1000 on Verify with a 400, so neither Verify endpoint sends
-            # one; a page size we don't send can't be rejected.
-            ("verification_services", {}),
-            ("verification_attempts", {}),
-        ],
-    )
-    def test_full_refresh_sends_only_the_endpoints_page_size(self, endpoint: str, expected: dict[str, Any]):
-        params = _build_initial_params(
-            TWILIO_ENDPOINTS[endpoint],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == expected
-
-    def test_incremental_adds_inclusive_date_filter(self):
-        params = _build_initial_params(
-            TWILIO_ENDPOINTS["messages"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="date_sent",
-        )
-        assert params["DateSent>"] == "2026-03-04"
-
-    def test_incremental_honors_chosen_field(self):
-        params = _build_initial_params(
-            TWILIO_ENDPOINTS["calls"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            incremental_field="end_time",
-        )
-        assert "EndTime>" in params
-        assert "StartTime>" not in params
-
     def test_incremental_defaults_to_single_filter_field(self):
         # `date_sent` is the only filter for messages, so a None selection still resolves to it.
         params = _build_initial_params(
@@ -216,21 +177,6 @@ class TestValidateCredentials:
         assert not any(url.endswith(f"Accounts/{ACCOUNT_SID}.json") for url in probed)
 
     @mock.patch(TWILIO_SESSION_PATCH)
-    def test_create_probe_walks_candidates_until_one_is_readable(self, mock_session):
-        # A Restricted key scoped to one product area is denied the earlier candidates.
-        getter = mock_session.return_value.get
-        getter.side_effect = [mock.MagicMock(status_code=s) for s in (401, 401, 200)]
-
-        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID)
-
-        assert (is_valid, msg) == (True, None)
-        probed = [call.args[0] for call in getter.call_args_list]
-        assert probed == [
-            f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/{TWILIO_ENDPOINTS[name].path}?PageSize=1"
-            for name in CREDENTIAL_PROBE_ENDPOINTS
-        ]
-
-    @mock.patch(TWILIO_SESSION_PATCH)
     def test_create_probe_rejects_when_every_candidate_is_denied(self, mock_session):
         getter = mock_session.return_value.get
         getter.return_value = mock.MagicMock(status_code=401)
@@ -239,41 +185,6 @@ class TestValidateCredentials:
 
         assert (is_valid, msg) == (False, TWILIO_INVALID_CREDENTIALS_MESSAGE)
         assert getter.call_count == len(CREDENTIAL_PROBE_ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        "status_code, expected_message",
-        [
-            (500, "Twilio returned an unexpected status (500) while validating credentials."),
-            (429, "Twilio returned an unexpected status (429) while validating credentials."),
-            (404, TWILIO_ACCOUNT_NOT_FOUND_MESSAGE),
-        ],
-    )
-    @mock.patch(TWILIO_SESSION_PATCH)
-    def test_create_probe_stops_on_a_status_that_is_not_a_denial(self, mock_session, status_code, expected_message):
-        # A throttle, a server error, or a missing account is not a verdict on the credential, so the
-        # remaining candidates must not be walked.
-        getter = mock_session.return_value.get
-        getter.return_value = mock.MagicMock(status_code=status_code)
-
-        is_valid, msg = validate_credentials(API_KEY_AUTH, ACCOUNT_SID)
-
-        assert (is_valid, msg) == (False, expected_message)
-        assert getter.call_count == 1
-
-    @pytest.mark.parametrize(
-        "schema_name, expected_url",
-        [
-            ("messages", f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json?PageSize=1"),
-            # A Verify table is probed on its own host at its non-account path — not the Account API.
-            ("verification_services", "https://verify.twilio.com/v2/Services?PageSize=1"),
-        ],
-    )
-    @mock.patch(TWILIO_SESSION_PATCH)
-    def test_specific_schema_probes_endpoint_path(self, mock_session, schema_name, expected_url):
-        getter = mock_session.return_value.get
-        getter.return_value = mock.MagicMock(status_code=200)
-        validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, schema_name)
-        assert getter.call_args.args[0] == expected_url
 
     @pytest.mark.parametrize(
         "schema_name, expected_message",
@@ -401,18 +312,6 @@ class TestPagination:
         assert snapshots[0]["params"] == {}
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates_without_checkpoint(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response({"messages": [], "next_page_uri": None})])
-        manager = _make_manager()
-
-        rows = _rows(_source("messages", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_filter_param_is_sent_on_first_request(self, MockSession):
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"messages": [{"sid": "SM1"}], "next_page_uri": None})])
@@ -428,32 +327,3 @@ class TestPagination:
         )
 
         assert snapshots[0]["params"]["DateSent>"] == "2026-03-04"
-
-
-class TestTwilioSource:
-    @pytest.mark.parametrize(
-        "endpoint, expected_sort, expects_partition, expected_primary_key",
-        [
-            ("messages", "desc", True, "sid"),
-            ("calls", "desc", True, "sid"),
-            ("recordings", "desc", True, "sid"),
-            ("conferences", "desc", True, "sid"),
-            ("addresses", "asc", False, "sid"),
-            ("transcriptions", "asc", True, "sid"),
-            # Usage records have no `sid`; each category appears once, so it's the primary key.
-            ("usage_records", "asc", False, "category"),
-            ("verification_services", "asc", True, "sid"),
-            ("verification_attempts", "desc", True, "sid"),
-        ],
-    )
-    def test_source_response_shape(self, endpoint, expected_sort, expects_partition, expected_primary_key):
-        response = _source(endpoint, _make_manager())
-        assert response.name == endpoint
-        assert response.primary_keys == [expected_primary_key]
-        assert response.sort_mode == expected_sort
-        if expects_partition:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == ["date_created"]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None

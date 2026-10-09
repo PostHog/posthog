@@ -657,7 +657,7 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     """
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
     creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
-    if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):
+    if is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
         pool = make_ch_pool(
             send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS,

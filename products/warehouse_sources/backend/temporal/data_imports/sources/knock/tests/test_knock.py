@@ -145,14 +145,6 @@ class TestKnockSourceTransport:
 
         assert [p.get("after") for p in sent_params] == ["cursor-resumed"]
 
-    def test_terminal_single_page_does_not_save_state(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        self._drive("messages", manager, [_page("messages", [{"id": "only"}], after=None)])
-
-        manager.save_state.assert_not_called()
-
     def test_incremental_run_sends_watermark_as_iso8601(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False

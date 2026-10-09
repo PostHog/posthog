@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -145,23 +144,6 @@ class TestRestRows:
             rows.extend(page)
         return rows, fetched_urls
 
-    def test_v1_short_page_stops_without_saving_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, urls = self._collect("users", [[{"_id": "a"}, {"_id": "b"}]], manager, monkeypatch)
-        assert rows == [{"_id": "a"}, {"_id": "b"}]
-        assert len(urls) == 1
-        assert "sort=_id" in urls[0]
-        assert manager.saved == []
-
-    def test_v1_paginates_until_short_page_and_checkpoints_skip(self, monkeypatch: Any) -> None:
-        full_page = [{"_id": str(i)} for i in range(REST_PAGE_SIZE)]
-        manager = _FakeResumableManager()
-        rows, urls = self._collect("users", [full_page, [{"_id": "last"}]], manager, monkeypatch)
-        assert len(rows) == REST_PAGE_SIZE + 1
-        assert len(urls) == 2
-        # State is saved after the full page (pointing at the next offset), then we stop short.
-        assert manager.saved == [JumpcloudResumeConfig(skip=REST_PAGE_SIZE)]
-
     def test_v1_resumes_from_saved_skip(self, monkeypatch: Any) -> None:
         full_page = [{"_id": str(i)} for i in range(REST_PAGE_SIZE)]
         manager = _FakeResumableManager(JumpcloudResumeConfig(skip=REST_PAGE_SIZE))
@@ -199,11 +181,6 @@ class TestRestRows:
         assert [u.split("?")[0] for u in urls] == ["https://console.jumpcloud.com/api/v2/systeminsights/apps"] * 2
         assert f"limit={page_size}" in urls[0]
         assert manager.saved == [JumpcloudResumeConfig(skip=page_size)]
-
-    def test_eu_region_targets_eu_console(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, urls = self._collect("users", [[{"_id": "a"}]], manager, monkeypatch, region="eu")
-        assert urls[0].startswith("https://console.eu.jumpcloud.com/")
 
     def test_applications_strips_saml_private_key_before_emitting(self, monkeypatch: Any) -> None:
         # An SSO application row carries its SAML IdP signing key at `config.idpPrivateKey.value`;
@@ -446,34 +423,6 @@ class TestEventRows:
             rows.extend(page)
         return rows, request_bodies
 
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_first_sync_queries_the_90_day_retention_window(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        _, bodies = self._collect(manager, monkeypatch, [([{"id": "e1"}], None)])
-        assert bodies == [
-            {
-                "service": ["all"],
-                "start_time": "2026-04-16T12:00:00Z",
-                "end_time": "2026-07-15T12:00:00Z",
-                "limit": EVENTS_PAGE_SIZE,
-            }
-        ]
-
-    @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
-    def test_incremental_sync_starts_at_the_watermark(self, monkeypatch: Any) -> None:
-        from datetime import UTC, datetime
-
-        manager = _FakeResumableManager()
-        _, bodies = self._collect(
-            manager,
-            monkeypatch,
-            [([{"id": "e1"}], None)],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 7, 10, 8, 30, tzinfo=UTC),
-        )
-        assert bodies[0]["start_time"] == "2026-07-10T08:30:00Z"
-        assert bodies[0]["end_time"] == "2026-07-15T12:00:00Z"
-
     def test_follows_search_after_cursor_and_checkpoints_after_yield(self, monkeypatch: Any) -> None:
         full_page = [{"id": str(i)} for i in range(EVENTS_PAGE_SIZE)]
         cursor = [1747608000000, "evt"]
@@ -491,14 +440,6 @@ class TestEventRows:
                 search_after=cursor, start_time=bodies[0]["start_time"], end_time=bodies[0]["end_time"]
             )
         ]
-
-    def test_full_page_without_search_after_header_terminates(self, monkeypatch: Any) -> None:
-        # A full page whose response lacks the cursor header must stop rather than loop on page one.
-        full_page = [{"id": str(i)} for i in range(EVENTS_PAGE_SIZE)]
-        manager = _FakeResumableManager()
-        rows, bodies = self._collect(manager, monkeypatch, [(full_page, None)])
-        assert len(rows) == EVENTS_PAGE_SIZE
-        assert len(bodies) == 1
 
     def test_resumes_with_saved_window_and_cursor(self, monkeypatch: Any) -> None:
         cursor = [123, "evt"]

@@ -27,7 +27,7 @@ SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true
 
 Enable the `scout-trials` feature flag for the `project` group with `id = 2`. A missing or unreadable flag blocks new work. Trials also require private capture and the gateway configuration above. The team-2 and staff restrictions still apply even if the flag targets another project. Production MCP also hides trial tools until the flag is enabled.
 
-Switching the flag off blocks new trials, resumes, and queued scout or judge work. Already-running scouts and judge jobs can finish, and saved results remain readable. After re-enabling the flag, resume interrupted trials to recover saved work.
+Switching the flag off blocks new trials, resumes, queued scout work and new judge dispatch. Judges already dispatched to Tasks can finish, even if their sandbox has not started yet. Saved results remain readable.
 
 Verify the ports and Docker host mapping. Sandbox URLs and MCP's `POSTHOG_API_BASE_URL` must reach services directly, without the Coder login proxy. Keep `POSTHOG_PUBLIC_URL` and `SITE_URL` on the browser URL.
 The backend and scout orchestration worker use their existing `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Private report checks mint and revoke temporary tokens with that service credential. Only the Tasks worker that provisions sandboxes needs `SANDBOX_AI_GATEWAY_URL` and `SANDBOX_AI_GATEWAY_MINT_KEY`. Both credentials must allow private token creation and team attribution in the intended paying project. The `signals_scout` product must not bill customer credits.
@@ -41,7 +41,7 @@ Revoke or expire private tokens before rolling the gateway back to a version wit
 
 1. Open `/project/2/inbox/scout-trials`, search for and select the scout, then select **New trial**. Resolve any setup blocker shown. The picker lists scouts by display name; the old `/project/2/scout-trials` address redirects here. Trials have a separate path so existing scout names remain valid.
 2. Start with two versions and one run per version. Change the second version's model, effort or prompt.
-3. Select **Start trial**. Scouts run and judging follows automatically; closing the page does not stop them.
+3. Select **Start trial**. Runs show **Queued** while an active trial starts them; this is not a failure. Scouts run and judging follows automatically; closing the page does not stop them.
 4. Compare the results, then open a run to inspect its report and evidence for each rubric check. Cost and speed are shown separately from rubric results.
 5. Reopen the saved trial or export its JSON report. Reading saved results makes no further model calls.
 
@@ -55,6 +55,12 @@ Variants and retries share a saved copy of the project's scout memory, notes and
 
 Each completed scout run gets its own judge sandbox. The judge reads the saved rubric and searches attached copies of the complete rubric reference, run log, reports, summary, candidate instructions and starting context. These files live in private object storage; Temporal receives only their identifiers. Evidence larger than 128 MiB is refused explicitly instead of being silently shortened.
 
-The judge has no live project tools, external MCP connections or repository credentials. It returns one verdict per rubric check, with quotes checked against the original saved files. Missing evidence gives an unknown verdict. A judge failure is shown separately from a failed rubric check, and incomplete results cannot win. Judging has a 15-minute runtime limit per run; saved results never rerun the judge when viewed.
+Signals checks the operator's access, source run and saved evidence before attaching files and dispatching the judge through the existing internal Tasks path used by rubric generation. Queued judges do not repeat Signals-specific staff, skill or source-run checks at sandbox startup. Ordinary account and project permissions still apply when downloading evidence, and Signals checks operator access again before publishing the report.
+
+Judges use ordinary Tasks permissions and logging rather than the scout runs' private credentials and capture suppression. Other sandboxes acting as the same operator in the same project can read judge prompts and attached evidence through the Tasks API.
+
+The judge has no live project tools, external MCP connections or repository credentials. Its run disables live context, so the Tasks worker neither mounts the current wiki nor adds Store skill descriptions. Internal Tasks also exclude project and personal instructions. A retry to correct its JSON response uses the same sandbox and keeps these inputs disabled. Deploy the Tasks worker's support for this run setting before starting new judges.
+
+It returns one verdict per rubric check, with quotes checked against the original saved files. Missing evidence gives an unknown verdict. A judge failure is shown separately from a failed rubric check, and incomplete results cannot win. Judging has a 15-minute runtime limit per run; saved results never rerun the judge when viewed.
 
 Before dispatch, the full batch must fit the project's existing daily scout budget. Resuming counts only runs that have not already started. This is a capacity check, not a reservation: simultaneous submissions can still race, and the budget remains shared with ordinary scouts.

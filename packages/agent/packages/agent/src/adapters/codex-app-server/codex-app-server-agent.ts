@@ -49,6 +49,7 @@ import {
 } from "../../acp-extensions";
 import type { ModelInfo } from "../../gateway-models";
 import { DEFAULT_CODEX_MODEL } from "../../gateway-models";
+import { isTaskRunSandbox } from "../../server/memory-watchdog";
 import type { ProcessSpawnedCallback } from "../../types";
 import { ALLOW_BYPASS } from "../../utils/common";
 import { Logger } from "../../utils/logger";
@@ -92,6 +93,7 @@ import {
 } from "./mapping";
 import { toCodexMcpServers } from "./mcp-config";
 import { McpManager } from "./mcp-manager";
+import { getMemoryKillHookTrust } from "./memory-kill-hook";
 import {
   APP_SERVER_METHODS,
   APP_SERVER_NOTIFICATIONS,
@@ -579,6 +581,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       { gatePosthogExec: true },
     );
     const config = buildThreadConfig(mcpServers, this.additionalDirectories);
+    if (config && localTools && cwd && isTaskRunSandbox(process.env)) {
+      config["hooks.state"] = await getMemoryKillHookTrust(this.rpc, cwd);
+    }
     const developerInstructions = this.threadSetup?.developerInstructions;
 
     await this.rpc.request(APP_SERVER_METHODS.THREAD_RESUME, {
@@ -723,6 +728,12 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       },
     );
     const config = buildThreadConfig(mcpServers, params.additionalDirectories);
+    if (config && localTools && params.cwd && isTaskRunSandbox(process.env)) {
+      config["hooks.state"] = await getMemoryKillHookTrust(
+        this.rpc,
+        params.cwd,
+      );
+    }
 
     const result = await this.rpc.request<{ thread?: AppServerThread }>(
       method,
