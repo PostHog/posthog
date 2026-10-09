@@ -5441,6 +5441,7 @@ mod tests {
         let router = context.create_postgres_router();
         set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             vec![distinct_id.clone()],
             "hash_key_continuity".to_string(),
@@ -5672,6 +5673,7 @@ mod tests {
         let router2 = context.create_postgres_router();
         set_feature_flag_hash_key_overrides(
             &router2,
+            None,
             team.id,
             vec![distinct_id.clone()],
             "hash_key_mixed".to_string(),

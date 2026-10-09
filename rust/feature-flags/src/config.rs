@@ -466,6 +466,11 @@ pub struct Config {
     #[envconfig(from = "PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS", default = "none")]
     pub personhog_hash_key_override_read_team_ids: TeamIdCollection,
 
+    // Teams that write hash key overrides through personhog UpsertHashKeyOverrides instead of
+    // the direct persons DB transaction. Needs PERSONHOG_ROUTER_URL.
+    #[envconfig(from = "PERSONHOG_HASH_KEY_OVERRIDE_WRITE_TEAM_IDS", default = "none")]
+    pub personhog_hash_key_override_write_team_ids: TeamIdCollection,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -1187,6 +1192,7 @@ impl Config {
             personhog_router_timeout_ms: 1000,
             personhog_router_channels: 4,
             personhog_hash_key_override_read_team_ids: TeamIdCollection::None,
+            personhog_hash_key_override_write_team_ids: TeamIdCollection::None,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,

@@ -1338,8 +1338,13 @@ async fn primary_has_override(
 /// This function creates hash key overrides for all active feature flags that have
 /// experience continuity enabled. It includes retry logic for handling race conditions
 /// with person deletions.
+///
+/// With `personhog`, the write goes through `UpsertHashKeyOverrides` instead of the persons DB
+/// transaction. A failed personhog call is not retried here, because the router already retries
+/// the replica and `InvalidArgument` gives the same error on each attempt.
 pub async fn set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
+    personhog: Option<&RouterClient>,
     team_id: TeamId,
     distinct_ids: Vec<String>,
     hash_key_override: String,
@@ -1349,18 +1354,34 @@ pub async fn set_feature_flag_hash_key_overrides(
         .take(2)
         .map(jitter) // Add jitter to prevent thundering herd
         .collect();
+    let (distinct_ids_ref, hash_key_ref) = (&distinct_ids, &hash_key_override);
 
     retry_hash_key_call(
         team_id,
         db_operations::SET_HASH_KEY_OVERRIDES,
         retry_delays,
-        || {
-            try_set_feature_flag_hash_key_overrides(
-                router,
-                team_id,
-                &distinct_ids,
-                &hash_key_override,
-            )
+        || async move {
+            match personhog {
+                Some(client) => {
+                    try_upsert_hash_key_overrides_through_personhog(
+                        router,
+                        client,
+                        team_id,
+                        distinct_ids_ref,
+                        hash_key_ref,
+                    )
+                    .await
+                }
+                None => {
+                    try_set_feature_flag_hash_key_overrides(
+                        router,
+                        team_id,
+                        distinct_ids_ref,
+                        hash_key_ref,
+                    )
+                    .await
+                }
+            }
         },
         |e| {
             if flag_error_is_foreign_key_constraint(e) {
@@ -1374,6 +1395,102 @@ pub async fn set_feature_flag_hash_key_overrides(
         },
     )
     .await
+}
+
+/// Gets the keys of the active, not deleted flags that have experience continuity enabled. These
+/// are the flags that get a hash key override.
+async fn fetch_experience_continuity_flag_keys(
+    router: &PostgresRouter,
+    team_id: TeamId,
+) -> Result<Vec<String>, FlagError> {
+    let flags_query = r#"
+            SELECT flag.key
+            FROM posthog_featureflag flag
+            JOIN posthog_team team ON flag.team_id = team.id
+            WHERE team.id = $1
+                AND flag.ensure_experience_continuity = TRUE
+                AND flag.active = TRUE
+                AND flag.deleted = FALSE
+        "#;
+
+    let mut non_persons_conn = get_connection_with_metrics(
+        router.get_non_persons_reader(),
+        pool_names::NON_PERSONS_READER,
+        db_operations::SET_HASH_KEY_OVERRIDES,
+    )
+    .await
+    .map_err(FlagError::from)?;
+
+    let flags_labels = [
+        (
+            "query".to_string(),
+            "active_flags_with_continuity".to_string(),
+        ),
+        (
+            "operation".to_string(),
+            db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
+        ),
+        (
+            "pool".to_string(),
+            pool_names::NON_PERSONS_READER.to_string(),
+        ),
+        ("team_id".to_string(), team_id.to_string()),
+    ];
+    let flags_query_start = Instant::now();
+    let flags_query_timer = common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+    let flag_rows = sqlx::query(flags_query)
+        .bind(team_id)
+        .fetch_all(&mut *non_persons_conn)
+        .await
+        .map_err(FlagError::from)?;
+    flags_query_timer.fin();
+    let flags_query_duration = flags_query_start.elapsed();
+
+    if flags_query_duration.as_millis() > 200 {
+        warn!(
+            duration_ms = flags_query_duration.as_millis(),
+            team_id = team_id,
+            sql_summary = "SELECT active feature flags with ensure_experience_continuity = true",
+            "Slow active flags query detected in set_hash_key_overrides"
+        );
+    } else {
+        debug!(
+            duration_ms = flags_query_duration.as_millis(),
+            team_id = team_id,
+            "Active flags query completed in set_hash_key_overrides"
+        );
+    }
+
+    Ok(flag_rows
+        .iter()
+        .map(|row| row.get::<String, _>("key"))
+        .collect())
+}
+
+/// Writes the overrides through personhog. The RPC resolves the distinct IDs to persons and keeps
+/// each real key that a person already has, so this side sends only the flag keys.
+async fn try_upsert_hash_key_overrides_through_personhog(
+    router: &PostgresRouter,
+    client: &RouterClient,
+    team_id: TeamId,
+    distinct_ids: &[String],
+    hash_key_override: &str,
+) -> Result<bool, FlagError> {
+    let flag_keys = fetch_experience_continuity_flag_keys(router, team_id).await?;
+    if flag_keys.is_empty() {
+        return Ok(false);
+    }
+
+    let inserted_count = client
+        .upsert_hash_key_overrides(
+            team_id as i64,
+            distinct_ids.to_vec(),
+            hash_key_override.to_string(),
+            flag_keys,
+        )
+        .await
+        .map_err(FlagError::personhog)?;
+    Ok(inserted_count > 0)
 }
 
 /// Internal function that performs the actual hash key override setting.
@@ -1402,17 +1519,6 @@ async fn try_set_feature_flag_hash_key_overrides(
         .await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
-
-    // Query 2: Get all active feature flags with experience continuity (non-person pool)
-    let flags_query = r#"
-            SELECT flag.key
-            FROM posthog_featureflag flag
-            JOIN posthog_team team ON flag.team_id = team.id
-            WHERE team.id = $1
-                AND flag.ensure_experience_continuity = TRUE
-                AND flag.active = TRUE
-                AND flag.deleted = FALSE
-        "#;
 
     // Query 3: Bulk insert hash key overrides (person pool)
     // A stored sentinel is not a real continuity key, so this replaces it. Any other stored
@@ -1490,62 +1596,7 @@ async fn try_set_feature_flag_hash_key_overrides(
 
         let person_ids_vec: Vec<i64> = person_ids.into_iter().collect();
 
-        // Step 2: Get active feature flags (from non-person pool)
-        // Get separate connection for non-persons query
-        let mut non_persons_conn = get_connection_with_metrics(
-            router.get_non_persons_reader(),
-            pool_names::NON_PERSONS_READER,
-            db_operations::SET_HASH_KEY_OVERRIDES,
-        )
-        .await
-        .map_err(FlagError::from)?;
-
-        let flags_labels = [
-            (
-                "query".to_string(),
-                "active_flags_with_continuity".to_string(),
-            ),
-            (
-                "operation".to_string(),
-                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
-            ),
-            (
-                "pool".to_string(),
-                pool_names::NON_PERSONS_READER.to_string(),
-            ),
-            ("team_id".to_string(), team_id.to_string()),
-        ];
-        let flags_query_start = Instant::now();
-        let flags_query_timer =
-            common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
-        let flag_rows = sqlx::query(flags_query)
-            .bind(team_id)
-            .fetch_all(&mut *non_persons_conn)
-            .await
-            .map_err(FlagError::from)?;
-        flags_query_timer.fin();
-        let flags_query_duration = flags_query_start.elapsed();
-
-        if flags_query_duration.as_millis() > 200 {
-            warn!(
-                duration_ms = flags_query_duration.as_millis(),
-                team_id = team_id,
-                sql_summary =
-                    "SELECT active feature flags with ensure_experience_continuity = true",
-                "Slow active flags query detected in set_hash_key_overrides"
-            );
-        } else {
-            debug!(
-                duration_ms = flags_query_duration.as_millis(),
-                team_id = team_id,
-                "Active flags query completed in set_hash_key_overrides"
-            );
-        }
-
-        let flag_keys: Vec<String> = flag_rows
-            .iter()
-            .map(|row| row.get::<String, _>("key"))
-            .collect();
+        let flag_keys = fetch_experience_continuity_flag_keys(router, team_id).await?;
 
         if flag_keys.is_empty() {
             return Ok(0); // No flags to override
@@ -1960,6 +2011,7 @@ mod tests {
         let router = context.create_postgres_router();
         set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             vec![distinct_id.clone()],
             "hash_key_2".to_string(),
@@ -2074,6 +2126,7 @@ mod tests {
         let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             distinct_ids.clone(),
             hash_key.clone(),
@@ -2211,6 +2264,7 @@ mod tests {
         let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             distinct_ids.clone(),
             new_hash.clone(),
@@ -2261,8 +2315,13 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::persons_db(false)]
+    #[case::personhog(true)]
     #[tokio::test]
-    async fn test_set_overrides_filters_inactive_and_deleted_flags() {
+    async fn test_set_overrides_filters_inactive_and_deleted_flags(
+        #[case] through_personhog: bool,
+    ) {
         let context = TestContext::new(None).await;
         let team = context
             .insert_new_team(None)
@@ -2363,8 +2422,19 @@ mod tests {
 
         // Set overrides
         let router = context.create_postgres_router();
+        let personhog = if through_personhog {
+            let pool = get_pool_with_config(
+                &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
+                PoolConfig::default(),
+            )
+            .unwrap();
+            Some(start_personhog_replica(pool).await)
+        } else {
+            None
+        };
         let result = set_feature_flag_hash_key_overrides(
             &router,
+            personhog.as_ref(),
             team.id,
             vec!["filter_test_user".to_string()],
             "filter_hash".to_string(),
@@ -2458,6 +2528,7 @@ mod tests {
         let router = context.create_postgres_router();
         set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             vec!["should_write_user".to_string()],
             "hash_key_1".to_string(),
@@ -2528,6 +2599,7 @@ mod tests {
         let router = context.create_postgres_router();
         let result = set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             vec![
                 "nonexistent_user1".to_string(),
@@ -2596,6 +2668,7 @@ mod tests {
             let router = context.create_postgres_router();
             set_feature_flag_hash_key_overrides(
                 &router,
+                None,
                 team.id,
                 vec![distinct_id.clone()],
                 stored_hash_key.to_string(),
@@ -2924,6 +2997,7 @@ mod tests {
 
         let write = set_feature_flag_hash_key_overrides(
             &router,
+            None,
             1,
             vec!["user".to_string()],
             "hash".to_string(),
@@ -3023,6 +3097,7 @@ mod tests {
 
         let result = set_feature_flag_hash_key_overrides(
             &router,
+            None,
             team.id,
             vec!["user".to_string()],
             "hash".to_string(),
@@ -3033,8 +3108,77 @@ mod tests {
         assert_eq!(non_persons_reader.calls.load(Ordering::SeqCst), 3);
     }
 
+    /// Serves the personhog service on the replica handler, as the router does, and returns a
+    /// client for it. The replica storage uses `pool` for every pool.
+    async fn start_personhog_replica(pool: sqlx::PgPool) -> RouterClient {
+        use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
+        use personhog_replica::service::PersonHogReplicaService;
+        use personhog_replica::storage::postgres::PostgresStorage;
+        use tonic::body::BoxBody;
+
+        #[derive(Clone)]
+        struct ServiceToReplica(PersonHogReplicaServer<PersonHogReplicaService>);
+
+        impl tonic::server::NamedService for ServiceToReplica {
+            const NAME: &'static str = "personhog.service.v1.PersonHogService";
+        }
+
+        impl tower::Service<axum::http::Request<BoxBody>> for ServiceToReplica {
+            type Response = <PersonHogReplicaServer<PersonHogReplicaService> as tower::Service<
+                axum::http::Request<BoxBody>,
+            >>::Response;
+            type Error = std::convert::Infallible;
+            type Future = <PersonHogReplicaServer<PersonHogReplicaService> as tower::Service<
+                axum::http::Request<BoxBody>,
+            >>::Future;
+
+            fn poll_ready(
+                &mut self,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Result<(), Self::Error>> {
+                tower::Service::<axum::http::Request<BoxBody>>::poll_ready(&mut self.0, cx)
+            }
+
+            fn call(&mut self, mut req: axum::http::Request<BoxBody>) -> Self::Future {
+                let path = req.uri().path().replacen(
+                    "/personhog.service.v1.PersonHogService/",
+                    "/personhog.replica.v1.PersonHogReplica/",
+                    1,
+                );
+                *req.uri_mut() = path.parse().unwrap();
+                self.0.call(req)
+            }
+        }
+
+        let storage = std::sync::Arc::new(PostgresStorage::new(
+            pool.clone(),
+            pool.clone(),
+            pool.clone(),
+            pool,
+            50,
+            5,
+            12,
+        ));
+        let server = ServiceToReplica(PersonHogReplicaServer::new(PersonHogReplicaService::new(
+            storage,
+        )));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(
+            tonic::transport::Server::builder()
+                .add_service(server)
+                .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener)),
+        );
+        RouterClient::with_channels(&format!("http://{addr}"), Duration::from_secs(5), 1).unwrap()
+    }
+
+    #[rstest]
+    #[case::persons_db(false)]
+    #[case::personhog(true)]
     #[tokio::test]
-    async fn test_set_overrides_statement_timeout_covers_person_row_lock() {
+    async fn test_set_overrides_statement_timeout_covers_person_row_lock(
+        #[case] through_personhog: bool,
+    ) {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
         let person_id = context
@@ -3050,16 +3194,20 @@ mod tests {
             .await
             .unwrap();
 
-        let persons_writer: PostgresWriter = std::sync::Arc::new(
-            get_pool_with_config(
-                &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
-                PoolConfig {
-                    statement_timeout_ms: Some(200),
-                    ..PoolConfig::default()
-                },
-            )
-            .unwrap(),
-        );
+        let timeout_pool = get_pool_with_config(
+            &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
+            PoolConfig {
+                statement_timeout_ms: Some(200),
+                ..PoolConfig::default()
+            },
+        )
+        .unwrap();
+        let personhog = if through_personhog {
+            Some(start_personhog_replica(timeout_pool.clone()).await)
+        } else {
+            None
+        };
+        let persons_writer: PostgresWriter = std::sync::Arc::new(timeout_pool);
         let router = PostgresRouter::new(
             context.persons_reader.clone(),
             persons_writer,
@@ -3081,6 +3229,7 @@ mod tests {
             Duration::from_secs(10),
             set_feature_flag_hash_key_overrides(
                 &router,
+                personhog.as_ref(),
                 team.id,
                 vec!["user".to_string()],
                 "hash".to_string(),
@@ -3090,9 +3239,61 @@ mod tests {
         .expect("the write waited for the person row lock instead of timing out");
         lock_tx.rollback().await.unwrap();
 
+        let statement_timeout = match &result {
+            Err(FlagError::TimeoutError(_)) => !through_personhog,
+            Err(FlagError::InternalError { cause, .. }) => cause
+                .downcast_ref::<tonic::Status>()
+                .is_some_and(|status| status.message().contains("statement timeout")),
+            _ => false,
+        };
         assert!(
-            matches!(result, Err(FlagError::TimeoutError(_))),
+            statement_timeout,
             "expected a statement timeout, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_personhog_write_does_not_retry_invalid_argument() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            ensure_experience_continuity: Some(true)
+        );
+        context
+            .insert_flag(team.id, Some(mock!(FeatureFlagRow, from: flag)))
+            .await
+            .unwrap();
+        let pool = get_pool_with_config(
+            &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
+            PoolConfig::default(),
+        )
+        .unwrap();
+        let personhog = start_personhog_replica(pool).await;
+
+        let result = set_feature_flag_hash_key_overrides(
+            &context.create_postgres_router(),
+            Some(&personhog),
+            team.id,
+            vec!["user".to_string()],
+            COOKIELESS_SENTINEL_VALUE.to_string(),
+        )
+        .await;
+
+        let code = match &result {
+            Err(FlagError::InternalError { cause, .. }) => {
+                cause.downcast_ref::<tonic::Status>().map(|s| s.code())
+            }
+            _ => None,
+        };
+        assert_eq!(code, Some(tonic::Code::InvalidArgument), "got {result:?}");
+        assert_eq!(
+            counter_total(&snapshotter, FLAG_HASH_KEY_RETRIES_COUNTER, &[]),
+            0
         );
     }
 

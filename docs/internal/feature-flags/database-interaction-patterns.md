@@ -122,7 +122,7 @@ Keep the persons statement timeouts below the deadline so that Postgres cancels 
 For teams in `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS`, the hash key override read calls personhog `GetHashKeyOverrideContext` instead of the persons DB.
 `PERSONHOG_ROUTER_URL` must also be set.
 When it is empty, the service logs a warning at startup and every team reads from the persons DB.
-The check and the write still use the persons DB.
+The check still uses the persons DB.
 The read that follows an override write uses strong consistency, so personhog-replica reads the primary.
 The read without a write uses eventual consistency, so personhog-replica reads a replica.
 A stored `$posthog_cookieless` override reads as no override, the same as the SQL read.
@@ -141,6 +141,17 @@ A gRPC deadline fails the call with `timeout:personhog_timeout`.
 `flags_hash_key_override_read_time_ms{source="sql"|"personhog"}` compares successful reads on the two paths.
 The `sql` value excludes the pool acquire, which `flags_db_connection_time` measures.
 `personhog_router_client_call_duration_ms{method="GetHashKeyOverrideContext"}` measures every call from feature-flags to the router, with its outcome.
+
+### Hash key override writes through personhog
+
+For teams in `PERSONHOG_HASH_KEY_OVERRIDE_WRITE_TEAM_IDS`, the hash key override write calls personhog `UpsertHashKeyOverrides` instead of the persons DB transaction.
+`PERSONHOG_ROUTER_URL` must also be set.
+feature-flags still reads the active flags with experience continuity from the non-persons DB, and sends only those flag keys.
+personhog-replica resolves the distinct IDs, keeps each real key that a person already has, and replaces a stored `$posthog_cookieless` key.
+The call stays inside `PERSONS_DB_DEADLINE_MS`.
+On personhog-replica, `statement_timeout` and `lock_timeout` stop the write when a person delete or merge holds the person row.
+A failed personhog call is not retried in feature-flags. personhog rejects `$posthog_cookieless` as the new hash key with `InvalidArgument`, and a retry gives the same error.
+`personhog_router_client_call_duration_ms{method="UpsertHashKeyOverrides"}` measures the call from feature-flags to the router.
 
 ### Total connection count
 
@@ -423,30 +434,31 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 
 ### Environment variables
 
-| Variable                                    | Default  | Purpose                                                          |
-| ------------------------------------------- | -------- | ---------------------------------------------------------------- |
-| `READ_DATABASE_URL`                         | required | Main database read replica URL                                   |
-| `WRITE_DATABASE_URL`                        | required | Main database primary URL                                        |
-| `PERSONS_READ_DATABASE_URL`                 | empty    | Persons database read replica (enables routing)                  |
-| `PERSONS_WRITE_DATABASE_URL`                | empty    | Persons database primary (enables routing)                       |
-| `MAX_PG_CONNECTIONS`                        | 10       | Max connections per pool                                         |
-| `MIN_NON_PERSONS_READER_CONNECTIONS`        | 0        | Min idle connections for non-persons reader                      |
-| `MIN_NON_PERSONS_WRITER_CONNECTIONS`        | 0        | Min idle connections for non-persons writer                      |
-| `MIN_PERSONS_READER_CONNECTIONS`            | 0        | Min idle connections for persons reader                          |
-| `MIN_PERSONS_WRITER_CONNECTIONS`            | 0        | Min idle connections for persons writer                          |
-| `ACQUIRE_TIMEOUT_SECS`                      | 1        | Connection acquisition timeout                                   |
-| `IDLE_TIMEOUT_SECS`                         | 300      | Idle connection timeout                                          |
-| `TEST_BEFORE_ACQUIRE`                       | true     | Validate connections before use                                  |
-| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS`   | 2000     | Statement timeout for non-persons reads                          |
-| `PERSONS_READER_STATEMENT_TIMEOUT_MS`       | 1000     | Statement timeout for persons reads                              |
-| `WRITER_STATEMENT_TIMEOUT_MS`               | 2000     | Statement timeout for writes                                     |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
-| `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
-| `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
-| `PERSONHOG_ROUTER_URL`                      | empty    | personhog-router address. Empty disables personhog calls         |
-| `PERSONHOG_ROUTER_TIMEOUT_MS`               | 1000     | gRPC timeout on each personhog call. Keep below the deadline     |
-| `PERSONHOG_ROUTER_CHANNELS`                 | 4        | Connections to personhog-router, used round-robin                |
-| `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS` | none     | Teams that read hash key overrides through personhog             |
+| Variable                                     | Default  | Purpose                                                          |
+| -------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `READ_DATABASE_URL`                          | required | Main database read replica URL                                   |
+| `WRITE_DATABASE_URL`                         | required | Main database primary URL                                        |
+| `PERSONS_READ_DATABASE_URL`                  | empty    | Persons database read replica (enables routing)                  |
+| `PERSONS_WRITE_DATABASE_URL`                 | empty    | Persons database primary (enables routing)                       |
+| `MAX_PG_CONNECTIONS`                         | 10       | Max connections per pool                                         |
+| `MIN_NON_PERSONS_READER_CONNECTIONS`         | 0        | Min idle connections for non-persons reader                      |
+| `MIN_NON_PERSONS_WRITER_CONNECTIONS`         | 0        | Min idle connections for non-persons writer                      |
+| `MIN_PERSONS_READER_CONNECTIONS`             | 0        | Min idle connections for persons reader                          |
+| `MIN_PERSONS_WRITER_CONNECTIONS`             | 0        | Min idle connections for persons writer                          |
+| `ACQUIRE_TIMEOUT_SECS`                       | 1        | Connection acquisition timeout                                   |
+| `IDLE_TIMEOUT_SECS`                          | 300      | Idle connection timeout                                          |
+| `TEST_BEFORE_ACQUIRE`                        | true     | Validate connections before use                                  |
+| `NON_PERSONS_READER_STATEMENT_TIMEOUT_MS`    | 2000     | Statement timeout for non-persons reads                          |
+| `PERSONS_READER_STATEMENT_TIMEOUT_MS`        | 1000     | Statement timeout for persons reads                              |
+| `WRITER_STATEMENT_TIMEOUT_MS`                | 2000     | Statement timeout for writes                                     |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL`       | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
+| `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS`  | 10000    | Statement timeout for the batch evaluation person scan           |
+| `PERSONS_DB_DEADLINE_MS`                     | 2500     | Deadline shared by all persons DB calls in one evaluation        |
+| `PERSONHOG_ROUTER_URL`                       | empty    | personhog-router address. Empty disables personhog calls         |
+| `PERSONHOG_ROUTER_TIMEOUT_MS`                | 1000     | gRPC timeout on each personhog call. Keep below the deadline     |
+| `PERSONHOG_ROUTER_CHANNELS`                  | 4        | Connections to personhog-router, used round-robin                |
+| `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS`  | none     | Teams that read hash key overrides through personhog             |
+| `PERSONHOG_HASH_KEY_OVERRIDE_WRITE_TEAM_IDS` | none     | Teams that write hash key overrides through personhog            |
 
 ### Tuning guidance
 
