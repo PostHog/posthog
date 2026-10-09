@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
@@ -18,6 +19,16 @@ export default defineConfig({
         projects: [
             {
                 plugins: [tsconfigPaths({ root: '.' }), textLoader],
+                resolve: {
+                    alias: [
+                        // Files under products/ sit outside this package's node_modules tree, so they
+                        // cannot find quill-charts on their own. Mirrors vite.ui-apps.config.ts.
+                        {
+                            find: /^@posthog\/quill-charts$/,
+                            replacement: resolve(__dirname, '../../packages/quill/packages/charts/src/index.ts'),
+                        },
+                    ],
+                },
                 test: {
                     name: 'unit',
                     globals: true,
