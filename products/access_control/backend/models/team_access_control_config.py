@@ -13,7 +13,7 @@ class TeamAccessControlConfig(models.Model):
     )
     # When true, only managed_by may change this project's access rules. Admins turn it off and on.
     # A rule write from Terraform turns it on.
-    managed_by_terraform = models.BooleanField(default=False, db_default=False)
+    is_managed_by_terraform = models.BooleanField(default=False, db_default=False)
     # The account behind the API key Terraform uses for this project, kept while the lock is off so
     # that an admin can turn it on again. SET_NULL: when the account leaves the organization, the
     # rules return to the UI and are not locked.
