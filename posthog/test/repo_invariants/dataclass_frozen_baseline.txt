@@ -749,7 +749,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lattice/lattice.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lattice/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/launchdarkly/launchdarkly.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/launchdarkly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leadfeeder/leadfeeder.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leadfeeder/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/leexi/leexi.py

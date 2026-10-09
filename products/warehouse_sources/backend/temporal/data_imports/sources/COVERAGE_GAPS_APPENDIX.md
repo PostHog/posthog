@@ -5027,9 +5027,10 @@ Today (6): `auditlog`, `environments`, `flags`, `members`, `metrics`, `projects`
 
 Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 
-- [ ] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/experiments` — experiments and their results are LaunchDarkly's headline analytical object and are entirely absent today (high)
-- [ ] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
-- [ ] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/experiments` — experiments and their results are LaunchDarkly's headline analytical object and are entirely absent today (high)
+- [x] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
+- [x] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
 - [ ] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
 - [ ] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
 - [ ] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
