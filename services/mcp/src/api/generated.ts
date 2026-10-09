@@ -98296,6 +98296,8 @@ export namespace Schemas {
        * * `failed` - failed
        * * `unknown` - unknown */
       status: ScoutTrialComparisonStatusEnum;
+      /** Whether this finished trial is hidden from the default history. */
+      archived: boolean;
       /**
          * Sanitized comparison error, if any.
          * @nullable
@@ -98305,11 +98307,23 @@ export namespace Schemas {
       evaluation: ScoutTrialEvaluation | null;
     }
 
+    export interface ScoutTrialComparisonArchiveRequest {
+      /** Saved comparison identity. */
+      comparison_id: string;
+      /** Hide a finished trial from history, or restore it without rerunning it. */
+      archived: boolean;
+    }
+
     export interface ScoutTrialComparisonHistory {
       /** This operator's most recent saved comparisons. */
       results: ScoutTrialComparison[];
       /** Whether more comparisons exist than the requested limit. */
       has_more: boolean;
+      /**
+         * Cursor for the next page, or null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface ScoutTrialComparisonQuery {
@@ -126648,6 +126662,16 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Cursor returned by the previous history page. Omit to read the newest trials.
+     * @minLength 1
+     * @pattern ^[0-9]{19}-[0-9a-f-]{36}\.json$
+     */
+    cursor?: string;
+    /**
+     * Include archived trials in the history.
+     */
+    include_archived?: boolean;
     /**
      * Maximum number of recent private runs to return.
      * @minimum 1

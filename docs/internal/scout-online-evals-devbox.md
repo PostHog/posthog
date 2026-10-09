@@ -47,6 +47,8 @@ Revoke or expire private tokens before rolling the gateway back to a version wit
 
 The rubric stays fixed across scout edits, and saved results retain the rubric used for that trial. If a run is interrupted, reopen the existing trial before starting another paid attempt.
 
+History shows 30 trials per page, with previous and next controls for older results. Archive a completed or failed trial to hide it from history. Show archived trials to view their saved reports or restore them; archiving never deletes evidence or stops a running trial. Archive and restore remain available when the trials flag is off, with the same access checks. Open a trial to see its individual runs. Run-detail loading errors appear beside the affected run with a retry action, while the history page continues to show saved results.
+
 Trial scouts have a 30-minute runtime limit. Regular scouts keep their 15-minute limit. Timed-out scouts cannot be scored; start a new trial to try again.
 
 Trial scout deadlines include five minutes for startup and log reads, plus time to collect and save the final result.
