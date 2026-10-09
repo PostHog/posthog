@@ -2161,6 +2161,7 @@ class MarketingAnalyticsSearchSource(BaseModel):
         extra="forbid",
     )
     keywordTable: str | None = None
+    placementTable: str | None = None
     queryPageTable: bool | None = None
     sourceType: SourceType
     statsTable: str
@@ -14399,6 +14400,7 @@ class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    placementUnavailable: bool | None = None
     posthogAttributionMode: AttributionMode | None = None
     posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
     posthogConversionsWarning: str | None = None
@@ -20360,6 +20362,7 @@ class MarketingAnalyticsSearchQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    placementUnavailable: bool | None = None
     posthogAttributionMode: AttributionMode | None = None
     posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
     posthogConversionsWarning: str | None = None
@@ -22269,6 +22272,7 @@ class QueryResponseAlternative38(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    placementUnavailable: bool | None = None
     posthogAttributionMode: AttributionMode | None = None
     posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
     posthogConversionsWarning: str | None = None
