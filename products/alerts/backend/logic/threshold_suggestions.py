@@ -10,18 +10,21 @@ from django.conf import settings
 
 import structlog
 
-from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
-from products.alerts.backend.evaluation.metrics import series_label
+from products.alerts.backend.facade.contracts import (
+    ThresholdCandidate,
+    ThresholdDirection as Direction,
+    ThresholdSuggestions,
+)
+from products.alerts.backend.metrics_series import series_label
 from products.ml_inference.backend.facade import api as ml_inference
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -42,23 +45,6 @@ _LOWER_PERCENTILES = (
     (1, "Below 99% of recent values"),
 )
 _HEURISTIC_UPPER_PERCENTILE = 99
-
-Direction = Literal["upper", "lower"]
-
-
-@frozen
-class ThresholdCandidate:
-    value: float
-    description: str
-
-
-@frozen
-class ThresholdSuggestions:
-    upper: list[ThresholdCandidate]
-    lower: list[ThresholdCandidate]
-    recommended_direction: Direction | None
-    recommended_value: float | None
-    source: Literal["jev", "heuristic"]
 
 
 @frozen
@@ -213,7 +199,7 @@ def _ask_jev(
     return direction, candidate.value
 
 
-def _metric_series(results: list[Any]) -> list[MetricSeries]:
+def metric_series_from_results(results: list[Any]) -> list[MetricSeries]:
     series: list[MetricSeries] = []
     for row in results:
         if not isinstance(row, dict):
@@ -250,13 +236,14 @@ def suggest_thresholds_for_series(
     )
 
 
-def suggest_thresholds(insight: Insight, team: Team, user: User) -> ThresholdSuggestions:
-    calculation_result = calculate_for_query_based_insight(
-        insight,
-        team=team,
+def suggest_thresholds(team: Team, user: User, query: dict[str, Any], metric_name: str | None) -> ThresholdSuggestions:
+    response = process_query_dict(
+        team,
+        query,
         execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         user=user,
         analytics_props={"source": EventSource.ALERT},
     )
-    series = _metric_series(calculation_result.result or [])
-    return suggest_thresholds_for_series(team.id, str(user.distinct_id), insight.name, series)
+    payload = response if isinstance(response, dict) else response.model_dump()
+    series = metric_series_from_results(payload.get("results") or [])
+    return suggest_thresholds_for_series(team.id, str(user.distinct_id), metric_name, series)

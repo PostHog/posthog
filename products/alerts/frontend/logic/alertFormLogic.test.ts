@@ -12,6 +12,7 @@ import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import * as queryModule from '~/queries/query'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -22,8 +23,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
-
-import * as queryModule from '~/queries/query'
 
 import * as generatedApi from '../generated/api'
 import { supportsOngoingInterval } from '../types'

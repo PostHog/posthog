@@ -103,6 +103,7 @@ export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertCo
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
+    insight: zod.union([zod.number(), zod.string()]).describe('Numeric insight ID or saved insight short ID.'),
     evaluation_delay_intervals: zod
         .number()
         .min(alertsSimulateCreateBodyEvaluationDelayIntervalsMin)
@@ -111,9 +112,6 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.'
         ),
-    insight: zod
-        .union([zod.number(), zod.string()])
-        .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
     detector_config: zod
         .union([
             zod.object({
@@ -1238,7 +1236,5 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
  * Suggest threshold values for a new alert on a metrics insight, from the insight's recent values. When available, a decision model picks the recommended value.
  */
 export const AlertsSuggestThresholdsCreateBody = /* @__PURE__ */ zod.object({
-    insight: zod
-        .union([zod.number(), zod.string()])
-        .describe('Numeric insight ID or saved insight short ID of the metrics insight to suggest thresholds for.'),
+    insight: zod.union([zod.number(), zod.string()]).describe('Numeric insight ID or saved insight short ID.'),
 })

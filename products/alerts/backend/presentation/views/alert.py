@@ -91,6 +91,7 @@ from products.alerts.backend.facade.api import (
     admit_llm_alert_write,
     is_llm_detector_config,
     llm_detector_access_error,
+    suggest_metrics_alert_thresholds,
 )
 from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.destinations import (
@@ -110,7 +111,6 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_threshold_change,
     apply_unsnooze,
 )
-from products.alerts.backend.logic.threshold_suggestions import suggest_thresholds
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -1218,17 +1218,27 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         return attrs
 
 
-class AlertSimulateSerializer(serializers.Serializer):
+class _InsightReferenceSerializer(serializers.Serializer):
+    insight = TeamScopedInsightReferenceField(
+        queryset=Insight.objects.all(),
+        help_text="Numeric insight ID or saved insight short ID.",
+    )
+
+    def validate_insight(self, value):
+        _require_insight_viewer_access(self.context, value)
+        # Same feature gate as create/update: a flag-gated insight kind must get the gated
+        # rejection here too, not fall through to an unsupported-kind error.
+        _enforce_alert_feature_flags(self.context, value)
+        return value
+
+
+class AlertSimulateSerializer(_InsightReferenceSerializer):
     evaluation_delay_intervals = serializers.IntegerField(
         min_value=0,
         max_value=100,
         default=0,
         help_text="Skip this many completed insight intervals before simulation, matching live evaluation. "
         "Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
-    )
-    insight = TeamScopedInsightReferenceField(
-        queryset=Insight.objects.all(),
-        help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
     )
     detector_config = DetectorConfigField(
         required=False,
@@ -1267,13 +1277,6 @@ class AlertSimulateSerializer(serializers.Serializer):
         "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
 
-    def validate_insight(self, value):
-        _require_insight_viewer_access(self.context, value)
-        # Same feature gate as create/update: a flag-gated insight kind must get the gated
-        # rejection here too, not fall through to the unsupported-detector error.
-        _enforce_alert_feature_flags(self.context, value)
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         with upgrade_insight(attrs["insight"]):
             query = attrs["insight"].query
@@ -1290,15 +1293,9 @@ class AlertSimulateSerializer(serializers.Serializer):
         return _validate_detector_config(value)
 
 
-class AlertSuggestThresholdsSerializer(serializers.Serializer):
-    insight = TeamScopedInsightReferenceField(
-        queryset=Insight.objects.all(),
-        help_text="Numeric insight ID or saved insight short ID of the metrics insight to suggest thresholds for.",
-    )
-
+class AlertSuggestThresholdsSerializer(_InsightReferenceSerializer):
     def validate_insight(self, value):
-        _require_insight_viewer_access(self.context, value)
-        _enforce_alert_feature_flags(self.context, value)
+        value = super().validate_insight(value)
         if value.alertable_query_kind != NodeKind.METRICS_QUERY:
             raise ValidationError("Threshold suggestions are only available for metrics insights.")
         return value
@@ -1953,7 +1950,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def suggest_thresholds(self, request, *args, **kwargs):
         serializer = AlertSuggestThresholdsSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        suggestions = suggest_thresholds(serializer.validated_data["insight"], self.team, cast(User, request.user))
+        insight = serializer.validated_data["insight"]
+        suggestions = suggest_metrics_alert_thresholds(
+            team_id=self.team.id, user_id=request.user.id, query=insight.query, metric_name=insight.name
+        )
         return Response(AlertSuggestThresholdsResponseSerializer(suggestions).data)
 
 

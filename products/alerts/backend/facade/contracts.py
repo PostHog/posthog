@@ -7,9 +7,10 @@ an insight alert means.
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, Literal
 
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
+from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import DestinationType
 
@@ -20,3 +21,21 @@ INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+
+
+ThresholdDirection = Literal["upper", "lower"]
+
+
+@frozen
+class ThresholdCandidate:
+    value: float
+    description: str
+
+
+@frozen
+class ThresholdSuggestions:
+    upper: list[ThresholdCandidate]
+    lower: list[ThresholdCandidate]
+    recommended_direction: ThresholdDirection | None
+    recommended_value: float | None
+    source: Literal["jev", "heuristic"]

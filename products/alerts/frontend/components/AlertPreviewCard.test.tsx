@@ -55,7 +55,11 @@ describe('AlertPreviewCard', () => {
 
     it.each([
         ['charts every series', [{ key: '0', label: 'queue.depth {pod=a}', data: [10, 25, 60] }], 'All series'],
-        ['shows the metrics empty state', [], 'No metric data to preview. Check the metric and date range of the insight.'],
+        [
+            'shows the metrics empty state',
+            [],
+            'No metric data to preview. Check the metric and date range of the insight.',
+        ],
     ])('for a metrics alert %s', (_name, metricsSeries, expectedText) => {
         const { container } = render(
             <AlertPreviewCard

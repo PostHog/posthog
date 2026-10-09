@@ -8,7 +8,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
@@ -17,11 +17,13 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade.contracts import ThresholdSuggestions
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -39,6 +41,7 @@ from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
+from products.alerts.backend.logic import threshold_suggestions
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -175,6 +178,15 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+def suggest_metrics_alert_thresholds(
+    *, team_id: int, user_id: int, query: dict[str, Any], metric_name: str | None
+) -> ThresholdSuggestions:
+    """Threshold candidates and a recommended default for a new alert on a metrics query."""
+    return threshold_suggestions.suggest_thresholds(
+        Team.objects.get(id=team_id), User.objects.get(id=user_id), query, metric_name
+    )
 
 
 __all__ = [

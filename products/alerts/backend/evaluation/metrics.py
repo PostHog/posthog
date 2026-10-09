@@ -12,19 +12,11 @@ from products.alerts.backend.evaluation.contract import (
     SeriesPoint,
     zero_sentinel_series,
 )
+from products.alerts.backend.metrics_series import series_label
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 _SUBJECT = "The metric value"
-
-
-def series_label(row: dict[str, Any]) -> str:
-    name = row.get("metricName") or row.get("clause") or "metric"
-    labels = row.get("labels") or {}
-    if labels:
-        rendered = ", ".join(f"{key}={value}" for key, value in sorted(labels.items()))
-        return f"{name} {{{rendered}}}"
-    return str(name)
 
 
 class MetricsExtractor:

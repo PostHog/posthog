@@ -12416,14 +12416,14 @@ export namespace Schemas {
     }
 
     export interface AlertSimulate {
+      /** Numeric insight ID or saved insight short ID. */
+      insight: number | string;
       /**
          * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
          * @minimum 0
          * @maximum 100
          */
       evaluation_delay_intervals?: number;
-      /** Numeric insight ID or saved insight short ID to simulate the detector on. */
-      insight: number | string;
       /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
       detector_config?: DetectorConfig;
       /** Zero-based index of the series to analyze (trends insights only). */
@@ -12497,7 +12497,7 @@ export namespace Schemas {
     }
 
     export interface AlertSuggestThresholds {
-      /** Numeric insight ID or saved insight short ID of the metrics insight to suggest thresholds for. */
+      /** Numeric insight ID or saved insight short ID. */
       insight: number | string;
     }
 
