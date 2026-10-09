@@ -1792,6 +1792,9 @@ def clickhouse_source(
                     """
                     page_rows: int | None = None
                     lower: list[str] | None = None
+                    # Set once a capped retry has fired, so a host that keeps rejecting (a
+                    # misconfigured or adversarial endpoint) can't spin this loop forever.
+                    retried_max_execution_time = False
                     while True:
                         read_any = False
                         try:
@@ -1834,7 +1837,12 @@ def clickhouse_source(
                                     yield batch
                         except ClickHouseError as e:
                             message = str(e)
-                            if not read_any and (ceiling := _max_execution_time_ceiling(message)) is not None:
+                            if (
+                                not read_any
+                                and not retried_max_execution_time
+                                and (ceiling := _max_execution_time_ceiling(message)) is not None
+                            ):
+                                retried_max_execution_time = True
                                 stream_client.set_client_setting("max_execution_time", ceiling)
                                 logger.warning(
                                     f"ClickHouse capped max_execution_time at {ceiling}s for this source; "
