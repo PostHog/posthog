@@ -1,13 +1,14 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -94,13 +95,26 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.LOGS, ['install:logs', 'invite_teammates:logs']],
             // Data Warehouse has no install step — the link_data step is the entry point.
             [ProductKey.DATA_WAREHOUSE, ['link_data:data_warehouse', 'invite_teammates:data_warehouse']],
-            // Support has no product-specific step; it's enabled on completion, so only the shared step shows.
-            [ProductKey.CONVERSATIONS, ['invite_teammates:conversations']],
+            [ProductKey.CONVERSATIONS, ['configure:conversations', 'invite_teammates:conversations']],
         ]
 
         it.each(cases)('builds the expected flow when only %s is selected', (product, expected) => {
             logic.actions.setProductKey(product)
             expect(flowIds()).toEqual(expected)
+        })
+
+        it('keeps the Support flow non-empty when no shared trailing step applies', () => {
+            // Billing is not loaded and the AI reports flag is unset, so only invite needs turning off.
+            userLogic.findMounted()?.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                organization: { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Member },
+            })
+            organizationLogic.findMounted()?.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                members_can_invite: false,
+            })
+            logic.actions.setProductKey(ProductKey.CONVERSATIONS)
+            expect(flowIds()).toEqual(['configure:conversations'])
         })
 
         it('returns an empty flow when no product is selected', () => {
@@ -381,7 +395,7 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.setStepId(OnboardingStepKey.INSTALL)
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(logic.values.stepId).toBe('')
-            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
+            expect(logic.values.currentFlowStep?.id).toBe('configure:conversations')
         })
 
         it('self-corrects link_data when the flow will never carry it', async () => {
