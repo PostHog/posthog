@@ -1,4 +1,5 @@
 import time
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -14,8 +15,11 @@ from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_logger
 
+from .account_fields import fill_only_account_fields, overwritten_account_fields, unoccupied_fields
 from .constants import (
+    ACCOUNT_FILL_FIELDS,
     DEFAULT_CHUNK_SIZE,
+    HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
     HARMONIC_BATCH_SIZE,
     METRIC_PERIODS,
     PERSONAL_EMAIL_DOMAINS,
@@ -23,6 +27,7 @@ from .constants import (
     YC_INVESTOR_NAME,
 )
 from .harmonic_client import AsyncHarmonicClient
+from .harmonic_company import is_sub_entity
 from .redis_cache import get_accounts_from_redis
 from .salesforce_client import get_salesforce_client
 
@@ -242,19 +247,8 @@ def _extract_primary_tag(tags: list, tags_v2: list) -> str | None:
     return None
 
 
-def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert enriched data to Salesforce field mappings for bulk update.
-
-    Args:
-        account_id: Salesforce Account.Id
-        harmonic_data: Output from transform_harmonic_data()
-
-    Returns:
-        Dict ready for Salesforce sObject Collections API
-    """
-    if not harmonic_data:
-        return None
-
+def _harmonic_mirror_fields(harmonic_data: dict[str, Any]) -> dict[str, Any]:
+    """Every Account field that only this job writes, with None where Harmonic has no value."""
     funding = harmonic_data.get("funding", {})
     company_info = harmonic_data.get("company_info", {})
     metrics = harmonic_data.get("metrics", {})
@@ -263,21 +257,14 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
 
     current_metrics = {metric_name: metric_data.get("current_value") for metric_name, metric_data in metrics.items()}
 
-    founding_date = company_info.get("founding_date", "")
-    founded_year = int(founding_date.split("-")[0]) if founding_date and "-" in founding_date else None
-
-    update_data = {
-        "Id": account_id,
+    return {
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
         "harmonic_industry__c": _extract_primary_tag(tags, tags_v2),
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
-        "Founded_year__c": founded_year,
         # Funding Info
         "harmonic_last_funding__c": funding.get("lastFundingTotal"),
-        "Last_Funding_Date__c": funding.get("lastFundingAt"),
-        "Total_Funding__c": funding.get("fundingTotal"),
         "harmonic_funding_stage__c": funding.get("fundingStage"),
         # YC Flag
         "harmonic_is_yc_company__c": harmonic_data.get("is_yc_company"),
@@ -303,10 +290,108 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         "harmonic_web_traffic_180d__c": _get_historical_metric_value(metrics, "webTraffic", "180d"),
     }
 
-    # Remove None values to avoid Salesforce errors
-    filtered_update_data = {k: v for k, v in update_data.items() if v is not None}
 
-    return filtered_update_data
+def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert enriched data to Salesforce field mappings for bulk update.
+
+    Args:
+        account_id: Salesforce Account.Id
+        harmonic_data: Output from transform_harmonic_data()
+
+    Returns:
+        Dict ready for Salesforce sObject Collections API
+    """
+    if not harmonic_data:
+        return None
+
+    # A None value is left out, so that a field Harmonic stops reporting keeps the value from an earlier run.
+    mirror_fields = {k: v for k, v in _harmonic_mirror_fields(harmonic_data).items() if v is not None}
+
+    return {"Id": account_id, **mirror_fields}
+
+
+def prepare_mirror_clearing_data(account_id: str) -> dict[str, Any]:
+    """Build the update that removes what earlier runs stamped on an Account from a Harmonic sub-entity.
+
+    The canonical fields are left alone. Other writers also set them, and the record does not say which value
+    came from the sub-entity.
+    """
+    # The field names come from the mapping that stamps them, so that a field added there is also cleared here.
+    cleared: dict[str, Any] = dict.fromkeys(_harmonic_mirror_fields({}))
+    # A Salesforce checkbox cannot hold null.
+    cleared["harmonic_is_yc_company__c"] = False
+
+    return {"Id": account_id, **cleared}
+
+
+def prepare_account_update(account_id: str, company: dict[str, Any]) -> dict[str, Any] | None:
+    """Build the update for one Account from Harmonic's answer for its domain.
+
+    The fill-only fields are not included. They depend on the Account's current values, and
+    add_unoccupied_fill_fields() adds them immediately before the write.
+
+    Args:
+        account_id: Salesforce Account.Id
+        company: Raw company from the Harmonic API
+
+    Returns:
+        Dict ready for Salesforce sObject Collections API, or None if the company cannot be transformed
+    """
+    if is_sub_entity(company):
+        return prepare_mirror_clearing_data(account_id)
+
+    harmonic_data = transform_harmonic_data(company)
+    update_data = prepare_salesforce_update_data(account_id, harmonic_data) if harmonic_data else None
+    if update_data is None:
+        return None
+
+    return {**update_data, **overwritten_account_fields(company)}
+
+
+def _read_fill_field_values(sf, account_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Read the current values of ACCOUNT_FILL_FIELDS from Salesforce, keyed by Account Id.
+
+    An Account whose read fails is left out of the result.
+    """
+    logger = LOGGER.bind(function="_read_fill_field_values")
+    current_values: dict[str, dict[str, Any]] = {}
+
+    for start in range(0, len(account_ids), SALESFORCE_UPDATE_BATCH_SIZE):
+        query = format_soql(
+            f"SELECT Id, {', '.join(ACCOUNT_FILL_FIELDS)} FROM Account WHERE Id IN {{}}",
+            account_ids[start : start + SALESFORCE_UPDATE_BATCH_SIZE],
+        )
+        try:
+            current_values.update((record["Id"], record) for record in sf.query_all(query)["records"])
+        except Exception as e:
+            logger.exception("Failed to read current Account values", error=str(e))
+            capture_exception(e)
+
+    return current_values
+
+
+def add_unoccupied_fill_fields(
+    sf, update_records: list[dict[str, Any]], fill_fields_by_account: dict[str, dict[str, Any]]
+) -> None:
+    """Add each Account's fill-only fields to its update record, for the fields that hold no value in Salesforce.
+
+    The current values are read here, immediately before the write. The cached Account records can be hours old,
+    and a value that another writer set in that time must not be replaced. Salesforce has no conditional update,
+    so a value set between this read and the write can still be replaced.
+
+    Args:
+        sf: simple_salesforce.Salesforce client
+        update_records: List of dicts with Id + field updates, changed in place
+        fill_fields_by_account: Output from fill_only_account_fields(), keyed by Account Id
+    """
+    current_values = _read_fill_field_values(
+        sf, [account_id for account_id, fill_fields in fill_fields_by_account.items() if fill_fields]
+    )
+
+    for record in update_records:
+        fill_fields = fill_fields_by_account.get(record["Id"])
+        if fill_fields:
+            record.update(unoccupied_fields(fill_fields, current_values.get(record["Id"], {})))
 
 
 @frozen
@@ -507,6 +592,7 @@ def _build_result(
     records_processed: int = 0,
     records_enriched: int = 0,
     records_updated: int = 0,
+    records_rejected_sub_entity: int = 0,
     total_accounts_in_chunk: int = 0,
     errors: list[str] | None = None,
     error: str | None = None,
@@ -521,6 +607,7 @@ def _build_result(
         "records_processed": records_processed,
         "records_enriched": records_enriched,
         "records_updated": records_updated,
+        "records_rejected_sub_entity": records_rejected_sub_entity,
         "success_rate": success_rate,
         "total_time": round(time.time() - start_time, 2),
         "total_accounts_in_chunk": total_accounts_in_chunk,
@@ -746,15 +833,18 @@ async def _enrich_specific_domain_debug(
     if not accounts:
         return _build_debug_error_result(chunk_number, start_time, domain, "No Salesforce accounts found")
 
-    async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_debug") as harmonic_client:
+    async with AsyncHarmonicClient(
+        priority=Priority.BATCH, source="salesforce_enrichment_debug", query=HARMONIC_ACCOUNT_ENRICHMENT_QUERY
+    ) as harmonic_client:
         harmonic_results = await harmonic_client.enrich_companies_batch([domain])
         harmonic_result = harmonic_results[0] if harmonic_results else None
 
-        if not harmonic_result:
+        if not harmonic_result or not isinstance(harmonic_result, dict):
             return _build_debug_error_result(chunk_number, start_time, domain, "No Harmonic data found", accounts)
 
-        harmonic_data = transform_harmonic_data(harmonic_result)
-        if not harmonic_data:
+        rejected_sub_entity = is_sub_entity(harmonic_result)
+        harmonic_data = None if rejected_sub_entity else transform_harmonic_data(harmonic_result)
+        if not rejected_sub_entity and not harmonic_data:
             return _build_debug_error_result(
                 chunk_number, start_time, domain, "Failed to transform Harmonic data", accounts
             )
@@ -762,7 +852,7 @@ async def _enrich_specific_domain_debug(
         update_records = [
             update_data
             for account in accounts
-            if (update_data := prepare_salesforce_update_data(account["Id"], harmonic_data))
+            if (update_data := prepare_account_update(account["Id"], harmonic_result))
         ]
 
         salesforce_updated = False
@@ -774,6 +864,10 @@ async def _enrich_specific_domain_debug(
         try:
             if update_records:
                 sf = get_salesforce_client()
+                if not rejected_sub_entity:
+                    fill_fields = fill_only_account_fields(harmonic_result, queried_domain=domain)
+                    fill_fields_by_account = {record["Id"]: fill_fields for record in update_records}
+                    add_unoccupied_fill_fields(sf, update_records, fill_fields_by_account)
                 bulk_update_salesforce_accounts(sf, update_records)
                 salesforce_updated = True
                 records_updated = len(update_records)
@@ -795,6 +889,7 @@ async def _enrich_specific_domain_debug(
             "salesforce_accounts": [f"{acc['Name']} ({acc['Id']})" for acc in accounts],
             "accounts_updated": records_updated,
             "domain": domain,
+            "rejected_sub_entity": rejected_sub_entity,
             "all_fields_match": field_comparison["all_fields_match"] if field_comparison else None,
         }
         if update_error:
@@ -805,8 +900,9 @@ async def _enrich_specific_domain_debug(
                 chunk_number,
                 start_time,
                 records_processed=len(accounts),
-                records_enriched=1,
+                records_enriched=0 if rejected_sub_entity else 1,
                 records_updated=records_updated,
+                records_rejected_sub_entity=len(accounts) if rejected_sub_entity else 0,
             ),
             "summary": summary,
             "enriched_data": harmonic_data,
@@ -881,9 +977,13 @@ async def enrich_accounts_chunked_async(
 
     total_enriched = 0
     total_failed = 0
+    total_rejected = 0
     update_records = []
+    fill_fields_by_account: dict[str, dict[str, Any]] = {}
 
-    async with AsyncHarmonicClient(priority=Priority.BATCH, source="salesforce_enrichment_bulk") as harmonic_client:
+    async with AsyncHarmonicClient(
+        priority=Priority.BATCH, source="salesforce_enrichment_bulk", query=HARMONIC_ACCOUNT_ENRICHMENT_QUERY
+    ) as harmonic_client:
         for batch_start in range(0, len(account_data), HARMONIC_BATCH_SIZE):
             batch_end = min(batch_start + HARMONIC_BATCH_SIZE, len(account_data))
             batch = account_data[batch_start:batch_end]
@@ -897,23 +997,35 @@ async def enrich_accounts_chunked_async(
             for account_info, harmonic_result in zip(batch, harmonic_results):
                 account_id = account_info["account_id"]
 
-                if harmonic_result:
-                    harmonic_data = transform_harmonic_data(harmonic_result)
-
-                    if harmonic_data:
-                        total_enriched += 1
-                        update_data = prepare_salesforce_update_data(account_id, harmonic_data)
-                        if update_data:
-                            update_records.append(update_data)
-                        else:
-                            total_failed += 1
-                    else:
-                        total_failed += 1
-                else:
+                # A response that is not a company record counts as a failed lookup and must not stop the chunk.
+                if not isinstance(harmonic_result, dict):
                     total_failed += 1
+                    continue
+
+                update_data = prepare_account_update(account_id, harmonic_result)
+                if update_data is None:
+                    total_failed += 1
+                    continue
+
+                update_records.append(update_data)
+                if is_sub_entity(harmonic_result):
+                    total_rejected += 1
+                    logger.info(
+                        "Rejected Harmonic sub-entity",
+                        account_id=account_id,
+                        harmonic_name=harmonic_result.get("name"),
+                        harmonic_website=_safe_dict(harmonic_result.get("website")).get("url"),
+                    )
+                else:
+                    total_enriched += 1
+                    fill_fields_by_account[account_id] = fill_only_account_fields(
+                        harmonic_result, queried_domain=account_info["domain"]
+                    )
 
     # Update Salesforce accounts
     if update_records:
+        # The read runs in a thread, so that it does not hold the event loop in addition to the write below.
+        await asyncio.to_thread(add_unoccupied_fill_fields, sf, update_records, fill_fields_by_account)
         bulk_update_salesforce_accounts(sf, update_records)
 
     result = _build_result(
@@ -922,6 +1034,7 @@ async def enrich_accounts_chunked_async(
         records_processed=len(account_data),
         records_enriched=total_enriched,
         records_updated=len(update_records),
+        records_rejected_sub_entity=total_rejected,
         total_accounts_in_chunk=len(accounts),
     )
 

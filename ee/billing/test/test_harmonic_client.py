@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import aiohttp
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -13,6 +15,10 @@ from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 
+from ee.billing.salesforce_enrichment.constants import (
+    HARMONIC_ACCOUNT_ENRICHMENT_QUERY,
+    HARMONIC_COMPANY_ENRICHMENT_QUERY,
+)
 from ee.billing.salesforce_enrichment.harmonic_client import (
     _ENRICH_MAX_ATTEMPTS,
     _ENRICH_MAX_CONCURRENT_LOOKUPS,
@@ -49,6 +55,7 @@ def _client(*, priority=Priority.NORMAL):
     client.api_key = "test-key"
     client.priority = priority
     client.source = "test"
+    client.query = HARMONIC_COMPANY_ENRICHMENT_QUERY
     client.session = MagicMock()
     return client
 
@@ -203,6 +210,26 @@ async def test_strict_sends_api_key_as_header_not_in_url_or_params_and_uses_clie
     assert call.kwargs.get("params") is None
     assert call.kwargs["priority"] is Priority.BATCH
     assert call.kwargs["source"] == "billing_bulk"
+
+
+@parameterized.expand(
+    [
+        ("default_query", {}, HARMONIC_COMPANY_ENRICHMENT_QUERY, False),
+        ("query_argument", {"query": HARMONIC_ACCOUNT_ENRICHMENT_QUERY}, HARMONIC_ACCOUNT_ENRICHMENT_QUERY, True),
+    ]
+)
+@pytest.mark.asyncio
+async def test_strict_sends_the_query_the_client_was_built_with(_name, kwargs, expected_query, fetches_socials):
+    with override_settings(HARMONIC_API_KEY="test-key"):
+        client = AsyncHarmonicClient(**kwargs)
+    client.session = MagicMock()
+    mock_request = AsyncMock(side_effect=[_found({"name": "Example Corp"})])
+    with patch(HARMONIC_REQUEST, new=mock_request):
+        await client.enrich_company_by_domain_strict("example.com")
+
+    sent_query = mock_request.call_args.kwargs["json"]["query"]
+    assert sent_query == expected_query
+    assert ("socials" in sent_query) is fetches_socials
 
 
 @pytest.mark.asyncio
