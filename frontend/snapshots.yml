@@ -6509,13 +6509,17 @@ snapshots:
     products-autoresearch-lifecycle-strip--validated-champion--light:
         hash: v1.k794b7964.131ecc736b38defef5b8ba34fa9836f1d2d5132e1d109e4b995b9591a5d9255c.759giT71A_8sdMCqx-FasPgdZzZWHgRvaoUmqVtYYKw
     products-autoresearch-model-detail-scene--accuracy--narrow--dark:
-        hash: v1.k794b7964.474afbbef6390672bb4e56fbf5933057946c075c3b0817c3df920ebf4efa6cae.iitmJl1nGiexyocfoVJBleO0jsVpBHPfz9CRRvPwzqo
+        hash: v1.k794b7964.3f8217187d3824bf7878aed9060ebd96a4afbbe3bd4dd57d6c50d040ad396780.d5Oe_Z7FJqsHeGA64EyYABDdWkPetbotTiGPnQV6U6k
     products-autoresearch-model-detail-scene--accuracy--narrow--light:
-        hash: v1.k794b7964.9fdda8cd699a6d2ae9e0c829ee5d4ad380d1ec5664e7793a27ccb85cb4f8416d.B3rYoEpl0eGNDcqdDlGNihDNe30T8Nea9nf0do0Yv_o
+        hash: v1.k794b7964.c8eb64cb2728f6ee73094a5d2e5effdbdebb972cbe7a90e5942e153d8f625465.OQRwRbwNqDTXFmqHU6WfPJIsnTR0exRaoSyRf4-HNRw
     products-autoresearch-model-detail-scene--accuracy--wide--dark:
-        hash: v1.k794b7964.e3e30f0395d8b2531174b4d415fb3ba3789d69d4227eeb31fff97ef7a92fd2c1.JgJ0I_wqdXSubRfU9kIKLCrx2TNIsCO9c_asb6s0YCY
+        hash: v1.k794b7964.0fd3e76c74910c5e0017cb1a687bdc23e16807c956eab7c9d38800b588d2dc9c.V7437wGvm0FwZf22kWHip3bJcTzZkedIl7aEz329Hhs
     products-autoresearch-model-detail-scene--accuracy--wide--light:
-        hash: v1.k794b7964.9df2881fa8b1ad8ae2965e4daf597ef8d2835fdf73ca1c3343f4ae337afeb4d0.-smEXkxUblLfr2j9NSD9vX2BgFpL1qqyogUb_4wlxaE
+        hash: v1.k794b7964.937ed09f5202a79d41b2907a114a8d8a5479e9cd50ab992d5e1526244a026716.c8J1y77rve1oe6vz5ZMFqLIXEwMEiXbLMcbP_KoLkt4
+    products-autoresearch-model-detail-scene--accuracy-before-precision-recall--wide--dark:
+        hash: v1.k794b7964.0b5c8f601ca997bcc047ac9433320f97ded3d77587b5d9a1d17d4efc14fe067a.HmMZQj_A1QVaOYN24p6cCzBTWJ0dxBghBe4vwKTshnE
+    products-autoresearch-model-detail-scene--accuracy-before-precision-recall--wide--light:
+        hash: v1.k794b7964.cb4b85b471a78a1ad4c359c27692622fbf3bc29d133aa0d9a1c329b7eeba7723.AGhOQQd19cM-yzuU1A6HUYfsGLQf9gpLSuX1Y0OK8Bo
     products-autoresearch-model-detail-scene--agent-research-narrow--narrow--dark:
         hash: v1.k794b7964.052f6d0dba654432d5f12d65bc0f91bc3e2de64334dac07e62d6cf730f154820.7cPMLn00EY67HPH6ikgGBUlULYPQSAMVKLyE_cR3uTs
     products-autoresearch-model-detail-scene--agent-research-narrow--narrow--light:
