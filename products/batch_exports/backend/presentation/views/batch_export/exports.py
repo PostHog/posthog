@@ -43,11 +43,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import (
-    InvalidBatchExportFilters,
-    InvalidDestinationTestStepError,
-    UnsupportedDestinationTestError,
-)
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters, UnsupportedDestinationTestError
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
@@ -107,6 +103,13 @@ class BatchExportUnpauseRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Whether to backfill the runs that the batch export missed while it was paused.",
+    )
+
+
+class DestinationTestStepRequestSerializer(serializers.Serializer):
+    step = serializers.IntegerField(
+        default=0,
+        help_text="Index of the connection test step to run. Steps start at 0.",
     )
 
 
@@ -1098,11 +1101,13 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         delete_batch_export(instance)
 
-    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: object) -> response.Response:
-        # bool is a subclass of int, so a JSON true would otherwise pass as step 1.
-        if isinstance(step, bool) or not isinstance(step, int):
-            raise ValidationError("The step must be an integer.")
+    def _parse_destination_test_step(self, request: request.Request) -> int:
+        step_serializer = DestinationTestStepRequestSerializer(data=request.data)
+        step_serializer.is_valid(raise_exception=True)
+        request.data.pop("step", None)
+        return step_serializer.validated_data["step"]
 
+    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
         destination = serializer.validated_data["destination"]
         integration: Integration | None = destination.get("integration")
         try:
@@ -1115,8 +1120,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             )
         except UnsupportedDestinationTestError:
             raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
-        except InvalidDestinationTestStepError as e:
-            raise ValidationError(str(e))
         return response.Response(dataclasses.asdict(result))
 
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
@@ -1134,7 +1137,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
     @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
     def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
-        test_step = request.data.pop("step", 0)
+        test_step = self._parse_destination_test_step(request)
 
         serializer = self.get_serializer(data=request.data)
         _ = serializer.is_valid(raise_exception=True)
@@ -1143,7 +1146,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
-        test_step = request.data.pop("step", 0)
+        test_step = self._parse_destination_test_step(request)
 
         batch_export = self.get_object()
 
