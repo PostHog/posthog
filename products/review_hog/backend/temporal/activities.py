@@ -34,14 +34,14 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
-from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
+from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
+from products.review_hog.backend.preferences import ReviewPreferences
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
-    DEFAULT_URGENCY_THRESHOLD,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -283,10 +283,10 @@ class ResolveActingUserResult:
     # The user whose enabled perspectives drive this review; None when nothing in the resolution
     # chain maps to a PostHog org user — the parent then skips the review.
     acting_user_id: int | None
-    # The acting user's `ReviewUserSettings`, snapshotted here so mid-run edits don't flip gates
-    # between stages. Defaults match the model's (and cover payloads serialized before these existed).
-    # `review_labeled_prs` is the AUTHOR's opt-out: when the acting user is the default-user
-    # fallback, it is forced True — a borrowed user's personal switch never governs someone else's PR.
+    # The acting user's preferences, snapshotted here so mid-run edits don't flip gates between
+    # stages. Defaults match the code defaults (and cover payloads serialized before these existed).
+    # `review_labeled_prs` is always True: no setting turns the label trigger off. The field stays,
+    # because recorded workflow histories carry it.
     review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
@@ -294,7 +294,7 @@ class ResolveActingUserResult:
     resolved_from: str = "author"
     # Whether a published review of this user's PRs chains into the resolution stage. Defaults False
     # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
-    # new workflow command; old runs must never reach it on replay). The model default is True.
+    # new workflow command; old runs must never reach it on replay).
     resolve_comments: bool = False
     # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
     # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
@@ -302,6 +302,7 @@ class ResolveActingUserResult:
     # Whether the repository rules allow this automatic review. False for every other trigger. The
     # name predates the rules and stays, because recorded workflow histories carry it.
     review_authored_prs: bool = False
+    # Always the default effort. The field stays, because recorded workflow histories carry it.
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
 
@@ -864,48 +865,32 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         )
     if input.report_id is not None:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
+    # An automatic review of a bot pull request runs as the user who connected GitHub, with the
+    # default settings: that user's own preferences must not shape someone else's pull request.
+    borrowed = resolved_from == "default" or (
+        input.trigger_source == TRIGGER_AUTOMATIC and acting_user_id != author_user_id
+    )
     # celebrate_clean_reviews follows the author, who can differ from the acting user on an
-    # override run, so load both rows in one query instead of a second round trip below.
+    # override run, so load both users in one query instead of a second round trip below.
     extra_settings_ids = [author_user_id] if author_user_id is not None and author_user_id != acting_user_id else []
-    settings_by_user = ReviewUserSettings.load_many(input.team_id, [acting_user_id, *extra_settings_ids])
-    settings = settings_by_user[acting_user_id]
+    preferences_by_user = ReviewUserSettings.load_preferences_many(input.team_id, [acting_user_id, *extra_settings_ids])
+    defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
+    preferences = defaults if borrowed else preferences_by_user[acting_user_id]
+    author_preferences = preferences_by_user[author_user_id] if author_user_id is not None else defaults
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
-        # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
-        # user never imports their personal switch into someone else's PR.
-        review_labeled_prs=settings.review_labeled_prs if resolved_from in ("author", "override") else True,
-        # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
-        # must hold the plain value. A default-resolved run gates at the built-in default, never the
-        # borrowed run user's saved threshold — the same "borrowed settings must not leak into
-        # someone else's PR" rule that forces review_labeled_prs above.
-        urgency_threshold=(
-            str(settings.urgency_threshold)
-            if resolved_from in ("author", "override")
-            else DEFAULT_URGENCY_THRESHOLD.value
-        ),
-        review_inbox_prs=settings.review_inbox_prs,
+        review_labeled_prs=True,
+        # .value unwraps the TextChoices member, because the payload must hold the plain value.
+        urgency_threshold=preferences.urgency_threshold.value,
+        review_inbox_prs=preferences.review_inbox_prs,
         resolved_from=resolved_from,
-        # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
-        # switch never governs someone else's PR — an unmapped author gets the default posture (on).
-        resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
-        # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
+        resolve_comments=preferences.resolve_comments,
+        # Unlike the values above, this one follows the AUTHOR, not the requester: its copy scopes
         # it to "your pull requests". A teammate-triggered override still honors the mapped author's
         # own preference. Only an unmapped author falls back to the default.
-        celebrate_clean_reviews=(
-            settings.celebrate_clean_reviews
-            if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
-            else (
-                settings_by_user[author_user_id].celebrate_clean_reviews
-                if resolved_from == "override" and author_user_id is not None
-                else True
-            )
-        ),
+        celebrate_clean_reviews=author_preferences.celebrate_clean_reviews,
         review_authored_prs=automatic_allowed,
-        flash_reasoning_effort=(
-            str(settings.flash_reasoning_effort)
-            if resolved_from in ("author", "override")
-            else ReasoningEffort.MEDIUM.value
-        ),
+        flash_reasoning_effort=ReasoningEffort.MEDIUM.value,
     )
 
 

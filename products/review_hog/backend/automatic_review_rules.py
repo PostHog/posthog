@@ -1,56 +1,68 @@
-"""Which automatic review a pull request author gets in an added repository.
+"""Which automatic review a pull request author gets in a repository that a project reviews.
 
-Three levels decide, and the highest one that has an opinion wins:
+The highest level that has an opinion wins:
 
-1. Bots, when the repository excludes them.
-2. The author's own choice: a per-repository choice, else their default unless it is "follow".
-3. The repository's rule: Flash for everyone except the excepted people, or Flash only for the
-   listed people.
+1. The author's choice for this repository.
+2. The author's default, unless it is "follow".
+3. The repository exception of the owning project.
+4. The project rule: Flash for everyone except the excepted people, Flash only for the listed
+   people, or Flash only for people who opt in.
 
-`RepositoryReviewRule.resolve` is pure, so the dispatch, the workflow re-check, and the settings API
+Bot authors, and authors who map to no project member, have no choices. They get automatic Flash
+only when the project reviews bot pull requests.
+
+`AutomaticReviewRule.resolve` is pure, so the dispatch, the workflow re-check, and the settings API
 all give the same answer. The loaders below read the rows it needs.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
 from uuid import UUID
 
-from django.core.cache import cache
-from django.db import models, transaction
-from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
+from django.db import models
 
 from posthog.dataclasses import frozen
-from posthog.utils import safe_cache_delete
 
 from products.review_hog.backend.models import (
+    AutomaticFlashFor,
+    ReviewProjectSettings,
     ReviewRepository,
     ReviewRepositoryPerson,
     ReviewUserRepositoryChoice,
     ReviewUserSettings,
 )
-
-
-class AutomaticReviewMode(models.TextChoices):
-    FLASH = "flash", "Flash"
-    FULL = "full", "Full"
-    NONE = "none", "No automatic review"
+from products.review_hog.backend.ownership import RepositoryRef
+from products.review_hog.backend.preferences import DefaultReviewMode
 
 
 class AutomaticReviewReason(models.TextChoices):
-    BOT_EXCLUDED = "bot_excluded", "Bots are excluded"
     OWN_REPOSITORY_CHOICE = "own_repository_choice", "Own choice for this repository"
     OWN_DEFAULT = "own_default", "Own default"
-    EVERYONE = "everyone", "Repository reviews everyone"
-    EXCEPTED = "excepted", "Excepted by the repository"
-    LISTED = "listed", "Listed by the repository"
-    NOT_LISTED = "not_listed", "Not listed by the repository"
+    REPOSITORY_EVERYONE = "repository_everyone", "The repository exception reviews everyone"
+    REPOSITORY_EXCEPTED = "repository_excepted", "Excepted by the repository exception"
+    REPOSITORY_LISTED = "repository_listed", "Listed by the repository exception"
+    REPOSITORY_NOT_LISTED = "repository_not_listed", "Not listed by the repository exception"
+    REPOSITORY_OPT_IN = "repository_opt_in", "The repository exception reviews only people who opt in"
+    PROJECT_EVERYONE = "project_everyone", "The project reviews everyone"
+    PROJECT_EXCEPTED = "project_excepted", "Excepted by the project"
+    PROJECT_LISTED = "project_listed", "Listed by the project"
+    PROJECT_NOT_LISTED = "project_not_listed", "Not listed by the project"
+    PROJECT_OPT_IN = "project_opt_in", "The project reviews only people who opt in"
+    BOT_REVIEWED = "bot_reviewed", "The project reviews bot pull requests"
+    BOT_SKIPPED = "bot_skipped", "The project does not review bot pull requests"
+    NOT_IN_PROJECT = "not_in_project", "This project does not review the repository"
 
 
-_OWN_CHOICE_MODES: dict[str, AutomaticReviewMode] = {
-    "flash": AutomaticReviewMode.FLASH,
-    "full": AutomaticReviewMode.FULL,
-    "off": AutomaticReviewMode.NONE,
+_RULE_REASONS: dict[tuple[bool, str], AutomaticReviewReason] = {
+    (True, "everyone"): AutomaticReviewReason.REPOSITORY_EVERYONE,
+    (True, "excepted"): AutomaticReviewReason.REPOSITORY_EXCEPTED,
+    (True, "listed"): AutomaticReviewReason.REPOSITORY_LISTED,
+    (True, "not_listed"): AutomaticReviewReason.REPOSITORY_NOT_LISTED,
+    (True, "opt_in"): AutomaticReviewReason.REPOSITORY_OPT_IN,
+    (False, "everyone"): AutomaticReviewReason.PROJECT_EVERYONE,
+    (False, "excepted"): AutomaticReviewReason.PROJECT_EXCEPTED,
+    (False, "listed"): AutomaticReviewReason.PROJECT_LISTED,
+    (False, "not_listed"): AutomaticReviewReason.PROJECT_NOT_LISTED,
+    (False, "opt_in"): AutomaticReviewReason.PROJECT_OPT_IN,
 }
 
 
@@ -61,51 +73,31 @@ def is_bot_login(github_login: str) -> bool:
 
 @frozen
 class AutomaticReviewDecision:
-    mode: AutomaticReviewMode
+    flash: bool
     reason: AutomaticReviewReason
 
 
 @frozen
 class AuthorChoice:
-    # None when the GitHub author has no PostHog user, so no own choice and no list can match.
+    # None when the GitHub author maps to no PostHog user.
     user_id: int | None
     is_bot: bool
-    default_mode: ReviewUserSettings.DefaultReviewMode
+    default_mode: DefaultReviewMode
     repository_choice: ReviewUserRepositoryChoice.Mode | None
 
 
 @frozen
-class AuthorPreferences:
-    """An author's own choices across all repositories of a project."""
+class FlashRule:
+    """One level's rule, the project rule or a repository exception, with its people lists."""
 
-    user_id: int | None
-    is_bot: bool
-    default_mode: ReviewUserSettings.DefaultReviewMode
-    repository_choices: Mapping[UUID, ReviewUserRepositoryChoice.Mode]
-
-    def for_repository(self, repository_id: UUID) -> AuthorChoice:
-        return AuthorChoice(
-            user_id=self.user_id,
-            is_bot=self.is_bot,
-            default_mode=self.default_mode,
-            repository_choice=self.repository_choices.get(repository_id),
-        )
-
-
-@frozen
-class RepositoryReviewRule:
-    flash_for: ReviewRepository.FlashFor
-    exclude_bots: bool
+    flash_for: AutomaticFlashFor
     listed_user_ids: frozenset[int]
     excepted_user_ids: frozenset[int]
 
     @classmethod
-    def for_repository(
-        cls, repository: ReviewRepository, people: Sequence[ReviewRepositoryPerson]
-    ) -> "RepositoryReviewRule":
+    def from_people(cls, flash_for: str, people: Sequence[ReviewRepositoryPerson]) -> "FlashRule":
         return cls(
-            flash_for=ReviewRepository.FlashFor(repository.flash_for),
-            exclude_bots=repository.exclude_bots,
+            flash_for=AutomaticFlashFor(flash_for),
             listed_user_ids=frozenset(
                 person.user_id for person in people if person.kind == ReviewRepositoryPerson.Kind.LISTED
             ),
@@ -114,86 +106,50 @@ class RepositoryReviewRule:
             ),
         )
 
+    def decide(self, user_id: int, *, is_repository: bool) -> AutomaticReviewDecision:
+        if self.flash_for == AutomaticFlashFor.EVERYONE:
+            flash, outcome = (False, "excepted") if user_id in self.excepted_user_ids else (True, "everyone")
+        elif self.flash_for == AutomaticFlashFor.LISTED:
+            flash, outcome = (True, "listed") if user_id in self.listed_user_ids else (False, "not_listed")
+        else:
+            flash, outcome = False, "opt_in"
+        return AutomaticReviewDecision(flash=flash, reason=_RULE_REASONS[(is_repository, outcome)])
+
+
+@frozen
+class AutomaticReviewRule:
+    project: FlashRule
+    # None when the repository follows the project rule.
+    repository: FlashRule | None
+    review_bots: bool
+
     def resolve(self, author: AuthorChoice) -> AutomaticReviewDecision:
-        if author.is_bot and self.exclude_bots:
-            return AutomaticReviewDecision(mode=AutomaticReviewMode.NONE, reason=AutomaticReviewReason.BOT_EXCLUDED)
+        if author.is_bot or author.user_id is None:
+            if self.review_bots:
+                return AutomaticReviewDecision(flash=True, reason=AutomaticReviewReason.BOT_REVIEWED)
+            return AutomaticReviewDecision(flash=False, reason=AutomaticReviewReason.BOT_SKIPPED)
         if author.repository_choice is not None:
             return AutomaticReviewDecision(
-                mode=_OWN_CHOICE_MODES[author.repository_choice],
+                flash=author.repository_choice == ReviewUserRepositoryChoice.Mode.FLASH,
                 reason=AutomaticReviewReason.OWN_REPOSITORY_CHOICE,
             )
-        if author.default_mode != ReviewUserSettings.DefaultReviewMode.FOLLOW:
+        if author.default_mode != DefaultReviewMode.FOLLOW:
             return AutomaticReviewDecision(
-                mode=_OWN_CHOICE_MODES[author.default_mode], reason=AutomaticReviewReason.OWN_DEFAULT
+                flash=author.default_mode == DefaultReviewMode.FLASH, reason=AutomaticReviewReason.OWN_DEFAULT
             )
-        if self.flash_for == ReviewRepository.FlashFor.EVERYONE:
-            if author.user_id in self.excepted_user_ids:
-                return AutomaticReviewDecision(mode=AutomaticReviewMode.NONE, reason=AutomaticReviewReason.EXCEPTED)
-            return AutomaticReviewDecision(mode=AutomaticReviewMode.FLASH, reason=AutomaticReviewReason.EVERYONE)
-        if author.user_id in self.listed_user_ids:
-            return AutomaticReviewDecision(mode=AutomaticReviewMode.FLASH, reason=AutomaticReviewReason.LISTED)
-        return AutomaticReviewDecision(mode=AutomaticReviewMode.NONE, reason=AutomaticReviewReason.NOT_LISTED)
+        if self.repository is not None:
+            return self.repository.decide(author.user_id, is_repository=True)
+        return self.project.decide(author.user_id, is_repository=False)
 
 
-def find_repository(team_id: int, full_name: str) -> ReviewRepository | None:
-    return ReviewRepository.objects.for_team(team_id).filter(full_name__iexact=full_name).first()
-
-
-class AddedRepositoryNames:
-    """A cached set of a project's added repository names, lowercased.
-
-    The webhook handler uses it to drop pull request events of repositories nobody added, so it
-    queues no task for them. `find_repository` stays the source of truth: the cache is only a
-    prefilter. The receivers below delete the key on every change, and the TTL caps staleness for
-    writes that bypass the ORM signals.
-    """
-
-    TTL_SECONDS = 5 * 60
-
-    @staticmethod
-    def cache_key(team_id: int) -> str:
-        return f"review_hog:added_repositories:{team_id}"
-
-    @classmethod
-    def load(cls, team_id: int) -> list[str]:
-        # A sorted list, not a set: the cache stores JSON-shaped values only.
-        names = ReviewRepository.objects.for_team(team_id).values_list("full_name", flat=True)
-        return sorted({name.lower() for name in names})
-
-    @classmethod
-    def get(cls, team_id: int) -> frozenset[str]:
-        names = cache.get_or_set(cls.cache_key(team_id), lambda: cls.load(team_id), cls.TTL_SECONDS)
-        if not isinstance(names, list):
-            names = cls.load(team_id)
-        return frozenset(names)
-
-    @classmethod
-    def invalidate(cls, team_id: int) -> None:
-        key = cls.cache_key(team_id)
-        safe_cache_delete(key)
-        # A reader between this delete and the commit can cache the old rows again.
-        transaction.on_commit(lambda: safe_cache_delete(key))
-
-
-@receiver(post_save, sender=ReviewRepository)
-def _invalidate_added_repositories_on_save(
-    sender: type[ReviewRepository], instance: ReviewRepository, **kwargs: Any
-) -> None:
-    AddedRepositoryNames.invalidate(instance.team_id)
-
-
-@receiver(post_delete, sender=ReviewRepository)
-def _invalidate_added_repositories_on_delete(
-    sender: type[ReviewRepository], instance: ReviewRepository, **kwargs: Any
-) -> None:
-    AddedRepositoryNames.invalidate(instance.team_id)
-
-
-def load_repository_people(team_id: int, repository_ids: Iterable[UUID]) -> dict[UUID, list[ReviewRepositoryPerson]]:
-    people: dict[UUID, list[ReviewRepositoryPerson]] = {repository_id: [] for repository_id in repository_ids}
+def load_people(team_id: int, repository_ids: Iterable[UUID]) -> dict[UUID | None, list[ReviewRepositoryPerson]]:
+    """People lists keyed by repository id. The key None holds the lists of the project rule."""
+    people: dict[UUID | None, list[ReviewRepositoryPerson]] = {None: []}
+    people.update({repository_id: [] for repository_id in repository_ids})
+    repository_filter = models.Q(repository_id__in=[key for key in people if key is not None])
     rows = (
         ReviewRepositoryPerson.objects.for_team(team_id)
-        .filter(repository_id__in=list(people))
+        .filter(repository_filter | models.Q(repository__isnull=True))
         .select_related("user")
         .order_by("created_at")
     )
@@ -202,31 +158,84 @@ def load_repository_people(team_id: int, repository_ids: Iterable[UUID]) -> dict
     return people
 
 
-def load_author_preferences(team_id: int, *, user_id: int | None, is_bot: bool) -> AuthorPreferences:
-    if user_id is None:
-        return AuthorPreferences(
-            user_id=None,
-            is_bot=is_bot,
-            default_mode=ReviewUserSettings.DefaultReviewMode.FOLLOW,
-            repository_choices={},
+@frozen
+class ProjectRuleContext:
+    """What a project needs to resolve its rule in many repositories without another query."""
+
+    settings: ReviewProjectSettings
+    people: Mapping[UUID | None, Sequence[ReviewRepositoryPerson]]
+
+    @classmethod
+    def load(cls, team_id: int, repositories: Iterable[ReviewRepository]) -> "ProjectRuleContext":
+        return cls(
+            settings=ReviewProjectSettings.load(team_id),
+            people=load_people(team_id, [repository.id for repository in repositories]),
         )
-    choices = ReviewUserRepositoryChoice.objects.for_team(team_id).filter(user_id=user_id)
+
+    def rule_for(self, repository: ReviewRepository | None) -> AutomaticReviewRule:
+        exception = None
+        if repository is not None and repository.flash_for is not None:
+            exception = FlashRule.from_people(repository.flash_for, self.people.get(repository.id, []))
+        return AutomaticReviewRule(
+            project=FlashRule.from_people(self.settings.flash_for, self.people.get(None, [])),
+            repository=exception,
+            review_bots=self.settings.bot_prs == ReviewProjectSettings.BotPullRequests.RUN,
+        )
+
+
+@frozen
+class AuthorPreferences:
+    """An author's own choices across all repositories of a project."""
+
+    user_id: int | None
+    is_bot: bool
+    default_mode: DefaultReviewMode
+    choices: Sequence[ReviewUserRepositoryChoice]
+
+    def choice_for(self, repository: RepositoryRef) -> ReviewUserRepositoryChoice | None:
+        candidates = [choice for choice in self.choices if choice.installation_id == repository.installation_id]
+        if repository.github_repo_id is not None:
+            for choice in candidates:
+                if choice.github_repo_id == repository.github_repo_id:
+                    return choice
+        name = repository.full_name.lower()
+        for choice in candidates:
+            # A name match with another id is an older repository that had this name.
+            same_repository = choice.github_repo_id is None or repository.github_repo_id is None
+            if choice.full_name.lower() == name and same_repository:
+                return choice
+        return None
+
+    def for_repository(self, repository: RepositoryRef) -> AuthorChoice:
+        choice = self.choice_for(repository)
+        return AuthorChoice(
+            user_id=self.user_id,
+            is_bot=self.is_bot,
+            default_mode=self.default_mode,
+            repository_choice=ReviewUserRepositoryChoice.Mode(choice.mode) if choice is not None else None,
+        )
+
+
+def load_author_preferences(team_id: int, *, user_id: int | None, is_bot: bool) -> AuthorPreferences:
+    if user_id is None or is_bot:
+        return AuthorPreferences(user_id=user_id, is_bot=is_bot, default_mode=DefaultReviewMode.FOLLOW, choices=())
     return AuthorPreferences(
         user_id=user_id,
         is_bot=is_bot,
-        default_mode=ReviewUserSettings.DefaultReviewMode(
-            ReviewUserSettings.load(team_id, user_id).default_review_mode
-        ),
-        repository_choices={
-            repository_id: ReviewUserRepositoryChoice.Mode(mode)
-            for repository_id, mode in choices.values_list("repository_id", "mode")
-        },
+        default_mode=ReviewUserSettings.load_preferences(team_id, user_id).default_review_mode,
+        choices=tuple(ReviewUserRepositoryChoice.objects.for_team(team_id).filter(user_id=user_id)),
     )
 
 
 def decide_automatic_review(
-    repository: ReviewRepository, *, author_user_id: int | None, author_login: str
+    team_id: int,
+    repository: RepositoryRef,
+    row: ReviewRepository | None,
+    *,
+    author_user_id: int | None,
+    author_login: str,
 ) -> AutomaticReviewDecision:
-    people = load_repository_people(repository.team_id, [repository.id])[repository.id]
-    author = load_author_preferences(repository.team_id, user_id=author_user_id, is_bot=is_bot_login(author_login))
-    return RepositoryReviewRule.for_repository(repository, people).resolve(author.for_repository(repository.id))
+    """The decision for one author in a repository that `team_id` owns. `row` is that project's row."""
+    rule = ProjectRuleContext.load(team_id, [row] if row is not None else []).rule_for(row)
+    author = load_author_preferences(team_id, user_id=author_user_id, is_bot=is_bot_login(author_login))
+    return rule.resolve(author.for_repository(repository))

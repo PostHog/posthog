@@ -11,7 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.review_hog.backend.models import ReviewReport, ReviewRepository
+from products.review_hog.backend.models import ReviewInstallationClaim, ReviewReport, ReviewRepository
 
 TRIGGER_URL = "/api/review_hog/trigger/"
 RESOLVE_URL = "/api/review_hog/resolve/"
@@ -28,16 +28,9 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.trigger_team = Team.objects.create(organization=self.organization, name="reviewhog trigger")
         self.run_user = User.objects.create(email="run-user@posthog.com")
         OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
-        # Apply dynamic IDs via settings overrides
-        self._settings_ctx = self.settings(
-            REVIEWHOG_TEAM_IDS=[self.trigger_team.id],
-            REVIEWHOG_RUN_USER_ID=self.run_user.id,
-        )
+        self._settings_ctx = self.settings(REVIEWHOG_RUN_USER_ID=self.run_user.id)
         self._settings_ctx.enable()
-        for team in (self.trigger_team, self.team):
-            for full_name in ("PostHog/posthog", "PostHog/ai-gateway"):
-                ReviewRepository.objects.for_team(team.id).create(team=team, full_name=full_name)
-        ReviewRepository.objects.for_team(self.team.id).create(team=self.team, full_name="PostHog/posthog-js")
+        self._own(self.trigger_team, "PostHog/posthog", "PostHog/ai-gateway")
         # The busy-guard probes Temporal on every trigger; tests must never open real connections.
         busy_patcher = patch(_BUSY, return_value=False)
         self.mock_busy = busy_patcher.start()
@@ -46,6 +39,28 @@ class TestReviewHogTriggerApi(APIBaseTest):
     def tearDown(self):
         self._settings_ctx.disable()
         super().tearDown()
+
+    def _own(self, team: Team, *full_names: str, created_by: User | None = None) -> None:
+        """Make `team` the project that reviews these repositories of the PostHog installation."""
+        Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="1001",
+            config={"account": {"name": "PostHog"}},
+            sensitive_config={},
+            created_by=created_by,
+        )
+        ReviewInstallationClaim.objects.for_team(team.id).create(
+            team=team, installation_id="1001", scope=ReviewInstallationClaim.Scope.SELECTED
+        )
+        for full_name in full_names:
+            ReviewRepository.objects.for_team(team.id).create(
+                team=team, installation_id="1001", full_name=full_name, selected=True
+            )
+
+    def _move_ownership_to_self_team(self, created_by: User) -> None:
+        ReviewRepository.objects.for_team(self.trigger_team.id).delete()
+        self._own(self.team, "PostHog/posthog", created_by=created_by)
 
     @patch(_START, return_value="wf-1")
     def test_valid_trigger_starts_workflow_and_publishes_by_default(self, mock_start):
@@ -96,14 +111,14 @@ class TestReviewHogTriggerApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("other_org", "evil/repo"),
-            ("added_name_other_owner", "evil/ai-gateway"),
-            ("added_name_prefix", "PostHog/ai-gateway-fork"),
-            ("added_only_to_another_team", "PostHog/posthog-js"),
+            ("other_account", "evil/repo"),
+            ("owned_name_other_account", "evil/ai-gateway"),
+            ("owned_name_prefix", "PostHog/ai-gateway-fork"),
+            ("not_selected_anywhere", "PostHog/posthog-js"),
         ]
     )
     @patch(_START, return_value="wf-1")
-    def test_repository_not_added_to_the_trigger_team_rejected(self, _name, repo, mock_start):
+    def test_repository_no_project_reviews_is_rejected(self, _name, repo, mock_start):
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": repo, "pr_number": 1},
@@ -121,7 +136,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         ]
     )
     @patch(_START, return_value="wf-1")
-    def test_added_repository_accepted(self, _name, repo, mock_start):
+    def test_owned_repository_accepted(self, _name, repo, mock_start):
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": repo, "pr_number": 7},
@@ -132,17 +147,17 @@ class TestReviewHogTriggerApi(APIBaseTest):
         mock_start.assert_called_once()
         self.assertEqual(mock_start.call_args.kwargs["pr_url"], f"https://github.com/{repo}/pull/7")
 
-    @override_settings(REVIEWHOG_TEAM_IDS=[])
     @patch(_START, return_value="wf-1")
-    def test_unconfigured_team_returns_503(self, mock_start):
+    def test_the_owning_project_runs_the_review(self, mock_start):
+        self._move_ownership_to_self_team(created_by=self.user)
         resp = self.client.post(
             TRIGGER_URL,
             {"repo": "PostHog/posthog", "pr_number": 1},
             format="json",
             HTTP_AUTHORIZATION="Bearer secret-token",
         )
-        self.assertEqual(resp.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
-        mock_start.assert_not_called()
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(mock_start.call_args.kwargs["team_id"], self.team.id)
 
     @override_settings(DEBUG=False, TEST=False, REVIEWHOG_TRIGGER_TOKEN=None)
     @patch(_START, return_value="wf-1")
@@ -159,21 +174,13 @@ class TestReviewHogTriggerApi(APIBaseTest):
     @override_settings(REVIEWHOG_RUN_USER_ID=None)
     @patch(_START, return_value="wf-1")
     def test_run_user_falls_back_to_integration_creator(self, mock_start):
-        Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="inst-1",
-            config={},
-            sensitive_config={},
-            created_by=self.user,
+        self._move_ownership_to_self_team(created_by=self.user)
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 1},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
         )
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            resp = self.client.post(
-                TRIGGER_URL,
-                {"repo": "PostHog/posthog", "pr_number": 1},
-                format="json",
-                HTTP_AUTHORIZATION="Bearer secret-token",
-            )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
 
@@ -189,21 +196,13 @@ class TestReviewHogTriggerApi(APIBaseTest):
         departed = User.objects.create(email="departed@posthog.com", is_active=False)
         if keep_membership:
             OrganizationMembership.objects.create(organization=self.organization, user=departed)
-        Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="inst-1",
-            config={},
-            sensitive_config={},
-            created_by=departed,
+        self._move_ownership_to_self_team(created_by=departed)
+        resp = self.client.post(
+            TRIGGER_URL,
+            {"repo": "PostHog/posthog", "pr_number": 1},
+            format="json",
+            HTTP_AUTHORIZATION="Bearer secret-token",
         )
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            resp = self.client.post(
-                TRIGGER_URL,
-                {"repo": "PostHog/posthog", "pr_number": 1},
-                format="json",
-                HTTP_AUTHORIZATION="Bearer secret-token",
-            )
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)
 
@@ -276,7 +275,9 @@ class TestReviewHogTriggerApi(APIBaseTest):
         ]
     )
     @patch(_START, return_value="wf-1")
-    def test_unauthorized_configured_run_user_rejected(self, _name, deactivate, mock_start):
+    def test_configured_run_user_applies_only_where_it_is_an_active_member(self, _name, deactivate, mock_start):
+        # Any project can own a repository now, so the configured run user can belong to another
+        # organization. The owning project's own run user takes over.
         if deactivate:
             User.objects.filter(id=self.run_user.id).update(is_active=False)
         else:
@@ -287,5 +288,5 @@ class TestReviewHogTriggerApi(APIBaseTest):
             format="json",
             HTTP_AUTHORIZATION="Bearer secret-token",
         )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        mock_start.assert_not_called()
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertEqual(mock_start.call_args.kwargs["user_id"], self.user.id)

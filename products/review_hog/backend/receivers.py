@@ -44,6 +44,7 @@ from django.db import transaction
 from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.preferences import ReviewPreferences
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
@@ -109,7 +110,7 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         resolved = _resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
         if not resolved:
             return
-        settings_by_user = ReviewUserSettings.load_many(instance.team_id, [user.id for user in resolved])
+        settings_by_user = ReviewUserSettings.load_preferences_many(instance.team_id, [user.id for user in resolved])
         acting_user_id = _pick_reviewer(resolved, task.created_by_id)
         stamphog_user_id = _pick_stamphog_reviewer(resolved, settings_by_user, task.created_by_id)
         # robust=True on both: the two dispatches are independent but share one commit-hook queue, so
@@ -163,12 +164,12 @@ def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, prefer
     resolved = _resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
         return None
-    settings_by_user = ReviewUserSettings.load_many(team_id, [user.id for user in resolved])
+    settings_by_user = ReviewUserSettings.load_preferences_many(team_id, [user.id for user in resolved])
     return _pick_stamphog_reviewer(resolved, settings_by_user, preferred_user_id)
 
 
 def _pick_stamphog_reviewer(
-    resolved: list[Any], settings_by_user: dict[int, ReviewUserSettings], preferred_user_id: int | None
+    resolved: list[Any], settings_by_user: dict[int, ReviewPreferences], preferred_user_id: int | None
 ) -> int | None:
     """The user id to attribute a stamphog inbox review to, or None when nobody is opted in.
 
