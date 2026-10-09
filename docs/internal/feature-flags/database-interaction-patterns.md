@@ -150,8 +150,12 @@ feature-flags still reads the active flags with experience continuity from the n
 personhog-replica resolves the distinct IDs, keeps each real key that a person already has, and replaces a stored `$posthog_cookieless` key.
 The call stays inside `PERSONS_DB_DEADLINE_MS`.
 On personhog-replica, `statement_timeout` and `lock_timeout` stop the write when a person delete or merge holds the person row.
-A failed personhog call is not retried in feature-flags. personhog rejects `$posthog_cookieless` as the new hash key with `InvalidArgument`, and a retry gives the same error.
+When a person merge or delete commits during the write, the insert fails its foreign key check.
+personhog-replica retries the transaction once, and the retry writes to the surviving person.
+The persons DB path retries the same failure in feature-flags.
+A failed personhog call is not retried in feature-flags.
 `personhog_router_client_call_duration_ms{method="UpsertHashKeyOverrides"}` measures the call from feature-flags to the router.
+The `path` label on `flags_flag_hash_key_writes_total` is `sql` or `personhog`.
 
 ### Total connection count
 

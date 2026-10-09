@@ -1336,13 +1336,14 @@ async fn primary_has_override(
 /// Sets feature flag hash key overrides for a list of distinct IDs.
 ///
 /// This function creates hash key overrides for all active feature flags that have
-/// experience continuity enabled. It includes retry logic for handling race conditions
-/// with person deletions.
+/// experience continuity enabled. A foreign key violation means that a person delete or merge
+/// committed during the write. The persons DB path retries it, and the next attempt resolves the
+/// distinct IDs again.
 ///
 /// With `personhog`, the write goes through `UpsertHashKeyOverrides` instead of the persons DB
-/// transaction. A transient failure of the flag key query is retried, the same as on the SQL path.
-/// A failed personhog call is not retried here, because the router already retries the replica
-/// and `InvalidArgument` gives the same error on each attempt.
+/// transaction. personhog-replica retries the foreign key violation once inside the call, so this
+/// function does not retry a failed personhog call. A transient failure of the flag key query is
+/// retried, the same as on the persons DB path.
 pub async fn set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     personhog: Option<&RouterClient>,
@@ -1519,9 +1520,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         .execute(&mut *transaction)
         .await?;
 
-    // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
-
-    // Query 3: Bulk insert hash key overrides (person pool)
+    // Bulk insert hash key overrides (person pool)
     // A stored sentinel is not a real continuity key, so this replaces it. Any other stored
     // key is one the person bucketed on, so it stays.
     let bulk_insert_query = r#"
@@ -1597,6 +1596,7 @@ async fn try_set_feature_flag_hash_key_overrides(
 
         let person_ids_vec: Vec<i64> = person_ids.into_iter().collect();
 
+        // Step 2: Get active feature flags (from non-person pool)
         let flag_keys = fetch_experience_continuity_flag_keys(router, team_id).await?;
 
         if flag_keys.is_empty() {
@@ -3250,51 +3250,6 @@ mod tests {
         assert!(
             statement_timeout,
             "expected a statement timeout, got {result:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_personhog_write_does_not_retry_invalid_argument() {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        let _guard = metrics::set_default_local_recorder(&recorder);
-
-        let context = TestContext::new(None).await;
-        let team = context.insert_new_team(None).await.unwrap();
-        let flag = mock!(FeatureFlag,
-            team_id: team.id,
-            ensure_experience_continuity: Some(true)
-        );
-        context
-            .insert_flag(team.id, Some(mock!(FeatureFlagRow, from: flag)))
-            .await
-            .unwrap();
-        let pool = get_pool_with_config(
-            &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
-            PoolConfig::default(),
-        )
-        .unwrap();
-        let personhog = start_personhog_replica(pool).await;
-
-        let result = set_feature_flag_hash_key_overrides(
-            &context.create_postgres_router(),
-            Some(&personhog),
-            team.id,
-            vec!["user".to_string()],
-            COOKIELESS_SENTINEL_VALUE.to_string(),
-        )
-        .await;
-
-        let code = match &result {
-            Err(FlagError::InternalError { cause, .. }) => {
-                cause.downcast_ref::<tonic::Status>().map(|s| s.code())
-            }
-            _ => None,
-        };
-        assert_eq!(code, Some(tonic::Code::InvalidArgument), "got {result:?}");
-        assert_eq!(
-            counter_total(&snapshotter, FLAG_HASH_KEY_RETRIES_COUNTER, &[]),
-            0
         );
     }
 

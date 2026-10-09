@@ -1646,6 +1646,83 @@ async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
     ctx.cleanup().await.ok();
 }
 
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_writes_to_the_surviving_person_of_a_concurrent_merge() {
+    let ctx = TestContext::new().await;
+    let merged = ctx
+        .insert_person("upsert_merged_user", None)
+        .await
+        .expect("Failed to insert person");
+    let surviving = ctx
+        .insert_person("upsert_surviving_user", None)
+        .await
+        .expect("Failed to insert person");
+
+    let mut merge = ctx.lock_person_row(merged.id).await.unwrap();
+    let merge_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *merge)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET person_id = $1 WHERE team_id = $2 AND person_id = $3",
+    )
+    .bind(surviving.id)
+    .bind(ctx.team_id)
+    .bind(merged.id)
+    .execute(&mut *merge)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(ctx.team_id)
+        .bind(merged.id)
+        .execute(&mut *merge)
+        .await
+        .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let upsert = tokio::spawn(async move {
+        storage
+            .upsert_hash_key_overrides(
+                team_id,
+                &["upsert_merged_user".to_string()],
+                &["test-flag".to_string()],
+                "my_hash_key",
+            )
+            .await
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let blocked: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))",
+        )
+        .bind(merge_pid)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        if blocked {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the upsert never waited on the merge"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    merge.commit().await.unwrap();
+
+    let result = upsert.await.unwrap();
+
+    assert!(
+        matches!(result, Ok(1)),
+        "expected one override, got {result:?}"
+    );
+    assert_eq!(ctx.hash_key_override_count(surviving.id).await.unwrap(), 1);
+
+    ctx.cleanup().await.ok();
+}
+
 // ============================================================
 // Delete hash key overrides by teams tests
 // ============================================================

@@ -933,12 +933,20 @@ impl FeatureFlagMatcher {
             }
         }
 
+        let write_path = if self.personhog_hash_key_writer.is_some() {
+            "personhog"
+        } else {
+            "sql"
+        };
         inc(
             FLAG_HASH_KEY_WRITES_COUNTER,
-            &[(
-                "successful_write".to_string(),
-                writing_hash_key_override.to_string(),
-            )],
+            &[
+                (
+                    "successful_write".to_string(),
+                    writing_hash_key_override.to_string(),
+                ),
+                ("path".to_string(), write_path.to_string()),
+            ],
             1,
         );
 
