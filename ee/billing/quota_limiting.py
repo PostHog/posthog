@@ -105,6 +105,9 @@ class QuotaLimitingCaches(Enum):
     QUOTA_LIMITING_SUSPENDED_KEY = "@posthog/quota-limiting-suspended/"
 
 
+ALREADY_LIMITED_NOTICE_KEY_PREFIX = "@posthog/quota-limit-notices/already-limited/"
+
+
 OVERAGE_BUFFER = {
     QuotaResource.EVENTS: 0,
     QuotaResource.EXCEPTIONS: 0,
@@ -439,6 +442,25 @@ def _signals_credited_refund_offset(organization: Organization, resource: QuotaR
     return get_signals_credited_refund_credits_for_org(organization.id, period_start, period_end)
 
 
+def _should_report_already_limited(
+    organization: Organization, resource: QuotaResource, current_usage: float, billing_period_start: int
+) -> bool:
+    """An org with zero usage on a zero limit stays limited for the whole period, and every quota check
+    confirms it again. Report that unchanged state once a day per billing period. SET NX lets only one
+    concurrent worker report it. If Redis fails, report anyway."""
+    if current_usage:
+        return True
+    key = (
+        f"{ALREADY_LIMITED_NOTICE_KEY_PREFIX}{organization.id}/{resource.value}/"
+        f"{billing_period_start}/{get_current_day().start.date().isoformat()}"
+    )
+    try:
+        return bool(get_client().set(key, 1, nx=True, ex=timedelta(days=1)))
+    except Exception:
+        logger.warning("quota_limiting_notice_dedupe_failed", organization_id=str(organization.id))
+        return True
+
+
 def org_quota_limited_until(
     organization: Organization,
     resource: QuotaResource,
@@ -583,18 +605,19 @@ def org_quota_limited_until(
     # 2a. already being limited
     if team_being_limited or quota_limited_until:
         # They are already being limited, do not update their status.
-        report_organization_action(
-            organization,
-            "org_quota_limited_until",
-            properties={
-                "event": "already limited",
-                "current_usage": current_usage,
-                **refund_offset_properties,
-                "resource": resource.value,
-                "quota_limited_until": billing_period_end,
-                "quota_limiting_suspended_until": quota_limiting_suspended_until,
-            },
-        )
+        if _should_report_already_limited(organization, resource, current_usage, billing_period_start):
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "already limited",
+                    "current_usage": current_usage,
+                    **refund_offset_properties,
+                    "resource": resource.value,
+                    "quota_limited_until": billing_period_end,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                },
+            )
         update_organization_usage_fields(
             organization, resource, {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None}
         )
