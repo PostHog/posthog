@@ -47,6 +47,10 @@ Accepting the suggestion creates or enables no workflow. Metric reports and aggr
 The workflow builder's viewed, submitted, and created events carry `source: ai_turn_suggestion`, the original `task_id`, `turn_index`, and `team_id`.
 The created event adds `workflow_id`, which joins to the existing `hog_flow_activated` event by `workflow_id` and `team_id` when the draft is enabled later. These events include no brief or prompt text.
 
+Run `python manage.py turn_suggestions_benchmark --jev-only` to measure suggestion selection against labeled, synthetic turns through the configured System One model.
+The benchmark requires `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`. Add `--category workflow` to run only workflow selection and rejection cases.
+The case file enables workflow offers by default, so existing cases also test whether another suggestion remains the better choice. Set `workflows_available: false` on a case to model an unavailable builder.
+
 The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.
