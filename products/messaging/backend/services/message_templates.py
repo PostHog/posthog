@@ -52,16 +52,17 @@ def rewrite_content(
 
 
 def team_templates(team_id: int) -> models.QuerySet[MessageTemplate]:
-    return MessageTemplate.objects.filter(team_id=team_id, deleted=False).order_by("-created_at")
+    # The pk tiebreak keeps pages stable, as the mixin ordering did for the queryset view.
+    return MessageTemplate.objects.filter(team_id=team_id, deleted=False).order_by("-created_at", "-pk")
 
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
-    return MessageTemplate.objects.filter(team_id=team_id, deleted=False).get(pk=template_id)
+    return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
 
 
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:
     # Not filtered on deleted, as the related field this serves never was.
-    return MessageCategory.objects.filter(team_id=team_id).get(pk=category_id).pk
+    return MessageCategory.objects.get(team_id=team_id, pk=category_id).pk
 
 
 def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
