@@ -2216,6 +2216,12 @@ class MetricsOtelType(StrEnum):
     SUMMARY = "summary"
 
 
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
+
+
 class MetricsRangeFunction(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
