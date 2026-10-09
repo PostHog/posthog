@@ -16,7 +16,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import clickhouse_connect
-from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError, StreamFailureError
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -935,6 +935,26 @@ class TestGetRowsBatching:
             "label": ["a", None, "c"],
             "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
         }
+
+    @parameterized.expand(
+        [
+            ("column_bytes", "\x01\x00\x07widgets\x02\x10\x00\x00", "ended unexpectedly"),
+            ("server_error", "Code: 241. DB::Exception: Memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)", "Code: 241"),
+        ]
+    )
+    def test_native_stream_failure_without_server_error_gets_readable_message(self, _name, raw_message, expected):
+        def block_then_cut_off():
+            yield [array.array("Q", [1])]
+            raise StreamFailureError(raw_message)
+
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = ClickHouseError("Code: 73. Unknown format ArrowStream")
+        stream_client.query_column_block_stream.return_value = self._stream_context(block_then_cut_off())
+
+        with pytest.raises(StreamFailureError, match=expected) as exc_info:
+            self._run_get_rows([], stream_client=stream_client, columns=[ClickHouseColumn("id", "UInt64", False)])
+
+        assert "widgets" not in str(exc_info.value)
 
     def test_other_query_errors_do_not_fall_back_to_native(self):
         stream_client = MagicMock()
