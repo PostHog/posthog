@@ -10,7 +10,7 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.services import suppression as suppression_service
 from products.messaging.backend.services.lazy_list import LazyList
 
-SUPPRESSION_SOURCE_CHOICES: list[tuple[str, str]] = list(SuppressionSource.choices)
+SUPPRESSION_SOURCE_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in SuppressionSource.choices]
 
 
 @frozen
