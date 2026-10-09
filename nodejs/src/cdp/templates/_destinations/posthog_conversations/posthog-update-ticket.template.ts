@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
     description:
-        'Update the status, priority, SLA, assignee, or tags of a conversation ticket. Tags are additive by default.',
+        'Update the status, priority, SLA, assignee, tags, or metadata of a conversation ticket. Tags are additive by default.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -57,6 +57,14 @@ if (not empty(inputs.assignee)) {
 if (not empty(inputs.tags)) {
   updates.tags := inputs.tags
   updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
+}
+
+if (not empty(inputs.metadata)) {
+  let metadata := {}
+  for (let key, value in inputs.metadata) {
+    metadata[key] := empty(value) ? null : value
+  }
+  updates.metadata := metadata
 }
 
 let response := postHogUpdateTicket({
@@ -170,6 +178,15 @@ return response.body
             ],
             description:
                 'How the tags above are applied. Add (default) is safe when multiple workflows tag the same ticket.',
+        },
+        {
+            key: 'metadata',
+            type: 'dictionary',
+            label: 'Metadata',
+            secret: false,
+            required: false,
+            description:
+                'Key-value pairs to store on the ticket, e.g. a Slack thread ID. Other keys stay. An empty value removes the key. Read them back with the "Get ticket" action.',
         },
     ],
 }

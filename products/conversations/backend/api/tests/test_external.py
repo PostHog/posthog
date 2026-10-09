@@ -188,6 +188,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertIsNone(data["email_to"])
         self.assertEqual(data["cc_participants"], [])
         self.assertEqual(data["tags"], [])
+        self.assertEqual(data["metadata"], {})
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
 
@@ -768,6 +769,50 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["urgent"])
+
+    # -- PATCH metadata ----------------------------------------------------
+
+    def test_patch_metadata_merges_keys_and_null_removes_one(self):
+        self.ticket.metadata = {"slack_thread_ts": "1712345678.000100", "linear_issue": "ENG-1"}
+        self.ticket.save(update_fields=["metadata"])
+
+        response = self.client.patch(
+            self.url,
+            {"metadata": {"vendor_case": "case-42", "linear_issue": None}},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(
+            response.json()["metadata"], {"slack_thread_ts": "1712345678.000100", "vendor_case": "case-42"}
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), detail__changes__0__field="metadata"
+            ).exists()
+        )
+
+    @parameterized.expand(
+        [
+            ("too_many_keys", {f"key_{i}": "value" for i in range(51)}),
+            ("key_too_long", {"k" * 101: "value"}),
+            ("value_too_long", {"key": "v" * 1001}),
+            ("non_object", ["slack_thread_ts"]),
+        ]
+    )
+    def test_patch_metadata_rejects_invalid_input(self, _name, metadata):
+        response = self.client.patch(
+            self.url,
+            {"metadata": metadata, "status": Status.OPEN},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.metadata, {})
+        self.assertEqual(self.ticket.status, Status.NEW)
 
     # -- URL validation ---------------------------------------------------
 
