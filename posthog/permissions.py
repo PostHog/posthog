@@ -105,7 +105,7 @@ def get_organization_from_view(view) -> Organization:
     raise ValueError("View not compatible with organization-based permissions!")
 
 
-def _organization_for_ref(ref: ObjectAccessRef, view: ViewSet) -> Organization:
+def _organization_for_ref(ref: ObjectAccessRef, view: Any) -> Organization:
     """The ref's organization, read from the view when the view serves the ref's team.
 
     On a root route the view's organization is the user's current one, which can differ from the ref's,
