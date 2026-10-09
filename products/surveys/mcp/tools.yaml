@@ -73,8 +73,8 @@ tools:
                     implementations.
             schedule:
                 description: >
-                    How often a person can see the survey. Omit this to use the default once behavior. Use recurring only
-                    when the user explicitly asks for a repeated schedule, and set iteration_count and
+                    How often a person can see the survey. Omit this to use the default once behavior. Use recurring
+                    only when the user explicitly asks for a repeated schedule, and set iteration_count and
                     iteration_frequency_days with it. Use always when the user wants the survey to show every time its
                     display conditions are met, also after the person responds or dismisses it. The survey editor calls
                     this "Every time the display conditions are met". An always popover without display conditions or a
