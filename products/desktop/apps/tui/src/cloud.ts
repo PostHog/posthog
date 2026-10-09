@@ -36,6 +36,7 @@ import { currentRepository, PiChats, type StartPick } from "./chats";
 import { ClaudeLocalSession } from "./claudeLocal";
 import { claudeTokenStore } from "./claudeToken";
 import { LOG_PATH } from "./errors";
+import type { CodexCloudClient } from "./hooks/useSettings";
 import { type LocalAgent, LocalSession } from "./local";
 import { LocalChats } from "./localChats";
 import { type PiCommand, type PiControl, piControl } from "./models";
@@ -192,6 +193,7 @@ export function createCloud(
   control: (taskId: string, runId: string) => PiControl;
   startLocal: (id: string, pick?: StartPick) => Promise<LocalAgent>;
   today: TodayClient;
+  codexCloud: CodexCloudClient;
 } {
   let teamId: Promise<number> | null = null;
   const context = async () => {
@@ -337,6 +339,11 @@ export function createCloud(
     engine.sendCommand({ ...input, ...(await context()) });
   return {
     runs,
+    codexCloud: {
+      get: () => api.getCodexUserIntegration(),
+      connect: (tokens) => api.connectCodexUserIntegration(tokens),
+      disconnect: () => api.disconnectCodexUserIntegration(),
+    },
     chats: new PiChats(
       api,
       sendMessage,

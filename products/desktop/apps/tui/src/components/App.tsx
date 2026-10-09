@@ -18,6 +18,7 @@ import { usePointer } from "../hooks/usePointer";
 import { useRepoPicker } from "../hooks/useRepoPicker";
 import { useSearch } from "../hooks/useSearch";
 import { type Send, useSend } from "../hooks/useSend";
+import type { CodexCloudClient } from "../hooks/useSettings";
 import { useSettings } from "../hooks/useSettings";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
@@ -72,6 +73,8 @@ export interface Session {
   startLocal: (id: string, pick?: StartPick) => Promise<LocalAgent>;
   // Today's briefing; absent in tests that do not need it.
   today?: TodayClient;
+  // The ChatGPT account PostHog holds for cloud Codex runs; absent in tests that do not need it.
+  codexCloud?: CodexCloudClient;
 }
 
 export function App({
@@ -211,7 +214,7 @@ export function App({
     local: { active: localActive, running: new Set(localSessions.keys()) },
   });
 
-  const settings = useSettings();
+  const settings = useSettings(session?.codexCloud);
 
   const { modalFor, openModal, onModalKey } = useSheets({
     layout,
