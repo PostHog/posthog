@@ -1942,7 +1942,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=False,
         methods=["POST"],
         url_path="suggest_thresholds",
-        required_scopes=["alert:read", "insight:read"],
+        required_scopes=["alert:read", "insight:read", "metrics:read"],
         throttle_classes=[
             BurstRateThrottle,
             SustainedRateThrottle,
