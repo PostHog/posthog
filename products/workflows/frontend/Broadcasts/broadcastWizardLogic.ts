@@ -1216,7 +1216,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             const projectId = String(values.currentProjectId)
             try {
                 await saves.run(async () => {
-                    actions.draftAutosaved(await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any))
+                    actions.draftAutosaved(await createDraft(projectId, values))
                 })
                 actions.showSavedDraftUrl()
             } catch (error: any) {
@@ -1435,7 +1435,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     savedEditGeneration = cache.emailEditGeneration
                     return values.broadcastId
                         ? saveWithoutClobbering(projectId, values.broadcastId, values)
-                        : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                        : createDraft(projectId, values)
                 })
                 actions.saveBroadcastFinished(saved)
                 // This save carried the email edits made before it started. A later one keeps its own autosave.
@@ -1482,9 +1482,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             try {
                 // Save the latest edits (creating the draft if the user skipped ahead).
                 const saved = await saves.run(() =>
-                    broadcastId
-                        ? saveWithoutClobbering(projectId, broadcastId, values)
-                        : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                    broadcastId ? saveWithoutClobbering(projectId, broadcastId, values) : createDraft(projectId, values)
                 )
                 broadcastId = saved.id
                 actions.saveBroadcastFinished(saved)
@@ -1772,6 +1770,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         actions.loadBlastRadius()
     }),
 ])
+
+async function createDraft(projectId: string, values: broadcastWizardLogicType['values']): Promise<HogFlowApi> {
+    const created = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+    // pinned: analytics event name
+    posthog.capture('broadcast draft created', { broadcast_id: created.id, entry_source: values.entrySource })
+    return created
+}
 
 function captureLaunchFailed(
     broadcastId: string | null | undefined,

@@ -301,18 +301,6 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                     <ScenePanelActionsSection>
                         <ButtonPrimitive
-                            onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
-                            disabledReasons={{
-                                'Save the cohort first': isNewCohort,
-                            }}
-                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
-                            tooltip="Start a workflow that emails everyone in this cohort"
-                            menuItem
-                        >
-                            <IconSend /> Message this cohort
-                        </ButtonPrimitive>
-
-                        <ButtonPrimitive
                             onClick={() => {
                                 if (typeof cohort.id !== 'number') {
                                     return
@@ -325,7 +313,22 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             tooltip="Send a one-time email to everyone in this cohort"
                             menuItem
                         >
-                            <IconLetter /> Send a broadcast
+                            <IconLetter /> Email this cohort
+                        </ButtonPrimitive>
+
+                        <ButtonPrimitive
+                            onClick={() => {
+                                captureMessageAudienceClicked('cohort', 'workflow')
+                                router.actions.push(urlForCohortWorkflow(cohort))
+                            }}
+                            disabledReasons={{
+                                'Save the cohort first': isNewCohort,
+                            }}
+                            data-attr={`${RESOURCE_TYPE}-message-with-workflow`}
+                            tooltip="Open a workflow for this cohort to add delays, branches, or more steps"
+                            menuItem
+                        >
+                            <IconSend /> Build a custom workflow
                         </ButtonPrimitive>
 
                         <SceneAddToNotebookDropdownMenu
