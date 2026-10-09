@@ -4,6 +4,7 @@ Reads raise ``GitHubCallFailed`` so dispatch can fail closed. Reactions and repl
 a lost acknowledgement must not stop a command or turn a run that started into a failure.
 """
 
+import re
 from typing import Literal, Protocol
 
 import requests
@@ -13,6 +14,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
 
 from .commands import PullRequestFacts
+from .intake import REPOSITORY_NAME_RE
 
 logger = structlog.get_logger(__name__)
 
@@ -20,11 +22,18 @@ Reaction = Literal["eyes", "rocket"]
 
 _SOURCE = "github_commands"
 
+# The branch name goes into an agent prompt and a loop payload, so only a plain identifier passes.
+_BRANCH_NAME_RE = re.compile(r"[A-Za-z0-9._/-]{1,255}")
+
 _CALL_ERRORS = (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException)
 
 
 class GitHubCallFailed(Exception):
     """A read GitHub did not answer, so the caller cannot tell what the answer would have been."""
+
+
+class UnsupportedPullRequest(Exception):
+    """The pull request's names are not plain identifiers, so no command may pass them on."""
 
 
 class CommandGitHub(Protocol):
@@ -68,6 +77,8 @@ class InstallationGitHub:
         url = pr.get("url")
         if not (isinstance(head_sha, str) and isinstance(head_branch, str) and isinstance(url, str)):
             return None
+        if not (_BRANCH_NAME_RE.fullmatch(head_branch) and REPOSITORY_NAME_RE.fullmatch(repository)):
+            raise UnsupportedPullRequest
         return PullRequestFacts(
             repository=repository,
             number=number,

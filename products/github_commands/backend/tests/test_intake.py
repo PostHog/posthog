@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -46,6 +47,16 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         ("@posthogx stamp", None),
         # Quoting a command, as every reply to one does, must not run it again.
         ("> @posthog stamp\n\nWhy did this run?", None),
+        # Markdown keeps a line without ">" inside the quote until a blank line.
+        ("> Example command:\n@posthog qa", None),
+        ("> Why did this run?\n\n@posthog stamp", ParsedCommand(verb="stamp", argument="")),
+        # GitHub shows a tab-indented line as code.
+        ("\t@posthog qa", None),
+        # A fence with an info string inside a block is displayed text, not the end of the block.
+        ("```\n```python\n@posthog qa\n```", None),
+        ("<pre>\n\n@posthog qa\n\n</pre>", None),
+        # Removing the code span must not move the mention to the start of the line.
+        ("`Example only:` @posthog qa", None),
         ("```\n@posthog stamp\n```", None),
         ("~~~md\n@posthog stamp\n~~~", None),
         # A shorter fence inside a longer one is displayed text, not the end of the block.
@@ -59,6 +70,19 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
 )
 def test_parse_command(body: str, expected: object) -> None:
     assert parse_command(body) == expected
+
+
+def test_parse_command_reads_a_long_backtick_run_in_linear_time() -> None:
+    # GitHub accepts comments up to 65,536 characters, and intake parses them inside the webhook
+    # request before any author check.
+    body = "Example: " + "`" * 65_000
+
+    started = time.perf_counter()
+    parsed = parse_command(body)
+    elapsed = time.perf_counter() - started
+
+    assert parsed is None
+    assert elapsed < 1.0
 
 
 def test_parse_command_strips_characters_that_hide_or_reorder_text() -> None:

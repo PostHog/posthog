@@ -55,9 +55,9 @@ The checks that make that true:
 - **Who is asking.** The webhook's `author_association` filters out outside contributors before a task is queued. The task then asks GitHub for the commenter's permission on the repository and requires write access, for the commenter's numeric account id, so a login that changed hands does not count.
 - **Which PostHog user.** The match is on GitHub's numeric user id, never on the login, and only through identities GitHub confirmed to PostHog: a connected GitHub account or GitHub login. A GitHub account linked to two PostHog accounts runs nothing.
 - **Which project.** Only projects whose GitHub integration uses the installation the comment came from, that the user is a member of, and that are in the `github-commands` rollout.
-- **Which product gates.** A command applies the gates the target product's own API applies. `loop` needs Loops access, and `qa` needs PostHog Code access for the commenter's organization.
+- **Which product gates.** A command applies the gates the target product's own API applies. `loop` needs Loops access, and `qa` needs PostHog Code access for the commenter's organization and PostHog Code credits left.
 - **What the person typed.** Only a new comment counts, so an edit cannot turn a reviewed comment into a command. Comments by bots, and comments a GitHub App posted with a person's token, never run a command. That covers PostHog's own replies and coding agents that act as a user.
-- **One run per comment.** Ingress dedups the delivery, and dispatch claims the comment id. If the claim cannot be written, the command does not run, so a redelivery cannot start a second paid run.
+- **One run per comment.** Ingress dedups the delivery, and dispatch claims the comment id. If the claim cannot be written, the command does not run, so a redelivery cannot start a second paid run. When GitHub cannot answer the permission lookup, dispatch releases the claim, because nothing ran.
 - **Cost.** Each commenter has a rate limit, checked before any GitHub call. A commenter over the limit gets no reaction and no reply.
 
 ## Prompt injection
@@ -65,9 +65,11 @@ The checks that make that true:
 Several commands start an agent, and a pull request is full of text other people wrote.
 The defenses do not depend on an agent ignoring instructions:
 
-- The parser reads only lines that start with the mention. Quoted replies, code blocks, inline code and HTML comments never count, so text that shows or repeats a command does not run it.
+- The parser reads only lines that start with the mention.
+  Quoted replies and the lines that continue them, code blocks, tab-indented code, `<pre>` and similar HTML blocks, inline code and HTML comments never count, so text that shows or repeats a command does not run it.
 - The command's argument is the commenter's own words, cleaned of control and invisible characters and capped in length. It is treated as their instruction, because the run uses their access.
 - Handlers pass identifiers, never the pull request title, body or other comments. The product reads that content itself and treats it as untrusted.
+- The pull request's branch name goes into prompts and payloads, so a command runs only when the name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`.
 - Fork pull requests are refused by every command that runs or reviews code.
 - The QA task gets the head commit seen at request time, and is told to stop if the branch moved since.
 - A loop fires only for its owner, because a loop runs with its owner's credentials and its payload becomes part of its prompt.

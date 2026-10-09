@@ -19,7 +19,7 @@ from .parsing import AmbiguousCommand, ParsedCommand, parse_command
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
 # The name goes into GitHub API paths, so it must be exactly `owner/name`.
-_REPOSITORY_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
+REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 
 DropReason = Literal[
     "not_created",
@@ -95,7 +95,7 @@ def read_comment_command(payload: Mapping[str, object]) -> CommentCommandRequest
     if (
         installation_id is None
         or not isinstance(repository, str)
-        or not _REPOSITORY_RE.fullmatch(repository)
+        or not REPOSITORY_NAME_RE.fullmatch(repository)
         or pr_number is None
         or comment_id is None
         or not isinstance(comment_url, str)

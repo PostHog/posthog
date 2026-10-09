@@ -40,7 +40,7 @@ from posthog.permissions import UserAccessControl, posthog_feature_flag_enabled
 from posthog.token_bucket import BucketDecision, Budget, consume
 
 from .commands import CommandContext
-from .github import CommandGitHub, GitHubCallFailed, InstallationGitHub
+from .github import CommandGitHub, GitHubCallFailed, InstallationGitHub, UnsupportedPullRequest
 from .identity import Commenter, resolve_commenter
 from .intake import CommentCommandRequest
 from .parsing import HELP_VERB
@@ -71,6 +71,7 @@ DispatchOutcome = Literal[
     "unlinked",
     "no_project",
     "pull_request_unavailable",
+    "pull_request_unsupported",
     "pull_request_closed",
     "fork_refused",
     "access_denied",
@@ -165,6 +166,8 @@ def _admit(request: CommentCommandRequest, github: CommandGitHub | None) -> _Adm
         )
     except GitHubCallFailed:
         logger.warning("github_command_permission_lookup_failed", repository=request.repository, exc_info=True)
+        # Nothing ran, so a redelivery may try again.
+        _release_comment(request.comment_id)
         return "permission_lookup_failed"
     if permission not in _WRITE_PERMISSIONS:
         return "no_write_access"
@@ -207,6 +210,11 @@ def _command_context(
         pull_request = github.pull_request(request.repository, request.pr_number)
     except GitHubCallFailed:
         pull_request = None
+    except UnsupportedPullRequest:
+        return _Answer(
+            outcome="pull_request_unsupported",
+            message="I only run commands on pull requests whose branch name uses letters, digits, `.`, `_`, `/` and `-`.",
+        )
     if pull_request is None:
         return _Answer(
             outcome="pull_request_unavailable",
@@ -265,16 +273,27 @@ def _reply_body(request: CommentCommandRequest, message: str) -> str:
     return f"<!-- posthog-github-command:{request.comment_id} -->\n@{request.commenter_login} {message}"
 
 
+def _claim_key(comment_id: int) -> str:
+    return f"github_commands:comment:{comment_id}"
+
+
 def _claim_comment(comment_id: int) -> DispatchOutcome | None:
     """None when this call claimed the comment, else the outcome that stops dispatch."""
     try:
-        claimed = cache.add(f"github_commands:comment:{comment_id}", 1, timeout=_CLAIM_TTL_SECONDS)
+        claimed = cache.add(_claim_key(comment_id), 1, timeout=_CLAIM_TTL_SECONDS)
     except Exception:
         # Fail closed: the cache shares Redis with the Celery broker, so an outage that drops this
         # command drops it anyway, while failing open lets a redelivery start a second paid run.
         logger.warning("github_command_claim_failed", comment_id=comment_id, exc_info=True)
         return "claim_unavailable"
     return None if claimed else "duplicate"
+
+
+def _release_comment(comment_id: int) -> None:
+    try:
+        cache.delete(_claim_key(comment_id))
+    except Exception:
+        logger.warning("github_command_release_failed", comment_id=comment_id, exc_info=True)
 
 
 def _within_rate_limit(github_user_id: int) -> bool:

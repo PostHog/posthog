@@ -48,7 +48,7 @@
         {
             "verb": "review",
             "aliases": [],
-            "summary": "Start a Flash review of this pull request.",
+            "summary": "Start a Flash review of this pull request. Where Flash isn't available yet, the full review runs.",
             "dispatches_to": "PostHog Review",
             "options": [
                 {

@@ -59,6 +59,15 @@ def _linked_user_ids(github_user_id: int) -> set[int]:
     )
 
 
+def _is_member(permissions: UserPermissions, team: Team) -> bool:
+    if permissions.team(team).effective_membership_level is None:
+        return False
+    # A child environment without its own access rows defaults open while the parent project
+    # denies the user, so the parent decides too.
+    parent = team.parent_team
+    return parent is None or permissions.team(parent).effective_membership_level is not None
+
+
 def _member_team_ids(user: User, installation_id: str) -> tuple[int, ...]:
     team_ids = list(
         dict.fromkeys(
@@ -67,11 +76,9 @@ def _member_team_ids(user: User, installation_id: str) -> tuple[int, ...]:
             .values_list("team_id", flat=True)
         )
     )
-    teams = Team.objects.filter(id__in=team_ids).select_related("organization")
+    teams = Team.objects.filter(id__in=team_ids).select_related("organization", "parent_team__organization")
     teams_by_id = {team.id: team for team in teams}
     permissions = UserPermissions(user)
     return tuple(
-        team_id
-        for team_id in team_ids
-        if team_id in teams_by_id and permissions.team(teams_by_id[team_id]).effective_membership_level is not None
+        team_id for team_id in team_ids if team_id in teams_by_id and _is_member(permissions, teams_by_id[team_id])
     )

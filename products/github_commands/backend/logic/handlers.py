@@ -23,6 +23,7 @@ from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
     loops as loops_facade,
+    usage as tasks_usage,
 )
 
 from .commands import CommandContext, CommandOutcome
@@ -60,11 +61,14 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
 
 def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     """Start a PostHog Review run on the pull request, with the commenter as the acting user."""
-    # Flash is the quick, cheap review, so it is what a plain `@posthog review` asks for.
-    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.full else review_hog_facade.RUN_MODE_FLASH
+    team_id = context.team_ids[0]
+    # Flash is the quick, cheap review, so it is what a plain `@posthog review` asks for. Where a
+    # project has no Flash, the full review is the only review there is.
+    flash_fallback = not args.full and not review_hog_facade.flash_available(team_id)
+    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.full or flash_fallback else review_hog_facade.RUN_MODE_FLASH
     pull_request = context.pull_request
     outcome = review_hog_facade.request_pr_review(
-        team_id=context.team_ids[0],
+        team_id=team_id,
         requester_id=context.user_id,
         repository=pull_request.repository,
         pr_number=pull_request.number,
@@ -72,6 +76,10 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     )
     if outcome.status == review_hog_facade.PRReviewRequestStatus.ALREADY_REVIEWED:
         return CommandOutcome(accepted=True, message="PostHog Review already reviewed the current commit.")
+    if outcome.started and flash_fallback:
+        return CommandOutcome(
+            accepted=True, message="Flash isn't available in this project, so PostHog Review started the full review."
+        )
     if outcome.started:
         return CommandOutcome(accepted=True, message="PostHog Review is reviewing this pull request.")
     # PostHog Review writes its refusals from the repository name, the PR number and fixed text.
@@ -83,9 +91,10 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
     pull_request = context.pull_request
     team_id = context.team_ids[0]
     team = Team.objects.select_related("organization").get(id=team_id)
-    # The Tasks API applies the same gate before it starts a run.
+    user = User.objects.get(id=context.user_id)
+    # The Tasks API applies the same gates before it starts a run.
     try:
-        decision = tasks_access.get_desktop_access_decision(User.objects.get(id=context.user_id), team.organization)
+        decision = tasks_access.get_desktop_access_decision(user, team.organization)
     except tasks_access.DesktopAccessResolutionError:
         logger.warning("github_command_desktop_access_unresolved", team_id=team_id, exc_info=True)
         return CommandOutcome(
@@ -94,6 +103,11 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
     if not decision.allowed:
         return CommandOutcome(
             accepted=False, message="PostHog Code isn't available for your organization, so I can't start a QA run."
+        )
+    if tasks_usage.task_run_usage_limited(user, team_id):
+        return CommandOutcome(
+            accepted=False,
+            message="Your organization has used up its PostHog Code credits, so I can't start a QA run.",
         )
     created = tasks_facade.create_and_run_task(
         team=team,

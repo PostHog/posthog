@@ -229,7 +229,7 @@ class CommandDeclaration[A]:
 
 REVIEW = CommandDeclaration(
     verb="review",
-    summary="Start a Flash review of this pull request.",
+    summary="Start a Flash review of this pull request. Where Flash isn't available yet, the full review runs.",
     args=ReviewArgs,
     dispatches_to="PostHog Review",
 )
