@@ -1,11 +1,35 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 # Less Annoying CRM's v2 API is RPC-shaped: every call is a POST to a single endpoint carrying a
 # `Function` name and a `Parameters` object. Each endpoint below maps a warehouse table to the LACRM
 # function that returns it, plus how to page through and where the records live in the response.
+
+
+@dataclass(frozen=True)
+class LessAnnoyingCRMFanoutConfig:
+    # Function listing the parents (GetPipelines / GetGroups). Each parent's child call is paged on
+    # its own, and the parent list is small enough to read in full before the first child call.
+    parent_function: str
+    parent_data_selector: Optional[str]
+    parent_paginated: bool
+    parent_id_field: str
+    # Builds the child's per-parent Parameters from a parent row.
+    child_parameters: Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _pipeline_item_parameters(pipeline: dict[str, Any]) -> dict[str, Any]:
+    # An empty StatusFilter returns only items in active statuses, so pass every status the pipeline
+    # has to include closed (won/lost) items too.
+    status_ids = [status["StatusId"] for status in pipeline.get("Statuses") or [] if status.get("StatusId")]
+    return {"PipelineId": pipeline["PipelineId"], "StatusFilter": status_ids}
+
+
+def _group_membership_parameters(group: dict[str, Any]) -> dict[str, Any]:
+    return {"GroupId": group["GroupId"]}
 
 
 @dataclass
@@ -34,6 +58,10 @@ class LessAnnoyingCRMEndpointConfig:
     # without a `SortBy` there. Sending an unsupported `SortBy` to those functions would be rejected.
     sort_by: Optional[str] = None
     sort_direction: Optional[str] = None
+    # Constant extra Parameters for the function (e.g. IncludeArchivedPipelines).
+    parameters: dict[str, Any] = field(default_factory=dict)
+    # Set for functions that need a parent id (GetPipelineItems, GetContactsInGroup).
+    fanout: Optional[LessAnnoyingCRMFanoutConfig] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
 
@@ -91,6 +119,60 @@ LESS_ANNOYING_CRM_ENDPOINTS: dict[str, LessAnnoyingCRMEndpointConfig] = {
         data_selector="Results",
         primary_keys=["EventId"],
         partition_key="DateCreated",
+    ),
+    "pipelines": LessAnnoyingCRMEndpointConfig(
+        name="pipelines",
+        function="GetPipelines",
+        data_selector=None,
+        primary_keys=["PipelineId"],
+        paginated=False,
+        partition_key="DateCreated",
+        # Archived pipelines are kept so pipeline ids on older records still resolve.
+        parameters={"IncludeArchivedPipelines": True},
+    ),
+    "pipeline_statuses": LessAnnoyingCRMEndpointConfig(
+        name="pipeline_statuses",
+        function="GetPipelineStatuses",
+        data_selector=None,
+        primary_keys=["StatusId"],
+        paginated=False,
+        partition_key="DateCreated",
+    ),
+    "pipeline_items": LessAnnoyingCRMEndpointConfig(
+        name="pipeline_items",
+        function="GetPipelineItems",
+        data_selector="Results",
+        primary_keys=["PipelineItemId"],
+        partition_key="DateCreated",
+        sort_by="DateCreated",
+        sort_direction="Ascending",
+        fanout=LessAnnoyingCRMFanoutConfig(
+            parent_function="GetPipelines",
+            parent_data_selector=None,
+            parent_paginated=False,
+            parent_id_field="PipelineId",
+            child_parameters=_pipeline_item_parameters,
+        ),
+    ),
+    "groups": LessAnnoyingCRMEndpointConfig(
+        name="groups",
+        function="GetGroups",
+        data_selector="Results",
+        primary_keys=["GroupId"],
+    ),
+    "group_memberships": LessAnnoyingCRMEndpointConfig(
+        name="group_memberships",
+        function="GetContactsInGroup",
+        data_selector="Results",
+        # A contact can be in many groups, so ContactId alone is not unique across the table.
+        primary_keys=["GroupId", "ContactId"],
+        fanout=LessAnnoyingCRMFanoutConfig(
+            parent_function="GetGroups",
+            parent_data_selector="Results",
+            parent_paginated=True,
+            parent_id_field="GroupId",
+            child_parameters=_group_membership_parameters,
+        ),
     ),
 }
 

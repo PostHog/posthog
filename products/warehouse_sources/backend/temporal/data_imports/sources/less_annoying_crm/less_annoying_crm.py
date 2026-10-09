@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoy
     WIDE_WINDOW_END,
     WIDE_WINDOW_START,
     LessAnnoyingCRMEndpointConfig,
+    LessAnnoyingCRMFanoutConfig,
 )
 
 # Single flat RPC endpoint — every call is a POST here with a {"Function", "Parameters"} body.
@@ -57,6 +59,8 @@ class LessAnnoyingCRMResumeConfig:
     # Next page number to request. Full refresh only, so page number is the entire cursor: on resume
     # we re-request the last saved page (merge dedupes on the primary key).
     page: int = 1
+    # Fan-out tables only: the parent (pipeline / group) whose child pages `page` points into.
+    parent_id: Optional[str] = None
 
 
 class LessAnnoyingCRMPaginator(BasePaginator):
@@ -130,7 +134,103 @@ def _build_parameters(config: LessAnnoyingCRMEndpointConfig) -> dict[str, Any]:
         parameters["SortBy"] = config.sort_by
     if config.sort_direction:
         parameters["SortDirection"] = config.sort_direction
+    parameters.update(config.parameters)
     return parameters
+
+
+def _rest_config(
+    api_key: str,
+    name: str,
+    function: str,
+    parameters: dict[str, Any],
+    data_selector: Optional[str],
+    paginator: BasePaginator,
+) -> RESTAPIConfig:
+    endpoint_def: Endpoint = {
+        "path": "",
+        "method": "POST",
+        "json": {"Function": function, "Parameters": parameters},
+        "data_selector": data_selector,
+        "paginator": paginator,
+        "response_actions": LESS_ANNOYING_CRM_RESPONSE_ACTIONS,
+    }
+    resource_def: EndpointResource = {
+        "name": name,
+        "endpoint": endpoint_def,
+    }
+    return {
+        "client": {
+            "base_url": LESS_ANNOYING_CRM_BASE_URL,
+            # LACRM sends the raw API key as the Authorization header value (no Bearer prefix). Framework
+            # auth redacts it from logs and error messages; only the non-secret content-type is set here.
+            "headers": {"Content-Type": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+        },
+        "resources": [resource_def],
+    }
+
+
+def _parent_rows(api_key: str, fanout: LessAnnoyingCRMFanoutConfig, team_id: int, job_id: str) -> list[dict[str, Any]]:
+    paginator: BasePaginator = (
+        LessAnnoyingCRMPaginator(page_size=PAGE_SIZE) if fanout.parent_paginated else SinglePagePaginator()
+    )
+    parameters: dict[str, Any] = {"MaxNumberOfResults": PAGE_SIZE} if fanout.parent_paginated else {}
+    rest_config = _rest_config(
+        api_key, "parents", fanout.parent_function, parameters, fanout.parent_data_selector, paginator
+    )
+    resource = rest_api_resource(rest_config, team_id, job_id, None)
+    return [row for page in resource for row in page if row.get(fanout.parent_id_field)]
+
+
+def _fanout_items(
+    api_key: str,
+    endpoint: str,
+    config: LessAnnoyingCRMEndpointConfig,
+    fanout: LessAnnoyingCRMFanoutConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[LessAnnoyingCRMResumeConfig],
+) -> Iterator[Any]:
+    parents = _parent_rows(api_key, fanout, team_id, job_id)
+    parent_ids = [str(parent[fanout.parent_id_field]) for parent in parents]
+
+    start_index, start_page = 0, 1
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        # A parent deleted since the checkpoint restarts the fan-out; merge dedupes the re-read rows.
+        if resume is not None and resume.parent_id in parent_ids:
+            start_index, start_page = parent_ids.index(resume.parent_id), resume.page
+
+    for index in range(start_index, len(parents)):
+        parent_id = parent_ids[index]
+
+        def save_checkpoint(state: Optional[dict[str, Any]], parent_id: str = parent_id) -> None:
+            if state and state.get("page") is not None:
+                resumable_source_manager.save_state(
+                    LessAnnoyingCRMResumeConfig(page=int(state["page"]), parent_id=parent_id)
+                )
+
+        page = start_page if index == start_index else 1
+        # Every row of the previous parent is yielded, so a hand-off here resumes at this parent.
+        resumable_source_manager.save_state(LessAnnoyingCRMResumeConfig(page=page, parent_id=parent_id))
+        resumable_source_manager.safe_point()
+        parameters = {**_build_parameters(config), **fanout.child_parameters(parents[index])}
+        resource = rest_api_resource(
+            _rest_config(
+                api_key,
+                endpoint,
+                config.function,
+                parameters,
+                config.data_selector,
+                LessAnnoyingCRMPaginator(page_size=PAGE_SIZE),
+            ),
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"page": page} if page > 1 else None,
+        )
+        yield from resource
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -164,34 +264,29 @@ def less_annoying_crm_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = LESS_ANNOYING_CRM_ENDPOINTS[endpoint]
+    partition_kwargs: dict[str, Any] = {
+        "partition_count": 1,
+        "partition_size": 1,
+        "partition_mode": "datetime" if config.partition_key else None,
+        "partition_format": "month" if config.partition_key else None,
+        "partition_keys": [config.partition_key] if config.partition_key else None,
+    }
+
+    fanout = config.fanout
+    if fanout is not None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _fanout_items(api_key, endpoint, config, fanout, team_id, job_id, resumable_source_manager),
+            primary_keys=config.primary_keys,
+            **partition_kwargs,
+        )
 
     paginator: BasePaginator = (
         LessAnnoyingCRMPaginator(page_size=PAGE_SIZE) if config.paginated else SinglePagePaginator()
     )
-
-    endpoint_def: Endpoint = {
-        "path": "",
-        "method": "POST",
-        "json": {"Function": config.function, "Parameters": _build_parameters(config)},
-        "data_selector": config.data_selector,
-        "paginator": paginator,
-        "response_actions": LESS_ANNOYING_CRM_RESPONSE_ACTIONS,
-    }
-    resource_def: EndpointResource = {
-        "name": endpoint,
-        "endpoint": endpoint_def,
-    }
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": LESS_ANNOYING_CRM_BASE_URL,
-            # LACRM sends the raw API key as the Authorization header value (no Bearer prefix). Framework
-            # auth redacts it from logs and error messages; only the non-secret content-type is set here.
-            "headers": {"Content-Type": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
-        },
-        "resources": [resource_def],
-    }
+    rest_config = _rest_config(
+        api_key, endpoint, config.function, _build_parameters(config), config.data_selector, paginator
+    )
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if config.paginated and resumable_source_manager.can_resume():
@@ -218,10 +313,6 @@ def less_annoying_crm_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        **partition_kwargs,
     )
