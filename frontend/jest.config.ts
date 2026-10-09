@@ -176,6 +176,9 @@ const config: Config = {
     // (whose Node subpaths are null under `browser`) without affecting any other package's resolution.
     resolver: '<rootDir>/jest.resolver.js',
 
+    // Runs `@sucrase/jest-plugin` on each file, so a change to the `transform` entry below must change it too.
+    dependencyExtractor: '<rootDir>/jest.dependencyExtractor.js',
+
     modulePaths: ['<rootDir>/'],
 
     roots: rootDirectories(),
