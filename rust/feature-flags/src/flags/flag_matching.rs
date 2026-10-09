@@ -50,6 +50,7 @@ use chrono_tz::Tz;
 use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
+use personhog_common::client::RouterClient;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -484,6 +485,8 @@ pub struct FeatureFlagMatcher {
     /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
     /// each call bounded only by the pool acquire timeout and statement_timeout.
     persons_db_deadline: Option<Instant>,
+    /// Reads hash key overrides through personhog when set, and through the persons DB when not.
+    personhog_hash_key_reader: Option<RouterClient>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -606,6 +609,7 @@ impl FeatureFlagMatcher {
             timezone: Tz::UTC,
             now: Utc::now(),
             persons_db_deadline: None,
+            personhog_hash_key_reader: None,
         }
     }
 
@@ -678,6 +682,11 @@ impl FeatureFlagMatcher {
     /// Gives all persons DB work in this evaluation one shared budget, which starts now.
     pub fn with_persons_db_deadline(mut self, budget: Option<Duration>) -> Self {
         self.persons_db_deadline = budget.map(|budget| Instant::now() + budget);
+        self
+    }
+
+    pub fn with_personhog_hash_key_reader(mut self, client: Option<RouterClient>) -> Self {
+        self.personhog_hash_key_reader = client;
         self
     }
 
@@ -945,6 +954,7 @@ impl FeatureFlagMatcher {
                 database_for_reading,
                 pool_name,
                 self.router.get_persons_writer().clone(),
+                self.personhog_hash_key_reader.as_ref(),
                 self.team_id,
                 target_distinct_ids,
             ),
@@ -3161,6 +3171,7 @@ impl FeatureFlagMatcher {
                                 self.router.get_persons_reader().clone(),
                                 pool_names::PERSONS_READER,
                                 self.router.get_persons_writer().clone(),
+                                self.personhog_hash_key_reader.as_ref(),
                                 self.team_id,
                                 vec![self.distinct_id.clone()],
                             ),

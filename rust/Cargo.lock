@@ -4686,6 +4686,8 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
  "percent-encoding",
+ "personhog-common",
+ "personhog-proto",
  "petgraph 0.8.3",
  "rand 0.8.5",
  "rayon",

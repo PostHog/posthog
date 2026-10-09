@@ -1569,6 +1569,7 @@ impl TestContext {
             self.persons_reader.clone(),
             crate::database::pool_names::PERSONS_READER,
             self.persons_writer.clone(),
+            None,
             team_id,
             distinct_ids,
         )

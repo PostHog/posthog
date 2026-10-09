@@ -110,6 +110,17 @@ A persons database that stays unresponsive still ends the page at `BATCH_FLAG_EV
 When a person's evaluation still returns an error, Django leaves that person out of the static cohort, keeps the persons that matched, and records the run as failed.
 Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.
 
+### Hash key override reads through personhog
+
+For teams in `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS`, the hash key override read calls personhog `GetHashKeyOverrideContext` instead of the persons DB.
+`PERSONHOG_ROUTER_URL` must also be set. The check and the write still use the persons DB.
+The read that follows an override write uses strong consistency, so personhog-replica reads the primary.
+The read without a write uses eventual consistency, so personhog-replica reads a replica.
+The call stays inside `PERSONS_DB_DEADLINE_MS`.
+A stored `$posthog_cookieless` override reads as no override, the same as the SQL read.
+A failed call is not retried in feature-flags. A gRPC deadline gives `timeout:personhog_timeout`.
+`personhog_router_client_call_duration_ms{method="GetHashKeyOverrideContext"}` measures the call from feature-flags to the router.
+
 A query that the deadline drops mid-flight keeps its connection until sqlx's on-release ping finishes.
 The ping waits for the dropped query.
 If the query completes, the connection goes back to the pool.
@@ -418,6 +429,10 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 | `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
 | `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
+| `PERSONHOG_ROUTER_URL`                      | empty    | personhog-router address. Empty disables personhog calls         |
+| `PERSONHOG_ROUTER_TIMEOUT_MS`               | 3000     | gRPC timeout on each personhog call                              |
+| `PERSONHOG_ROUTER_CHANNELS`                 | 4        | Connections to personhog-router, used round-robin                |
+| `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS` | none     | Teams that read hash key overrides through personhog             |
 
 ### Tuning guidance
 
