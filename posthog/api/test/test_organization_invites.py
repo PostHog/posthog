@@ -432,7 +432,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         count = OrganizationInvite.objects.count()
         private_team = Team.objects.create(organization=self.organization, name="Private Team")
         self.organization.uses_most_specific_access_resolution = most_specific
-        self.organization.available_product_features.append({"key": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         role = None
@@ -533,7 +536,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         organization_membership.save()
 
         self.organization.uses_most_specific_access_resolution = most_specific
-        self.organization.available_product_features.append({"key": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
         self.organization.save()
         role = None
         if subject == "role":
