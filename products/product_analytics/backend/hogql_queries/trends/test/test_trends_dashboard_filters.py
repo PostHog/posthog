@@ -483,7 +483,12 @@ class TestTrendsDashboardFilters(BaseTest):
             ("compare_arrives_via_override", None, CompareFilter(compare=True)),
         ]
     )
-    def test_compare_is_removed_for_all_time_range(self, _name, construction_compare_filter, override_compare_filter):
+    def test_compare_is_removed_for_all_time_range(
+        self,
+        _name: str,
+        construction_compare_filter: CompareFilter | None,
+        override_compare_filter: CompareFilter | None,
+    ) -> None:
         query_runner = self._create_query_runner(
             "2024-07-07",
             "2024-07-14",
@@ -514,7 +519,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert len(query_runner.series) == 1
         assert len(query_runner.to_queries()) == 1
 
-    def test_compare_override_is_removed_when_insights_own_range_is_already_all_time(self):
+    def test_compare_override_is_removed_when_insights_own_range_is_already_all_time(self) -> None:
         query_runner = self._create_query_runner("all", None, IntervalType.DAY, None)
 
         query_runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))

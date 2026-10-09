@@ -49,7 +49,7 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["filterTestAccounts"] is True
         assert merged["breakdown_filter"] == {"breakdown": "$browser", "breakdown_type": "event"}
 
-    def test_tile_compare_filter_wins_over_dashboard(self):
+    def test_tile_compare_filter_wins_over_dashboard(self) -> None:
         merged = merge_filters_by_priority(
             {"compareFilter": {"compare": True}},
             {"compareFilter": {"compare": False}},
