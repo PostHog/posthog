@@ -378,10 +378,11 @@ def validation_arm_for_mode(
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
-# The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
+# The validator's model at high effort: xhigh gave the same outcomes on clear fixes at a higher cost
+# per turn (see the 2026-10-09 entry in DECISIONS.md).
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
 RESOLUTION_MODEL: str | None = "claude-opus-5-5"
-RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.HIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
 # A resolution run handles at most this many threads, priority-ordered; the binding constraint is

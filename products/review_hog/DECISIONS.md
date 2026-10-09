@@ -198,6 +198,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
+
+- **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
+- **Why.** The xhigh pin came from the validator, and no one compared it against other options. A coarse offline
+  trial ran 10 bot threads from 3 merged PRs (#72074, #106886, #109785), one fresh session per thread, on API keys.
+  - Opus @ high matched the reference outcome on 9 of 10 threads. Opus @ xhigh matched on all 6 threads it ran.
+  - On the shared threads, high cost about two thirds of xhigh and took about half the wall time.
+  - Clear fixes came out the same at every effort level. xhigh only added extra tests and docs.
+  - xhigh's one extra win was declining a speculative bot ask (read from the writer DB). The cheaper arms made a
+    small, plausible fix there instead.
+- **Rejected.** Opus @ medium saves little over high. Sonnet 5.5 @ high escalated contained fixes it should make.
+  GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
+- **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
+  not one session per thread. Watch the resolution outcomes on the dashboard after the change.
+
 ### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
 
 - **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
