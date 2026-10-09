@@ -129,6 +129,12 @@ export function SearchPerformanceTable({
                         )}
                     </LemonBanner>
                 ) : null)}
+            {!responseLoading && searchResponse?.placementUnavailable && (
+                <LemonBanner type="info">
+                    Some Google Ads position data is unavailable. Check your access to keyword_placement_stats or ask a
+                    project admin for help. Traffic data is available.
+                </LemonBanner>
+            )}
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"
