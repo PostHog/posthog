@@ -222,10 +222,18 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert tagged_products
         assert set(tagged_products) == {Product.EXPERIMENTS}
 
-    def test_resolves_variant_from_flag_called_event(self) -> None:
+    @parameterized.expand(
+        [
+            ("flag_call", "$feature_flag_called"),
+            # The copy alone, as for an organization whose $feature_flag_called no longer reaches events.
+            ("exposure_copy_only", "$experiment_exposure"),
+        ]
+    )
+    def test_resolves_variant_from_flag_called_event(self, _name: str, event: str) -> None:
         self._create_recording()
         experiment = self._create_experiment()
         self._create_session_event(
+            event=event,
             properties={"$feature_flag": "checkout-cta", "$feature_flag_response": "test"},
         )
         flush_persons_and_events()

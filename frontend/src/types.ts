@@ -5193,7 +5193,7 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
-    /** Server-computed: the exposure event to name when no custom exposure event is configured. `$experiment_exposure` once the team is in the rollout and the experiment ended at or after the cutoff or is still running, otherwise `$feature_flag_called`. An experiment that started before the cutoff counts both events. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
     /** Server-computed health check findings. Null for people without the health findings flag, absent on locally-constructed experiments. */
     health?: ExperimentHealthApi | null

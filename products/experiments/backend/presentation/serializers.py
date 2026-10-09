@@ -569,12 +569,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     )
     resolved_exposure_event = serializers.SerializerMethodField(
         help_text=(
-            "The exposure event to name when the experiment doesn't configure a custom one: "
-            "`$experiment_exposure` if the team is in the rollout and the experiment ended at or after "
-            "the cutoff or is still running, otherwise `$feature_flag_called`. An experiment that "
-            "started before the cutoff counts exposures on both events, so for one that runs past the "
-            "cutoff this names the event that carries its new exposures. For a draft, this is the "
-            "event it would get if launched now."
+            "The event exposures are actually counted on when the experiment doesn't configure a "
+            "custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the "
+            "rollout and the experiment started at or after the cutoff. Resolved server-side so "
+            "clients display the same event the results queries read. For a draft, this is what the "
+            "experiment would resolve to if launched now."
         ),
     )
     health = serializers.SerializerMethodField(
@@ -715,10 +714,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_resolved_exposure_event(self, obj: Experiment) -> str:
-        # An experiment that started before the cutoff and runs past it gains new exposures only on
-        # $experiment_exposure once ingestion stops writing $feature_flag_called, so resolve against the end.
-        # A draft resolves against now, which is the event it would get if launched today.
-        return resolve_default_exposure_event(obj.team, obj.end_date or timezone.now())
+        # A draft has no start_date yet, so resolve against now: that's the event it would get if
+        # launched today, which is what the setup UI needs to show.
+        return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
     @extend_schema_field(ExperimentHealthSerializer(allow_null=True))
     def get_health(self, obj: Experiment) -> dict[str, Any] | None:

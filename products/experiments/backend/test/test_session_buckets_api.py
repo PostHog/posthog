@@ -579,8 +579,8 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
         # The bucket must hold the population the analysis queries count. An experiment on
-        # $feature_flag_called reads both events, because the $experiment_exposure copy is the
-        # only exposure left once ingestion stops writing $feature_flag_called to events.
+        # $feature_flag_called reads both events, because the $experiment_exposure copy carries
+        # the exposures once ingestion stops writing $feature_flag_called to events.
         assert response.status_code == status.HTTP_200_OK, response.json()
         expected_sessions = [
             session

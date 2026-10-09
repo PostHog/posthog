@@ -43561,7 +43561,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The exposure event to name when the experiment doesn't configure a custom one: `$experiment_exposure` if the team is in the rollout and the experiment ended at or after the cutoff or is still running, otherwise `$feature_flag_called`. An experiment that started before the cutoff counts exposures on both events, so for one that runs past the cutoff this names the event that carries its new exposures. For a draft, this is the event it would get if launched now. */
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
       readonly health: ExperimentHealth | null;
@@ -46014,7 +46014,7 @@ export namespace Schemas {
       readonly is_legacy: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure: boolean;
-      /** The exposure event to name when the experiment doesn't configure a custom one: `$experiment_exposure` if the team is in the rollout and the experiment ended at or after the cutoff or is still running, otherwise `$feature_flag_called`. An experiment that started before the cutoff counts exposures on both events, so for one that runs past the cutoff this names the event that carries its new exposures. For a draft, this is the event it would get if launched now. */
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
       /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
       readonly health: ExperimentHealth | null;
@@ -78735,7 +78735,7 @@ export namespace Schemas {
       readonly is_legacy?: boolean;
       /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
       readonly can_freeze_exposure?: boolean;
-      /** The exposure event to name when the experiment doesn't configure a custom one: `$experiment_exposure` if the team is in the rollout and the experiment ended at or after the cutoff or is still running, otherwise `$feature_flag_called`. An experiment that started before the cutoff counts exposures on both events, so for one that runs past the cutoff this names the event that carries its new exposures. For a draft, this is the event it would get if launched now. */
+      /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
       /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
       readonly health?: ExperimentHealth | null;

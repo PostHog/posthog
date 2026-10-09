@@ -229,23 +229,31 @@ class ExposureQueryBuilder:
         ):
             return event_or_action_to_filter(self.context.team, exposure_config)
 
-        filters: list[ast.Expr] = [
-            exposure_event_name_filter(exposure_config.event),
-            # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
-            # flag key filter, exposures of other experiments would count too.
-            parse_expr(
-                "{flag_property} = {feature_flag_key}",
-                placeholders={
-                    "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
-                    "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
-                },
-            ),
-        ]
+        event_predicate = exposure_event_name_filter(
+            exposure_config.event, read_copies=self.context.read_exposure_copies
+        )
         if exposure_config.properties:
-            filters.append(
-                ast.And(exprs=[property_to_expr(prop, self.context.team) for prop in exposure_config.properties])
+            event_predicate = ast.And(
+                exprs=[
+                    event_predicate,
+                    ast.And(exprs=[property_to_expr(prop, self.context.team) for prop in exposure_config.properties]),
+                ]
             )
-        return ast.And(exprs=filters)
+
+        # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
+        # flag key filter, exposures of other experiments would count too.
+        return ast.And(
+            exprs=[
+                event_predicate,
+                parse_expr(
+                    "{flag_property} = {feature_flag_key}",
+                    placeholders={
+                        "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
+                        "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
+                    },
+                ),
+            ]
+        )
 
     def build_entity_key_filter(self) -> ast.Expr:
         """

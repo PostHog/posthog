@@ -117,10 +117,9 @@ Query them when a diagnostic asks for exactly that.
 
 Every query in this skill follows them.
 
-- **The default exposure events.** For the default exposure: the experiment's `resolved_exposure_event` from `experiment-get`.
+- **The default exposure event.** For the default exposure: the experiment's `resolved_exposure_event` from `experiment-get`.
   Do not hardcode `$feature_flag_called`.
-  An experiment that started before 2026-09-01 (UTC), or whose `resolved_exposure_event` is `$feature_flag_called`, reads two events.
-  For it, write `event IN ('$feature_flag_called', '$experiment_exposure')` wherever a query says `event = '<resolved_exposure_event>'` ("Which event, which property").
+  When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure`: write `event IN ('$feature_flag_called', '$experiment_exposure')` wherever a query says `event = '<resolved_exposure_event>'`, and count persons, not rows.
 - **Both ends of the time range**, at most 7 days per query, and one day first on a large project.
   The whole run of an experiment can be months of events.
   A property that is not a materialized column makes every row expensive: keep such a query to one day.
@@ -142,19 +141,19 @@ Every query in this skill follows them.
 
 | `exposure_criteria.exposure_config`         | Event to query                                                    | Variant is in                                                 |
 | ------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
-| Not set, or it names `$feature_flag_called` | See below                                                         | `$feature_flag_response`, with `$feature_flag` = the flag key |
+| Not set, or it names `$feature_flag_called` | `resolved_exposure_event`                                         | `$feature_flag_response`, with `$feature_flag` = the flag key |
 | It names `$experiment_exposure`             | `$experiment_exposure`, whatever `resolved_exposure_event` says   | `$feature_flag_response`, with `$feature_flag` = the flag key |
 | Any other event                             | That event                                                        | `` `$feature/<flag-key>` ``                                   |
 | An action                                   | Every event that the action matches: read the action's definition | `` `$feature/<flag-key>` ``                                   |
 
-The default exposure depends on two conditions.
-The experiment reads only `$experiment_exposure` when it started on or after 2026-09-01 (UTC) **and** the project is in the rollout of that event.
-Otherwise it reads `$feature_flag_called` and `$experiment_exposure` together.
-It needs both because ingestion stops writing `$feature_flag_called` to the events table for some organizations, and the copy then carries the exposures.
-A flag call and its copy are two rows for one exposure, so count persons, not rows, across the two events.
+The default event depends on two conditions.
+It is `$experiment_exposure` when the experiment started on or after 2026-09-01 (UTC) **and** the project is in the rollout of that event.
+Otherwise it is `$feature_flag_called`.
+`resolved_exposure_event` already holds the answer: read it, do not derive it.
 
-`resolved_exposure_event` names one event: the one that carries new exposures.
-It is `$experiment_exposure` for an experiment that started before 2026-09-01 and runs past it, although the experiment reads both events.
+When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
+Ingestion stops writing `$feature_flag_called` to the events table for some organizations, and the copy then carries the exposures.
+Before that, a flag call and its copy are two rows for one exposure.
 
 `$experiment_exposure` is a copy of `$feature_flag_called`, written at ingestion with the same properties.
 It is written for every string response other than `true`, `false` and the empty value: a variant key, and also `holdout-<id>` or a key in another spelling.
@@ -162,7 +161,7 @@ A response of `true`, `false` or an empty value has no copy.
 So a question about responses that are no variant (A10 in `bias-and-skew.md`) needs `$feature_flag_called`.
 
 The copy is switched on per project, apart from the setting that makes an experiment read it.
-When `resolved_exposure_event` is `$experiment_exposure`, that event has no rows for the flag, and `$feature_flag_called` has variant responses in the same window, the copy is not written for the project.
+When `resolved_exposure_event` is `$experiment_exposure`, the query window is on or after 2026-09-01 (UTC), that event has no rows for the flag, and `$feature_flag_called` has variant responses in the same window, the copy is not written for the project.
 That is not a fault of the SDK or of the application: say so, and point the user to PostHog support.
 
 <!-- Source for maintainers (may rot): resolve_default_exposure_event and EXPERIMENT_EXPOSURE_EVENT_CUTOFF in
@@ -224,7 +223,7 @@ Read off:
   Both: the closing section of `empty-experiment.md`.
 - **`events` far above `persons`** is normal.
   The experiment counts each person once.
-  On an experiment that reads both events, `events` also counts a flag call and its copy as two rows.
+  When the query reads both flag-call events, `events` also counts a flag call and its copy as two rows.
 
 ### By day and library
 

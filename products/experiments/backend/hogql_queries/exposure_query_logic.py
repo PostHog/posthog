@@ -76,16 +76,17 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
-def exposure_event_name_filter(event: str) -> ast.Expr:
+def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
     """Matches the events that carry exposures for a resolved exposure event.
 
-    An experiment on $feature_flag_called also reads $experiment_exposure. Ingestion stops writing
-    $feature_flag_called to events for an organization on FLAG_EVALUATIONS_ONLY, and from then on
-    the $experiment_exposure copy is the only exposure row left in events. Before that, a call and
-    its copy are two rows for one exposure. Every exposure read aggregates per entity (first
-    exposure time, variant), so the two rows give the same result as one.
+    An experiment on $feature_flag_called also reads $experiment_exposure, unless `read_copies`
+    is False. Ingestion stops writing $feature_flag_called to events for an organization on
+    FLAG_EVALUATIONS_ONLY. For a team whose flag calls ingestion copies, the $experiment_exposure
+    copy then carries the exposures. Before that, a call and its copy are two rows for one
+    exposure. Every exposure read aggregates per entity (first exposure time, variant), so the two
+    rows give the same result as one.
     """
-    if event == DEFAULT_EXPOSURE_EVENT:
+    if event == DEFAULT_EXPOSURE_EVENT and read_copies:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["event"]),

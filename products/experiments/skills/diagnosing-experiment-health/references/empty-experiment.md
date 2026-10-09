@@ -4,8 +4,8 @@ Diagnose by walking the chain:
 SDK call → exposure event captured → ingested → matches the configured exposure criteria → counted.
 
 **Which exposure event?** When `exposure_criteria` names no custom event, the experiment counts exposures on its default event.
-Read it from `resolved_exposure_event` in `experiment-get`.
-An experiment that started before 2026-09-01 (UTC), or whose `resolved_exposure_event` is `$feature_flag_called`, counts `$feature_flag_called` and `$experiment_exposure` together ("Which event, which property" in `diagnostic-snapshot.md`).
+Read it from `resolved_exposure_event` in `experiment-get`: `$feature_flag_called`, or `$experiment_exposure` for an experiment that started on or after 2026-09-01 (UTC) in a project that is in the rollout of that event.
+When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
 An `exposure_criteria.exposure_config` that names `$experiment_exposure` counts that event, whatever `resolved_exposure_event` says.
 A config that names `$feature_flag_called` counts the default event, as an absent config does.
 `$experiment_exposure` is a copy of `$feature_flag_called`, written at ingestion with the same properties, and only for a string response other than `true`, `false` and the empty value.
