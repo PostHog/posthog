@@ -76,7 +76,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400."
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400."
         ),
     priority: zod
         .string()
@@ -436,7 +436,7 @@ export const SignalsReportArtefactsCreateBody = () => zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()

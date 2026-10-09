@@ -869,6 +869,8 @@ export interface HogQLNotice {
     end?: integer
     message: string
     fix?: string
+    /** An https page with more detail about the notice. The editor links to it from the notice's hover. */
+    url?: string
 }
 
 export enum QueryIndexUsage {
@@ -4866,6 +4868,9 @@ export type MetricsAggregation =
     | 'increase'
     | 'histogram_quantile'
 
+/** Counter-aware transform applied to each series before any aggregation */
+export type MetricsRangeFunction = 'rate' | 'increase'
+
 export interface MetricsQueryFilter {
     key: string
     op: MetricsFilterOp
@@ -4882,7 +4887,10 @@ export interface MetricsQueryClause {
     /** Alias a formula refers to (e.g. "a"); must be unique within the query */
     name: string
     metricName: string
-    aggregation: MetricsAggregation
+    /** Omit to get one line per series (at most 100), without combining them */
+    aggregation?: MetricsAggregation
+    /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+    rangeFunction?: MetricsRangeFunction
     /** Series identity includes the OTel type — one name can exist as e.g. both a
      * counter and a gauge — so a clause pins it to avoid blending distinct series. */
     metricType?: MetricsOtelType
@@ -5009,9 +5017,21 @@ export interface MetricsDisplaySettings {
     legendCalcs?: MetricsReducer[]
 }
 
+/** How a metrics query is written. All three run through the metrics query runner, with its caching and limits. */
+export type MetricsQueryLanguage = 'builder' | 'promql' | 'sql'
+
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     kind: NodeKind.MetricsQuery
+    /** Empty when `language` is `promql` or `sql`. */
     clauses: MetricsQueryClause[]
+    /** How the query is written; the builder when unset. */
+    language?: MetricsQueryLanguage
+    /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+    promql?: string
+    /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a
+     * `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and
+     * `{interval_seconds}` are filled in from the date range and interval. */
+    sql?: string
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
     /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
@@ -6293,6 +6313,35 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+export type ExperimentExposureHealthFindingCode = 'zero_exposures' | 'srm' | 'bias_risk_multiple_excluded'
+
+export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
+
+export type ExperimentExposureHealthFindingActionKind =
+    | 'edit_exposure_criteria'
+    | 'adjust_distribution'
+    | 'use_first_seen_variant'
+
+/** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
+export interface ExperimentExposureHealthFinding {
+    /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
+    code: ExperimentExposureHealthFindingCode
+    /** The case within the code, when a code covers several. Null when the code has one case. */
+    subcode: string | null
+    /** How much the problem affects the results: critical, warning, or info. */
+    severity: ExperimentExposureHealthFindingSeverity
+    /** One-line summary of the problem. */
+    title: string
+    /** What is wrong, what it does to the experiment, and how to fix it. */
+    detail: string
+    /** The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code. */
+    evidence: Record<string, string | number | null>
+    /** The actions that fix the problem, in order of preference. */
+    actions: ExperimentExposureHealthFindingActionKind[]
+    /** The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none. */
+    diagnostic_ref: string | null
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -6300,6 +6349,8 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
+    health_findings?: ExperimentExposureHealthFinding[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -8215,6 +8266,7 @@ export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
     statsTable: string
     keywordTable?: string
+    placementTable?: string
     queryPageTable?: boolean
 }
 
@@ -8227,6 +8279,8 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     breakdown?: 'keyword' | 'page'
     keyword?: string
     page?: string
+    normalizePageUrls?: boolean
+    includePostHogConversions?: boolean
 }
 
 export interface MarketingAnalyticsSearchMetrics {
@@ -8244,6 +8298,18 @@ export interface MarketingAnalyticsSearchMetrics {
     absoluteTopImpressionRate?: number | null
 }
 
+export interface MarketingAnalyticsSearchConversionGoal {
+    id: string
+    name: string
+}
+
+export interface MarketingAnalyticsSearchConversion extends MarketingAnalyticsSearchConversionGoal {
+    conversions: number | null
+    costPerConversion: number | null
+    previousConversions?: number | null
+    previousCostPerConversion?: number | null
+}
+
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
     keyword: string | null
     page?: string | null
@@ -8251,10 +8317,15 @@ export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMet
     matchType: string | null
     currency: string | null
     previous?: MarketingAnalyticsSearchMetrics | null
+    posthogConversions?: MarketingAnalyticsSearchConversion[] | null
 }
 
 export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    placementUnavailable?: boolean
     results: MarketingAnalyticsSearchRow[]
+    posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null
+    posthogConversionsWarning?: string | null
+    posthogAttributionMode?: AttributionMode | null
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>

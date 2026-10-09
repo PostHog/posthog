@@ -376,6 +376,39 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it('stops a launch while an uploaded list in the audience is still matching', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/cohorts/:id/': {
+                    id: 42,
+                    name: 'Spring list',
+                    is_static: true,
+                    is_calculating: true,
+                },
+            },
+        })
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            subject: 'Spring sale',
+            html: '<p>Hi</p>',
+        })
+        logic.actions.setAudienceProperties([
+            { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+        ])
+        logic.actions.setStep('review')
+
+        await expectLogic(logic, () => {
+            logic.actions.launchBroadcast()
+        })
+            .toDispatchActions(['setAudienceCohortLaunchErrors', 'launchBroadcastFinished'])
+            .toNotHaveDispatchedActions(['saveBroadcastFinished'])
+
+        expect(logic.values.stepValidationErrors.review).toEqual([
+            '"Spring list" is still matching people. You can launch when it finishes.',
+        ])
+    })
+
     it.each([
         { sender: 'a sender that still exists', integrationId: 1, integrationIds: undefined, expected: [] },
         { sender: 'a deleted sender', integrationId: 7, integrationIds: undefined, expected: [DELETED_SENDER_ERROR] },
@@ -442,6 +475,20 @@ describe('broadcastWizardLogic', () => {
         logic.actions.setAudienceProperties([])
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ recipientsWithoutEmail: null })
         expect(checkedFilters).toHaveLength(requestsBefore)
+    })
+
+    it('starts a new broadcast with the only verified sender without creating a draft', async () => {
+        const createDraft = jest.fn()
+        useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => createDraft() } })
+        integrationsLogic.mount()
+
+        await expectLogic(logic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['defaultSenderApplied'])
+
+        expect(logic.values.email.from).toEqual({ integrationId: 1 })
+        expect(logic.values.stepValidationErrors.content).not.toContain('Choose an email sender')
+        expect(createDraft).not.toHaveBeenCalled()
     })
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {

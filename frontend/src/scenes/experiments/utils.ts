@@ -1089,6 +1089,15 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     original_experiment?: Record<string, any>
 }
 
+export type ExperimentUpdateRequest = ExperimentUpdatePayload & {
+    /**
+     * After a 409 conflict, show the server's copy of the sent fields instead of keeping the rejected values for
+     * review. A control that applies its value at once sets this. A kept value would look saved there, and the
+     * next save would send it over the change that caused the conflict.
+     */
+    discardOnConflict?: boolean
+}
+
 /** The scalar fields experiment surfaces PATCH, sent as base values so the server can three-way
  * merge them per field: a stale write only conflicts when the same field changed on both sides. */
 const CONCURRENCY_SCALAR_BASE_FIELDS = [

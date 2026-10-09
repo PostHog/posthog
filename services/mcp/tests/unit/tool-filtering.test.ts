@@ -1052,6 +1052,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'cross-project-dashboards',
+            'warehouse-suggestions',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1087,7 +1088,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
-                'billing-alerts',
                 'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
@@ -1099,6 +1099,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
                 'autoresearch',
                 'today-rail-nav',
+                'marketing-analytics-setup-plan-mcp',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

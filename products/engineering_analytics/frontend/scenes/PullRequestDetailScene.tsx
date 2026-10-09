@@ -485,16 +485,29 @@ export function PullRequestDetailScene(): JSX.Element {
                 name="Pull request"
                 resourceType={{ type: 'health' }}
                 actions={
-                    githubUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={githubUrl}
-                            targetBlank
-                            sideIcon={<IconExternal />}
-                        >
-                            View on GitHub
-                        </LemonButton>
+                    githubUrl && pullRequest ? (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={withCurrentScope(
+                                    urls.engineeringAnalyticsCIExplorer(repoOwner, repoName, pullRequest.number),
+                                    sourceId
+                                )}
+                                data-attr="pull-request-open-ci-explorer"
+                            >
+                                View in CI explorer
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={githubUrl}
+                                targetBlank
+                                sideIcon={<IconExternal />}
+                            >
+                                View on GitHub
+                            </LemonButton>
+                        </>
                     ) : undefined
                 }
             />

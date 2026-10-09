@@ -24,7 +24,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import OAuthApplication, User
+from posthog.models import EventDefinition, OAuthApplication, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -113,6 +113,27 @@ def authenticate_as_sandbox_token(test: APIBaseTest, *, scopes: list[str] | None
     )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+
+def _set_team(team: Team, **fields: object) -> None:
+    for name, value in fields.items():
+        setattr(team, name, value)
+    team.save(update_fields=list(fields))
+
+
+def _suggest_source(report: SignalReport, product: str) -> None:
+    SignalReportArtefact.objects.create(
+        team=report.team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SOURCE_SUGGESTION,
+        content=json.dumps({"product": product, "reason": "It would show what happened."}),
+    )
+
+
+def _seen_event(team: Team, name: str, *, days_ago: int) -> None:
+    EventDefinition.objects.create(
+        team=team, project_id=team.project_id, name=name, last_seen_at=timezone.now() - timedelta(days=days_ago)
+    )
 
 
 class TestReportListClientClassification(SimpleTestCase):
@@ -691,6 +712,47 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
 
+    @parameterized.expand(
+        [
+            ("replay_opt_in", "session_replay", lambda team: _set_team(team, session_recording_opt_in=True), False),
+            (
+                "exception_opt_in",
+                "error_tracking",
+                lambda team: _set_team(team, autocapture_exceptions_opt_in=True),
+                False,
+            ),
+            ("recent_exception", "error_tracking", lambda team: _seen_event(team, "$exception", days_ago=1), False),
+            ("stale_exception", "error_tracking", lambda team: _seen_event(team, "$exception", days_ago=60), True),
+            ("recent_generation", "llm_analytics", lambda team: _seen_event(team, "$ai_generation", days_ago=1), False),
+        ]
+    )
+    def test_source_suggestion_shows_on_the_detail_until_the_product_is_in_use(
+        self, _name, product, start_using, still_suggested
+    ):
+        report = self._create_report()
+        _suggest_source(report, product)
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
+        expected = {"product": product, "reason": "It would show what happened."}
+
+        assert self.client.get(url).json()["source_suggestion"] == expected
+        start_using(self.team)
+        # The freshness registry caches its answer, so drop it as its TTL would.
+        cache.clear()
+        assert self.client.get(url).json()["source_suggestion"] == (expected if still_suggested else None)
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        assert row["source_suggestion"] is None
+
+    def test_source_suggestion_hides_while_a_freshness_probe_fails(self):
+        report = self._create_report()
+        _suggest_source(report, "session_replay")
+        _seen_event(self.team, "$exception", days_ago=1)
+        cache.clear()
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
+
+        with patch("posthog.data_freshness._probe_app_metrics", side_effect=RuntimeError("store unavailable")):
+            assert self.client.get(url).json()["source_suggestion"] is None
+
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
         channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
@@ -1022,6 +1084,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("monitoring", "monitoring"),
             ("garbage", "bogus_status"),
             ("mixed_valid_and_invalid", "ready,bogus_status"),
             ("deleted_not_filterable", "deleted"),
@@ -1145,21 +1208,28 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
 
-    @parameterized.expand([("descending", "-ranking_pr_merged"), ("ascending", "ranking_pr_merged")])
-    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering):
+    @parameterized.expand(
+        [
+            (f"{field}_{direction}", f"{prefix}{field}", head)
+            for field, head in SignalReportViewSet._RANKING_ORDERING_HEADS.items()
+            for direction, prefix in (("descending", "-"), ("ascending", ""))
+        ]
+    )
+    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering, head):
         self.user.is_staff = True
         self.user.save()
+        other_head = "action" if head == "open" else "open"
         low = self._create_report(title="Low")
         high = self._create_report(title="High")
         unscored = self._create_report(title="Unscored")
         no_head = self._create_report(title="No head")
-        self._ranking_score_artefact(low, scores={"pr_merged": 0.1, "open": 0.9})
-        self._ranking_score_artefact(high, scores={"pr_merged": 0.7, "open": 0.1})
-        self._ranking_score_artefact(no_head, scores={"open": 0.5})
-        stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
+        self._ranking_score_artefact(low, scores={head: 0.1, other_head: 0.9})
+        self._ranking_score_artefact(high, scores={head: 0.7, other_head: 0.1})
+        self._ranking_score_artefact(no_head, scores={other_head: 0.5})
+        stale = self._ranking_score_artefact(low, scores={head: 0.99})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
         impossible_time = self._create_report(title="Impossible time")
-        impossible_score = self._ranking_score_artefact(impossible_time, scores={"pr_merged": 0.4})
+        impossible_score = self._ranking_score_artefact(impossible_time, scores={head: 0.4})
         SignalReportArtefact.objects.filter(pk=impossible_score.pk).update(
             content=impossible_score.content.replace("2026-09-20T12:00:00Z", "2026-02-31T12:00:00Z")
         )
@@ -1170,7 +1240,7 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps({"old_title": "Old", "new_title": "Impossible time"}),
         )
         bad_latest = self._create_report(title="Bad latest")
-        older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
+        older_valid = self._ranking_score_artefact(bad_latest, scores={head: 0.99})
         SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
         self._ranking_score_artefact(bad_latest, content="not json")
 
@@ -2951,6 +3021,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         with (
             patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_close_pr,
+            patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
@@ -2975,6 +3046,18 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["note"] == "still can't see it"
         assert content["user_id"] == self.user.id
         mock_close_pr.delay.assert_not_called()
+
+        status_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "signal_report_status_changed"
+        ]
+        assert len(status_events) == 1
+        assert status_events[0]["report_id"] == str(report.id)
+        assert status_events[0]["previous_status"] == current_status
+        assert status_events[0]["status"] == current_status
+        assert status_events[0]["dismissal_reason"] == "report_unclear"
+        assert status_events[0]["reason_added"] is True
 
     def test_repeating_a_verdict_without_feedback_is_a_no_op_success(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
@@ -3331,8 +3414,15 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert survivor.signal_count == 1
         assert good.status == SignalReport.Status.READY
 
-    @parameterized.expand([("straight_after_the_merge", False), ("after_a_later_dismissal", True)])
-    def test_a_merged_report_cannot_be_restored(self, _name, dismiss_again):
+    @parameterized.expand(
+        [
+            (f"{target}_{bulk}_{dismiss_again}", target, bulk, dismiss_again)
+            for target in ["potential", "resolved"]
+            for bulk in [False, True]
+            for dismiss_again in [False, True]
+        ]
+    )
+    def test_a_merged_report_cannot_be_restored(self, _name: str, target: str, bulk: bool, dismiss_again: bool) -> None:
         survivor = self._report()
         source = self._report()
         assert self._merge(survivor, source).status_code == status.HTTP_200_OK
@@ -3349,10 +3439,14 @@ class TestSignalReportMergeAPI(APIBaseTest):
             )
 
         response = self.client.post(
-            self._state_url(str(source.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+            f"/api/projects/{self.team.id}/signals/reports/bulk-state/" if bulk else self._state_url(str(source.id)),
+            data=json.dumps({"state": target, **({"ids": [str(source.id)]} if bulk else {})}),
+            content_type="application/json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.status_code == (status.HTTP_200_OK if bulk else status.HTTP_409_CONFLICT), response.json()
+        if bulk:
+            assert response.json()["skipped_count"] == 1
         source.refresh_from_db()
         assert source.status == SignalReport.Status.SUPPRESSED
 
@@ -3548,6 +3642,31 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
 
         other_teams_report.refresh_from_db()
         assert other_teams_report.status == SignalReport.Status.READY
+
+    def test_bulk_status_labels_reuse_request_user_without_actor_lookups(self):
+        ids = [str(self._create_report().id) for _ in range(3)]
+
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with CaptureQueriesContext(connection) as ctx, self.captureOnCommitCallbacks(execute=True):
+                response = self._post({"ids": ids, "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        labels = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "signal_report_status_changed"
+        ]
+        assert len(labels) == 3
+        for label in labels:
+            assert label["actor_kind"] == "user"
+            assert label["actor_user_uuid"] == str(self.user.uuid)
+            assert label["actor_distinct_id"] == self.user.distinct_id
+        actor_lookups = [
+            query
+            for query in ctx.captured_queries
+            if query["sql"].startswith('SELECT "posthog_user"."uuid" AS "uuid", "posthog_user"."distinct_id"')
+        ]
+        assert actor_lookups == []
 
     def test_bulk_deduplicates_ids_preserving_order(self):
         first = self._create_report()
