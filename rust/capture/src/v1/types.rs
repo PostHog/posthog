@@ -22,9 +22,6 @@ pub enum Destination {
     HeatmapMain,
     ClientIngestionWarning,
     AiEvents,
-    /// Overflow lane for `AiEvents`. Only produced when the AI overflow
-    /// valve (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`) is armed; overflow on the AI lane
-    /// lands here, never on the analytics `Overflow` destination.
     AiEventsOverflow,
 }
 
