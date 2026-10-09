@@ -625,6 +625,44 @@ class TestTaskRunEventIngest(TestCase):
             int(stop_reason == "idle_resume"),
         )
 
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_permission_request_ingest_pushes_awaiting_input(self, _name: str, flag_enabled: bool) -> None:
+        creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
+        self.task.created_by = creator
+        self.task.save(update_fields=["created_by"])
+        token = self._create_token()
+        permission_request = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": {
+                    "requestId": "request-1",
+                    "toolCall": {"title": "Run the test suite"},
+                    "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
+                },
+            },
+        }
+
+        with (
+            patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
+
+        self.assertEqual((status, body["accepted"]), (200, 1))
+        if not flag_enabled:
+            send_push.assert_not_called()
+            return
+        send_push.assert_called_once()
+        user_id, title, push_body, data, _suppressed = send_push.call_args.args
+        self.assertEqual((user_id, title, push_body), (creator.id, "posthog", '"Test Task" needs your input'))
+        self.assertEqual(
+            data,
+            {"taskId": str(self.task.id), "taskRunId": str(self.task_run.id), "notificationKind": "awaiting"},
+        )
+
     @parameterized.expand(
         [
             (runtime, reason, reason == "end_turn")
