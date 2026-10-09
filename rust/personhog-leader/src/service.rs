@@ -519,7 +519,7 @@ impl PersonHogLeaderService {
             )));
         }
 
-        let proto = cached_person_to_proto(&person);
+        let proto = cached_person_into_proto(person.clone());
 
         // Re-check before producing, for the same reason the read path
         // re-checks before answering: admission proves nothing about the
@@ -733,7 +733,7 @@ const MS_PER_HOUR: i64 = 3_600_000;
 /// uuid must parse, team_id must fit the column's `integer`, and the
 /// timestamps must sit inside a sanity range ([1970, 9999]) any
 /// legitimate value satisfies. The legacy jsonb columns have no cache
-/// field and are unconditionally empty in `cached_person_to_proto`, so a
+/// field and are unconditionally empty in `cached_person_into_proto`, so a
 /// record structurally cannot carry values the writer would refuse there.
 fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     if Uuid::parse_str(&p.uuid).is_err() {
@@ -759,13 +759,12 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
     Ok(())
 }
 
-fn cached_person_to_proto(p: &CachedPerson) -> Person {
-    let properties_bytes = p.properties.clone();
+fn cached_person_into_proto(p: CachedPerson) -> Person {
     Person {
         id: p.id,
-        uuid: p.uuid.clone(),
+        uuid: p.uuid,
         team_id: p.team_id,
-        properties: properties_bytes,
+        properties: p.properties,
         properties_last_updated_at: Vec::new(),
         properties_last_operation: Vec::new(),
         created_at: p.created_at,
@@ -918,7 +917,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         Ok(Response::new(GetPersonResponse {
-            person: Some(cached_person_to_proto(&person)),
+            person: Some(cached_person_into_proto(person)),
         }))
     }
 
@@ -1114,7 +1113,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1124,7 +1123,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1137,7 +1136,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
-                person: Some(cached_person_to_proto(&person)),
+                person: Some(cached_person_into_proto(person)),
                 updated: false,
             }));
         }
@@ -1535,7 +1534,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                         return self.authoritative_ok(
                             partition,
                             FoldPersonDocumentResponse {
-                                person: Some(cached_person_to_proto(&person)),
+                                person: Some(cached_person_into_proto(person)),
                             },
                         );
                     }
