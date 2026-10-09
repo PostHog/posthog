@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
             iconType: 'revenue_analytics_metadata' as FileSystemIconType,
             iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
             href: urls.revenueSettings(),
+            searchKeywords: ['currency', 'mrr'],
             sceneKey: 'DataManagement',
         },
     ],
