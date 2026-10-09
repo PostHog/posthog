@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -535,6 +536,20 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         const experimentIsLaunched = (): boolean => isLaunched(props.experiment)
 
         /**
+         * Results for a launched experiment are on screen, so the review results setup task is done. Only a
+         * terminal run counts, the way the legacy loader counted a finished load. Mounted check first: a poll
+         * can outlive the page.
+         */
+        const markResultsReviewed = (recalculation: RecalculationPayload): void => {
+            const terminal =
+                recalculation.status === RECALCULATION_STATUSES.completed ||
+                recalculation.status === RECALCULATION_STATUSES.failed
+            if (terminal && experimentMetricsLogic.findMounted(props) && experimentIsLaunched()) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
+            }
+        }
+
+        /**
          * some local helpers for the listeners closure
          */
 
@@ -677,6 +692,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     )
                     actions.setCurrentRecalculation(recalculation)
                     applyResults(recalculation)
+                    markResultsReviewed(recalculation)
 
                     /**
                      * if there's an active recalculation running, schedule polling of
@@ -997,6 +1013,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
 
                 // Successful metrics load, failed metrics surface their error in-row.
                 applyResults(recalculation)
+                markResultsReviewed(recalculation)
                 emitTerminalEvent(recalculation)
                 if (recalculation.failed_metrics > 0) {
                     lemonToast.error(
