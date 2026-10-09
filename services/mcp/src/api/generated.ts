@@ -55566,6 +55566,11 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface MarketingAnalyticsSearchConversionGoal {
+      id: string;
+      name: string;
+    }
+
     export type Platform = typeof Platform[keyof typeof Platform];
 
 
@@ -55574,6 +55579,15 @@ export namespace Schemas {
       BingAds: 'BingAds',
       GoogleSearchConsole: 'GoogleSearchConsole',
     } as const;
+
+    export interface MarketingAnalyticsSearchConversion {
+      conversions?: number | null;
+      costPerConversion?: number | null;
+      id: string;
+      name: string;
+      previousConversions?: number | null;
+      previousCostPerConversion?: number | null;
+    }
 
     export interface MarketingAnalyticsSearchMetrics {
       /** Fraction of Google Search ad impressions shown as the first ad. */
@@ -55606,6 +55620,7 @@ export namespace Schemas {
       page?: string | null;
       platform: Platform;
       position?: number | null;
+      posthogConversions?: MarketingAnalyticsSearchConversion[] | null;
       previous?: MarketingAnalyticsSearchMetrics | null;
       /** Fraction of Google Search ad impressions shown among the top ads. */
       topImpressionRate?: number | null;
@@ -55618,6 +55633,9 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      posthogAttributionMode?: AttributionMode | null;
+      posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
+      posthogConversionsWarning?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -55653,10 +55671,12 @@ export namespace Schemas {
       breakdown?: Breakdown1 | null;
       compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
+      includePostHogConversions?: boolean | null;
       keyword?: string | null;
       kind?: 'MarketingAnalyticsSearchQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      normalizePageUrls?: boolean | null;
       page?: string | null;
       response?: MarketingAnalyticsSearchQueryResponse | null;
       search?: string | null;
@@ -90547,6 +90567,9 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      posthogAttributionMode?: AttributionMode | null;
+      posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
+      posthogConversionsWarning?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */

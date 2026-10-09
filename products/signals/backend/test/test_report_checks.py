@@ -44,7 +44,6 @@ from products.signals.backend.report_check_agent import (
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
-    arm_pending_checks,
     cancel_check,
     create_check,
     create_checks_from_specs,
@@ -713,9 +712,20 @@ class TestReportCheckExecution(APIBaseTest):
         # An active row on an open report: a report that left `resolved`, or a row written before
         # the create path let the report decide. It must not run, and its old error streak must not
         # count against the soak that follows the next resolve.
-        check = self._check(consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1)
+        check = self._check(
+            consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1,
+            consecutive_inconclusive=len(AWAITING_DATA_RETRY_WAITS),
+            dispatched_at=timezone.now(),
+        )
         self.report.status = report_status
         self.report.save(update_fields=["status"])
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        assert check.consecutive_errors == 0
+        assert check.consecutive_inconclusive == 0
+        assert check.dispatched_at is None
+        assert check.measurement_start_at is None
 
         with patch(_MEASURE) as measure:
             summary = run_due_report_checks()
@@ -748,22 +758,31 @@ class TestReportCheckExecution(APIBaseTest):
 
         assert collect_due_checks(timezone.now()) == []
 
-    @parameterized.expand([("cancelled",), ("reopened",)])
+    @parameterized.expand([("cancelled",), ("reopened",), ("resolved_again",), ("redispatched",)])
     def test_a_check_invalidated_while_its_query_ran_records_nothing(self, reason: str) -> None:
         check = self._check()
         if reason == "cancelled":
             check.status = SignalReportCheck.Status.CANCELLED
             check.save(update_fields=["status"])
+        elif reason == "redispatched":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(dispatched_at=timezone.now())
         else:
             self.report.status = SignalReport.Status.READY
             self.report.save(update_fields=["status"])
+            if reason == "resolved_again":
+                with self.captureOnCommitCallbacks(execute=True):
+                    self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
 
         record_check_verdict(check, CheckVerdict(outcome="passed", explanation="held", observed_value=1.0))
 
         check.refresh_from_db()
-        assert check.status == (
-            SignalReportCheck.Status.CANCELLED if reason == "cancelled" else SignalReportCheck.Status.ACTIVE
-        )
+        expected_status = {
+            "cancelled": SignalReportCheck.Status.CANCELLED,
+            "reopened": SignalReportCheck.Status.PENDING,
+            "resolved_again": SignalReportCheck.Status.ACTIVE,
+            "redispatched": SignalReportCheck.Status.ACTIVE,
+        }
+        assert check.status == expected_status[reason]
         assert check.last_run_at is None
         assert self._results() == []
 
@@ -1960,6 +1979,20 @@ class TestPendingChecks(APIBaseTest):
         # Well past the soak, but the clock has not started: the report is still open.
         assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
 
+    @parameterized.expand([("reopened", SignalReport.Status.READY), ("archived", SignalReport.Status.SUPPRESSED)])
+    def test_a_delayed_resolve_callback_does_not_arm_checks_after_reopening(
+        self, _name: str, report_status: SignalReport.Status
+    ) -> None:
+        check = self._pending()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.RESOLVED))
+            self.report.save(update_fields=self.report.transition_to(report_status))
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        assert check.measurement_start_at is None
+        assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
+
     def test_resolving_the_report_waits_for_a_full_query_window_after_the_soak(self) -> None:
         check = self._pending()
         before = timezone.now()
@@ -2029,7 +2062,8 @@ class TestPendingChecks(APIBaseTest):
             soak_minutes=24 * 60,
         )
         resolved_at = timezone.now()
-        arm_pending_checks(team_id=self.team.id, report_id=self.report.id, resolved_at=resolved_at)
+        with time_machine.travel(resolved_at, tick=False):
+            self._resolve()
         metric.refresh_from_db()
         agent.refresh_from_db()
         assert metric.next_run_at == resolved_at + timedelta(days=3)
@@ -2698,7 +2732,8 @@ class TestReportCheckLifecycleLog(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        arm_pending_checks(team_id=self.team.id, report_id=open_report.id, resolved_at=timezone.now())
+        with self.captureOnCommitCallbacks(execute=True):
+            open_report.save(update_fields=open_report.transition_to(SignalReport.Status.RESOLVED))
 
         entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_SCHEDULED, open_report)
         check.refresh_from_db()
