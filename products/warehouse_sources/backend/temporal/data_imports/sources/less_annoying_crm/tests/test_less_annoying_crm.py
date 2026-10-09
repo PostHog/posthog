@@ -106,6 +106,73 @@ class TestPagination:
         assert bodies[0]["Parameters"]["Page"] == 4
 
 
+class TestFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pipeline_items_walk_every_pipeline_with_all_statuses(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(
+            session,
+            [
+                _response(
+                    [
+                        {
+                            "PipelineId": "p1",
+                            "Statuses": [{"StatusId": "open"}, {"StatusId": "won", "IsActive": False}],
+                        },
+                        {"PipelineId": "p2", "Statuses": []},
+                    ]
+                ),
+                _response({"Results": [{"PipelineItemId": "i1"}], "HasMoreResults": True}),
+                _response({"Results": [{"PipelineItemId": "i2"}], "HasMoreResults": False}),
+                _response({"Results": [{"PipelineItemId": "i3"}], "HasMoreResults": False}),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("pipeline_items", manager))
+
+        assert rows == [{"PipelineItemId": "i1"}, {"PipelineItemId": "i2"}, {"PipelineItemId": "i3"}]
+        assert bodies[0]["Function"] == "GetPipelines"
+        child_params = [(b["Parameters"]["PipelineId"], b["Parameters"]["Page"]) for b in bodies[1:]]
+        assert child_params == [("p1", 1), ("p1", 2), ("p2", 1)]
+        # Closed statuses are only returned when named explicitly in StatusFilter.
+        assert bodies[1]["Parameters"]["StatusFilter"] == ["open", "won"]
+        assert manager.save_state.call_args_list == [
+            mock.call(LessAnnoyingCRMResumeConfig(page=1, parent_id="p1")),
+            mock.call(LessAnnoyingCRMResumeConfig(page=2, parent_id="p1")),
+            mock.call(LessAnnoyingCRMResumeConfig(page=1, parent_id="p2")),
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @pytest.mark.parametrize(
+        "resume,expected",
+        [
+            # Resumes inside the saved group at the saved page, skipping groups already synced.
+            (LessAnnoyingCRMResumeConfig(page=3, parent_id="g2"), [("g2", 3)]),
+            # A group deleted since the checkpoint restarts the fan-out from the first group.
+            (LessAnnoyingCRMResumeConfig(page=3, parent_id="gone"), [("g1", 1), ("g2", 1)]),
+        ],
+    )
+    def test_group_memberships_resume(
+        self, MockSession, resume: LessAnnoyingCRMResumeConfig, expected: list[tuple[str, int]]
+    ) -> None:
+        session = MockSession.return_value
+        members = {"Results": [{"GroupId": "g", "ContactId": "c"}], "HasMoreResults": False}
+        bodies = _wire(
+            session,
+            [
+                _response({"Results": [{"GroupId": "g1"}, {"GroupId": "g2"}], "HasMoreResults": False}),
+                _response(members),
+                _response(members),
+            ],
+        )
+
+        _rows(_source("group_memberships", _make_manager(resume)))
+
+        assert bodies[0]["Function"] == "GetGroups"
+        assert [(b["Parameters"]["GroupId"], b["Parameters"]["Page"]) for b in bodies[1:]] == expected
+
+
 class TestRequestBody:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_tasks_send_required_date_window_and_expand_dict_results(self, MockSession) -> None:
