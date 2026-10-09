@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
+import { IconArrowLeft, IconCheckCircle, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -24,6 +24,7 @@ import {
 } from '../../utils/reportPresentation'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/ReportCard'
+import { DismissOrUnassignButton } from './DismissOrUnassignButton'
 
 /**
  * Wrap a hotkey so it stays quiet while a dialog (the archive form) is up. The hotkey listener sits
@@ -100,43 +101,6 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
             {shortcut}
             <span>{label}</span>
         </span>
-    )
-}
-
-/**
- * The footer has no room for another button, so Unassign me takes the Dismiss slot while the command
- * key is held, and the reader sees what the chord will do before U is pressed. Unassign me has no icon
- * so that it fits the width Dismiss leaves free: a wider button would wrap the row each time the key
- * goes down.
- */
-function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: boolean }): JSX.Element {
-    const { unassignDisabledReason, isUnassigningCurrent } = useValues(inboxTriageLogic)
-    const { dismissCurrent, unassignCurrent } = useActions(inboxTriageLogic)
-
-    return commandKeyHeld ? (
-        <LemonButton
-            type="secondary"
-            size="small"
-            onClick={unassignCurrent}
-            loading={isUnassigningCurrent}
-            disabledReason={unassignDisabledReason}
-            sideIcon={<KeyboardShortcut command u />}
-            data-attr="inbox-triage-unassign-me"
-        >
-            Unassign me
-        </LemonButton>
-    ) : (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={<IconHide />}
-            onClick={dismissCurrent}
-            sideIcon={<KeyboardShortcut a />}
-            // pinned: data-attr predates the Archive → Dismiss rename; dashboards read it.
-            data-attr="inbox-triage-archive"
-        >
-            Dismiss
-        </LemonButton>
     )
 }
 
