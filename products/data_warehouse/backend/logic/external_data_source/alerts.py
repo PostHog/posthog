@@ -4,14 +4,28 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
+from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.cdp.validation import InputsItemSerializer, compile_hog
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
+from posthog.models.messaging import MessagingRecord
+from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
+from posthog.tasks.email import (
+    ExternalDataFailureDigestItem,
+    external_data_failure_digest_campaign_key,
+    external_data_failure_digest_day,
+    get_members_to_notify_for_pipeline_error,
+)
 
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.warehouse_sources.backend.facade.api import get_sync_alert_context
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
@@ -24,6 +38,9 @@ SYNC_ALERT_EVENTS = Counter(
 )
 
 MAX_ERROR_LENGTH = 1000
+FAILURE_DIGEST_EVENT = "$data_warehouse_sync_failure_digest"
+FAILURE_EMAIL_TEMPLATE_ID = "template-posthog-email"
+MAX_DIGEST_SUMMARY_LENGTH = 3500
 
 # A destination created less than this long ago can miss a completed sync. The check runs on every
 # completed run of every schema, so it must not query Postgres each time.
@@ -45,6 +62,139 @@ class SyncAlertKind(StrEnum):
     CDC_BROKEN = "cdc_broken"
     BILLING_LIMIT_REACHED = "reached"
     BILLING_LIMIT_TOO_LOW = "too_low"
+
+
+def failure_email_destination_enabled(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            key="dwh-failure-email-destination",
+            distinct_id=str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def _has_failure_email_alert(team: Team) -> bool:
+    return HogFunction.objects.filter(
+        team_id=team.pk,
+        template_id=FAILURE_EMAIL_TEMPLATE_ID,
+        filters__events__contains=[{"id": FAILURE_DIGEST_EVENT}],
+    ).exists()
+
+
+def ensure_default_failure_email_alert(team: Team) -> None:
+    if _has_failure_email_alert(team):
+        return
+
+    template = HogFunctionTemplate.get_template(FAILURE_EMAIL_TEMPLATE_ID)
+    if template is None:
+        logger.warning("Warehouse failure email template is missing", team_id=team.pk)
+        SYNC_ALERT_EVENTS.labels(event=FAILURE_DIGEST_EVENT, outcome="template_missing").inc()
+        return
+
+    values = {
+        "subject": "{event.properties.schema_count} table sync(s) need attention",
+        "body": "These tables failed to sync:\n\n{event.properties.summary}",
+        "action_url": "{event.properties.sources_url}",
+        "action_label": "View sources",
+    }
+    inputs = {}
+    for schema in template.inputs_schema:
+        serializer = InputsItemSerializer(
+            data={"value": values[schema["key"]]},
+            context={"schema": schema, "function_type": "internal_destination"},
+        )
+        serializer.is_valid(raise_exception=True)
+        inputs[schema["key"]] = serializer.validated_data
+
+    # The digest task holds the per-team Redis lock to prevent concurrent inserts.
+    with transaction.atomic():
+        if _has_failure_email_alert(team):
+            return
+        hog_function = HogFunction.objects.create(
+            team=team,
+            created_by=None,
+            template_id=template.template_id,
+            hog_function_template=template,
+            type="internal_destination",
+            name="Email project members when table syncs fail",
+            description="Send project members a daily email about tables that failed to sync.",
+            enabled=True,
+            hog=template.code,
+            bytecode=template.bytecode or compile_hog(template.code, "internal_destination"),
+            inputs_schema=template.inputs_schema,
+            inputs=inputs,
+            filters={"source": "internal-events", "events": [{"id": FAILURE_DIGEST_EVENT, "type": "events"}]},
+        )
+        transaction.on_commit(
+            lambda: reload_hog_functions_on_workers(team_id=team.pk, hog_function_ids=[str(hog_function.id)]),
+            robust=True,
+        )
+
+
+def build_failure_digest_summary(schemas: list[ExternalDataFailureDigestItem], omitted_count: int) -> str:
+    lines = [
+        f"{' '.join(item['source_type'].splitlines())} / {' '.join(item['schema_name'].splitlines())}: "
+        f"{' '.join(item['error'][:200].splitlines())}{' (paused)' if item['paused'] else ''}"
+        for item in schemas
+    ]
+    while True:
+        summary = "\n".join([*lines, f"and {omitted_count} more"] if omitted_count else lines)
+        if len(summary) <= MAX_DIGEST_SUMMARY_LENGTH:
+            return summary
+        lines.pop()
+        omitted_count += 1
+
+
+def emit_failure_digest(team: Team, schemas: list[ExternalDataFailureDigestItem], omitted_count: int) -> bool | None:
+    digest_day = external_data_failure_digest_day()
+    campaign_key = external_data_failure_digest_campaign_key(team.pk, digest_day)
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        SYNC_ALERT_EVENTS.labels(event=FAILURE_DIGEST_EVENT, outcome="deduped").inc()
+        return False
+
+    recipient_ids = [member.user_id for member in get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)]
+    if not recipient_ids:
+        SYNC_ALERT_EVENTS.labels(event=FAILURE_DIGEST_EVENT, outcome="no_recipients").inc()
+        return False
+
+    ensure_default_failure_email_alert(team)
+    if not _has_failure_email_alert(team):
+        return None
+
+    try:
+        produce_internal_event(
+            team_id=team.pk,
+            event=InternalEventEvent(
+                event=FAILURE_DIGEST_EVENT,
+                distinct_id=f"team_{team.pk}",
+                properties={
+                    "$notify_user_ids": recipient_ids,
+                    "schemas": schemas,
+                    "schema_count": len(schemas) + omitted_count,
+                    "omitted_count": omitted_count,
+                    "digest_day": digest_day.isoformat(),
+                    "sources_url": f"{settings.SITE_URL}/project/{team.pk}/data-management/sources",
+                    "summary": build_failure_digest_summary(schemas, omitted_count),
+                },
+            ),
+        )
+        MessagingRecord.objects.update_or_create(
+            campaign_key=campaign_key,
+            email_hash=f"team_{team.pk}",
+            defaults={"sent_at": timezone.now()},
+        )
+        SYNC_ALERT_EVENTS.labels(event=FAILURE_DIGEST_EVENT, outcome="produced").inc()
+        return True
+    except Exception:
+        SYNC_ALERT_EVENTS.labels(event=FAILURE_DIGEST_EVENT, outcome="error").inc()
+        raise
 
 
 BILLING_KIND_BY_STATUS: dict[str, SyncAlertKind] = {

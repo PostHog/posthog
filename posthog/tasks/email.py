@@ -2,7 +2,7 @@ import uuid
 import hashlib
 import datetime
 from enum import Enum
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, Optional, TypedDict, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -1170,7 +1170,30 @@ EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER = Counter(
 )
 
 
-def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
+class ExternalDataFailureDigestItem(TypedDict):
+    schema_name: str
+    source_id: str
+    source_type: str
+    source_prefix: str
+    source_url: str
+    error: str
+    paused: bool
+    url: str
+
+
+def external_data_failure_digest_day() -> datetime.date:
+    # Shift the clock back so the date changes at the boundary hour
+    # (UTC-anchored — date.today() would follow the OS timezone instead).
+    return (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
+
+
+def external_data_failure_digest_campaign_key(team_id: int, digest_day: datetime.date) -> str:
+    return f"external_data_failure_digest_{team_id}_{digest_day.isoformat()}"
+
+
+def send_external_data_failure_digest(
+    team_id: int, schemas: list[ExternalDataFailureDigestItem], omitted_count: int = 0
+) -> bool:
     """Email a per-team digest of failing external data source syncs.
 
     Runs inside the digest Celery task (products/data_warehouse/backend/tasks.py),
@@ -1185,10 +1208,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="email_unavailable").inc()
         return False
 
-    # Shift the clock back so the date in the key changes at the boundary hour
-    # (UTC-anchored — date.today() would follow the OS timezone instead).
-    digest_day = (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
-    campaign_key = f"external_data_failure_digest_{team_id}_{digest_day.strftime('%Y-%m-%d')}"
+    campaign_key = external_data_failure_digest_campaign_key(team_id, external_data_failure_digest_day())
 
     # Every job in a burst schedules its own delayed digest task; the first to send
     # wins and the rest bail here, before the expensive recipient queries and render.
