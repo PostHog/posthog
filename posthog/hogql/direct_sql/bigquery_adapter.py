@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import base64
 from concurrent import futures
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlparse
 from opentelemetry import trace
@@ -111,10 +112,23 @@ def _resolve_query_location(config: BigQuerySourceConfig) -> str | None:
     return None
 
 
-def _fetch_capped_bigquery_rows(row_iterator: bigquery.table.RowIterator) -> list:
+def _json_safe_bigquery_value(value: Any) -> Any:
+    """BYTES columns arrive as `bytes`, which the response serializer rejects. Base64 is the
+    encoding BigQuery's own JSON output uses. Lists and dicts are REPEATED and RECORD fields,
+    which can carry bytes inside."""
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    if isinstance(value, list):
+        return [_json_safe_bigquery_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_safe_bigquery_value(item) for key, item in value.items()}
+    return value
+
+
+def _fetch_capped_bigquery_rows(row_iterator: bigquery.table.RowIterator) -> list[list[Any]]:
     """Collect up to the row cap, raising if the result exceeds it. The iterator is created
     with max_results one past the cap, so the overflow is detectable."""
-    rows = [row.values() for row in row_iterator]
+    rows = [[_json_safe_bigquery_value(value) for value in row.values()] for row in row_iterator]
     if len(rows) > DIRECT_BIGQUERY_MAX_ROWS:
         DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="bigquery").inc()
         raise ExposedHogQLError(DIRECT_BIGQUERY_ROW_CAP_ERROR)

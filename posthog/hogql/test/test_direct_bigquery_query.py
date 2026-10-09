@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -5,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from google.api_core import exceptions as google_api_exceptions
+from google.cloud.bigquery.table import Row
 from parameterized import parameterized
 
 from posthog.hogql.direct_sql.bigquery_adapter import bigquery_error_to_message, bigquery_field_to_clickhouse_type
@@ -42,13 +44,10 @@ class TestDirectBigQueryQuery(APIBaseTest):
         )
 
     def _mock_bigquery_client(self, rows: list[tuple], schema_fields: list[SimpleNamespace]) -> MagicMock:
+        # Real SDK rows, so the values the adapter sees are the types the SDK decodes to.
+        field_to_index = {field.name: index for index, field in enumerate(schema_fields)}
         row_iterator = MagicMock()
-        row_mocks = []
-        for row in rows:
-            row_mock = MagicMock()
-            row_mock.values.return_value = row
-            row_mocks.append(row_mock)
-        row_iterator.__iter__.return_value = iter(row_mocks)
+        row_iterator.__iter__.return_value = iter([Row(row, field_to_index) for row in rows])
         row_iterator.schema = schema_fields
 
         job = MagicMock()
@@ -99,8 +98,32 @@ class TestDirectBigQueryQuery(APIBaseTest):
         # The job carries a server-side timeout so an abandoned request doesn't keep billing.
         job_config = client.query.call_args.kwargs["job_config"]
         self.assertIsNotNone(job_config.job_timeout_ms)
-        self.assertEqual(response.results, [(1, "100.50")])
+        self.assertEqual(response.results, [[1, "100.50"]])
         self.assertEqual(response.types, [("id", "Int64"), ("amount", "Decimal")])
+
+    def test_execute_encodes_bytes_values_so_the_response_serializes(self):
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT payload, chunks, meta FROM `acme-project.analytics.blobs`",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        client = self._mock_bigquery_client(
+            rows=[(b"\xff", [b"\x00", b"\x01"], {"digest": b"\x02", "label": "x"})],
+            schema_fields=[
+                SimpleNamespace(name="payload", field_type="BYTES", mode="NULLABLE"),
+                SimpleNamespace(name="chunks", field_type="BYTES", mode="REPEATED"),
+                SimpleNamespace(name="meta", field_type="RECORD", mode="NULLABLE"),
+            ],
+        )
+
+        response = self._patched_execute(executor, client)
+
+        self.assertEqual(response.results, [["/w==", ["AA==", "AQ=="], {"digest": "Ag==", "label": "x"}]])
+        json.dumps(response.model_dump(mode="json"))
 
     def test_execute_rejects_result_over_row_cap(self):
         source = self._create_source()
