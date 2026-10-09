@@ -745,16 +745,6 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
-    # TODO: messaging presentation wave — the moved views still read messaging models and services
-    # directly. Each lane thins its own modules to parse -> facade -> serialize and deletes only its
-    # own entries, keeping its header. backend:contract-check stays off until this list is empty.
-    # Only delete entries here: a new import from these views goes through the facade.
-    # Lane A: suppression
-    # Lane B: categories, Customer.io config and the Customer.io webhook
-    # Lane C: preferences and the recipient preferences page
-    # Lane D: templates
-    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_template",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
