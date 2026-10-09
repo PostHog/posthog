@@ -24,7 +24,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
-    PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
@@ -49,7 +48,6 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_continue_as_new_enabled,
     _is_desktop_workspace_warm_enabled,
     _is_dev_stack_preview_enabled,
-    _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
     _require_template_compatible_with_custom_image,
@@ -832,9 +830,6 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
-        # Signals implementation PRs are bot-authored and always opt into the PR
-        # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`
-        # rollout that gates other origins.
         test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         test_task.save(update_fields=["origin_product"])
         task_run = test_task.create_run()
@@ -853,58 +848,6 @@ class TestGetTaskProcessingContextActivity:
         # The signal_report origin short-circuits the gate, so the flag is never consulted.
         called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
         assert "tasks-pr-loop" not in called_flags
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize(
-        "pr_loop_flag, babysit_flag, expected, babysit_flag_consulted",
-        [
-            (False, True, False, False),
-            (True, False, False, True),
-            (True, True, True, True),
-        ],
-    )
-    def test_pr_babysit_enabled_requires_both_the_loop_and_its_own_flag(
-        self,
-        activity_environment,
-        test_task,
-        pr_loop_flag,
-        babysit_flag,
-        expected,
-        babysit_flag_consulted,
-    ):
-        task_run = test_task.create_run()
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-
-        def feature_enabled(flag_key, **kwargs):
-            if flag_key == "tasks-pr-loop":
-                return pr_loop_flag
-            if flag_key == PR_BABYSIT_SNAPSHOT_FEATURE_FLAG:
-                return babysit_flag
-            return False
-
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=feature_enabled,
-        ) as feature_enabled_mock:
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
-
-        assert result.pr_babysit_enabled is expected
-        called_flags = [call.args[0] for call in feature_enabled_mock.call_args_list]
-        assert (PR_BABYSIT_SNAPSHOT_FEATURE_FLAG in called_flags) is babysit_flag_consulted
-
-    def test_pr_babysit_snapshot_flag_fails_closed(self):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            side_effect=RuntimeError("flag service failed"),
-        ):
-            assert (
-                _is_pr_babysit_snapshot_enabled(
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                )
-                is False
-            )
 
     @pytest.mark.parametrize(
         "flag_value, expected",

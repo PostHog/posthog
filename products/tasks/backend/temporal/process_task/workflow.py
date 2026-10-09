@@ -21,29 +21,14 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
-from products.tasks.backend.temporal.babysit_pr.prompts import (
-    MAX_RENDERED_COMMENTS,
-    MAX_RENDERED_THREADS,
-    build_wake_prompt,
-)
-from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, PRSnapshot
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.metrics import (
-    increment_pr_babysit_decision,
-    record_agent_boot_milestone_ms,
-    sandbox_runtime_label,
-)
+from products.tasks.backend.temporal.metrics import record_agent_boot_milestone_ms, sandbox_runtime_label
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
-from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
-    GetPrBabysitSnapshotInput,
-    get_pr_babysit_snapshot,
-)
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     get_pr_context,
     is_pr_actionable,
 )
-from products.tasks.backend.temporal.process_task.activities.mark_pr_ready import MarkPrReadyInput, mark_pr_ready
 
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
@@ -208,7 +193,6 @@ class ResumedSandboxState:
     pr_unresolved_threads: int = 0
     ci_idle_skips: int = 0
     dev_stack_preview_enabled: bool = False
-    babysit_journal: BabysitJournal = field(default_factory=BabysitJournal)
     ci_resume_snapshot_created: bool = False
     accepted_message_ids: list[str] = field(default_factory=list)
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
@@ -318,12 +302,6 @@ class CIFollowUpDecision(StrEnum):
     WAIT = "wait"
     NO_PR = "no_pr"
     TERMINAL = "terminal"
-
-
-@dataclass(frozen=True)
-class _BabysitDispatch:
-    snapshot: PRSnapshot
-    attention: AttentionSet
 
 
 # Legacy re-exports kept while process_task is still on the worker. New
@@ -597,8 +575,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
         # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
         self._pr_progress_emitted: bool = False
-        self._babysit_journal: BabysitJournal = BabysitJournal()
-        self._pending_babysit: Optional[_BabysitDispatch] = None
         self._ci_resume_snapshot_created: bool = False
         self._sandbox_ttl_expires_at: Optional[datetime] = None
         self._sandbox_ttl_snapshot_taken: bool = False
@@ -643,10 +619,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # continue_as_new carries ProcessTaskInput through Temporal's data converter, not this
         # JSON path, but reconstruct resumed_sandbox anyway so a manual re-start keeps it.
         resumed = loaded.get("resumed_sandbox")
-        if resumed and isinstance(resumed.get("babysit_journal"), dict):
-            # ResumedSandboxState(**resumed) would leave this nested dataclass a plain dict,
-            # which later blows up when the babysit poll calls .attention() on it.
-            resumed = {**resumed, "babysit_journal": BabysitJournal(**resumed["babysit_journal"])}
         return ProcessTaskInput(
             run_id=loaded["run_id"],
             create_pr=loaded.get("create_pr", True),
@@ -1059,10 +1031,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent has finished working — if no PR exists at this point, one
         won't appear later.
         """
-        if self.context.pr_babysit_enabled:
-            decision = await self._should_run_babysit_follow_up()
-            increment_pr_babysit_decision(decision.value)
-            return decision
         pr_context = await workflow.execute_activity(
             get_pr_context,
             GetPrContextInput(context=self.context),
@@ -1189,113 +1157,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._preview_progress_open = False
         await self._emit_progress("preview", "failed", "Preview didn't start", "setup")
 
-    async def _should_run_babysit_follow_up(self) -> CIFollowUpDecision:
-        self._pending_babysit = None
-        snapshot = await workflow.execute_activity(
-            get_pr_babysit_snapshot,
-            GetPrBabysitSnapshotInput(context=self.context),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if not snapshot:
-            workflow.logger.info(
-                "PR context is missing, stopping CI follow-up loop",
-                extra={"run_id": self.context.run_id},
-            )
-            return CIFollowUpDecision.NO_PR
-        if snapshot.pr_url and not self._pr_progress_emitted:
-            await self._emit_pr_opened_progress(snapshot.pr_url)
-        if snapshot.is_terminal:
-            workflow.logger.info(
-                "PR reached a terminal state, stopping CI follow-up loop",
-                extra={
-                    "run_id": self.context.run_id,
-                    "pr_url": snapshot.pr_url,
-                    "pr_state": snapshot.pr_state,
-                },
-            )
-            label = "PR merged" if snapshot.pr_state == "merged" else "PR closed"
-            await self._emit_progress("ci", "completed", label, "setup")
-            return CIFollowUpDecision.TERMINAL
-        if snapshot.merge_queue_push_would_eject and workflow.patched(_PATCH_ID_MERGE_QUEUE_SKIP):
-            # The journal stays untouched, so the feedback waits for the next tick after the PR
-            # leaves the queue instead of being marked handled.
-            workflow.logger.info(
-                "PR is in the merge queue, skipping CI follow-up",
-                extra={"run_id": self.context.run_id, "pr_url": snapshot.pr_url},
-            )
-            return CIFollowUpDecision.WAIT
-        attention = self._babysit_journal.attention(snapshot)
-        if attention.is_empty:
-            if (
-                self._last_turn_succeeded
-                and self._end_of_turn_received is True
-                and self._agent_active is False
-                and self._pending_followup is None
-                and not self._pending_followups
-                and not self._task_completed
-                and snapshot.can_mark_ready
-                and workflow.patched("tasks-pr-auto-ready-v1")
-            ):
-                try:
-                    changed = await workflow.execute_activity(
-                        mark_pr_ready,
-                        MarkPrReadyInput(context=self.context, snapshot=snapshot),
-                        start_to_close_timeout=timedelta(minutes=2),
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-                except temporalio.exceptions.ActivityError:
-                    workflow.logger.exception(
-                        "task_pr_auto_ready_activity_failed", extra={"run_id": self.context.run_id}
-                    )
-                    changed = False
-                if changed:
-                    await self._emit_progress("pr", "completed", "PR ready for review", "setup", detail=snapshot.pr_url)
-            workflow.logger.info(
-                "PR has nothing needing attention, skipping CI follow-up",
-                extra={
-                    "run_id": self.context.run_id,
-                    "pr_url": snapshot.pr_url,
-                    "pr_state": snapshot.pr_state,
-                    "head_sha": snapshot.head_sha,
-                },
-            )
-            return CIFollowUpDecision.WAIT if snapshot.ci_status == "pending" else CIFollowUpDecision.SKIP
-        self._pending_babysit = _BabysitDispatch(snapshot=snapshot, attention=attention)
-        workflow.logger.info(
-            "PR needs attention, dispatching CI follow-up",
-            extra={
-                "run_id": self.context.run_id,
-                "pr_url": snapshot.pr_url,
-                "pr_state": snapshot.pr_state,
-                "head_sha": snapshot.head_sha,
-                "failing_checks": len(attention.failing_checks),
-                "threads": len(attention.threads),
-                "comments": len(attention.comments),
-                "conflict": attention.conflict,
-            },
-        )
-        return CIFollowUpDecision.FIRE
-
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
-        pending = self._pending_babysit
-        if pending is None:
-            ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
-        else:
-            ci_message = build_wake_prompt(
-                pending.snapshot.pr_url,
-                pending.attention,
-                extra_instructions=self.context.ci_prompt,
-            )
+        ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
         await self._send_followup_to_sandbox(ci_message, [], user_originated=False)
-        if pending is not None:
-            # Record only what the prompt rendered; items past the render caps stay unrecorded
-            # so a later tick delivers them instead of silently marking them handled.
-            dispatched = pending.attention.capped(MAX_RENDERED_THREADS, MAX_RENDERED_COMMENTS)
-            self._babysit_journal = self._babysit_journal.record(pending.snapshot, dispatched)
-            self._pending_babysit = None
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
@@ -2037,7 +1903,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ci_idle_skips=self._ci_idle_skips,
                 pr_fingerprint=self._pr_fingerprint,
                 pr_unresolved_threads=self._pr_unresolved_threads,
-                babysit_journal=self._babysit_journal,
                 pr_progress_emitted=self._pr_progress_emitted,
                 ci_resume_snapshot_created=self._ci_resume_snapshot_created,
                 first_user_message_received=self._first_user_message_received,
@@ -2085,7 +1950,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_idle_skips = resumed.ci_idle_skips
         self._pr_fingerprint = resumed.pr_fingerprint
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
-        self._babysit_journal = resumed.babysit_journal
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._ci_resume_snapshot_created = resumed.ci_resume_snapshot_created
         self._first_user_message_received = resumed.first_user_message_received
@@ -3078,7 +2942,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._agent_active is False
             and self._pending_followup is None
             and not self._pending_followups
-            and self._pending_babysit is None
         )
 
     def _agent_lost_mid_turn(self) -> bool:
