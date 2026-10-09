@@ -98,9 +98,9 @@ The same drop list as review validation, seen from the fixer's side:
 - **Defensive-coding paranoia** — guarding against states upstream invariants prevent.
 - **Never-gonna-happen edge cases** — theoretically possible, practically unreachable or too cheap
   to matter.
-- **Pure style / taste** — naming, formatting, "I'd write it differently" with no behavioral
-  difference. Under this profile a typo or a wrong identifier in a comment is left for the author,
-  not fixed.
+- **Pure taste** — "I'd write it differently" with no clearly better form. A naming, formatting,
+  wording or typo ask that has a clearly better form is not noise under this profile: leave it for
+  the author with `escalate`, never `wont_fix`.
 - **Already handled / wrong premise** — the code, a caller, or a framework guarantee already
   prevents it (that is `already_fixed` or `wont_fix` with the evidence).
 
