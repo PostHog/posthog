@@ -105,6 +105,15 @@ the PR author's resolution criteria (canonical for unmapped authors). Design + d
 Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
+**Fix profiles** are canonical resolution-criteria skills that set how eager the fixer is.
+`review-hog-resolution-criteria` is the default.
+`review-hog-resolution-criteria-gaps` fixes reachable bugs and leaves typos, nits, wording, stale docs and style.
+`review-hog-resolution-criteria-small` fixes small, contained issues and leaves findings whose fix needs a design choice.
+Each profile is the default text plus a profile section, with the same safety rules, hard limits and human overrides.
+A profile leaves a thread as `escalate` with a reply that opens "Left for the author:", so the thread stays open.
+All three are in `CANONICAL_RESOLUTION_SKILL_NAMES` (`reviewer/skill_loader.py`), so every user sees and can select them.
+Only the default auto-seeds active; a profile is active only after the user selects it.
+
 **Resolution visibility & the busy-guard** (grilled 2026-08-13, DECISIONS.md "Resolution-stage visibility & cycle guard"; ADR `adr/0001`):
 a run opens with a `resolution_run` work-list artefact (queued thread ids + counts) written by `_prepare_run`,
 and `reviewer/progress.py::resolution_states` derives the run's state from artefacts alone —
