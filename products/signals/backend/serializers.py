@@ -1187,6 +1187,11 @@ class ReportRankingSerializer(serializers.Serializer):
     )
 
 
+class RefundKeptStatus(TextChoices):
+    MONITORING = SignalReport.Status.MONITORING
+    RESOLVED = SignalReport.Status.RESOLVED
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -1336,9 +1341,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="The status a refund preserves when the first billable PR merged; null when refunding archives the report."
     )
 
-    @extend_schema_field(
-        serializers.ChoiceField(choices=[SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED], allow_null=True)
-    )
+    @extend_schema_field(serializers.ChoiceField(choices=RefundKeptStatus.choices, allow_null=True))
     def get_refund_kept_status(self, obj: SignalReport) -> str | None:
         kept = self.context.get("refund_kept_status_map")
         if kept is None:
