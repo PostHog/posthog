@@ -66,24 +66,32 @@ class TestTrialCoordinator(SimpleTestCase):
 
 
 class TestScoutTrialComparisonWorkflow(SimpleTestCase):
-    @parameterized.expand([False, True])
-    async def test_background_comparison_waits_for_runs_and_report_or_records_timeout(self, times_out: bool) -> None:
+    @parameterized.expand(
+        [
+            ("runs_finish_quickly", timedelta(seconds=10)),
+            ("queued_runs_use_full_trial_runtime", timedelta(minutes=7 + 29)),
+            ("runs_never_finish", None),
+        ]
+    )
+    async def test_background_comparison_waits_for_runs_and_report_or_records_timeout(
+        self, _name: str, runs_finish_after: timedelta | None
+    ) -> None:
+        times_out = runs_finish_after is None
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
+        started = now
         prepared = False
         finished = False
         failed = False
-        prepare_calls = 0
         report_calls = 0
 
         async def execute(function: Callable[..., object], payload: object, **options: object) -> object:
-            nonlocal prepared, finished, failed, prepare_calls, report_calls
+            nonlocal prepared, finished, failed, report_calls
             assert payload == inputs
             if function is dispatch_scout_trial_comparison_activity:
                 return None
             if function is prepare_scout_trial_comparison_evaluation_activity:
-                prepare_calls += 1
-                prepared = prepare_calls > 1 and not times_out
+                prepared = runs_finish_after is not None and now - started >= runs_finish_after
                 return prepared
             if function is finish_scout_trial_comparison_activity:
                 assert prepared
@@ -158,7 +166,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
-            assert call.kwargs["execution_timeout"] == timedelta(minutes=4502)
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=4517)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))

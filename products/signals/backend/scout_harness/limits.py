@@ -50,6 +50,10 @@ MAX_RUN_NOTE_CHARS = 1_000
 
 SCOUT_TRIAL_METADATA_KEY = "scout_trial"
 TRIAL_MAX_RUNTIME_S = 30 * 60
+# Time a trial scout activity can wait in the task queue before it starts.
+TRIAL_QUEUE_ALLOWANCE_MINUTES = 19
+# How long a comparison waits for its scout runs. The activity timeout does not include queue time.
+TRIAL_SCOUT_WAIT_MINUTES = (TRIAL_MAX_RUNTIME_S + ACTIVITY_SLACK_S) // 60 + TRIAL_QUEUE_ALLOWANCE_MINUTES
 MAX_TRIAL_VARIANTS = 20
 MAX_TRIAL_REPEATS = 20
 MAX_TRIAL_RUNS = MAX_TRIAL_VARIANTS * MAX_TRIAL_REPEATS
