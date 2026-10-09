@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 LIGHTFIELD_PAGE_SIZE = 25
 
 
-@dataclass
+@dataclass(frozen=True)
 class LightfieldEndpointConfig:
     name: str
     path: str
