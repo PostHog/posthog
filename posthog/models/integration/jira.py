@@ -24,15 +24,23 @@ URL_TRAILING_PUNCTUATION = ".,;:!?"
 
 
 def trim_url(url: str) -> str:
-    """Drops trailing sentence punctuation, and a closing parenthesis that has no opening one in the URL."""
-    while url:
-        if url[-1] in URL_TRAILING_PUNCTUATION:
-            url = url[:-1]
-        elif url[-1] == ")" and url.count(")") > url.count("("):
-            url = url[:-1]
+    """Drops trailing sentence punctuation, and a closing parenthesis that has no opening one in the URL.
+
+    The descriptions are user input of any length, so the parentheses are counted once and the URL is cut once,
+    keeping this linear like the fence handling.
+    """
+    unmatched_closing = url.count(")") - url.count("(")
+    end = len(url)
+    while end:
+        last = url[end - 1]
+        if last in URL_TRAILING_PUNCTUATION:
+            end -= 1
+        elif last == ")" and unmatched_closing > 0:
+            unmatched_closing -= 1
+            end -= 1
         else:
             break
-    return url
+    return url[:end]
 
 
 def text_to_adf_nodes(text: str) -> list[dict[str, Any]]:
