@@ -13,13 +13,13 @@ from rest_framework import status
 
 from posthog.models import Integration
 
-from products.batch_exports.backend.models.batch_export import BatchExportDestination
-from products.batch_exports.backend.presentation.views.destination_tests.base import DestinationTestStepResult, Status
-from products.batch_exports.backend.presentation.views.destination_tests.bigquery import BigQueryProjectTestStep
-from products.batch_exports.backend.presentation.views.destination_tests.databricks import (
+from products.batch_exports.backend.destination_tests.base import DestinationTestStepResult, Status
+from products.batch_exports.backend.destination_tests.bigquery import BigQueryProjectTestStep
+from products.batch_exports.backend.destination_tests.databricks import (
     DatabricksDestinationTest,
     DatabricksEstablishConnectionTestStep,
 )
+from products.batch_exports.backend.models.batch_export import BatchExportDestination
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 pytestmark = [
@@ -46,6 +46,35 @@ def test_can_get_test_for_destination(client: HttpClient, destination: str, orga
     assert isinstance(destination_test["steps"], list)
     assert len(destination_test["steps"]) > 0
     assert all("name" in step and "description" in step for step in destination_test["steps"])
+
+
+def test_get_test_for_destination_without_a_test_is_not_found(client: HttpClient, organization, team, user) -> None:
+    client.force_login(user)
+
+    response = client.get(f"/api/projects/{team.pk}/batch_exports/test", {"destination": "Postgres"})
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_run_test_step_for_destination_without_a_test_is_rejected(client: HttpClient, organization, team, user) -> None:
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
+        {
+            "step": 0,
+            "name": "my-http-destination",
+            "destination": {
+                "type": "HTTP",
+                "config": {"url": "https://us.i.posthog.com/batch/", "token": "fake-token"},
+            },
+            "interval": "hour",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Connection tests aren't available for HTTP destinations."
 
 
 TEST_ROOT_BUCKET = "test-destination-tests"
@@ -219,7 +248,7 @@ def test_run_test_step_rejects_destination_type_change(
     }
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.exports.get_destination_test"
+        "products.batch_exports.backend.destination_tests.get_destination_test"
     ) as mock_get_destination_test:
         response = client.post(
             f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
@@ -348,7 +377,7 @@ def test_can_run_bigquery_test_step_with_castable_type(
     )
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.destination_tests.base.DestinationTest.run_step"
+        "products.batch_exports.backend.destination_tests.base.DestinationTest.run_step"
     ) as run_step_mocked:
         fake_test_step = BigQueryProjectTestStep()
         fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
@@ -404,7 +433,7 @@ def test_can_run_databricks_test_step_for_new_destination(
     client.force_login(user)
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.exports.get_destination_test"
+        "products.batch_exports.backend.destination_tests.get_destination_test"
     ) as mock_get_destination_test:
         test_step = DatabricksEstablishConnectionTestStep()
         test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
@@ -433,10 +462,41 @@ def test_can_run_databricks_test_step_for_new_destination(
 
     assert response.status_code == status.HTTP_200_OK, response.json()
 
-    destination_test = response.json()
+    assert response.json() == {
+        "name": DatabricksEstablishConnectionTestStep.name,
+        "description": DatabricksEstablishConnectionTestStep.description,
+        "result": {"status": "Passed", "message": None},
+    }
 
-    assert destination_test["result"]["status"] == "Passed", destination_test
-    assert destination_test["result"]["message"] is None
+
+@pytest.mark.parametrize("step", [True, "first", 1.5])
+def test_run_test_step_rejects_a_step_that_is_not_an_integer(
+    client: HttpClient, organization, team, user, databricks_integration, step: object
+) -> None:
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/projects/{team.pk}/batch_exports/run_test_step_new",
+        {
+            "step": step,
+            "name": "my-databricks-batch-export",
+            "destination": {
+                "type": "Databricks",
+                "integration": databricks_integration.id,
+                "config": {
+                    "http_path": "my-http-path",
+                    "catalog": "my-catalog",
+                    "schema": "my-schema",
+                    "table_name": "my-table-name",
+                },
+            },
+            "interval": "hour",
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == "step"
 
 
 def test_integration_is_required_for_databricks_destination_tests(

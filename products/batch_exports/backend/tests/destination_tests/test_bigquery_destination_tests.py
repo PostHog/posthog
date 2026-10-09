@@ -12,7 +12,7 @@ from google.cloud import bigquery, exceptions
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
-from products.batch_exports.backend.presentation.views.destination_tests.bigquery import (
+from products.batch_exports.backend.destination_tests.bigquery import (
     BigQueryDatasetTestStep,
     BigQueryImpersonateServiceAccountTestStep,
     BigQueryProjectTestStep,

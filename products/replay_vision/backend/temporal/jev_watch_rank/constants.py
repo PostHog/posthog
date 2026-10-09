@@ -30,9 +30,11 @@ PINNED_TEAM_IDS = (2,)
 # experiment scale the time budget, not these counts, decides how far a run gets.
 MAX_TEAMS_PER_SWEEP = 50_000
 MAX_SCANNERS_PER_SWEEP = 20_000
-# Scanners judged at once. A turn mostly waits on Jev, so this multiplies throughput; it stays low
-# enough that one sweep cannot flood the decision gateway.
-JUDGE_CONCURRENCY = 8
+# Scanners judged at once. A turn mostly waits on Jev, so this multiplies throughput. Eight at once
+# kept hitting the gateway's rate limit, which every product's Jev calls share, so it stays low.
+JUDGE_CONCURRENCY = 2
+# Rate-limited scanner turns after which the rest of the run waits for the next sweep.
+RATE_LIMIT_BACKOFF_AFTER = 3
 # Judging stops here even under the caps: worst-case chunks x the 30s request timeout run far past
 # any reasonable activity timeout, so the wall clock is the binding limit, not the counts. Scanners
 # cut off by the budget wait for the next hourly run, where already-judged rows cost nothing.
