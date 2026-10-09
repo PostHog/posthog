@@ -929,36 +929,45 @@ describe('ActionFilterRow', () => {
                 mathAvailability: MathAvailability.None,
                 dataWarehousePopoverFields: undefined,
                 expected: { kind: NodeKind.EventsNode, event: '$feature_flag_called' },
-                description: /a saved query built on it will stop returning results/,
+                description: /queries on this event will stop returning results/,
             },
         ])(
             'describes and picks Feature flag called for $insight',
             async ({ mode, mathAvailability, dataWarehousePopoverFields, expected, description }) => {
-                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
-                const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
-                renderRow(logic, {
-                    ...INLINE_CONTEXT,
-                    mathAvailability,
-                    dataWarehousePopoverFields,
-                    flagCallsFromFlagEvaluations: true,
-                    actionsTaxonomicGroupTypes: [
-                        TaxonomicFilterGroupType.Events,
-                        TaxonomicFilterGroupType.Actions,
-                        TaxonomicFilterGroupType.DataWarehouse,
-                    ],
-                })
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: true })
+                try {
+                    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                    const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
+                    renderRow(logic, {
+                        ...INLINE_CONTEXT,
+                        mathAvailability,
+                        dataWarehousePopoverFields,
+                        flagCallsFromFlagEvaluations: true,
+                        actionsTaxonomicGroupTypes: [
+                            TaxonomicFilterGroupType.Events,
+                            TaxonomicFilterGroupType.Actions,
+                            TaxonomicFilterGroupType.DataWarehouse,
+                        ],
+                    })
 
-                await userEvent.click(screen.getByTestId('trend-element-subject-0'))
-                await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
-                const [entry] = await screen.findAllByText('Feature flag called')
-                await userEvent.hover(entry.closest('[data-attr^="prop-filter-"]') as HTMLElement)
-                expect(await screen.findByText(description)).toBeInTheDocument()
-                await userEvent.click(entry)
+                    await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+                    await userEvent.type(
+                        await screen.findByTestId('taxonomic-filter-searchfield'),
+                        '$feature_flag_called'
+                    )
+                    const [entry] = await screen.findAllByText('Feature flag called')
+                    await userEvent.hover(entry.closest('[data-attr^="prop-filter-"]') as HTMLElement)
+                    expect(await screen.findByText(description)).toBeInTheDocument()
+                    await userEvent.click(entry)
 
-                await waitFor(() => {
-                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
-                    expect(lastCall?.[0]).toEqual(expect.objectContaining(expected))
-                })
+                    await waitFor(() => {
+                        const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                        expect(lastCall?.[0]).toEqual(expect.objectContaining(expected))
+                    })
+                } finally {
+                    featureFlagLogic.actions.setFeatureFlags([], {})
+                }
             }
         )
 
