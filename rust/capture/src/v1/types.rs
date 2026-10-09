@@ -89,24 +89,6 @@ impl Destination {
             Self::Drop => None,
         }
     }
-
-    /// Low-cardinality metric label value.
-    pub fn as_tag(&self) -> &'static str {
-        match self {
-            Self::AnalyticsMain => "analytics_main",
-            Self::AnalyticsHistorical => "analytics_historical",
-            Self::Overflow => "overflow",
-            Self::Dlq => "dlq",
-            // Admin-configured topic names never become label values.
-            Self::Custom(_) => "custom",
-            Self::Drop => "drop",
-            Self::ExceptionErrorTracking => "exception_error_tracking",
-            Self::HeatmapMain => "heatmap_main",
-            Self::ClientIngestionWarning => "client_ingestion_warning",
-            Self::AiEvents => "ai_events",
-            Self::AiEventsOverflow => "ai_events_overflow",
-        }
-    }
 }
 
 /// What [`crate::v1::prepare::serialize_batch`] reads from a request event to
@@ -180,42 +162,5 @@ mod destination_tests {
     ) {
         let v0 = destination.address().and_then(V0Destination::for_address);
         assert_eq!(v0, expected);
-    }
-
-    #[test]
-    fn as_tag_exhaustive_stable_and_unique() {
-        // One representative per variant.
-        let expected: &[(Destination, &str)] = &[
-            (Destination::AnalyticsMain, "analytics_main"),
-            (Destination::AnalyticsHistorical, "analytics_historical"),
-            (Destination::Overflow, "overflow"),
-            (Destination::Dlq, "dlq"),
-            (Destination::Custom("topic_a".into()), "custom"),
-            (Destination::Drop, "drop"),
-            (
-                Destination::ExceptionErrorTracking,
-                "exception_error_tracking",
-            ),
-            (Destination::HeatmapMain, "heatmap_main"),
-            (
-                Destination::ClientIngestionWarning,
-                "client_ingestion_warning",
-            ),
-            (Destination::AiEvents, "ai_events"),
-            (Destination::AiEventsOverflow, "ai_events_overflow"),
-        ];
-
-        let mut seen = std::collections::HashSet::new();
-        for (dest, tag) in expected {
-            assert_eq!(dest.as_tag(), *tag, "tag changed for {dest:?}");
-            assert!(!tag.is_empty(), "tag for {dest:?} must be non-empty");
-            assert!(seen.insert(*tag), "tag {tag} is not unique across variants");
-        }
-
-        assert_eq!(Destination::Custom("topic_b".into()).as_tag(), "custom");
-        assert_eq!(
-            Destination::Custom("topic_a".into()).as_tag(),
-            Destination::Custom("topic_b".into()).as_tag()
-        );
     }
 }
