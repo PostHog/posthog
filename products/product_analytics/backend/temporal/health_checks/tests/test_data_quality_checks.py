@@ -15,6 +15,7 @@ from products.product_analytics.backend.temporal.health_checks.local_development
     LocalDevelopmentTrafficCheck,
 )
 from products.product_analytics.backend.temporal.health_checks.stopped_funnel_steps import StoppedFunnelStepsCheck
+from products.product_analytics.backend.temporal.health_checks.unfiltered_bot_traffic import UnfilteredBotTrafficCheck
 
 HOST_FILTER = {"key": "$host", "type": "event", "operator": "not_regex", "value": "localhost"}
 
@@ -35,6 +36,34 @@ class TestLocalDevelopmentTrafficCheck(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         issues = LocalDevelopmentTrafficCheck().detect([self.team.id])
+
+        severity = issues[self.team.id][0].severity if self.team.id in issues else None
+        self.assertEqual(severity, expected_severity)
+
+
+BOT_USER_AGENT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+BROWSER_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+TRAFFIC_TYPE_FILTER = {"key": "$virt_traffic_type", "type": "event", "operator": "is_not", "value": ["Bot", "AI Agent"]}
+
+
+class TestUnfilteredBotTrafficCheck(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("crawlers", BOT_USER_AGENT, [], "warning"),
+            ("crawlers_filtered", BOT_USER_AGENT, [TRAFFIC_TYPE_FILTER], None),
+            ("server_side_without_user_agent", "", [], None),
+        ]
+    )
+    def test_flags_crawler_pageviews_the_internal_filter_misses(self, _name, user_agent, filters, expected_severity):
+        self.team.test_account_filters = filters
+        self.team.save()
+        for i, agent in enumerate([user_agent] * 60 + [BROWSER_USER_AGENT] * 80):
+            _create_event(
+                team=self.team, event="$pageview", distinct_id=f"person{i}", properties={"$raw_user_agent": agent}
+            )
+        flush_persons_and_events()
+
+        issues = UnfilteredBotTrafficCheck().detect([self.team.id])
 
         severity = issues[self.team.id][0].severity if self.team.id in issues else None
         self.assertEqual(severity, expected_severity)
