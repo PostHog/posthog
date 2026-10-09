@@ -20,9 +20,11 @@ from products.feature_flags.evals.scorers import (
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
+    PRE_CONFIRMATION_TOOLS,
     SCHEDULE_READ_TOOLS,
     FlagStateUnchanged,
     FreshReadsBeforeEdit,
+    OnlyPreConfirmationTools,
     ToolGroupDirection,
     read_flag_state,
 )
@@ -105,6 +107,15 @@ def _declared_tools() -> dict[str, Any]:
     return {name: spec for name, spec in generated.items() if spec["feature"] == "flags"}
 
 
+def _all_declared_tools() -> dict[str, Any]:
+    # The pre-confirmation allowlist reaches conversations, platform_features and the
+    # session tools, so it cannot be checked against the feature-flag surface alone.
+    declared: dict[str, Any] = {}
+    for tools_yaml in sorted(Path(settings.BASE_DIR).glob("products/*/mcp/tools.yaml")):
+        declared.update((yaml.safe_load(tools_yaml.read_text()) or {}).get("tools") or {})
+    return declared
+
+
 def test_flag_mutation_tools_match_the_declared_write_surface() -> None:
     # FLAG_MUTATION_TOOLS is a literal so the guarded set stays a reviewed choice, but a
     # write verb added to tools.yaml must not slip past the suite silently. Bind the two.
@@ -120,10 +131,14 @@ def test_read_tool_sets_name_enabled_read_only_tools() -> None:
     # a renamed tool would otherwise be absorbed by the other names in its any-of group.
     # Hand-written tools (feature-flag-get-definition-by-key) live in the MCP server's
     # tool-definitions.json rather than in tools.yaml, so accept either home.
-    tools = _declared_tools()
+    tools = _all_declared_tools()
     hand_written = set(json.loads((Path(settings.BASE_DIR) / "services/mcp/schema/tool-definitions.json").read_text()))
 
-    for name in sorted(FLAG_LOOKUP_TOOLS | DEFINITION_READ_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS):
+    # PRE_CONFIRMATION_TOOLS is the allowlist the authorization gate scores against, so a
+    # name that stops resolving turns into a silent ban on the tool the skill needs.
+    for name in sorted(
+        FLAG_LOOKUP_TOOLS | DEFINITION_READ_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS | PRE_CONFIRMATION_TOOLS
+    ):
         spec = tools.get(name)
         if spec is None:
             assert name in hand_written, name
@@ -399,3 +414,42 @@ class TestFreshReadsBeforeEdit:
         )
 
         assert score.score is None
+
+
+def _gate_score(calls: Sequence[tuple[Any, ...]]) -> Any:
+    return OnlyPreConfirmationTools()._run_eval_sync({"raw_log": _raw_tool_log(calls)})
+
+
+def test_gate_allows_its_own_checks_and_the_sandbox_tools() -> None:
+    score = _gate_score(
+        [
+            ("mcp__posthog__conversations-tickets-retrieve", {"id": "t-1"}, "ok"),
+            ("mcp__posthog__org-members-list", {}, "ok"),
+            ("Read", {"file_path": "/repo/a.py"}, "ok"),
+        ]
+    )
+
+    assert score.score == 1.0
+
+
+@parameterized.expand(
+    [
+        # The regression the allowlist exists for: the gate used to score against a
+        # hand-listed set of forbidden reads, so a project tool missing from that list
+        # scored green after returning customer data.
+        ("unenumerated_project_read", "experiment-holdouts-list"),
+        # Fetches data rather than moving the session, so it sits below the gate even
+        # though switch-project sits above it.
+        ("project_listing", "projects-get"),
+    ]
+)
+def test_gate_fails_on_a_project_read_before_confirmation(_name: str, tool: str) -> None:
+    score = _gate_score(
+        [
+            ("mcp__posthog__conversations-tickets-retrieve", {"id": "t-1"}, "ok"),
+            (f"mcp__posthog__{tool}", {}, "ok"),
+        ]
+    )
+
+    assert score.score == 0.0
+    assert score.metadata["tools_called"] == [tool]

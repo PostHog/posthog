@@ -82,6 +82,10 @@ describe('Conversations', { concurrent: false }, () => {
             expect(typeof data.status).toBe('string')
             expect(data).toHaveProperty('channel_source')
             expect(data).toHaveProperty('created_at')
+            // The debugging-feature-flags skill gates project reads on this field. The
+            // serializer tests stay green if the response projection drops it, so assert
+            // it survives the projection here. Tri-state, so presence is the check.
+            expect(data).toHaveProperty('identity_verified')
         })
 
         it('should throw for a non-existent UUID', async () => {
