@@ -91,6 +91,37 @@ export interface AutoresearchRealizedAucPointApi {
     readonly realized_auc: number
 }
 
+export interface AutoresearchPredictionCoverageApi {
+    /** People in the inference population at the run's cutoff. */
+    readonly population: number
+    /** People with a champion score inside the lookback window before the cutoff. Shadow scores do not count. */
+    readonly with_score: number
+    /** People with no champion score inside the lookback window. A rolling run scores these people first. */
+    readonly never_scored: number
+    /**
+     * Mean age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_avg: number | null
+    /**
+     * Median age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_p50: number | null
+    /**
+     * 90th percentile age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_p90: number | null
+    /**
+     * Oldest score age in days. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_max: number | null
+    /** How many days before the cutoff the measure reads scores. Older scores count as never scored. */
+    readonly lookback_days: number
+}
+
 export interface AutoresearchLiveTrainingRunApi {
     /** Unique UUID of the live training run. */
     readonly id: string
@@ -240,6 +271,8 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly people_scored: number | null
+    /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
+    readonly coverage: AutoresearchPredictionCoverageApi | null
     /** Training runs started for this pipeline. */
     readonly training_run_count: number
     /** Experiments (iterations) recorded across every training run. */
@@ -562,6 +595,8 @@ export interface AutoresearchRunApi {
     rows_scored?: number | null
     /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
     metrics: AutoresearchRunApiMetrics
+    /** Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs. */
+    readonly coverage: AutoresearchPredictionCoverageApi | null
     /** Error message if the run failed. */
     error?: string
     /**
