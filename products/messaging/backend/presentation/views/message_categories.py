@@ -2,6 +2,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -9,6 +10,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from products.messaging.backend.facade.customerio import (
     CustomerIOConfigConflict,
     CustomerIOConfigIncomplete,
+    SyncConfigState,
+    TrackConfigState,
+    WebhookConfigState,
     get_sync_config_state,
     import_from_customerio,
     import_preferences_csv,
@@ -65,6 +69,21 @@ class CustomerIOImportSerializer(serializers.Serializer):
     app_api_key = serializers.CharField(required=True, help_text="Customer.io App API Key")
 
 
+class SyncConfigStateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SyncConfigState
+
+
+class WebhookConfigStateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WebhookConfigState
+
+
+class TrackConfigStateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrackConfigState
+
+
 class MessageCategoryViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -104,18 +123,7 @@ class MessageCategoryViewSet(
         Used by the frontend to derive step completion.
         """
         state = get_sync_config_state(self.team_id)
-        return Response(
-            {
-                "app_integration_id": state.app_integration_id,
-                "app_import_result": state.app_import_result,
-                "csv_import_result": state.csv_import_result,
-                "webhook_enabled": state.webhook_enabled,
-                "has_webhook_secret": state.has_webhook_secret,
-                "track_enabled": state.track_enabled,
-                "has_track_credentials": state.has_track_credentials,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(SyncConfigStateSerializer(state).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["delete"])
     def remove_customerio_app_config(self, request, **kwargs):
@@ -142,13 +150,7 @@ class MessageCategoryViewSet(
         except CustomerIOConfigIncomplete as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                "webhook_enabled": state.webhook_enabled,
-                "has_webhook_secret": state.has_webhook_secret,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(WebhookConfigStateSerializer(state).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["delete"])
     def remove_webhook_config(self, request, **kwargs):
@@ -179,13 +181,7 @@ class MessageCategoryViewSet(
         except CustomerIOConfigIncomplete as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {
-                "track_enabled": state.track_enabled,
-                "has_track_credentials": state.has_track_credentials,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(TrackConfigStateSerializer(state).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["delete"])
     def remove_track_config(self, request, **kwargs):
