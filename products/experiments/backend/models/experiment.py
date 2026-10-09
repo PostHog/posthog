@@ -195,6 +195,13 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         return self.is_launched and self.end_date is not None
 
     @property
+    def hours_since_launch(self) -> float | None:
+        # Counts to now also after the end date.
+        if self.start_date is None:
+            return None
+        return (timezone.now() - self.start_date).total_seconds() / 3600
+
+    @property
     def is_paused(self) -> bool:
         # Pause is not stored on the experiment — it is the running state with the linked flag deactivated.
         return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
