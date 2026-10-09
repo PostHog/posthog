@@ -27,14 +27,15 @@ jobs:
     cleanup-hogbox-preview:
         name: Cleanup hogbox preview
         # Tear down the per-PR hogbox (box + pen) on close. The daily stale-sweep
-        # in pr-cleanup.yml is the backstop; the GitHub Deployment/environment is
-        # reaped there too. Idempotent — a no-op if nothing is up.
+        # in hogbox-preview-cleanup.yml is the backstop. Idempotent — a no-op if
+        # nothing is up.
         #
         # Frontend PRs auto-preview WITHOUT the `hogbox-preview` label, so a
         # label-only gate here would leak their boxes until the daily sweep. The
         # job `if:` only prunes PRs that can't have had a preview at all (forks,
         # bots); the real gate is the credential-free deployment check below —
-        # a preview always leaves a `preview-pr-<n>` GitHub Deployment behind.
+        # a preview always leaves a GitHub Deployment in the `hogbox-preview`
+        # environment with task `preview-pr-<n>`.
         if: >-
             contains(github.event.pull_request.labels.*.name, 'hogbox-preview')
             || (github.event.pull_request.head.repo.full_name == github.repository
@@ -59,7 +60,7 @@ jobs:
                   script: |
                       const pr = Number(process.env.PR);
                       const { data } = await github.rest.repos.listDeployments({
-                          ...context.repo, environment: `preview-pr-${pr}`, per_page: 1 });
+                          ...context.repo, environment: 'hogbox-preview', task: `preview-pr-${pr}`, per_page: 1 });
                       const had = data.length > 0;
                       core.info(`preview deployment for PR #${pr}: ${had}`);
                       core.setOutput('had_preview', had ? 'true' : 'false');
