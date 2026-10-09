@@ -374,6 +374,7 @@ export async function getInsightWithRetry(
     let retryDeadline = Infinity
     let lastResult: InsightModel | null = null
     let lastError: unknown
+    let lastCapacityError: ApiError | undefined
 
     const insightUrl = (
         requestRefresh: 'blocking' | 'force_blocking' | 'async' | 'force_async' | 'force_cache'
@@ -479,12 +480,22 @@ export async function getInsightWithRetry(
                 attempt++
                 if (requestDispatched) {
                     capacityRejections++
+                    const retryAfter = result.query_status.retry_after
+                    // Capture the deadline at receipt, not after waiting or replaying a queued response.
+                    lastCapacityError = new ApiError(
+                        undefined,
+                        503,
+                        isValidRetryAfter(retryAfter)
+                            ? new Headers({ 'Retry-After': String(Math.ceil(retryAfter)) })
+                            : undefined,
+                        { code: RATE_LIMITED_ERROR_CODE, queryId: result.query_status.id }
+                    )
                 }
 
                 // Async fallback also starts a query, so it must respect the same cooldown.
                 if (!(await waitForRetry(result.query_status.retry_after, true))) {
                     captureCapacityOutcome(result)
-                    return result
+                    break
                 }
 
                 if (attempt >= maxAttempts) {
@@ -631,6 +642,9 @@ export async function getInsightWithRetry(
         }
     }
 
+    if (lastCapacityError) {
+        throw lastCapacityError
+    }
     return null
 }
 

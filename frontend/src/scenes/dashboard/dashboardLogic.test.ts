@@ -22,6 +22,7 @@ import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsi
 import { DashboardLoadAction, RefreshDashboardItemsAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
+import { getCapacityRetryAt, getRetryCooldown } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -3505,6 +3506,76 @@ describe('dashboardLogic', () => {
                     )
                 } finally {
                     getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
+            it.each([false, true])('keeps tile data and the terminal capacity cooldown (batch: %s)', async (batch) => {
+                await expectLogic(logic).toFinishAllListeners()
+                const tiles = logic.values.insightTiles
+                const resultsBeforeRefresh = tiles.map((tile) => tile.insight!.result)
+                expect(resultsBeforeRefresh.every((result) => result != null)).toBe(true)
+                const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                    const insight = tiles.find((tile) =>
+                        String(url).includes(`/insights/${tile.insight!.id}/`)
+                    )!.insight!
+                    return new Response(
+                        JSON.stringify({
+                            ...insight,
+                            result: null,
+                            query_status: {
+                                id: 'rejected-query',
+                                team_id: 2,
+                                query_async: true,
+                                complete: true,
+                                error: true,
+                                error_code: 'rate_limited',
+                                error_message: 'Queries are a little too busy right now.',
+                                retry_after: 20,
+                            },
+                        }),
+                        { status: 200 }
+                    )
+                })
+                jest.useFakeTimers()
+                try {
+                    const startedAt = Date.now()
+                    if (batch) {
+                        logic.actions.refreshDashboardItems({
+                            action: RefreshDashboardItemsAction.Refresh,
+                            forceRefresh: true,
+                        })
+                    } else {
+                        logic.actions.refreshDashboardItem({ tile: tiles[0] })
+                    }
+                    await jest.advanceTimersByTimeAsync(80_000)
+                    expect(logic.values.insightTiles.map((tile) => tile.insight!.result)).toEqual(resultsBeforeRefresh)
+                    const refreshedTiles = batch ? tiles : [tiles[0]]
+                    for (const tile of refreshedTiles) {
+                        const refreshStatus = logic.values.refreshStatus[tile.insight!.short_id]
+                        expect(refreshStatus).toMatchObject({
+                            errored: true,
+                            error: { status: 503, code: 'rate_limited' },
+                        })
+                        const retryAt = getCapacityRetryAt(refreshStatus.error, null)
+                        expect(retryAt).toBe(startedAt + 100_000)
+                        expect(getRetryCooldown(retryAt)).toMatchObject({
+                            secondsLeft: 20,
+                            disabledReason: expect.any(String),
+                        })
+                    }
+                    expect(getResponse).toHaveBeenCalledTimes(5 * refreshedTiles.length)
+                    await jest.advanceTimersByTimeAsync(19_999)
+                    const retryAt = getCapacityRetryAt(
+                        logic.values.refreshStatus[tiles[0].insight!.short_id].error,
+                        null
+                    )
+                    expect(getRetryCooldown(retryAt).disabledReason).not.toBeUndefined()
+                    await jest.advanceTimersByTimeAsync(1)
+                    expect(getRetryCooldown(retryAt).disabledReason).toBeUndefined()
+                    expect(getResponse).toHaveBeenCalledTimes(5 * refreshedTiles.length)
+                } finally {
+                    getResponse.mockRestore()
+                    jest.useRealTimers()
                 }
             })
 
