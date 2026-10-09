@@ -3274,7 +3274,11 @@ describe('dashboardLogic', () => {
                     const replacementReady = new Promise<void>((resolve) => {
                         finishReplacement = resolve
                     })
-                    const cancelQuery = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined)
+                    let finishCancellation!: () => void
+                    const cancellationReady = new Promise<void>((resolve) => {
+                        finishCancellation = resolve
+                    })
+                    const cancelQuery = jest.spyOn(api.insights, 'cancelQuery').mockReturnValue(cancellationReady)
                     const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
                         const params = new URL(String(url), 'https://example.com').searchParams
                         const filters = JSON.parse(params.get('filters_override') || '{}')
@@ -3326,6 +3330,8 @@ describe('dashboardLogic', () => {
                         finishReplacement()
                         await jest.advanceTimersByTimeAsync(0)
 
+                        // Server cancellation is still pending; it must not hold up the preview result.
+                        expect(cancelQuery).toHaveBeenCalled()
                         const replacementCalls = getResponse.mock.calls.filter(([url]) =>
                             new URL(String(url), 'https://example.com').searchParams.has('tile_filters_override')
                         )
@@ -3355,6 +3361,7 @@ describe('dashboardLogic', () => {
                     } finally {
                         logic.actions.cancelDashboardRefresh()
                         finishReplacement()
+                        finishCancellation()
                         await jest.advanceTimersByTimeAsync(0)
                         cancelQuery.mockRestore()
                         getResponse.mockRestore()

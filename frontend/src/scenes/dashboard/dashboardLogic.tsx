@@ -4637,12 +4637,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 insightRefreshStartTime !== undefined &&
                                 currentTeamId !== null
                             ) {
-                                try {
-                                    // nosemgrep: prefer-codegen-api-namespaced-product_analytics -- insightsCancelCreate accepts InsightApi, not the client_query_id cancellation payload.
-                                    await api.insights.cancelQuery(queryId, currentTeamId)
-                                } catch (cancelError) {
+                                // A slow cleanup must not block the replacement preview from completing.
+                                // nosemgrep: prefer-codegen-api-namespaced-product_analytics -- insightsCancelCreate accepts InsightApi, not the client_query_id cancellation payload.
+                                api.insights.cancelQuery(queryId, currentTeamId).catch((cancelError) => {
                                     console.warn('Failed cancelling query', cancelError)
-                                }
+                                })
                             }
                             tilesAbortedCount++
                             return
