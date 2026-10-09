@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-classify',
     name: 'Classify with AI',
     description: 'Ask an AI model to pick one category for the context. Returns the category and its confidence.',
-    icon_url: '/static/services/typesafe.png',
+    icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
     code: `

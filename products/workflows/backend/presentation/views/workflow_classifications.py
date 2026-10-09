@@ -2,6 +2,8 @@ import json
 import math
 from typing import Any, cast
 
+from django.db import models
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -42,10 +44,15 @@ MAX_CONTEXT_CHARS = 65_536
 # whole context into logs and exception reporting. A small payload can reach that depth, so cap it first.
 # Keep it equal to MAX_CONTEXT_DEPTH in nodejs/src/cdp/async-functions/classify.ts.
 MAX_CONTEXT_DEPTH = 100
+
+
 # The models an author can pick for the step, keyed by the value the step stores. A new entry needs the AI gateway
 # to route the model on /v1/systemone, and the vendor's data processing must be covered for customer context.
-CLASSIFICATION_MODELS: dict[str, str] = {"jev": DEFAULT_DECISION_MODEL}
-DEFAULT_CLASSIFICATION_MODEL = "jev"
+class ClassificationModel(models.TextChoices):
+    JEV = "jev", "Jev"
+
+
+CLASSIFICATION_MODELS: dict[str, str] = {ClassificationModel.JEV: DEFAULT_DECISION_MODEL}
 
 
 def _nesting_exceeds(value: Any, limit: int) -> bool:
@@ -82,8 +89,8 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
         help_text=f"The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON and {MAX_CONTEXT_DEPTH} levels of nesting."
     )
     model = serializers.ChoiceField(
-        choices=list(CLASSIFICATION_MODELS),
-        default=DEFAULT_CLASSIFICATION_MODEL,
+        choices=ClassificationModel.choices,
+        default=ClassificationModel.JEV,
         allow_null=True,
         help_text="The model that picks the category. Defaults to Jev.",
     )
@@ -185,7 +192,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                             type=DecisionQuestionType.CHOICE, instructions=data["question"], criteria=categories
                         )
                     },
-                    model=CLASSIFICATION_MODELS[data["model"] or DEFAULT_CLASSIFICATION_MODEL],
+                    model=CLASSIFICATION_MODELS[data["model"] or ClassificationModel.JEV],
                     ai_product="workflows",
                     properties={"hog_flow_id": str(cast(dict[str, Any], request.auth)["hog_flow_id"])},
                     # The context carries person and event data, which must stay out of the internal AI observability project.
