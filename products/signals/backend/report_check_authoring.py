@@ -420,7 +420,7 @@ def cancel_check(
     return bool(cancelled)
 
 
-def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
+def _arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
     """Start the clock on a resolved report's pending checks. Returns how many were armed.
 
     Called from the report's `post_save` receiver, so every resolve path reaches it: the pull
@@ -464,3 +464,11 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             )
         )
     return armed
+
+
+def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return 0
+        return _arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
