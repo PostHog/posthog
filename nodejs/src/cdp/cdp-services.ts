@@ -518,7 +518,8 @@ export function createCdpCoreServices(
 
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager, emailSuppressionService, {
         teamWorkflowsConfig: teamWorkflowsConfigService,
-        redis,
+        // Valkey-only: the frequency cap is new, so it starts on Valkey rather than dual-writing.
+        valkey: valkeyShadow.writer,
     })
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
     // limiter, separate pool). The pool is created by the server only on pods
