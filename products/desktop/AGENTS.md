@@ -227,7 +227,7 @@ await boot(container);
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
 - `node scripts/check-mobile-types.mjs`: typecheck `apps/mobile` against its error baseline.
-- `pnpm --filter @posthog/code generate-client`: regenerate the typed PostHog API client from the local OpenAPI schema. See [API client](#api-client).
+- `pnpm --filter @posthog/api-client generate-client` (or the `@posthog/code` alias): regenerate the typed PostHog API client from the local OpenAPI schema. See [API client](#api-client).
 
 ## Mobile Host Types
 
@@ -255,15 +255,17 @@ It contains only what `packages/api-client/endpoint-allowlist.json` names:
 
 Everything those reference is generated with them. The full schema documents thousands of routes, and generating all of them made every backend change churn this file; the allowlist keeps a regen to the routes the desktop uses.
 
+The generator is `packages/api-client/scripts/update-openapi-client.ts`. `hogli build:openapi` runs it after the other OpenAPI generators, and Backend CI's "Validate OpenAPI types" job runs `hogli build:openapi` on backend PRs. A backend change that alters an allowlisted endpoint or schema therefore gets the regenerated `generated.ts` committed to its PR automatically, together with the frontend and MCP types. If the generator fails in CI (for example, an allowlisted path left the schema), the job shows a warning and leaves `generated.ts` unchanged. Fix the allowlist in a desktop PR.
+
 To call a new endpoint or import a new schema type:
 
 1. Add the path template to `paths`, or the schema name to `schemas`.
 2. From the repo root, run `hogli build:openapi-schema` to write `frontend/tmp/openapi.json` from the checkout.
-3. Run `pnpm --filter @posthog/code generate-client`. It fails if an allowlisted path or schema is not in the schema, naming it, and formats the output with prettier so the diff shows only what changed.
+3. Run `pnpm --filter @posthog/api-client generate-client`. It fails if an allowlisted path or schema is not in the schema, naming it, and formats the output with prettier so the diff shows only what changed.
 4. Run `pnpm typecheck`. A call site whose path is not allowlisted fails with `not assignable to keyof GetEndpoints` (or the matching method); add the path and regenerate.
 5. Commit `generated.ts` together with the allowlist change.
 
-Keep desktop and backend changes in separate PRs: the desktop ships on its own auto-update schedule, so a client that calls an endpoint before it is deployed reaches users. A regen from a branch that adds a backend endpoint only carries types for it, which is safe; the call site lands after the endpoint is live.
+Keep desktop and backend changes in separate PRs: the desktop ships on its own auto-update schedule, so a client that calls an endpoint before it is deployed reaches users. A regen from a branch that adds a backend endpoint only carries types for it, which is safe; the call site lands after the endpoint is live. For this reason the desktop/backend coupling check ignores `generated.ts`, but not the allowlist or any call site.
 
 Raw `fetch` calls through `this.api.fetcher.fetch` with a hand-built path do not need an allowlist entry, and endpoints that leave the schema surface as a generator error on the next regen: remove them from the allowlist, and typecheck shows any call site that still used them.
 
