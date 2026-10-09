@@ -9,13 +9,14 @@ from posthog.dataclasses import frozen
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
-# inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
-# scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
-# across deploys.
+# inbox → `review_inbox_prs`, manual (CLI/eval), ui (an explicit human ask from the Code review
+# scene) and comment (an `@posthog review` pull request comment) → ungated. Plain strings (not an
+# Enum) so Temporal payloads stay forward/backward-compatible across deploys.
 TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
+TRIGGER_COMMENT = "comment"
 TRIGGER_AUTOMATIC = "automatic"
 
 

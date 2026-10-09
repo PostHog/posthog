@@ -53,7 +53,7 @@ import type { WebhookCreateResult } from '../../shared/components/forms/WebhookS
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
 import { MANUAL_LINK_SOURCE_LABELS } from '../../shared/storageProvider'
-import { shouldShowDestinationStep } from './components/destinationStepUtils'
+import { destinationStepBlockReason, shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
@@ -535,6 +535,7 @@ export interface sourceWizardLogicValues {
     webhookFieldInputsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
     webhookResult: WebhookCreateResult | null
     webhookStepComplete: boolean
+    wizardAvailableDestinationCount: number
     wizardDestinationIds: string[]
 }
 
@@ -768,6 +769,9 @@ export interface sourceWizardLogicActions {
     setWebhookResult: (result: WebhookCreateResult | null) => {
         result: WebhookCreateResult | null
     }
+    setWizardAvailableDestinationCount: (count: number) => {
+        count: number
+    }
     setWizardDestinationIds: (destinationIds: string[]) => {
         destinationIds: string[]
     }
@@ -926,14 +930,18 @@ export interface sourceWizardLogicMeta {
             isManualLinkingSelected: boolean,
             databaseSchema: ExternalDataSourceSyncSchema[],
             isDirectQueryMode: boolean,
-            webhookStepComplete: boolean
+            webhookStepComplete: boolean,
+            wizardAvailableDestinationCount: number,
+            wizardDestinationIds: string[]
         ) => boolean
         nextButtonDisabledReason: (
             currentStep: number,
             isManualLinkingSelected: boolean,
             databaseSchema: ExternalDataSourceSyncSchema[],
             isDirectQueryMode: boolean,
-            webhookStepComplete: boolean
+            webhookStepComplete: boolean,
+            wizardAvailableDestinationCount: number,
+            wizardDestinationIds: string[]
         ) => string | null
         showSkipButton: (currentStep: number) => boolean
         nextButtonText: (
@@ -1040,6 +1048,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onNext: true,
         onSubmit: true,
         setWizardDestinationIds: (destinationIds: string[]) => ({ destinationIds }),
+        setWizardAvailableDestinationCount: (count: number) => ({ count }),
         resetSourceForm: (accessMethod?: 'warehouse' | 'direct') => ({ accessMethod }),
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
             schemas,
@@ -1164,6 +1173,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setWizardDestinationIds: (_, { destinationIds }) => destinationIds,
                 onClear: () => [],
+            },
+        ],
+        // Reported by the destination step once its list resolves. The Import button needs it to
+        // tell "turned every destination off" apart from "this team has no destinations yet".
+        wizardAvailableDestinationCount: [
+            0,
+            {
+                setWizardAvailableDestinationCount: (_, { count }) => count,
+                onClear: () => 0,
             },
         ],
         currentStep: [
@@ -1576,13 +1594,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.databaseSchema,
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
+                s.wizardAvailableDestinationCount,
+                s.wizardDestinationIds,
             ],
             (
                 currentStep: number,
                 isManualLinkingSelected: boolean,
                 databaseSchema: ExternalDataSourceSyncSchema[],
                 isDirectQueryMode: boolean,
-                webhookStepComplete: boolean
+                webhookStepComplete: boolean,
+                wizardAvailableDestinationCount: number,
+                wizardDestinationIds: string[]
             ): boolean => {
                 if (isManualLinkingSelected && currentStep === 1) {
                     return false
@@ -1604,6 +1626,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return webhookStepComplete
                 }
 
+                if (currentStep === WIZARD_DESTINATION_STEP) {
+                    return destinationStepBlockReason(wizardAvailableDestinationCount, wizardDestinationIds) === null
+                }
+
                 return true
             },
         ],
@@ -1614,13 +1640,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 s.databaseSchema,
                 s.isDirectQueryMode,
                 s.webhookStepComplete,
+                s.wizardAvailableDestinationCount,
+                s.wizardDestinationIds,
             ],
             (
                 currentStep: number,
                 isManualLinkingSelected: boolean,
                 databaseSchema: ExternalDataSourceSyncSchema[],
                 isDirectQueryMode: boolean,
-                webhookStepComplete: boolean
+                webhookStepComplete: boolean,
+                wizardAvailableDestinationCount: number,
+                wizardDestinationIds: string[]
             ): string | null => {
                 if (!isManualLinkingSelected && currentStep === 3) {
                     const tablesToSync = databaseSchema.filter((n) => n.should_sync)
@@ -1635,6 +1665,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 if (currentStep === 4 && !webhookStepComplete) {
                     return 'Finish setting up the webhook to continue'
+                }
+
+                if (currentStep === WIZARD_DESTINATION_STEP) {
+                    return destinationStepBlockReason(wizardAvailableDestinationCount, wizardDestinationIds)
                 }
 
                 return null
@@ -2276,8 +2310,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         props.onComplete()
                     }
                 } else if (values.hasWebhookSchemas) {
-                    // Go to webhook setup step (4)
-                    actions.onNext()
+                    // Absolute: createSource also runs from WIZARD_DESTINATION_STEP, where onNext would overshoot.
+                    actions.setStep(4)
                 } else {
                     // Skip webhook step, go directly to progress (5)
                     actions.setStep(5)
@@ -2359,11 +2393,25 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(true)
 
+            const sourceType = values.selectedConnector.name
+            const startedAt = performance.now()
+            const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
+                posthog.capture('source wizard schemas loaded', {
+                    sourceType,
+                    success,
+                    schema_count: schemaCount,
+                    duration_ms: Math.round(performance.now() - startedAt),
+                })
+            }
+
             try {
-                const schemas = await api.externalDataSources.database_schema(
-                    values.selectedConnector.name,
-                    getDatabaseSchemaPayload(values.source)
-                )
+                const schemas = await api.externalDataSources
+                    .database_schema(sourceType, getDatabaseSchemaPayload(values.source))
+                    .catch((e) => {
+                        captureSchemasLoaded(false, null)
+                        throw e
+                    })
+                captureSchemasLoaded(true, schemas.length)
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.

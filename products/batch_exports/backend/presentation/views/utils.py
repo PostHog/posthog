@@ -35,9 +35,28 @@ def check_hogql_batch_exports_enabled(team: Team) -> None:
         raise PermissionDenied("HogQL batch exports are not enabled for this team.")
 
 
+def check_high_frequency_batch_exports_enabled(team: Team) -> None:
+    """Raise if high-frequency batch exports are not enabled for the team."""
+    if not posthoganalytics.feature_enabled(
+        "high-frequency-batch-exports",
+        str(team.uuid),
+        groups={"organization": str(team.organization.id)},
+        group_properties={
+            "organization": {
+                "id": str(team.organization.id),
+                "created_at": team.organization.created_at,
+            }
+        },
+        send_feature_flag_events=False,
+    ):
+        raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+
+
 @extend_schema_field(HogQLQueryModifiers)  # type: ignore[arg-type]
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
+
+    loaded: HogQLQueryModifiers | None = None
 
     def to_internal_value(self, data: typing.Any) -> dict[str, typing.Any]:
         value = super().to_internal_value(data)
@@ -49,4 +68,6 @@ class HogQLModifiersField(serializers.JSONField):
                 location = ".".join(str(part) for part in error["loc"])
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
+        else:
+            self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)

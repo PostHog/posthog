@@ -6,6 +6,7 @@ from posthog.models.utils import UUIDModel
 
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
+    DroppedFindingArtefact,
     FindingOutcomeArtefact,
     ResolutionRunArtefact,
     ReviewArtefactContent,
@@ -106,7 +107,7 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
+    # Which trigger created this report ("label" / "inbox" / "manual" / "ui" / "comment"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     # The reviewer arm, chosen once at creation from the report's tier (see `REVIEW_ARMS_BY_TIER`)
     # and sticky for the report's life. Adapter/model/effort/permission-mode persist as one bundle
@@ -177,6 +178,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
 
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
+        # A single-agent finding the turn did not keep, with the reason. Only analysis reads it.
+        DROPPED_FINDING = "dropped_finding"
         VALIDATION_VERDICT = "validation_verdict"
         # The classified fate of a published finding, written by the outcome-telemetry batch after
         # the PR merged (one per finding); its presence marks the finding already classified.
@@ -276,6 +279,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ReviewIssueFinding, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append an `issue_finding` (latest row per `issue_key` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def append_dropped_finding(
+        cls, *, team_id: int, report_id: str, content: DroppedFindingArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `dropped_finding` (one per finding a single-agent turn did not keep)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.sql.events import native_events_export_query
@@ -26,6 +28,7 @@ def test_native_events_export_query_keeps_empty_object_literals() -> None:
         assert f"temporary_properties.^`{key}`), '{{}}')" in query
 
 
-def test_native_events_export_query_unescapes_dotted_keys() -> None:
-    # Without this setting `toJSONString(properties)` prints a stored dotted key as `a%2Eb`.
-    assert "json_type_escape_dots_in_keys=1" in native_events_export_query("event")
+# Without these settings `toJSONString(properties)` prints a stored dotted key as `a%2Eb` and a `/` as `\/`.
+@pytest.mark.parametrize("setting", ["json_type_escape_dots_in_keys=1", "output_format_json_escape_forward_slashes=0"])
+def test_native_events_export_query_matches_legacy_json_text(setting: str) -> None:
+    assert setting in native_events_export_query("event")

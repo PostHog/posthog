@@ -19,9 +19,13 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
     const { setFilterValue, updateFilter } = useActions(biEditorLogic)
     const filter = config.filters[index]
     const [focused, setFocused] = useState(false)
-    const valuesLogic = biFilterValuesLogic({ query: buildBIFilterOptionsQuery(config, index), active: focused })
-    const { options, optionsLoading, optionsError } = useValues(valuesLogic)
-    const { loadOptions } = useActions(valuesLogic)
+    const valuesLogic = biFilterValuesLogic({
+        query: buildBIFilterOptionsQuery(config, index),
+        active: focused,
+        config,
+    })
+    const { options, optionsLoading, optionsError, hasMore } = useValues(valuesLogic)
+    const { loadOptions, setSearch, loadMore } = useActions(valuesLogic)
     if (!filter || ['last_7_days', 'is_set', 'is_not_set', 'custom'].includes(filter.operator)) {
         return null
     }
@@ -38,6 +42,8 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}
                     onChange={(values) => updateFilter(index, { values })}
+                    onInputChange={setSearch}
+                    disableFiltering
                     placeholder={filter.operator === 'in' ? 'All values' : 'No excluded values'}
                     title={`Values for ${filter.field.name}`}
                     allowCustomValues
@@ -60,8 +66,10 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                             Retry
                         </LemonButton>
                     </div>
-                ) : options?.length === 100 ? (
-                    <span className="text-xs text-tertiary">Showing 100 suggestions. Type to add another value.</span>
+                ) : hasMore ? (
+                    <LemonButton size="xsmall" onClick={loadMore} loading={optionsLoading}>
+                        Load more values
+                    </LemonButton>
                 ) : null}
             </div>
         )

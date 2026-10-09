@@ -69,12 +69,16 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.presentation.views.destination_links import set_source_destinations
+from products.warehouse_sources.backend.presentation.views.destination_links import (
+    EMPTY_SET_MESSAGE,
+    set_source_destinations,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
@@ -178,6 +182,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "null otherwise. Drives the in-product deprecation warning."
         ),
     )
+    connection_warning = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set on an update response when the change was saved but the connection check from the "
+            "API could not reach the database. Null otherwise."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -207,6 +218,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version",
             "api_version_deprecation",
+            "connection_warning",
         ]
         read_only_fields = [
             "id",
@@ -225,6 +237,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "supports_column_selection",
             "api_version",
             "api_version_deprecation",
+            "connection_warning",
         ]
 
     def to_representation(self, instance):
@@ -287,6 +300,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_connection_warning(self, instance: ExternalDataSource) -> str | None:
+        return getattr(instance, "_connection_warning", None)
 
     def _prefetched_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema] | None:
         prefetched = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
@@ -408,6 +425,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
         discovered_schemas: list[SourceSchema] | None = None
+        connection_warning: str | None = None
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -639,7 +657,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source, instance.team_id, e
                 )
             if not credentials_valid:
-                raise ValidationError(credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+                credentials_error = credentials_error or helpers.INVALID_CREDENTIALS_FALLBACK_MESSAGE
+                # These teams use internal hosts that the API cannot always reach, while the
+                # workers that sync and run live queries can. Only an unreachable host qualifies,
+                # so rejected credentials and rejected configs still block the save. A direct
+                # query source still needs the probe, because the same call discovers its schemas.
+                if (
+                    instance.is_direct_query
+                    or not is_team_allowlisted_for_internal_hosts(instance.team_id)
+                    or not source.is_unreachable_validation_error(credentials_error)
+                ):
+                    raise ValidationError(credentials_error)
+                connection_warning = helpers.UNVERIFIED_CONNECTION_WARNING.format(error=credentials_error)
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
@@ -670,6 +699,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
+        cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
             # Adds schema rows for added resources, retires removed ones, and reconciles their
@@ -787,6 +817,16 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
             "so the opening sync already carries them. Omit to write to the PostHog warehouse only."
         ),
     )
+
+    def validate_destination_ids(self, destination_ids: list) -> list:
+        # An explicit empty list means the caller turned every destination off, which would leave
+        # the source syncing nowhere. Rejected here, before the source is created, because
+        # `set_source_destinations` runs after creation and swallows its own failures so that a bad
+        # destination set never costs the user the source. Omitting the field keeps its meaning of
+        # "the PostHog warehouse", which is what callers written before destinations existed send.
+        if not destination_ids:
+            raise serializers.ValidationError(EMPTY_SET_MESSAGE)
+        return destination_ids
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1571,7 +1611,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
                     )
                 try:
-                    validate_and_coerce_row_filters(row_filters, schema_metadata)
+                    validate_and_coerce_row_filters(
+                        row_filters, schema_metadata, source.row_filter_columns_for_schema(schema_name)
+                    )
                 except RowFilterValidationError as e:
                     new_source_model.delete()
                     return Response(
@@ -1732,6 +1774,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 team_id=self.team_id,
                 source_id=new_source_model.pk,
                 destination_ids=selected_destination_ids,
+                authorize_resume=self._assert_can_write_schemas,
             )
         except Exception as e:
             # The source is already created and its tables are configured. Losing that over a

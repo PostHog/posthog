@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -18,8 +17,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { delay } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -389,16 +388,10 @@ export const exportsLogic = kea<exportsLogicType>([
                     name: name || 'Query cohort',
                     query: query,
                 })
-                cohortsModel.actions.cohortCreated(cohort)
+                cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
-                lemonToast.success('Cohort saved', {
-                    toastId: `${toastId}-success`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(cohort.id)),
-                    },
-                })
+                cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
             } catch {
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')

@@ -1,7 +1,7 @@
 """Payloads for the delivery reads: a scope's delivery summary, its pull request timelines, and an author's
 comparison with their team."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     DeliveryComparison,
@@ -27,7 +27,7 @@ _SCOPE_KIND_HELP = (
 )
 
 
-class ScopeRepoFigureSerializer(DataclassSerializer):
+class ScopeRepoFigureSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = ScopeRepoFigure
         extra_kwargs = {
@@ -47,7 +47,7 @@ def _figure(help_text: str) -> ScopeRepoFigureSerializer:
     return ScopeRepoFigureSerializer(help_text=help_text)
 
 
-class DurationDistributionSerializer(DataclassSerializer):
+class DurationDistributionSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = DurationDistribution
         extra_kwargs = {
@@ -63,7 +63,7 @@ class DurationDistributionSerializer(DataclassSerializer):
         }
 
 
-class ScopeRepoDistributionSerializer(DataclassSerializer):
+class ScopeRepoDistributionSerializer(LabeledChoicesDataclassSerializer):
     scope = DurationDistributionSerializer(help_text="The deployed pull requests in scope.")
     repo = DurationDistributionSerializer(help_text="Every deployed pull request in the repository.")
 
@@ -71,7 +71,7 @@ class ScopeRepoDistributionSerializer(DataclassSerializer):
         dataclass = ScopeRepoDistribution
 
 
-class DeliveryLeadTimeSerializer(DataclassSerializer):
+class DeliveryLeadTimeSerializer(LabeledChoicesDataclassSerializer):
     open_to_deploy = ScopeRepoDistributionSerializer(
         help_text="Open to the first successful deploy containing the merge, over PRs deployed in the window."
     )
@@ -99,7 +99,7 @@ class DeliveryLeadTimeSerializer(DataclassSerializer):
         }
 
 
-class DeliverySummarySerializer(DataclassSerializer):
+class DeliverySummarySerializer(LabeledChoicesDataclassSerializer):
     cost_per_merged_pr_usd = _figure(
         "Median estimated CI cost per merged PR, in USD, over every run linked to the PR (merge-queue gate runs "
         "included) that started up to 30 days before the window. Null when the jobs table isn't synced."
@@ -176,7 +176,7 @@ class DeliverySummarySerializer(DataclassSerializer):
         }
 
 
-class PRTimelineSegmentSerializer(DataclassSerializer):
+class PRTimelineSegmentSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PRTimelineSegment
         extra_kwargs = {
@@ -194,7 +194,7 @@ class PRTimelineSegmentSerializer(DataclassSerializer):
         }
 
 
-class PRTimelinePushSerializer(DataclassSerializer):
+class PRTimelinePushSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PRTimelinePush
         extra_kwargs = {
@@ -205,7 +205,7 @@ class PRTimelinePushSerializer(DataclassSerializer):
         }
 
 
-class PRTimelineRedTimeSerializer(DataclassSerializer):
+class PRTimelineRedTimeSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PRTimelineRedTime
         extra_kwargs = {
@@ -214,7 +214,7 @@ class PRTimelineRedTimeSerializer(DataclassSerializer):
         }
 
 
-class PRTimelineSerializer(DataclassSerializer):
+class PRTimelineSerializer(LabeledChoicesDataclassSerializer):
     repo = RepoRefSerializer(help_text="The repository the pull request belongs to.")
     pushes = PRTimelinePushSerializer(
         many=True,
@@ -252,7 +252,7 @@ class PRTimelineSerializer(DataclassSerializer):
         }
 
 
-class PullRequestTimelinesSerializer(DataclassSerializer):
+class PullRequestTimelinesSerializer(LabeledChoicesDataclassSerializer):
     items = PRTimelineSerializer(
         many=True,
         help_text="The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one "
@@ -289,7 +289,7 @@ class PullRequestTimelinesSerializer(DataclassSerializer):
         }
 
 
-class ReadyToMergeMediansSerializer(DataclassSerializer):
+class ReadyToMergeMediansSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = ReadyToMergeMedians
         extra_kwargs = {
@@ -320,7 +320,7 @@ class ReadyToMergeMediansSerializer(DataclassSerializer):
         }
 
 
-class PullRequestReadyToMergeSerializer(DataclassSerializer):
+class PullRequestReadyToMergeSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PullRequestReadyToMerge
         extra_kwargs = {
@@ -344,7 +344,7 @@ class PullRequestReadyToMergeSerializer(DataclassSerializer):
         }
 
 
-class TeamReadyToMergeMediansSerializer(DataclassSerializer):
+class TeamReadyToMergeMediansSerializer(LabeledChoicesDataclassSerializer):
     medians = ReadyToMergeMediansSerializer(
         allow_null=True,
         help_text="Over the pull requests by the team's members, the same population as a github_team scope, "
@@ -358,7 +358,7 @@ class TeamReadyToMergeMediansSerializer(DataclassSerializer):
         extra_kwargs = {"github_team": {"help_text": "The GitHub team slug."}}
 
 
-class DeliveryComparisonSerializer(DataclassSerializer):
+class DeliveryComparisonSerializer(LabeledChoicesDataclassSerializer):
     author_medians = ReadyToMergeMediansSerializer(
         help_text="Over the author's pull requests, without the pr_number pull request."
     )

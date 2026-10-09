@@ -171,7 +171,8 @@ export function GeneralSection(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SecretApiKeySection />
-                    <DraftModeSection />
+                    {/* The send menu confirms every send, so the draft-mode default has nothing left to set. */}
+                    {!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES] && <DraftModeSection />}
                 </>
             )}
         </>

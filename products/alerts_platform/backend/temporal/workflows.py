@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
@@ -176,6 +176,38 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
                 elif started_at >= busy_deadline:
                     raise
             await workflow.sleep(BUSY_RETRY_DELAY)
+
+
+async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
+    """Starts one delivery workflow per request, from inside a source's evaluation workflow.
+
+    Returns how many started. The id names the configuration and the evaluation key, because the
+    key names a window or a slot but not the alert, so two alerts in one slot do not collide. A
+    re-run of the same occasion reuses the ids, and a reused id raises, so one delivery already
+    started does not stop the rest.
+    """
+    results = await asyncio.gather(
+        *(
+            workflow.start_child_workflow(
+                AlertsPlatformDeliverPreviewWorkflow.run,
+                delivery,
+                id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
+                task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+            )
+            for delivery in deliveries
+        ),
+        return_exceptions=True,
+    )
+    started = 0
+    for result in results:
+        if isinstance(result, WorkflowAlreadyStartedError):
+            continue
+        if isinstance(result, BaseException):
+            raise result
+        started += 1
+    return started
 
 
 @workflow.defn(name="alerts-platform-deliver")

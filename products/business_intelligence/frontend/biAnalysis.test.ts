@@ -21,6 +21,42 @@ const config: BIConfig = {
 
 describe('BI analysis queries', () => {
     it.each(['gap', 'zero'] as const)(
+        'fills %s dates on direct connections before calculating windows',
+        (missingDates) => {
+            const source = { table: 'orders', connectionId: 'connection' }
+            const date = { ...field('created_at', 'datetime'), source, dateBucket: 'day' as const }
+            const worksheet: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                source,
+                dateField: date,
+                rows: [date],
+                columns: [{ ...field('region'), source }],
+                values: [
+                    {
+                        field: { ...field('amount', 'float'), source },
+                        aggregation: 'sum',
+                        tableCalculation: { type: 'moving_average', window: 3 },
+                    },
+                ],
+                chartType: ChartDisplayType.ActionsTable,
+                missingDates,
+                dateRange: { date_from: '2026-01-01', date_to: '2026-01-03' },
+            }
+            const query = buildBIQuery(worksheet)!.query
+            expect(query).not.toContain('WITH FILL')
+            expect(query).toContain('bi_dates CROSS JOIN bi_series LEFT JOIN bi_observed')
+            expect(query).toContain('bi_observed.bi_column_region IS NULL AND bi_series.bi_column_region IS NULL')
+            expect(query).toContain(
+                `if(bi_observed.bi_present = 1, toFloat(bi_observed.sum_amount), ${missingDates === 'zero' ? '0' : 'NULL'})`
+            )
+            expect(query).toContain('< {filters.dateRange.to}')
+            expect(query).toContain('FROM bi_current_filled')
+            expect(
+                buildBIQuery({ ...worksheet, dateRange: { date_from: '1800-01-01', date_to: '2026-01-01' } })!.query
+            ).not.toContain('bi_digits')
+        }
+    )
+    it.each(['gap', 'zero'] as const)(
         'fills %s date buckets separately in each period before window calculations',
         (missingDates) => {
             const worksheet: BIConfig = {
