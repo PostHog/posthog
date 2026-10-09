@@ -1443,8 +1443,9 @@ def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact
     """The PR's inline comments as they stand now, without outdated ones.
 
     The fetch stage read them when the turn started, and other review bots often post while a Full turn
-    runs, so dedup reads them again. A comment GitHub no longer places on a line is outdated: the code it
-    was about changed.
+    runs, so dedup reads them again. It keeps the first read when the PR moved to a new commit meanwhile,
+    because GitHub then places the comments on code the turn did not review. A comment GitHub no longer
+    places on a line is outdated: the code it was about changed.
     """
     comments = snapshot.pr_comments
     pr_number = snapshot.pr_metadata.number
@@ -1452,10 +1453,12 @@ def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact
         try:
             token, installation_id = _installation_auth(input.team_id, input.repository)
             owner, repo = input.repository.split("/", 1)
-            # A complete read replaces the first one, so a comment deleted during the turn is gone.
-            comments = PRFetcher(
+            fetcher = PRFetcher(
                 owner=owner, repo=repo, pr_number=pr_number, token=token, installation_id=installation_id
-            ).fetch_pr_comments(PRFilter(), raise_errors=True)
+            )
+            if fetcher.fetch_head_sha() == input.head_sha:
+                # A complete read replaces the first one, so a comment deleted during the turn is gone.
+                comments = fetcher.fetch_pr_comments(PRFilter(), raise_errors=True)
         except Exception:
             logger.warning(
                 "Could not read the PR's comments again; deduplicating against the first read", exc_info=True

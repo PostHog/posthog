@@ -599,19 +599,24 @@ def _comment(comment_id: int, line: int | None) -> PRComment:
 
 
 @pytest.mark.parametrize(
-    "fetch_fails,expected_ids",
+    "fetch_fails,current_head,expected_ids",
     [
-        pytest.param(False, [2, 1], id="the_new_read_adds_new_comments_and_drops_deleted_ones"),
-        pytest.param(True, [1, 4], id="keeps_the_first_read_when_github_fails"),
+        pytest.param(False, "sha1", [2, 1], id="the_new_read_adds_new_comments_and_drops_deleted_ones"),
+        pytest.param(True, "sha1", [1, 4], id="keeps_the_first_read_when_github_fails"),
+        pytest.param(False, "sha2", [1, 4], id="keeps_the_first_read_after_a_push_during_the_turn"),
     ],
 )
-def test_full_dedup_reads_current_comments_without_outdated_ones(fetch_fails: bool, expected_ids: list[int]) -> None:
+def test_full_dedup_reads_current_comments_without_outdated_ones(
+    fetch_fails: bool, current_head: str, expected_ids: list[int]
+) -> None:
     # Other bots often post while a Full turn runs, so a start-of-turn read misses what they raise, and a comment
     # deleted meanwhile must not keep a finding off the PR. A comment GitHub no longer places on a line is about
-    # code that changed, so it must not suppress a finding either.
+    # code that changed, so it must not suppress a finding either. After a push during the turn, GitHub places
+    # comments on code the turn did not review, so the first read stays.
     snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None), _comment(4, 30)]})
     fetcher = MagicMock()
     fetcher.return_value.fetch_pr_comments.return_value = [_comment(2, 20), _comment(1, 10)]
+    fetcher.return_value.fetch_head_sha.return_value = current_head
     with (
         patch(
             f"{_MODULE}._installation_auth",
