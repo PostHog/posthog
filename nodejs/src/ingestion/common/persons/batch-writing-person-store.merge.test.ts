@@ -330,6 +330,54 @@ describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
         expect(fake.rows.get('T')!.properties).toEqual({ [filtered]: 'v' })
     })
 
+    it.each([
+        ['an identified source', 'skipped_already_identified', 's', true],
+        ['an unidentified source', 'attached', 's', false],
+        ['an identified target', 'attached', 't', true],
+    ])('an identify where only %s has a person settles as %s', async (_case, outcome, existingId, identified) => {
+        fake.tx.createPerson.mockImplementation(
+            (
+                _createdAt: DateTime,
+                properties: Record<string, unknown>,
+                _lastUpdatedAt: unknown,
+                _lastOperation: unknown,
+                _teamId: number,
+                _isUserId: number | null,
+                isIdentified: boolean,
+                uuid: string,
+                primaryDistinctId: { distinctId: string },
+                extraDistinctIds: { distinctId: string }[] = []
+            ) => {
+                fake.addPerson(
+                    uuid,
+                    [primaryDistinctId.distinctId, ...extraDistinctIds.map((id) => id.distinctId)],
+                    properties
+                )
+                fake.rows.get(uuid)!.is_identified = isIdentified
+                return Promise.resolve({
+                    success: true,
+                    person: { ...fake.rows.get(uuid)! },
+                    created: true,
+                    messages: [],
+                })
+            }
+        )
+        fake.addPerson('E', [existingId], {})
+        fake.rows.get('E')!.is_identified = identified
+
+        const result = await store.mergePersons({ ...mergeRequest('t', 's'), allowIdentifiedSources: false }, 0)
+
+        expect(result.results[0].outcome).toBe(outcome)
+        if (outcome === 'skipped_already_identified') {
+            expect(result.survivor!.uuid).not.toBe('E')
+            expect(fake.distinctToUuid.get('1:t')).toBe(result.survivor!.uuid)
+            expect(fake.rows.get(result.survivor!.uuid)!.is_identified).toBe(true)
+            expect(fake.distinctToUuid.get('1:s')).toBe('E')
+        } else {
+            expect(result.survivor!.uuid).toBe('E')
+        }
+    })
+
     it('an explicit $set on a moved id during the merge reaches the survivor although it holds the key', async () => {
         fake.addPerson('T', ['t'], { k: 'B' })
         fake.addPerson('S', ['s'], {})

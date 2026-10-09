@@ -459,7 +459,11 @@ export class PostgresPersonMerge {
         // id whose uuid a newly created person is born on — its events already point at the right
         // person, so it keeps version 0 and stays out of the overrides join.
 
-        if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
+        if (otherPerson && !mergeIntoPerson && otherPerson.is_identified && !this.request.allowIdentifiedSources) {
+            // Attaching the new target to an identified source would identify one person as two
+            // users, so the source keeps its person and the target gets its own, as when both exist.
+            return await this.createTargetBesideIdentifiedSource(otherPerson, otherPersonDistinctId)
+        } else if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
 
             const [existingPerson, distinctIdToAdd] = (() => {
@@ -577,6 +581,41 @@ export class PostgresPersonMerge {
                 survivorNeedsUpdate: needsPersonUpdate,
                 kafkaAck,
             }
+        }
+    }
+
+    private async createTargetBesideIdentifiedSource(
+        source: InternalPerson,
+        sourceDistinctId: string
+    ): Promise<MergePersonsResult> {
+        const teamId = this.teamId
+        const [person, kafkaMessages] = await this.inTransaction('mergeDistinctIds-IdentifiedSource', async (tx) => {
+            // The target derives the new person's uuid, so its mapping keeps version 0.
+            const [created, , messages, idOwned] = await this.createService.createPerson(
+                this.timestamp,
+                this.request.eventOps.set,
+                this.request.eventOps.setOnce,
+                teamId,
+                null,
+                true,
+                this.request.eventUuid,
+                { distinctId: this.targetDistinctId, version: 0 },
+                [],
+                tx
+            )
+            // Another writer now owns the target; the retry re-reads both ids and classifies against it.
+            if (idOwned) {
+                throw new PersonMergeRaceConditionError(
+                    `person for ${this.targetDistinctId} was created concurrently during a merge`
+                )
+            }
+            return [created, messages] as const
+        })
+        const kafkaAck = this.produceMessages(kafkaMessages)
+        return {
+            survivor: person,
+            results: [{ sourceDistinctId, outcome: 'skipped_already_identified', sourcePersonUuid: source.uuid }],
+            kafkaAck,
         }
     }
 
