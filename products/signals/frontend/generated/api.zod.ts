@@ -456,7 +456,7 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -1477,6 +1477,15 @@ export const SignalsScoutConfigTrialComparisonCreateBody = /* @__PURE__ */ zod.o
         .min(1)
         .optional()
         .describe('Source version shown in the editor. Refuse a new trial if the instructions changed since setup.'),
+})
+
+/**
+ * Hide a finished trial from history or restore it without deleting results or starting any work.
+ * @summary Archive or restore a saved scout trial
+ */
+export const SignalsScoutConfigTrialComparisonArchiveBody = /* @__PURE__ */ zod.object({
+    comparison_id: zod.uuid().describe('Saved comparison identity.'),
+    archived: zod.boolean().describe('Hide a finished trial from history, or restore it without rerunning it.'),
 })
 
 /**

@@ -70,6 +70,7 @@ import type {
     ScoutSuggestionSetApi,
     ScoutToolCatalogueApi,
     ScoutTrialComparisonApi,
+    ScoutTrialComparisonArchiveRequestApi,
     ScoutTrialComparisonHistoryApi,
     ScoutTrialComparisonQueryApi,
     ScoutTrialComparisonRequestApi,
@@ -767,6 +768,25 @@ export const signalsReportsReviewersUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportArtefactWriteApi),
+    })
+}
+
+export const getSignalsReportsReviewersMeDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/me/`
+}
+
+/**
+ * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers
+ */
+export const signalsReportsReviewersMeDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportsReviewersMeDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -1523,6 +1543,28 @@ export const signalsScoutConfigTrialComparisonCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutTrialComparisonRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialComparisonArchiveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial_comparison_archive/`
+}
+
+/**
+ * Hide a finished trial from history or restore it without deleting results or starting any work.
+ * @summary Archive or restore a saved scout trial
+ */
+export const signalsScoutConfigTrialComparisonArchive = async (
+    projectId: string,
+    id: string,
+    scoutTrialComparisonArchiveRequestApi: ScoutTrialComparisonArchiveRequestApi,
+    options?: RequestInit
+): Promise<ScoutTrialComparisonApi> => {
+    return apiMutator<ScoutTrialComparisonApi>(getSignalsScoutConfigTrialComparisonArchiveUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialComparisonArchiveRequestApi),
     })
 }
 

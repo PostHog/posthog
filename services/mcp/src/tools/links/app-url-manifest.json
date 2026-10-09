@@ -49,11 +49,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiGateway": {
-        "template": "/ai-gateway",
-        "params": [],
-        "scope": "project"
-    },
     "aiHistory": {
         "template": "/ai/history",
         "params": [],
@@ -682,6 +677,11 @@
     "engineeringAnalyticsAuthors": {
         "template": "/engineering-analytics/authors",
         "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsCIExplorer": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}/ci-explorer",
+        "params": ["repoOwner", "repoName", "number"],
         "scope": "project"
     },
     "engineeringAnalyticsDeploys": {
@@ -1341,6 +1341,16 @@
     },
     "pipelineStatus": {
         "template": "/health/pipeline-status",
+        "params": [],
+        "scope": "project"
+    },
+    "platformAlert": {
+        "template": "/platform-alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "platformAlerts": {
+        "template": "/platform-alerts",
         "params": [],
         "scope": "project"
     },

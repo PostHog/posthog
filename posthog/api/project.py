@@ -118,6 +118,7 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     get_field_access_control_map,
     resource_to_display_name,
@@ -987,7 +988,9 @@ class ProjectBackwardCompatSerializer(
             representation["default_data_theme"] = _default_data_color_theme_id()
         return representation
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
+        if isinstance(obj, ObjectAccessRef):
+            return super().get_user_access_level(obj)
         # The access-control system is keyed on the Team, so resolve through the passthrough Team
         return super().get_user_access_level(cast(Project, obj).passthrough_team)
 
@@ -1146,6 +1149,18 @@ class ProjectBackwardCompatSerializer(
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
+        if "tags" in attrs:
+            project_tags.validate_group_change(
+                attrs["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(self.instance))
+                if self.instance
+                else set(),
+                user=cast(User, self.context["request"].user),
+                organization_id=self.instance.organization_id
+                if self.instance
+                else self.context["view"].organization_id,
+            )
+
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
             user_access_control = self.user_access_control
@@ -1165,6 +1180,23 @@ class ProjectBackwardCompatSerializer(
                             {field_name: f"You need {required_level} access to {display_name} to modify this field."}
                         )
         return super().validate(attrs)
+
+    def save(self, **kwargs: Any) -> Project:
+        if self.instance is None or "tags" not in self.validated_data:
+            return super().save(**kwargs)
+        with transaction.atomic():
+            project = get_object_or_404(
+                Project.objects.select_for_update(),
+                pk=self.instance.pk,
+                organization_id=self.instance.organization_id,
+            )
+            project_tags.validate_group_change(
+                self.validated_data["tags"],
+                current_groups=project_tags.group_tags(project_tags.current_names(project)),
+                user=cast(User, self.context["request"].user),
+                organization_id=project.organization_id,
+            )
+            return super().save(**kwargs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Project:
         # Analytics config sub-objects are created with the Team's defaults and only mutated via update;
@@ -1526,12 +1558,15 @@ class ProjectViewSet(
         tags_before = project_tags.current_names(project) if "tags" in serializer.initial_data else None
         super().perform_update(serializer)
         if tags_before is not None:
+            tags_after = project_tags.current_names(project)
             project_tags.report_change(
                 user=cast(User, self.request.user),
                 project=project,
                 tags_before=tags_before,
-                tags_after=project_tags.current_names(project),
+                tags_after=tags_after,
             )
+            if tags_before != tags_after:
+                transaction.on_commit(lambda: _bump_org_serializer_cache_version(str(project.organization_id)))
 
     def _notify_org_admins_of_member_project_creation(self, project: Project) -> None:
         """When a member (below admin) creates a project, notify org admins/owners in-app. Best-effort."""

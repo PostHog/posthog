@@ -1,5 +1,18 @@
 # Security guidelines for agents
 
+## Routing security fixes
+
+Choose the repository by **merge status and disclosure risk**, not by whether the code touches security. Before creating a branch or PR, check whether the affected code is already on `master` or deployed, and whether a public diff, test, or description would reveal an exploitable weakness before the fix is deployed.
+
+- **Only in an open, unmerged public PR:** fix the problem in that same PR before merge, including its tests. Do not open a private PR for a weakness the public PR would introduce.
+- **Existing exploitable weakness that needs a private deployment:** develop the fix against **`PostHog/posthog-private`** on a **`security/`** branch when publishing the patch would reveal the weakness before it is fixed in production. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Safe to describe publicly:** make a routine, non-secret fix in **`PostHog/posthog`** when its code, tests, and PR text do not give someone a usable way to exploit code that is still live. A small change is not automatically safe to publish.
+- **Unsure about disclosure risk:** keep the details private and seek a security review before publishing. Do not choose the private repo solely because a change touches access control, authentication, or another security-sensitive area.
+
+Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
+
+This section is about where the fix lands; the rest of this doc is about writing secure code.
+
 ## Principle of Least Privilege
 
 Default to the smallest permission, narrowest field set, and shortest scope that still works. If a change needs more access than what's already in place, stop and reconsider the design before widening it.

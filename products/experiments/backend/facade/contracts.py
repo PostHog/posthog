@@ -104,6 +104,9 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     FLAG_LIVE_BEFORE_LAUNCH = "flag_live_before_launch"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     NO_METRIC = "no_metric"
+    SRM = "srm", "Sample Ratio Mismatch"
+    ZERO_EXPOSURES = "zero_exposures"
+    FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
@@ -121,6 +124,8 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
     ADD_PRIMARY_METRIC = "add_primary_metric"
     ADD_SECONDARY_METRIC = "add_secondary_metric"
+    EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
+    EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
 
 
 @frozen

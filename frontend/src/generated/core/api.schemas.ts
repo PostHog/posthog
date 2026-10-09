@@ -1735,6 +1735,11 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     workflow_task_team_rate_limit_per_day?: number | null
+    /**
+     * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
+     * @nullable
+     */
+    default_email_integration_id?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
@@ -5608,6 +5613,34 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+ * Also used for nested serializers.
+ */
+export interface OrganizationTeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+    /**
+     * The project group shown in the organization project switcher, or null if it has no group.
+     * @nullable
+     */
+    readonly project_group: string | null
+}
+
 export interface OrganizationMemberNoticeActionApi {
     /**
      * Text on the button shown next to the notice.
@@ -5631,8 +5664,6 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
-
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
@@ -5654,7 +5685,7 @@ export interface OrganizationApi {
      */
     readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly teams: readonly OrganizationTeamBasicApi[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
