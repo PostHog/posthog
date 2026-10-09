@@ -156,21 +156,23 @@ class TestObservationRequestAPI(APIBaseTest):
         # Neither the row nor whether it is still running may show: `status` reads only the visible rows.
         self.assertEqual((response.json()["sessions"], response.json()["status"]), ([], "completed"))
 
-    def test_a_key_from_another_environment_cannot_replay_this_environments_request(self) -> None:
-        payload = {"session_ids": ["s1"], "scanner_id": str(self.scanner.id), "idempotency_key": "shared"}
+    @parameterized.expand([("create", "post"), ("retrieve", "get")])
+    def test_a_child_environment_cannot_use_scan_requests(self, _name: str, method: str) -> None:
+        payload = {"session_ids": ["s1"], "inline": {"prompt": "anything"}, "idempotency_key": "shared"}
         scopes = ["replay_scanner:write", "session_recording:read"]
-        first = self._psak_client(scopes).post(self.url, payload, format="json")
+        parent = self._psak_client(scopes).post(self.url, payload, format="json")
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="child env")
+        child_client = self._psak_client(scopes, team=child)
+        child_url = f"/api/projects/{child.id}/vision/requests/"
 
-        # Requests are stored under the project's canonical team, so the child's lookup finds the parent's row. An
-        # inline question passes the child's own scanner check, which a parent scanner id would not.
-        replay = self._psak_client(scopes, team=child).post(
-            f"/api/projects/{child.id}/vision/requests/",
-            {"session_ids": ["s1"], "inline": {"prompt": "anything"}, "idempotency_key": "shared"},
-            format="json",
+        # Requests are stored under the main environment, so a child must not reach them by key or by id.
+        response = (
+            child_client.post(child_url, payload, format="json")
+            if method == "post"
+            else child_client.get(f"{child_url}{parent.json()['id']}/")
         )
 
-        self.assertEqual((first.status_code, replay.status_code), (202, 409), replay.json())
+        self.assertEqual((parent.status_code, response.status_code), (202, 400), response.json())
 
     def test_inline_question_mints_a_hidden_scanner_and_reports_its_id(self) -> None:
 

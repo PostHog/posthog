@@ -211,6 +211,10 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
+        # Requests are stored under the project's main environment while scanners and observations stay per
+        # environment, so a child environment could reach its siblings' requests and results.
+        if self.team.parent_team_id is not None:
+            raise ValidationError("Scan requests are only available in the project's main environment.")
         if self.action == "create":
             refuse_scout_scanner_scan(is_scout_sandbox_request(request))
         if not self._is_service_call and not self.user_access_control.check_access_level_for_resource(
