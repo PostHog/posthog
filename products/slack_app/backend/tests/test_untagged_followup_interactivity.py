@@ -346,9 +346,9 @@ class TestUnpromptedAnswerInteractivity(TestCase):
 
         mock_start.assert_called_once()
         assert mock_start.call_args.args[0] == self.event
-        assert mock_start.call_args.kwargs["unprompted_question"] is True
+        assert mock_start.call_args.kwargs["untagged_question"] is True
         # Without this the re-dispatch would classify again and offer again.
-        assert mock_start.call_args.kwargs["unprompted_answer_confirmed"] is True
+        assert mock_start.call_args.kwargs["untagged_question_confirmed"] is True
         assert cache.get(_picker_context_cache_key(self.context_token)) is None
 
     def test_click_from_anyone_but_the_author_answers_nothing(self, mock_slack_cls, mock_post):

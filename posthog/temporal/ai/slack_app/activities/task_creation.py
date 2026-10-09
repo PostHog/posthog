@@ -542,7 +542,7 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
         suffix = inputs.slack_event_id
     else:
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
-    if inputs.untagged_followup_confirmed or inputs.unprompted_answer_confirmed:
+    if inputs.untagged_followup_confirmed or inputs.untagged_question_confirmed:
         suffix = f"{suffix}:confirmed"
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 

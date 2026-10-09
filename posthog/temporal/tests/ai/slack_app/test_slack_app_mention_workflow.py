@@ -48,7 +48,7 @@ def _message(
         slack_event_id=event_id,
         user_id=42,
         untagged_followup=untagged,
-        unprompted_question=unprompted,
+        untagged_question=unprompted,
     )
 
 

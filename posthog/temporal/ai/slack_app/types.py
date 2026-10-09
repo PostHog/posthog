@@ -54,10 +54,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # True when the workflow was started for a top-level channel message that did not
     # tag the app. Nothing visible happens until the classifier says PostHog can answer
     # it and the author's unprompted-answer mode allows it.
-    unprompted_question: bool = False
+    untagged_question: bool = False
     # True when the author already accepted the private offer to answer, so the run
     # skips the classifier and the offer on the way back through.
-    unprompted_answer_confirmed: bool = False
+    untagged_question_confirmed: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
@@ -81,7 +81,7 @@ class PostHogCodeSlackMentionWorkflowInputs:
     def unaddressed(self) -> bool:
         """Whether nobody has asked the app for anything yet, so the run stays silent until a gate lets it through."""
         unconfirmed_followup = self.untagged_followup and not self.untagged_followup_confirmed
-        unconfirmed_question = self.unprompted_question and not self.unprompted_answer_confirmed
+        unconfirmed_question = self.untagged_question and not self.untagged_question_confirmed
         return unconfirmed_followup or unconfirmed_question
 
 

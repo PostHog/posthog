@@ -2574,7 +2574,7 @@ def _route_unprompted_question(
         slack_team_id,
         event_id,
         posthog_user=posthog_user,
-        unprompted_question=True,
+        untagged_question=True,
     )
 
 
@@ -3975,8 +3975,8 @@ def _handle_unprompted_answer_run(payload: dict) -> HttpResponse:
         integration.integration_id,
         None,
         posthog_user=posthog_user,
-        unprompted_question=True,
-        unprompted_answer_confirmed=True,
+        untagged_question=True,
+        untagged_question_confirmed=True,
     )
     capture_slack_event(
         integration, "slack app unprompted answer confirmed", slack_user_id=slack_user_id, posthog_user=posthog_user
@@ -4361,8 +4361,8 @@ def _start_mention_workflow(
     posthog_user: User,
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
-    unprompted_question: bool = False,
-    unprompted_answer_confirmed: bool = False,
+    untagged_question: bool = False,
+    untagged_question_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
     awaited_request_reply: bool = False,
     fork_source_channel: str | None = None,
@@ -4384,11 +4384,11 @@ def _start_mention_workflow(
     The ``fork_source_*`` fields mark a forked run, where the thread being answered
     (a DM) and the thread supplying the context (the forked channel thread) differ.
     They suppress the same two side effects: nobody mentioned us, and a reply in a
-    forked DM can't be resolving a picker. ``unprompted_question`` suppresses them
+    forked DM can't be resolving a picker. ``untagged_question`` suppresses them
     for the same reason, and makes the workflow ask its classifier first.
     """
     is_fork = bool(fork_source_channel and fork_source_thread_ts)
-    if not untagged_followup and not unprompted_question and not is_fork:
+    if not untagged_followup and not untagged_question and not is_fork:
         _report_slack_mention_received(
             event,
             integration,
@@ -4406,8 +4406,8 @@ def _start_mention_workflow(
         user_id=posthog_user.id,
         untagged_followup=untagged_followup,
         untagged_followup_confirmed=untagged_followup_confirmed,
-        unprompted_question=unprompted_question,
-        unprompted_answer_confirmed=unprompted_answer_confirmed,
+        untagged_question=untagged_question,
+        untagged_question_confirmed=untagged_question_confirmed,
         is_ext_shared_channel=is_ext_shared_channel,
         fork_source_channel=fork_source_channel,
         fork_source_thread_ts=fork_source_thread_ts,

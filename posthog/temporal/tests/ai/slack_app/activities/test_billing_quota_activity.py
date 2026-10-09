@@ -31,8 +31,8 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
             user_id=self.user.id,
             untagged_followup=untagged_followup,
             untagged_followup_confirmed=confirmed,
-            unprompted_question=unprompted,
-            unprompted_answer_confirmed=unprompted_confirmed,
+            untagged_question=unprompted,
+            untagged_question_confirmed=unprompted_confirmed,
         )
         return enforce_posthog_code_billing_quota_activity(inputs, "C001", "1000.0000", "U_BOB")
 

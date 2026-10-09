@@ -189,7 +189,7 @@ class TestRouteThreadMessage(TestCase):
         mock_failure_reply.assert_not_called()
         if expect_dispatch:
             kwargs = mock_start.call_args.kwargs
-            assert kwargs["unprompted_question"] is True
+            assert kwargs["untagged_question"] is True
             assert kwargs["posthog_user"].id == self.bob.id
             assert mock_start.call_args.args[1].id == self.integration.id
 

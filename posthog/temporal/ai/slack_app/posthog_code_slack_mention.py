@@ -86,7 +86,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
 
         # An unprompted question stays silent, error replies included, until its author's
         # mode lets the run answer. Old histories carry no such input, so they never skip.
-        silent_on_error = inputs.unprompted_question and not inputs.unprompted_answer_confirmed
+        silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -147,7 +147,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # A top-level message nobody tagged us in. The classifier decides whether
             # PostHog can answer it at all, then the author's mode decides whether to
             # answer, offer privately, or stay quiet. Both run before anything visible.
-            if inputs.unprompted_question and not inputs.unprompted_answer_confirmed:
+            if inputs.untagged_question and not inputs.untagged_question_confirmed:
                 answerable = await _execute_posthog_code_activity(classify_unprompted_question_activity, inputs)
                 if not answerable:
                     return

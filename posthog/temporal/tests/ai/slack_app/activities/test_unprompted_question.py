@@ -71,7 +71,7 @@ class TestRequestUnpromptedAnswerConfirmation(TestCase):
             integration_id=self.integration.id,
             slack_team_id="T_WS",
             user_id=self.user.id,
-            unprompted_question=True,
+            untagged_question=True,
         )
 
     @parameterized.expand(
