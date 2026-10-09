@@ -6,8 +6,6 @@ use crate::ordering::OrderingGuarantee;
 use crate::pipeline::{self, Address, Lane};
 use crate::v1::context::RequestContext;
 
-/// Where a processed event goes. The outputs layer resolves it to a topic
-/// through [`Destination::address`].
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Destination {
     #[default]
