@@ -28,6 +28,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
@@ -243,6 +244,9 @@ function DashboardScene({
                     <DashboardRetentionBanner />
                     <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
+                    {placement === DashboardPlacement.Dashboard && !!dashboard?.id && (
+                        <SubscriptionSummaries dashboardId={dashboard.id} className="mt-2 mb-2" />
+                    )}
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

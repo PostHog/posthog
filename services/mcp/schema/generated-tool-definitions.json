@@ -12580,6 +12580,20 @@
             "readOnlyHint": true
         }
     },
+    "subscriptions-summaries-list": {
+        "description": "List the AI summaries that subscriptions sent for one insight or dashboard, newest first. Set exactly one of `insight` or `dashboard` (numeric ID). Each row comes from a completed delivery and includes the summary text, the subscription ID and title, the channel, and the covered period from `period_start` to `created_at`. `period_start` is null for the first delivery of a subscription. Summaries from deleted subscriptions are not returned. Use subscriptions-partial-update with `summary_prompt_guide` to change how future summaries of one subscription are written. Results are cursor-paginated.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "List AI summaries for an insight or dashboard",
+        "title": "List AI summaries for an insight or dashboard",
+        "required_scopes": ["subscription:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "subscriptions-test-delivery-create": {
         "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or Microsoft Teams). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has been deleted. Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs the AI HogQL pipeline).",
         "category": "Subscriptions",

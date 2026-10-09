@@ -2780,6 +2780,96 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
         }
 
+    def test_summaries_list_completed_summaries_across_subscriptions_on_the_source(self):
+        second_subscription = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#general",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Second Sub",
+        )
+        deleted_subscription = Subscription.objects.create(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="email",
+            target_value="test@posthog.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            deleted=True,
+        )
+        other_insight = Insight.objects.create(query=default_pageview_query(), team=self.team, created_by=self.user)
+        other_subscription = Subscription.objects.create(
+            team=self.team,
+            insight=other_insight,
+            created_by=self.user,
+            target_type="email",
+            target_value="test@posthog.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+        )
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+
+        def delivery(key: str, days: int, subscription: Subscription | None = None, **kwargs) -> SubscriptionDelivery:
+            row = self._create_delivery(
+                idempotency_key=key,
+                subscription=subscription or self.subscription,
+                content_snapshot={"insights": []},
+                **kwargs,
+            )
+            SubscriptionDelivery.objects.filter(pk=row.pk).update(created_at=start + timedelta(days=days))
+            return row
+
+        first = delivery("first", 0, change_summary="First summary")
+        delivery("failed", 1, status=SubscriptionDelivery.Status.FAILED, change_summary="Failed summary")
+        delivery("no-summary", 2)
+        delivery("empty-summary", 3, change_summary="")
+        latest = delivery("latest", 7, change_summary="Latest summary")
+        other_channel = delivery("second-sub", 5, subscription=second_subscription, change_summary="Slack summary")
+        delivery("deleted-sub", 6, subscription=deleted_subscription, change_summary="Deleted summary")
+        delivery("other-insight", 6, subscription=other_subscription, change_summary="Other summary")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/summaries/", {"insight": self.insight.id}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = response.json()["results"]
+        assert [row["id"] for row in results] == [str(latest.id), str(other_channel.id), str(first.id)]
+        assert results[0]["change_summary"] == "Latest summary"
+        assert results[0]["subscription_title"] == "Test Sub"
+        assert results[0]["period_start"] == "2026-01-04T00:00:00Z"
+        assert results[1]["subscription"] == second_subscription.id
+        assert results[2]["period_start"] is None
+
+    @parameterized.expand(
+        [
+            ("neither source", {}),
+            ("both sources", {"insight": 1, "dashboard": 1}),
+            ("non integer", {"insight": "abc"}),
+        ]
+    )
+    def test_summaries_reject_an_invalid_source(self, _name, params):
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summaries/", params)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_summaries_for_another_teams_dashboard_are_not_found(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        dashboard = Dashboard.objects.create(team=other_team, name="Other dashboard")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/summaries/", {"dashboard": dashboard.id}
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
 
 class TestSubscriptionFreeTierAccess(APILicensedTest):
     # free-tier orgs can retrieve subscriptions and read deliveries without a premium gate.
@@ -4343,6 +4433,26 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self._delivery_for(subscription)
 
         self._assert_visibility(subscription, sees_subscription=sees_subscription, sees_deliveries=sees_deliveries)
+
+    def test_summaries_require_viewer_access_to_the_source(self):
+        self._delivery_for(self._sub_on_a_restricted_dashboard(), change_summary="Private summary")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/summaries/", {"dashboard": self.restricted_dashboard.id}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_summaries_hide_a_dashboard_delivery_that_renders_a_restricted_tile(self):
+        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+        self._delivery_for(self._subscription_for(dashboard=dashboard), change_summary="Covers a private tile")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/summaries/", {"dashboard": dashboard.id}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == []
 
     @parameterized.expand(
         [

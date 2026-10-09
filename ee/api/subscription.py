@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import CharField, Manager, Prefetch, Q, QuerySet, Value
+from django.db.models import CharField, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.functions import Cast, Concat
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -1593,6 +1593,66 @@ class StableOrderingFilter(filters.OrderingFilter):
         return [*ordering, "-id" if ordering[-1].startswith("-") else "id"]
 
 
+class SubscriptionSummariesQuerySerializer(serializers.Serializer):
+    insight = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.",
+    )
+    dashboard = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if ("insight" in attrs) == ("dashboard" in attrs):
+            raise ValidationError("Set exactly one of insight or dashboard.")
+        return attrs
+
+
+class SubscriptionSummarySerializer(serializers.ModelSerializer):
+    subscription_title = serializers.CharField(
+        source="subscription.title",
+        allow_null=True,
+        read_only=True,
+        help_text="Title of the subscription that generated this summary. Null when the subscription has no title.",
+    )
+    period_start = serializers.DateTimeField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Start of the period this summary covers: the time of the previous completed delivery of the same "
+            "subscription. Null for the first delivery, which has no earlier data to compare with."
+        ),
+    )
+
+    class Meta:
+        model = SubscriptionDelivery
+        fields = [
+            "id",
+            "subscription",
+            "subscription_title",
+            "target_type",
+            "change_summary",
+            "period_start",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "ID of the delivery that included this summary."},
+            "subscription": {"help_text": "ID of the subscription that generated this summary."},
+            "target_type": {"help_text": "Channel the summary was sent to: email, slack, or teams."},
+            "change_summary": {"help_text": "AI-generated summary text included in the delivery."},
+            "created_at": {"help_text": "When the delivery started. This is also the end of the covered period."},
+        }
+
+
+class SubscriptionSummaryCursorPagination(CursorPagination):
+    page_size = 20
+    ordering = "-created_at"
+
+
 @extend_schema_view(
     list=extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1874,6 +1934,67 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         }
         cache.set(cache_key, payload, SUMMARY_QUOTA_CACHE_TTL_SECONDS)
         return Response(payload)
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
+        summary="List AI summaries for an insight or dashboard",
+        description=(
+            "Completed deliveries that include an AI summary, across every active subscription on one insight or "
+            "dashboard, newest first. Requires viewer access to the insight or dashboard."
+        ),
+        parameters=[SubscriptionSummariesQuerySerializer],
+        responses={200: SubscriptionSummarySerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="summaries",
+        required_scopes=["subscription:read"],
+        pagination_class=SubscriptionSummaryCursorPagination,
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        query = SubscriptionSummariesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        if "insight" in query.validated_data:
+            source: Insight | Dashboard = get_object_or_404(
+                Insight.objects.filter(team_id=self.team_id, deleted=False), pk=query.validated_data["insight"]
+            )
+            source_filter = Q(subscription__insight_id=source.pk)
+        else:
+            source = get_object_or_404(
+                Dashboard.objects.filter(team_id=self.team_id), pk=query.validated_data["dashboard"]
+            )
+            source_filter = Q(subscription__dashboard_id=source.pk)
+        if not self.user_access_control.check_access_level_for_object(source, "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to this resource.")
+
+        previous_delivery_at = (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=OuterRef("subscription_id"),
+                status=SubscriptionDelivery.Status.COMPLETED,
+                content_snapshot__isnull=False,
+                created_at__lt=OuterRef("created_at"),
+            )
+            .order_by("-created_at")
+            .values("created_at")[:1]
+        )
+        deliveries = (
+            SubscriptionDelivery.objects.filter(
+                source_filter,
+                team_id=self.team_id,
+                subscription__deleted=False,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                change_summary__isnull=False,
+            )
+            .exclude(change_summary="")
+            .filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
+            .distinct()
+            .select_related("subscription")
+            .annotate(period_start=Subquery(previous_delivery_at))
+        )
+        page = self.paginate_queryset(deliveries)
+        return self.get_paginated_response(SubscriptionSummarySerializer(page, many=True).data)
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
