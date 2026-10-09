@@ -753,8 +753,6 @@ ignore_imports = [
     # Lane B: categories, Customer.io config and the Customer.io webhook
     # Lane C: preferences and the recipient preferences page
     # Lane D: templates
-    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_template",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
