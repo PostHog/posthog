@@ -20,10 +20,13 @@ import { BusinessType, customerAnalyticsSceneLogic } from './customerAnalyticsSc
 
 // Mount the scene logic in an effect, so that App has already mounted sceneLogic with its scenes.
 // The effect runs before the lazy scene loads, so the first scene render uses this business type.
-function useBusinessType(businessType: BusinessType): void {
+function useBusinessType(businessType: BusinessType, groupType?: number): void {
     useOnMountEffect(() => {
         const unmount = customerAnalyticsSceneLogic.mount()
         customerAnalyticsSceneLogic.actions.setBusinessType(businessType)
+        if (groupType !== undefined) {
+            customerAnalyticsSceneLogic.actions.setSelectedGroupType(groupType)
+        }
         return unmount
     })
 }
@@ -78,10 +81,7 @@ export const B2BModeWithGroupsEnabled: Story = {
             },
         })
 
-        useBusinessType('b2b')
-        useOnMountEffect(() => {
-            customerAnalyticsSceneLogic.actions.setSelectedGroupType(0)
-        })
+        useBusinessType('b2b', 0)
 
         return <App />
     },
