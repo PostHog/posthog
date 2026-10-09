@@ -180,6 +180,23 @@ class TestFetchRowBatches:
         assert cursor.page_sizes[0] == 100
         assert cursor.page_sizes[-1] <= 8
 
+    def test_average_sizing_stays_small_past_a_narrow_row_inside_a_run_of_wide_rows(self) -> None:
+        rows = [(index, "s" if index % 3 == 2 else "x" * 1200) for index in range(400)]
+        cursor = _FakeCursor(list(rows))
+
+        batches = list(
+            fetch_row_batches(
+                cursor.fetchmany,
+                max_rows=10_000,
+                max_bytes=1_000,
+                max_page_rows=100,
+                size_pages_by_average=True,
+            )
+        )
+
+        assert [row for batch in batches for row in batch] == rows
+        assert set(cursor.page_sizes[1:]) == {1}
+
 
 class TestPageAlignedFlush:
     def test_a_batch_never_spans_a_fetch_once_pages_are_large(self) -> None:

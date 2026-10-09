@@ -12,16 +12,27 @@ from typing import Literal
 from posthog.temporal.common.activity_context import current_activity_attempt
 
 _ATTEMPTS_BEFORE_THIS_EXECUTION: ContextVar[int] = ContextVar("data_import_attempts_before_this_execution", default=0)
+_HANDOFFS_BEFORE_THIS_EXECUTION: ContextVar[int] = ContextVar("data_import_handoffs_before_this_execution", default=0)
 
 ImportAttemptCause = Literal["first", "handoff", "retry"]
 
 
-def set_attempts_before_this_execution(attempts: int) -> None:
+def set_attempts_before_this_execution(attempts: int, *, handoffs: int = 0) -> None:
     _ATTEMPTS_BEFORE_THIS_EXECUTION.set(max(attempts, 0))
+    _HANDOFFS_BEFORE_THIS_EXECUTION.set(max(handoffs, 0))
 
 
 def current_import_attempt() -> int:
     return _ATTEMPTS_BEFORE_THIS_EXECUTION.get() + current_activity_attempt()
+
+
+def failed_import_attempts() -> int:
+    """Attempts of this import that failed before this one.
+
+    Each earlier execution ended with one hand-off, and every other attempt of it failed.
+    """
+    failed_before_this_execution = _ATTEMPTS_BEFORE_THIS_EXECUTION.get() - _HANDOFFS_BEFORE_THIS_EXECUTION.get()
+    return max(failed_before_this_execution, 0) + current_activity_attempt() - 1
 
 
 def current_import_attempt_cause() -> ImportAttemptCause:

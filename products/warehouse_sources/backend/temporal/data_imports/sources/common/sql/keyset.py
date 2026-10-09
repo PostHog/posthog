@@ -30,7 +30,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     fetch_row_batches,
-    page_rows_after_retries,
+    limit_pages_after_failures,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
@@ -215,7 +215,7 @@ def iter_keyset_pages(
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
-    retries: int = 0,
+    failed_attempts: int = 0,
 ) -> Iterator[pa.Table]:
     """Yield a table as successive Arrow batches, read by keyset pages that seek on `keyset_column`.
 
@@ -231,8 +231,9 @@ def iter_keyset_pages(
     once the walk reads a run of wide rows, and a batch closes on its byte budget. A batch can
     therefore end inside a page, or hold several pages.
 
-    `retries` is the number of failed attempts before this one. Each one halves the page ceiling,
-    because the walk resumes at the rows that the failed attempt was reading.
+    `failed_attempts` is the number of attempts of this load that failed before this one. Each one
+    halves the first pages, because the walk resumes at the rows that the failed attempt was
+    reading. A walk with no `checkpoint` starts again from the first row, so all its pages halve.
 
     `checkpoint` records the last key of a batch once the consumer has come back for the next one.
     Generator laziness is what makes that the right moment: the call happens after the consumer has
@@ -285,12 +286,14 @@ def iter_keyset_pages(
 
     # A page is one query and one round trip, so the page ceiling is the chunk size and not the lower
     # default that suits a driver reading from an open result stream.
-    for rows in fetch_row_batches(
+    fetch = limit_pages_after_failures(
         fetch_page,
-        max_rows=chunk_size,
-        max_page_rows=page_rows_after_retries(chunk_size, retries),
-        size_pages_by_average=True,
-    ):
+        page_rows=chunk_size,
+        failed_attempts=failed_attempts,
+        # The failed attempt read at most one batch and one page past its checkpoint.
+        for_rows=2 * chunk_size if checkpoint is not None else None,
+    )
+    for rows in fetch_row_batches(fetch, max_rows=chunk_size, max_page_rows=chunk_size, size_pages_by_average=True):
         table = to_table(columns, rows)
 
         yield table

@@ -987,11 +987,11 @@ class TestKeysetReadPath:
         assert manager.save_state.call_count == 1
         manager.clear_state.assert_not_called()
 
-    def test_a_retry_reads_smaller_pages(self, keyset_mocks):
+    def test_an_attempt_after_a_failure_reads_smaller_pages(self, keyset_mocks):
         _, cursor, _ = keyset_mocks
         cursor.fetchall.side_effect = [[(1,)], []]
 
-        list(cast(Generator, self._keyset_source(self._fake_manager(), activity_retries=1).items()))
+        list(cast(Generator, self._keyset_source(self._fake_manager(), failed_attempts=1).items()))
 
         assert "LIMIT 1" in cursor.execute.call_args_list[0].args[0]
 

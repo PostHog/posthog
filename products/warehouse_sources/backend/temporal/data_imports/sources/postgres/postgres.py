@@ -75,7 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
     fetch_row_batches,
-    page_rows_after_retries,
+    limit_pages_after_failures,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -3589,7 +3589,7 @@ def postgres_source(
     is_xmin: bool = False,
     xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
     activity_attempt: int = 1,
-    activity_retries: int = 0,
+    failed_attempts: int = 0,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
@@ -4371,13 +4371,25 @@ def postgres_source(
                 try:
                     # A page is one statement and it is resident in full, so it is sized like any
                     # other fetch. A batch then spans as many pages as its byte budget holds.
-                    # A page is also a round trip, so only a run of wide rows shrinks it. A retry
-                    # resumes at the rows the failed attempt was reading, so it reads them smaller.
+                    # A seek page is also a round trip, so only a run of wide rows shrinks it. An
+                    # attempt after a failure resumes at the rows the failed attempt was reading,
+                    # so it reads them smaller. A LIMIT/OFFSET walk starts again from the first
+                    # row and scans its whole offset on every page, so it keeps its page size.
+                    seeks = keyset_primary_keys is not None
+                    fetch = fetch_page
+                    if seeks:
+                        fetch = limit_pages_after_failures(
+                            fetch_page,
+                            page_rows=fetch_page_rows,
+                            failed_attempts=failed_attempts,
+                            # The failed attempt read at most one batch and one page past its checkpoint.
+                            for_rows=2 * chunk_size if can_checkpoint else None,
+                        )
                     for rows in fetch_row_batches(
-                        fetch_page,
+                        fetch,
                         max_rows=chunk_size,
-                        max_page_rows=page_rows_after_retries(fetch_page_rows, activity_retries),
-                        size_pages_by_average=True,
+                        max_page_rows=fetch_page_rows,
+                        size_pages_by_average=seeks,
                     ):
                         batch_last_key = keyset_key_of(rows[-1]) if keyset_primary_keys is not None else None
 

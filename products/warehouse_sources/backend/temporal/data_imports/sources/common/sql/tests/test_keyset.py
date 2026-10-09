@@ -453,7 +453,7 @@ def test_an_occasional_wide_row_does_not_shrink_the_pages():
     assert set(pages.limits) == {10}
 
 
-def test_a_retry_reads_smaller_pages():
+def test_an_attempt_after_failures_reads_smaller_pages_for_the_whole_walk_without_a_checkpoint():
     pages = _FakePages(all_ids=list(range(1, 9)), chunk_size=8)
 
     tables = list(
@@ -466,9 +466,32 @@ def test_a_retry_reads_smaller_pages():
             run_page=pages.run_page,
             to_table=_to_table,
             initial_last_value=None,
-            retries=2,
+            failed_attempts=2,
         )
     )
 
     assert [v.as_py() for table in tables for v in table.column("id")] == list(range(1, 9))
     assert set(pages.limits) == {2}
+
+
+def test_an_attempt_after_failures_returns_to_full_pages_past_the_rows_it_resumed_at():
+    pages = _FakePages(all_ids=list(range(1, 41)), chunk_size=8)
+
+    tables = list(
+        iter_keyset_pages(
+            builder=_BUILDER,
+            schema="db",
+            table_name="t",
+            keyset_column="id",
+            chunk_size=8,
+            run_page=pages.run_page,
+            to_table=_to_table,
+            initial_last_value=None,
+            checkpoint=lambda _key: None,
+            failed_attempts=2,
+        )
+    )
+
+    assert [v.as_py() for table in tables for v in table.column("id")] == list(range(1, 41))
+    assert pages.limits[:8] == [2] * 8
+    assert set(pages.limits[8:]) == {8}
