@@ -190,9 +190,10 @@ class TestApplyApprovedEncryptedPayloads(APIBaseTest):
         old_updated_at = timezone.now() - timedelta(days=1)
         ChangeRequest.objects.filter(pk=change_request.pk).update(updated_at=old_updated_at)
 
-        with self.assertRaises(ApplyFailed):
+        with self.assertRaises(ApplyFailed) as error:
             apply_change_request(change_request)
 
+        assert str(error.exception).startswith("Serializer save failed:")
         flag.refresh_from_db()
         assert flag.active is False
         assert flag.filters["payloads"]["true"] == stored_payload

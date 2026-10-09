@@ -256,6 +256,21 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         )
         raise
 
+    except ApplyFailed as e:
+        if change_request.state != ChangeRequestState.FAILED:
+            change_request.state = ChangeRequestState.FAILED
+            change_request.apply_error = str(e)
+            change_request.save(update_fields=["state", "apply_error", "updated_at"])
+
+        logger.warning(
+            "Failed to apply ChangeRequest",
+            extra={
+                "change_request_id": str(change_request.id),
+                "error": str(e),
+            },
+        )
+        raise
+
     except Exception as e:
         if change_request.state != ChangeRequestState.FAILED:
             change_request.state = ChangeRequestState.FAILED
