@@ -2,6 +2,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -682,17 +683,21 @@ describe('RecipientPreferencesService', () => {
             updated_at: Date.now(),
         })
 
-        beforeEach(async () => {
+        beforeAll(() => {
+            // One pool for the block: RedisV2 has no close, so a pool per test would leave its connections open.
             redis = createRedisV2PoolFromConfig({
-                connection: hub.CDP_REDIS_HOST
+                connection: defaultConfig.CDP_REDIS_HOST
                     ? {
-                          url: hub.CDP_REDIS_HOST,
-                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          url: defaultConfig.CDP_REDIS_HOST,
+                          options: { port: defaultConfig.CDP_REDIS_PORT, password: defaultConfig.CDP_REDIS_PASSWORD },
                       }
-                    : { url: hub.REDIS_URL },
-                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                    : { url: defaultConfig.REDIS_URL },
+                poolMinSize: defaultConfig.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: defaultConfig.REDIS_POOL_MAX_SIZE,
             })
+        })
+
+        beforeEach(async () => {
             await deleteKeysWithPrefix(redis, `@posthog/workflows-frequency-cap/${team.id}/`)
             frequencyCap = { max_messages: 2, window_days: 7 }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
