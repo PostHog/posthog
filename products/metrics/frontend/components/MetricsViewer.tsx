@@ -299,7 +299,7 @@ export const MetricsViewer = (): JSX.Element => {
                             <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
                         ) : queryError ? (
                             <div className="h-full flex items-center justify-center">
-                                <LemonBanner type="error" className="max-w-md">
+                                <LemonBanner type="error" className="w-full max-w-md">
                                     {queryError}
                                 </LemonBanner>
                             </div>
