@@ -5,9 +5,13 @@ Runs on the parsed AST — resolved against the team's HogQL schema when a datab
 enough for the SQL editor's validation debounce. The point is to fail at definition time with a
 message naming the construct, rather than at run time with a table that is quietly wrong.
 
+The incremental key must be a date or datetime: each run reads only rows above the last run's
+watermark, and only a key that grows with time keeps new source rows above it.
+
 The rule that does most of the work: when the query aggregates, the incremental key must be one of
 the grouping keys and the unique key must cover all of them. That makes every output row belong to
-exactly one bucket, and every touched bucket get recomputed from its source rows in full. Which in
+exactly one bucket, and, because that bucket key is time-ordered, every touched bucket gets
+recomputed from its source rows in full. Which in
 turn means *any* aggregate is safe here, including the non-associative ones (exact percentiles,
 count(DISTINCT), float sum) that Snowflake, Redshift, BigQuery and Databricks all have to reject.
 They have to reject them because they combine partial aggregates across refreshes; we never do.
@@ -16,8 +20,11 @@ They have to reject them because they combine partial aggregates across refreshe
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
@@ -39,7 +46,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 
 if TYPE_CHECKING:
-    from posthog.hogql.database.database import Database
+    from posthog.models import User
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_filter import find_key_expression
@@ -80,24 +87,29 @@ _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.AggregateStateType: "aggregate",
 }
 
-# Types that cannot serve as a watermark. Booleans, arrays, maps, and JSON have no "highest value
-# so far" for the next run to start from. Strings are excluded as a product call: lexicographic
-# order is arbitrary for most string columns, so offering them invites keys that silently miss
-# rows. UUIDs are excluded because only v7 is time-ordered and the column type cannot tell
-# versions apart — a v4 watermark jumps around and misses rows. Unknown types stay, since a wrong
-# exclusion hides a working column while a wrong inclusion just fails validation.
-_NON_KEY_TYPE_LABELS = {
-    "boolean",
-    "array",
-    "tuple",
-    "map",
-    "interval",
-    "aggregate",
-    "string",
-    "uuid",
-    "json",
-    "struct",
+# Only a time key keeps new source rows above the last run's watermark. A key like an id or a
+# counter does not grow with time, so new rows can land below the watermark and never be read.
+# Integer epoch timestamps qualify once converted with fromUnixTimestamp().
+_KEY_TYPE_LABELS = {"date", "datetime"}
+
+# How each type label reads in a sentence, for the key type blocker.
+_TYPE_LABEL_PHRASES = {
+    "integer": "an integer",
+    "decimal": "a decimal",
+    "float": "a float",
+    "string": "a string",
+    "json": "JSON",
+    "uuid": "a UUID",
+    "boolean": "a boolean",
+    "array": "an array",
+    "tuple": "a tuple",
+    "map": "a map",
+    "interval": "an interval",
+    "aggregate": "an aggregate state",
+    "struct": "a struct",
 }
+
+_NUMERIC_TYPE_LABELS = {"integer", "decimal", "float"}
 
 # The unique key has looser needs: it only has to identify a row, so any equatable type works —
 # and it MUST admit strings and booleans, since every GROUP BY column (event names, ids, flags)
@@ -116,6 +128,12 @@ class EligibilityResult:
     key_candidate_types: dict[str, str] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+def eligibility_database(team_id: int, user: "User") -> Database:
+    """A materialized upstream view would otherwise resolve to its backing table and hide the
+    LIMIT or HAVING in its SQL, so views always resolve to their bodies here."""
+    return Database.create_for(team_id=team_id, user=user, modifiers=HogQLQueryModifiers(useMaterializedViews=False))
 
 
 def check_incremental_eligibility(
@@ -140,11 +158,19 @@ def check_incremental_eligibility(
     resolved_selects = _resolved_selects(node, database)
     selects = resolved_selects if resolved_selects is not None else raw_selects
     all_candidates = _key_candidates(selects)
+    types_known = resolved_selects is not None and database is not None
     key_candidate_types = (
-        _key_candidate_types(resolved_selects, database) if resolved_selects is not None and database else {}
+        _key_candidate_types(resolved_selects, database)
+        if resolved_selects is not None and database is not None
+        else {}
     )
-    # A column whose type cannot serve would only ever fail validation, so don't offer it.
-    key_candidates = [name for name in all_candidates if key_candidate_types.get(name) not in _NON_KEY_TYPE_LABELS]
+    # A column whose type cannot serve would only ever fail validation, so don't offer it. When the
+    # query did not resolve the types are unknown, so nothing is filtered.
+    key_candidates = (
+        [name for name in all_candidates if key_candidate_types.get(name) in _KEY_TYPE_LABELS]
+        if types_known
+        else all_candidates
+    )
     unique_key_candidates = [
         name for name in all_candidates if key_candidate_types.get(name) not in _NON_UNIQUE_KEY_TYPE_LABELS
     ]
@@ -153,6 +179,7 @@ def check_incremental_eligibility(
     warnings: list[str] = []
 
     _check_set_operators(node, blockers)
+    _check_set_row_slices(node, blockers, nested=False, location="a subquery or CTE")
     # Shape is purely structural, so the raw AST is enough — no need for the resolved copy.
     for select in raw_selects:
         _check_shape(select, blockers)
@@ -177,6 +204,8 @@ def check_incremental_eligibility(
         _check_key(select, config, blockers, warnings)
         _check_unique_key(select, config, blockers)
 
+    if database is not None:
+        _check_key_type(selects, config, key_candidate_types, blockers)
     _check_nullable_unique_key(config, column_types, blockers)
     _check_determinism(node, warnings)
 
@@ -303,35 +332,45 @@ def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -
     """Coarse type labels for the picker's type tags, from the resolved AST.
 
     A raw table column resolves to its schema DatabaseField, which is the reliable source; only
-    computed expressions need the constant-type route. Reads the first branch only: a union whose
-    branches disagree on a column's type is already a modeling problem, and the first branch is
-    where the candidate order comes from too.
+    computed expressions need the constant-type route. Names come from the first branch, and a
+    union matches columns by position, so every branch is labelled at that position. The watermark
+    filter is pushed into every branch, so one non-time branch is enough to make the key unsafe.
     """
     context = HogQLContext(team_id=None, database=database)
     labels: dict[str, str] = {}
-    for item in selects[0].select:
+    for position, item in enumerate(selects[0].select):
         name = _output_name(item)
         if name is None:
             continue
-        expr = item.expr if isinstance(item, ast.Alias) else item
-        if expr.type is None:
+        branch_labels = [
+            _item_type_label(select.select[position], context) for select in selects if position < len(select.select)
+        ]
+        known = [label for label in branch_labels if label is not None]
+        if len(known) != len(branch_labels):
             continue
-        label: Optional[str] = None
-        if isinstance(expr.type, ast.FieldType):
-            try:
-                label = _database_field_label(expr.type.resolve_database_field(context))
-            except Exception:
-                label = None
-        elif isinstance(expr.type, ast.ExpressionFieldType):
-            label = _expression_field_label(expr.type, context)
-        if label is None:
-            try:
-                label = _CONSTANT_TYPE_LABELS.get(type(expr.type.resolve_constant_type(context)))
-            except Exception:
-                label = None
-        if label is not None:
-            labels[name] = label
+        non_time = [label for label in known if label not in _KEY_TYPE_LABELS]
+        labels[name] = non_time[0] if non_time else known[0]
     return labels
+
+
+def _item_type_label(item: ast.Expr, context: HogQLContext) -> Optional[str]:
+    expr = item.expr if isinstance(item, ast.Alias) else item
+    if expr.type is None:
+        return None
+    label: Optional[str] = None
+    if isinstance(expr.type, ast.FieldType):
+        try:
+            label = _database_field_label(expr.type.resolve_database_field(context))
+        except Exception:
+            label = None
+    elif isinstance(expr.type, ast.ExpressionFieldType):
+        label = _expression_field_label(expr.type, context)
+    if label is None:
+        try:
+            label = _CONSTANT_TYPE_LABELS.get(type(expr.type.resolve_constant_type(context)))
+        except Exception:
+            label = None
+    return label
 
 
 def _output_name(item: ast.Expr) -> Optional[str]:
@@ -358,6 +397,27 @@ def _check_set_operators(node: ast.SelectQuery | ast.SelectSetQuery, blockers: l
             )
     for branch in node.select_queries():
         _check_set_operators(branch, blockers)
+
+
+def _check_set_row_slices(
+    node: ast.SelectQuery | ast.SelectSetQuery, blockers: list[str], *, nested: bool, location: str
+) -> None:
+    """A LIMIT or OFFSET written after a whole union lives on the set node, not on any branch, so
+    the per-branch shape check never sees it."""
+    if not isinstance(node, ast.SelectSetQuery):
+        return
+    if node.limit is not None:
+        blockers.append(
+            _row_slice_blocker("LIMIT", "A top-N within one window is not a top-N overall.", nested, location)
+        )
+    if node.offset is not None:
+        blockers.append(
+            _row_slice_blocker(
+                "OFFSET", "The rows skipped within one window are not the rows skipped overall.", nested, location
+            )
+        )
+    for branch in node.select_queries():
+        _check_set_row_slices(branch, blockers, nested=nested, location=location)
 
 
 def _check_shape(
@@ -424,7 +484,15 @@ def _check_nested_shapes(select: ast.SelectQuery, blockers: list[str]) -> None:
     arrives, which holds with or without a LIMIT inside it and is the same class as ``now()``."""
     for source in _source_nodes(select):
         _check_set_operators(source, blockers)
-        for leaf in _leaf_selects(source):
+        leaves = _leaf_selects(source)
+        view_name = leaves[0].view_name if leaves else None
+        _check_set_row_slices(
+            source,
+            blockers,
+            nested=True,
+            location=f'the view "{view_name}"' if view_name else "a subquery or CTE",
+        )
+        for leaf in leaves:
             location = f'the view "{leaf.view_name}"' if leaf.view_name else "a subquery or CTE"
             _check_shape(leaf, blockers, nested=True, location=location)
             _check_nested_shapes(leaf, blockers)
@@ -460,6 +528,40 @@ def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: lis
             "filter cannot be pushed down to the source. Results stay correct, but each run will "
             "read as much data as a full refresh."
         )
+
+
+def _check_key_type(
+    selects: list[ast.SelectQuery],
+    config: IncrementalConfig,
+    key_candidate_types: dict[str, str],
+    blockers: list[str],
+) -> None:
+    """Fails closed: a key whose type cannot be determined is a key we cannot trust."""
+    key = config.incremental_key
+    key_expr = find_key_expression(selects[0], key) if selects else None
+    if key_expr is None or has_aggregation(key_expr):
+        # _check_key already reports a missing or aggregate key.
+        return
+
+    reason = (
+        "an incremental key must be a date or datetime, because only a time key keeps new rows "
+        "above the last run's watermark."
+    )
+    label = key_candidate_types.get(key)
+    if label in _KEY_TYPE_LABELS:
+        return
+    if label is None:
+        blockers.append(
+            f'The type of "{key}" could not be determined, and {reason} Cast it with toDateTime() so its type is clear.'
+        )
+        return
+    message = f'"{key}" is {_TYPE_LABEL_PHRASES.get(label, label)}, but {reason}'
+    if label in _NUMERIC_TYPE_LABELS:
+        message += (
+            " If this column holds a Unix timestamp, convert it with fromUnixTimestamp() or "
+            "fromUnixTimestamp64Milli() and use the result as the key."
+        )
+    blockers.append(message)
 
 
 def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: list[str]) -> None:
