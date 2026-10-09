@@ -101,8 +101,8 @@ Vercel marketplace integrations have two separate flows:
 When a user clicks "Link Existing Account" in the Vercel Marketplace:
 
 1. Vercel opens a popup to our **Redirect URL** (`/connect/vercel/callback`) with an OAuth code
-2. The Marketplace request has no `state`, so PostHog sends the popup to Vercel's external install page (`https://vercel.com/integrations/{VERCEL_INTEGRATION_SLUG}/new`) with a random `state`, and stores the same value in a cookie for `/connect/vercel/callback`
-3. Vercel returns to the Redirect URL with a new code and the same `state`. PostHog rejects the request when the browser has no matching cookie
+2. The Marketplace request has no `state`, so PostHog sends the popup to Vercel's external install page (`https://vercel.com/integrations/{VERCEL_INTEGRATION_SLUG}/new`) with a random `state`, and stores the same value in a host-only `__Host-` cookie
+3. Vercel returns to the Redirect URL with `source=external`, a new code, and the same `state`. PostHog rejects the request when the browser has no matching cookie, or when the request has no `state`
 4. PostHog exchanges the code for an access token via `POST /v2/oauth/access_token`
 5. If the user isn't logged in, they're redirected to `/login` first
 6. The user selects which PostHog organization to link

@@ -248,12 +248,17 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         VERCEL_CLIENT_INTEGRATION_ID="client_id",
         VERCEL_CLIENT_INTEGRATION_SECRET="secret",
         VERCEL_INTEGRATION_SLUG="posthog-test",
+        SESSION_COOKIE_SECURE=False,
     )
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
     def test_callback_without_state_restarts_install_through_vercel(self, mock_client_class: MagicMock) -> None:
         mock_client = _mock_vercel_client(mock_client_class)
 
-        response = self.client.get(self.url, {"code": "code_from_marketplace", "configurationId": "icfg_marketplace"})
+        response = self.client.get(
+            self.url,
+            {"code": "code_from_marketplace", "configurationId": "icfg_marketplace"},
+            HTTP_HOST="us.posthog.com",
+        )
 
         assert response.status_code == 302
         location = urlparse(response["Location"])
@@ -263,32 +268,54 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         )
         state = _state_from_install_redirect(response)
         cookie = response.cookies[_install_state_cookie_name(state)]
+        assert cookie.key.startswith("__Host-")
         assert cookie.value == state
-        assert cookie["path"] == "/connect/vercel/callback"
+        assert cookie["path"] == "/"
+        assert cookie["secure"] is True
+        assert cookie["domain"] == ""
         assert cookie["httponly"] is True
         assert cookie["samesite"] == "Lax"
         mock_client.oauth_token_exchange.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("marketplace", {"source": "marketplace"}, status.HTTP_302_FOUND, []),
+            ("source_absent", {}, status.HTTP_302_FOUND, []),
+            (
+                "returned_from_install",
+                {"source": "external"},
+                status.HTTP_400_BAD_REQUEST,
+                ["missing_state_after_install_redirect"],
+            ),
+        ]
+    )
     @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
     @patch("ee.api.vercel.vercel_connect.capture_exception")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_install_that_returns_without_state_fails_instead_of_looping(
-        self, mock_client_class: MagicMock, mock_capture_exception: MagicMock
+    def test_callback_without_state_leaves_pending_install_usable(
+        self,
+        _name: str,
+        params: dict[str, str],
+        expected_status: int,
+        expected_reasons: list[str],
+        mock_client_class: MagicMock,
+        mock_capture_exception: MagicMock,
     ) -> None:
         mock_client = _mock_vercel_client(mock_client_class)
+        pending_state = _state_from_install_redirect(
+            self.client.get(self.url, {"code": "code_from_marketplace", "source": "marketplace"})
+        )
 
-        first_attempt = self.client.get(self.url, {"code": "code_from_marketplace"})
-        returned_without_state = self.client.get(self.url, {"code": "code_from_install"})
-        next_attempt = self.client.get(self.url, {"code": "code_from_marketplace"})
+        response = self.client.get(self.url, {"code": "code_without_state", **params})
+        pending_install = self.client.get(
+            self.url, {"code": "code_from_install", "source": "external", "state": pending_state}
+        )
 
-        assert [first_attempt.status_code, returned_without_state.status_code, next_attempt.status_code] == [
-            302,
-            status.HTTP_400_BAD_REQUEST,
-            302,
+        assert [response.status_code, pending_install.status_code] == [expected_status, status.HTTP_302_FOUND]
+        assert [call.kwargs["code"] for call in mock_client.oauth_token_exchange.call_args_list] == [
+            "code_from_install"
         ]
-        assert next_attempt["Location"].startswith("https://vercel.com/integrations/")
-        mock_client.oauth_token_exchange.assert_not_called()
-        assert mock_capture_exception.call_args.args[1]["reason"] == "missing_state_after_install_redirect"
+        assert [call.args[1]["reason"] for call in mock_capture_exception.call_args_list] == expected_reasons
 
     @parameterized.expand(
         [
