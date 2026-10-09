@@ -27,6 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -92,7 +93,7 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
-import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
+import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -1839,6 +1840,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // not stay armed for the rest of the tab session and prefill a later,
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
+                    const armedGoal = consumeScannerGoalDraftIntent()
                     // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
                     // in-tab click moments before navigation), then an experiment deep link, then
                     // an explicit ?filters= query (both carry fully built state), then a saved
@@ -1955,6 +1957,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // spend the user's AI allowance nor overwrite saved work without an explicit click.
                     if (goalParam && !hasFiltersPrefill) {
                         actions.setGoalDraftInput(goalParam)
+                    }
+                    const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
+                    if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
+                        actions.setGoalDraftInput(armedGoal)
+                        actions.draftScannerFromGoal(armedGoal, values.goalBudgetInput ?? undefined)
                     }
                     return
                 }

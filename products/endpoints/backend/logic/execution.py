@@ -1093,7 +1093,8 @@ class EndpointExecutionService(PydanticModelMixin):
         if pagination and "results" in result:
             pagination.process_results(result)
         elif "results" in result:
-            result["hasMore"] = False
+            # The query runner truncates unpaginated results at its default limit and sets hasMore itself.
+            result["hasMore"] = bool(result.get("hasMore"))
 
         if "results" in result:
             result = {"results": result.pop("results"), **result}

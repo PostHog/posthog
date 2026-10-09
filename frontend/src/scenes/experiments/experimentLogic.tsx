@@ -96,11 +96,7 @@ import {
     experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
-import {
-    type HealthPanelFinding,
-    healthPanelFindings,
-    hoursSinceStart,
-} from 'products/experiments/frontend/health/healthPanelFindings'
+import { type HealthPanelFinding, healthPanelFindings } from 'products/experiments/frontend/health/healthPanelFindings'
 import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
@@ -3898,11 +3894,7 @@ export const experimentLogic = kea<experimentLogicType>([
         healthFindings: [
             (s) => [s.experiment, s.exposures, s.isExperimentDraft],
             (experiment: Experiment, exposures: any, isExperimentDraft: boolean): HealthPanelFinding[] | null =>
-                healthPanelFindings(experiment.health, {
-                    exposures,
-                    isExperimentDraft,
-                    hoursSinceStart: hoursSinceStart(experiment.start_date),
-                }),
+                healthPanelFindings(experiment.health, exposures, isExperimentDraft),
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],

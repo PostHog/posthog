@@ -20,11 +20,12 @@ from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
 from .harness.kernel_sandboxes import reclaim_kernels
+from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
-from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
+from .trace_events import RunMetadata, emit_evaluation_events, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
     from .harness.context import EvalContext
@@ -182,6 +183,7 @@ class _BaseEvalRun:
                 experiment_name,
                 self.agent_trace_id_lookup,
                 trace_namespace=self.trace_namespace,
+                run_metadata=self._experiment_metadata(),
             )
         else:
             self.active_scorers = list(scorers)
@@ -221,8 +223,14 @@ class _BaseEvalRun:
     def _project_name(self) -> str:
         return self.experiment_name
 
-    def _experiment_metadata(self) -> dict[str, Any]:
-        return {"agent_model": self.ctx.agent_model}
+    def _experiment_metadata(self) -> RunMetadata:
+        """The run's configuration, sent to the engine and stamped on every PostHog event."""
+        return {
+            "agent_model": self.ctx.agent_model,
+            "trials": self.ctx.trials,
+            "git_sha": self.ctx.git_sha,
+            "git_dirty": self.ctx.git_dirty,
+        }
 
     async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
@@ -276,6 +284,7 @@ class _BaseEvalRun:
                     result.results,
                     namespace=self.trace_namespace,
                     scorer_traces=self.scorer_traces,
+                    run_metadata=self._experiment_metadata(),
                 )
                 await asyncio.to_thread(evaluation_client.flush)
                 await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
@@ -305,6 +314,7 @@ class _BaseEvalRun:
                             artifacts_summary=meta.get("artifacts_summary"),
                             scores=eval_result.scores,
                             token_usage=meta.get("token_usage"),
+                            run_metadata=self._experiment_metadata(),
                         )
                 await asyncio.to_thread(self.posthog_client.flush)
             except Exception:
@@ -316,7 +326,12 @@ class _BaseEvalRun:
         # Errored cases (infra failures) are surfaced separately so they read as noise,
         # not as agent 0s dragging the averages.
         error_count = sum(1 for r in result.results if r.error is not None)
-        await self.ctx.reporter.record_summary(self.experiment_name, result.summary, error_count=error_count)
+        await self.ctx.reporter.record_summary(
+            self.experiment_name,
+            result.summary,
+            error_count=error_count,
+            trial_stats=trial_stats(result.results, trials=self.ctx.trials),
+        )
 
         if os.getenv("EXPORT_EVAL_RESULTS"):
             self._export_case_results(result)
@@ -515,6 +530,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         case_name=eval_case.name,
                         parsed=parsed,
                         namespace=self.trace_namespace,
+                        run_metadata=self._experiment_metadata(),
                     )
                     # Store metadata for emit_trace_root (called after scoring)
                     self.case_trace_meta[eval_case.name] = {
@@ -579,11 +595,12 @@ class _SandboxedEvalRun(_BaseEvalRun):
     def _project_name(self) -> str:
         return f"sandboxed-agent-{self.experiment_name}" if self.is_public else self.experiment_name
 
-    def _experiment_metadata(self) -> dict[str, Any]:
+    def _experiment_metadata(self) -> RunMetadata:
         return {
-            "agent_model": self.ctx.agent_model,
+            **super()._experiment_metadata(),
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
+            "reasoning_effort": self.ctx.reasoning_effort,
         }
 
 

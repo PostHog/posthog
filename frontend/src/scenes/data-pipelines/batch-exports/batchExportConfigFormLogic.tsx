@@ -48,6 +48,7 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'end_at',
     'model',
     'hogql_query',
+    'hogql_modifiers',
     'filters',
     'integration_id',
 ])
@@ -105,8 +106,10 @@ function buildBatchExportPayload(formValues: Record<string, any>): Partial<Batch
         offset_day: interval === 'week' ? formValues.offset_day : null,
         offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
         model: formValues.model,
-        // Only the 'hogql' model edits the query. The events model would save a query as its export schema.
+        // Only the 'hogql' model edits the query and its modifiers. The events model would save a query as its
+        // export schema, and the API rejects modifiers for every other model.
         hogql_query: formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
+        hogql_modifiers: formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_modifiers : undefined,
         // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
         filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : undefined,
         destination: buildDestinationPayload(formValues) as any,
@@ -131,6 +134,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
         hogql_query: batchExportConfig.hogql_query ?? null,
+        hogql_modifiers: batchExportConfig.hogql_modifiers ?? null,
         filters: batchExportConfig.filters,
         ...flatConfig,
     }

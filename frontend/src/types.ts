@@ -1142,6 +1142,7 @@ export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
     Settings = 'settings',
+    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -2409,6 +2410,8 @@ export interface BillingProductV2Type {
     included_with_main_product?: boolean
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
+    // Billing refuses a customer billing limit for this product and returns no limit for it.
+    no_billing_limit?: boolean
 }
 
 export interface BillingProductV2AddonType {
@@ -6521,6 +6524,7 @@ export interface ExternalDataSource {
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    connection_warning?: string | null
 }
 
 export interface ExternalDataSourceApiVersionDeprecation {
@@ -7017,6 +7021,7 @@ export type BatchExportConfiguration = {
     paused: boolean
     model: string
     hogql_query?: BatchExportApi['hogql_query']
+    hogql_modifiers?: BatchExportApi['hogql_modifiers']
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
