@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -52,6 +54,10 @@ describe('metricsDashboardImportLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.METRICS_DASHBOARD_IMPORT], {
+            [FEATURE_FLAGS.METRICS_DASHBOARD_IMPORT]: true,
+        })
         mockCreate.mockReset()
         mockList.mockReset().mockResolvedValue([])
         jest.mocked(lemonToast.success).mockReset()
@@ -131,5 +137,24 @@ describe('metricsDashboardImportLogic', () => {
         logic.actions.setGrafanaJson('{"panels": []}')
 
         expect(logic.values.importDisabledReason).toBe('3 imports are running. Wait for one of them to finish.')
+    })
+
+    it('asks for the imports list only once the import flag is on', async () => {
+        logic.unmount()
+        mockList.mockClear()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic = metricsDashboardImportLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.METRICS_DASHBOARD_IMPORT], {
+            [FEATURE_FLAGS.METRICS_DASHBOARD_IMPORT]: true,
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.METRICS_DASHBOARD_IMPORT], {
+            [FEATURE_FLAGS.METRICS_DASHBOARD_IMPORT]: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockList).toHaveBeenCalledTimes(1)
     })
 })

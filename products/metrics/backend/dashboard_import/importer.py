@@ -296,6 +296,7 @@ class DashboardImporter:
     def __init__(self, *, team: Team, user: User) -> None:
         self._team = team
         self._user = user
+        self._inline_finalizations = 0
 
     def start(self, request: DashboardImportRequest) -> DashboardImportStatus:
         self._check_allowed()
@@ -368,7 +369,8 @@ class DashboardImporter:
             layout_rounds=MAX_LAYOUT_ROUNDS if state.layout_check else None,
         )
 
-    def status(self, import_id: str) -> DashboardImportStatus | None:
+    def status(self, import_id: str, *, finalize: bool = True) -> DashboardImportStatus | None:
+        """The import's status. With `finalize`, an ended run that nothing finalized yet is finalized in the request."""
         run = tasks_facade.get_owner_origin_latest_run(
             task_id=import_id,
             team_id=self._team.id,
@@ -380,8 +382,14 @@ class DashboardImporter:
         state = _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY))
         if state is None:
             return None
-        if state.result is None and run.is_terminal:
-            finalize_import(team_id=self._team.id, task_id=import_id, background=False)
+        # An import that another worker holds costs nothing here, so it does not stop the next one from finalizing.
+        if (
+            state.result is None
+            and run.is_terminal
+            and finalize
+            and finalize_import(team_id=self._team.id, task_id=import_id, background=False)
+        ):
+            self._inline_finalizations += 1
             state = (
                 _parse_state(tasks_facade.read_task_state_entry(import_id, self._team.id, IMPORT_STATE_KEY)) or state
             )
@@ -422,7 +430,10 @@ class DashboardImporter:
             since=timezone.now() - RECENT_IMPORTS_WINDOW,
             limit=MAX_RECENT_IMPORTS,
         )
-        return [status for task_id in task_ids if (status := self.status(str(task_id))) is not None]
+        # Each finalization checks every query again, so one list request finalizes at most one import.
+        # The next poll of the list finalizes the next one.
+        statuses = (self.status(str(task_id), finalize=self._inline_finalizations == 0) for task_id in task_ids)
+        return [status for status in statuses if status is not None]
 
     def _check_allowed(self) -> None:
         if self._team.organization.is_ai_data_processing_approved is not True:
@@ -924,11 +935,14 @@ def _run_failure(run: TaskRunDTO | None) -> str | None:
     return None
 
 
-def finalize_import(*, team_id: int, task_id: str, background: bool) -> None:
-    """Build the dashboard of a finished import task. Safe to call more than once and from several workers."""
+def finalize_import(*, team_id: int, task_id: str, background: bool) -> bool:
+    """Build the dashboard of a finished import task. Safe to call more than once and from several workers.
+
+    Returns False when another caller holds the import or finalized it already, so this call did no work.
+    """
     state = _claim(team_id, task_id)
     if state is None:
-        return
+        return False
     run = tasks_facade.get_latest_run_by_task([task_id]).get(task_id)
     if run is not None and run.team_id != team_id:
         run = None
@@ -960,6 +974,7 @@ def finalize_import(*, team_id: int, task_id: str, background: bool) -> None:
     _delete_inputs(state.input_paths)
     if result is not None:
         importer.capture_finished(state, result, path="agent", background=background)
+    return True
 
 
 _PROGRESS_HIDDEN_KINDS = frozenset({"row", "text"})
