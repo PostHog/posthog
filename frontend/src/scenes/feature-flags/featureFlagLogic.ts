@@ -1866,6 +1866,9 @@ export interface featureFlagLogicActions {
         requireStatusConfirmation?: boolean | undefined
         updatedFlag: Partial<FeatureFlagType>
     }
+    startNewFlagDisabled: () => {
+        value: true
+    }
     stopRecurringScheduledChange: (scheduledChangeId: number) => {
         scheduledChangeId: number
     }
@@ -2311,6 +2314,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // Re-establishes the saved-state baseline the unsaved-changes guard diffs against.
         // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
         setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
+        // A new flag starts disabled while enabling needs approval. The baseline follows, so the
+        // unsaved-changes guard does not count the forced value as an edit.
+        startNewFlagDisabled: true,
         refreshFeatureFlagAfterAgentChange: true,
         setFeatureFlagFilters: (filters: FeatureFlagFilters, errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
@@ -2474,6 +2480,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // navigation. Server-authoritative re-baselines flow through setOriginalFeatureFlag.
                 loadFeatureFlagSuccess: (_, { featureFlag }) => toFeatureFlagBaseline(featureFlag),
                 setOriginalFeatureFlag: (_, { featureFlag }) => featureFlag,
+                startNewFlagDisabled: (state) => (state ? { ...state, active: false } : state),
             },
         ],
         featureFlag: [
@@ -2482,6 +2489,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setFeatureFlag: (_, { featureFlag }) => {
                     return featureFlag
                 },
+                startNewFlagDisabled: (state) => ({ ...state, active: false }),
                 setFeatureFlagFilters: (state, { filters }) => {
                     if (!state) {
                         return state
@@ -4106,8 +4114,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.loadFeatureFlag()
                 } else {
                     // A gated create has no flag page yet, so open the change request instead. Reset the
-                    // form first, because the submitted values now live in the change request.
-                    actions.resetFeatureFlag()
+                    // form to the flag this page loaded, because the submitted values now live in the change
+                    // request. The hard-coded defaults would differ from a template's baseline and read as an edit.
+                    const baseline = values.originalFeatureFlag
+                    actions.resetFeatureFlag(
+                        baseline
+                            ? (variantKeyToIndexFeatureFlagPayloads(baseline) as FeatureFlagWithV1Config)
+                            : undefined
+                    )
                     router.actions.replace(urls.approval(changeRequestId))
                 }
                 return

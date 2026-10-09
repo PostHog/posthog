@@ -1124,13 +1124,23 @@ describe('featureFlagLogic', () => {
             })
         })
 
-        it('opens the change request when creating a flag needs approval', async () => {
+        it('opens the change request when creating a flag needs approval, and leaves the form clean', async () => {
             router.actions.push(urls.featureFlag('new'))
             const newLogic = featureFlagLogic({ id: 'new' })
             newLogic.mount()
 
             try {
                 await expectLogic(newLogic).toFinishAllListeners()
+                // A template loads a starting point that differs from the form defaults.
+                const { filters } = newLogic.values.featureFlag
+                await expectLogic(newLogic, () => {
+                    newLogic.actions.loadFeatureFlagSuccess({
+                        ...newLogic.values.featureFlag,
+                        filters: { ...filters, groups: [{ properties: [], rollout_percentage: 50, variant: null }] },
+                    })
+                }).toFinishAllListeners()
+                newLogic.actions.startNewFlagDisabled()
+                expect(newLogic.values).toMatchObject({ isFormDirty: false, featureFlag: partial({ active: false }) })
                 newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, key: 'gated-flag' })
                 jest.spyOn(api, 'create').mockRejectedValueOnce(approvalRequired())
                 const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
@@ -1142,9 +1152,12 @@ describe('featureFlagLogic', () => {
                     .toDispatchActions(['saveFeatureFlagFailure'])
                     .toFinishAllListeners()
 
-                expect(confirmSpy).not.toHaveBeenCalled()
                 expect(approvalToast).toHaveBeenCalledTimes(1)
                 expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.approval('cr-1'))
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).not.toHaveBeenCalled()
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.featureFlags())
             } finally {
                 newLogic.unmount()
             }
