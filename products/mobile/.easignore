@@ -1,0 +1,15 @@
+# EAS reads this file instead of .gitignore, so it repeats every entry there.
+# Builds run prebuild from app.config.ts. A local ios/ or android/ folder in the
+# archive would make EAS skip prebuild and build that stale native project.
+node_modules/
+.expo/
+ios/
+android/
+dist/
+web-build/
+coverage/
+.turbo/
+*.tsbuildinfo
+expo-env.d.ts
+.env
+.env.local

@@ -243,3 +243,6 @@ corpora/
 # Agent workspace scratch directory. Holds live browser profiles and run output
 # for local scripts, so it must never reach a commit.
 /.context/
+
+# Argent (simulator driver) writes recordings wherever its tool server starts.
+.argent/recordings/

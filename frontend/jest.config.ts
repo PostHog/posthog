@@ -200,6 +200,7 @@ const config: Config = {
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
         '/products/desktop/',
+        '/products/mobile/',
     ],
 
     transform: {

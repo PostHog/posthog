@@ -1,0 +1,85 @@
+# Push notifications
+
+Code: `src/features/notifications/`, `src/api/pushTokens.ts`. The root layout installs both hooks.
+
+## Token lifecycle
+
+| When | What happens |
+| --- | --- |
+| App start | `configureNotifications()` sets the foreground handler (banner and list, no sound, no badge) and creates the Android channel `default`. |
+| After sign in | `usePushRegistration()` asks for permission once (`prompted` is persisted), gets the Expo push token with the EAS project id, and `POST /api/users/@me/push_tokens/` `{ token, platform: 'ios' \| 'android' }`. |
+| Every later launch | Registers again without asking. The server upserts on (user, token), so this only refreshes `last_seen_at`. |
+| OS rotates the token | `addPushTokenListener` registers the new token and unregisters the old one. |
+| App returns to the foreground | Rereads the permission and registers if the user turned notifications on in system settings. |
+| Settings, "Enable notifications" | Asks again when the system allows it, otherwise opens system settings. |
+| Sign out | `POST /api/users/@me/push_tokens/unregister/` `{ token }` before the access token is dropped (sign-out task, 4 second timeout). |
+
+The server keeps at most 20 tokens per user and evicts the oldest. Both endpoints need `user:write`.
+
+Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.
+Settings shows which one applies.
+
+## Payloads
+
+Server pushes are sent by `posthog/tasks/push_notifications.send_user_push` through the Expo push API.
+Both senders are gated by the `posthog-code-mobile-push` feature flag, evaluated per user.
+
+**Inbox** (`products/signals/backend/inbox_push_notifications.py`):
+
+```json
+{ "type": "report", "report_id": "<uuid>", "project_id": 2, "notificationKind": "report_visible" }
+```
+
+`notificationKind` is `report_visible` (a new report for its suggested reviewers) or `pull_request_ready`.
+
+**Tasks** (`products/tasks/backend/push_dispatcher.py`):
+
+```json
+{ "taskId": "<uuid>", "taskRunId": "<uuid>", "projectId": 2, "notificationKind": "awaiting" }
+```
+
+Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread_message` (with `messageId`, no run), `handoff` (no run).
+`projectId` is the task's team id. Pushes from servers that predate it have no project id.
+
+**Snooze reminders** are local notifications. They should use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
+
+## Routing
+
+`useNotificationRouting()` handles taps that start the app (`getLastNotificationResponse`) and taps while it runs (`addNotificationResponseReceivedListener`).
+It waits until the navigator is mounted and the session has loaded, and handles each notification id once.
+The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
+
+| Payload | Route |
+| --- | --- |
+| `type: 'report'`, project is current or absent | `/report/{report_id}` |
+| `type: 'report'`, another project the user has | switch project, then `/report/{report_id}` |
+| `type: 'report'`, a project the user does not have | `/inbox` |
+| `taskId` with `projectId` | `GET /api/projects/{projectId}/tasks/{taskId}/` only, or `/inbox` when the user does not have that project. `signal_report` set: switch project if needed, then `/report/{signal_report}`. Otherwise `/inbox`. |
+| `taskId` without `projectId` | The same lookup in the current project, then the others (at most 8 lookups). |
+| anything else | nothing |
+
+A tap turns demo mode off, because a push is about live data.
+Every tap captures `mobile_push_opened` with `kind` (the payload's `notificationKind`, else `report`, `task` or `unknown`).
+
+## Testing
+
+1. Install a development build on a physical device and sign in. Allow notifications.
+2. Settings, Notifications, shows "On" and the device token (`ExponentPushToken[…]`).
+3. Send a test push with the Expo CLI:
+
+   ```sh
+   npx expo push:send --to 'ExponentPushToken[...]' --title 'New report' --body 'Checkout fails on Safari' \
+     --data '{"type":"report","report_id":"<report id>","project_id":2}'
+   ```
+
+   If your CLI has no `push:send`, post to the Expo push API directly:
+
+   ```sh
+   curl -s https://exp.host/--/api/v2/push/send -H 'Content-Type: application/json' \
+     -d '{"to":"ExponentPushToken[...]","title":"New report","body":"Checkout fails on Safari","data":{"type":"report","report_id":"<report id>","project_id":2}}'
+   ```
+
+4. Tap it with the app killed, in the background and in the foreground (the banner shows). Each opens the report.
+5. Repeat with `{"taskId":"<task id>","notificationKind":"awaiting"}` for a task linked to a report, and for one without a report (opens the inbox).
+6. For real server pushes, enable `posthog-code-mobile-push` for your user and trigger a task run or a new report.
+7. Sign out and check that `POST …/push_tokens/unregister/` ran (server logs or the token row is gone).

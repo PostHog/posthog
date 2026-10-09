@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+ios/
+android/
+dist/
+web-build/
+coverage/
+.turbo/
+*.tsbuildinfo
+expo-env.d.ts
+.env
+.env.local
+
+# Argent flows are committed; recordings and local state are not.
+.argent/*
+!.argent/flows/
