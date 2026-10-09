@@ -97,7 +97,7 @@ describe('convertOtelEvent', () => {
         })
 
         // vercel-ai matches the whole ai.* namespace, so it only stays off
-        // traceloop spans because it is last in the registry.
+        // traceloop spans because it comes after traceloop in the registry.
         it('traceloop markers take priority over an ai.* attribute', () => {
             const event = createEvent('$ai_span', {
                 'traceloop.span.kind': 'workflow',

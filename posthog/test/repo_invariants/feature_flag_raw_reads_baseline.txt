@@ -56,10 +56,6 @@ products/feature_flags/backend/facade/api.py::clear_feature_enrollment::flag.get
 products/feature_flags/backend/flag_status.py::<module>::sql on posthog_featureflag.filters
 products/feature_flags/backend/flag_status.py::<module>::sql on posthog_featureflag.filters
 products/feature_flags/backend/flag_status.py::FeatureFlagStatusChecker.get_rollout_summary::filters = flag.filters or {}
-products/feature_flags/backend/flag_status.py::FeatureFlagStatusChecker.is_boolean_flag_fully_rolled_out::(flag.filters or {}).get('groups')
-products/feature_flags/backend/flag_status.py::FeatureFlagStatusChecker.is_flag_fully_rolled_out::(flag.filters or {}).get('multivariate')
-products/feature_flags/backend/flag_status.py::FeatureFlagStatusChecker.is_multivariate_flag_fully_rolled_out::(flag.filters or {}).get('groups')
-products/feature_flags/backend/flag_status.py::FeatureFlagStatusChecker.is_multivariate_flag_fully_rolled_out::(flag.filters or {}).get('multivariate')
 products/feature_flags/backend/flag_status.py::filter_stale_flags::extra(sql on filters)
 products/feature_flags/backend/flag_version_sync.py::_flags_referencing_cohort::extra(sql on filters)
 products/feature_flags/backend/flag_version_sync.py::flags_with_flag_dependencies::extra(sql on filters)
@@ -67,9 +63,7 @@ products/feature_flags/backend/local_evaluation.py::_get_flags_response_for_loca
 products/feature_flags/backend/models/feature_flag.py::FeatureFlagQuerySet.eligible_for_experiment::KeyTransform('multivariate', 'filters')
 products/feature_flags/backend/models/feature_flag.py::build_scheduled_change_serializer_data::flag.get_filters()
 products/feature_flags/backend/persisted_flags.py::is_unconditionally_fully_rolled_out::filters = flag.get('filters') or {}
-products/feature_flags/backend/temporal/health_checks/stale_flags.py::_multivariate_results_agree::(flag.filters or {}).get('multivariate')
 products/feature_flags/backend/temporal/health_checks/stale_flags.py::_serves_more_than_one_result::filters = flag.filters or {}
-products/feature_flags/backend/temporal/health_checks/stale_flags.py::_sole_served_variant::filters = flag.filters or {}
 products/feature_flags/backend/version_history.py::<lambda>::flag.get_filters()
 products/surveys/backend/api/survey.py::SurveySerializerCreateUpdateOnly._add_user_survey_interacted_filters::**existing_targeting_flag.filters
 products/surveys/backend/api/survey.py::SurveySerializerCreateUpdateOnly.update::existing_targeting_flag_filters = existing_targeting_flag.filters

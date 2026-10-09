@@ -1,10 +1,11 @@
-import { ConnectError } from '@connectrpc/connect'
+import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { errorClassLabel } from '~/common/personhog/metrics'
 import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
+    personhogStoreShadowCreateRetriesCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowDurationSeconds,
     personhogStoreShadowErrorsCounter,
@@ -16,7 +17,7 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
-import { promiseRetry } from '~/common/utils/retries'
+import { promiseRetry, retryIfRetriable } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
@@ -127,6 +128,39 @@ const SHADOW_MERGE_REDRIVES_PER_FLUSH = 16
 const SHADOW_MERGE_DEFERRED_LIMIT = 1_000
 
 type DeferredShadowMerge = { request: MergePersonsRequest; batchId: number; notBefore: number; expiresAt: number }
+
+/**
+ * A failed shadow create retries in place; the event's distinct-id sequencing keeps later events behind it.
+ * The deadline is soft: the last attempt starts before it and may run two transport budgets past it, so the create
+ * ends under 40 s of the worker's 60 s sub-batch ack deadline. The batch's flush has its own ceiling after that.
+ */
+const SHADOW_CREATE_RETRY_SLEEP_MS = 1_000
+const SHADOW_CREATE_RETRY_MAX_SLEEP_MS = 8_000
+const SHADOW_CREATE_RETRY_DEADLINE_MS = 20_000
+
+/** Transient per the transport's own classification, or a stream reset; identity's get-or-create is safe to repeat. */
+function isTransientCreateFailure(error: unknown): boolean {
+    return (
+        (error as { isRetriable?: boolean } | null)?.isRetriable === true ||
+        (error instanceof ConnectError && error.code === Code.Canceled)
+    )
+}
+
+/**
+ * The creation properties as set-once ops, for a person that turned out to exist on the personhog side. Forced, as
+ * the leader drops an unforced set-once of a filtered key even onto a bare stub.
+ */
+function creationOps(properties: Properties, isIdentified: boolean): EventOps {
+    return {
+        set: {},
+        setOnce: properties,
+        unset: [],
+        denied: false,
+        shouldForceUpdate: true,
+        eventName: CREATE_EVENT_NAME,
+        ...(isIdentified ? { isIdentified: true } : {}),
+    }
+}
 
 /** Raised when a shadow verb outruns its ceiling and the batch abandons it. */
 class ShadowVerbTimeoutError extends Error {
@@ -390,35 +424,29 @@ export class RoutingPersonsStore implements PersonsStore {
                     batchId
                 ),
             {
-                shadow: (abandoned) =>
-                    this.shadowCreate(
-                        () =>
-                            this.personhog.createPerson(
-                                createdAt,
-                                properties,
-                                propertiesLastUpdatedAt,
-                                propertiesLastOperation,
-                                teamId,
-                                isUserId,
-                                isIdentified,
-                                uuid,
-                                primaryDistinctId,
-                                extraDistinctIds,
-                                tx,
-                                batchId
-                            ),
-                        teamId,
-                        properties,
-                        isIdentified,
-                        primaryDistinctId.distinctId,
-                        batchId,
-                        abandoned
+                shadow: () =>
+                    this.shadowCreate(() =>
+                        this.personhog.createPerson(
+                            createdAt,
+                            properties,
+                            propertiesLastUpdatedAt,
+                            propertiesLastOperation,
+                            teamId,
+                            isUserId,
+                            isIdentified,
+                            uuid,
+                            primaryDistinctId,
+                            extraDistinctIds,
+                            tx,
+                            batchId
+                        )
                     ),
                 after: (authoritative, shadow, abandoned) =>
                     this.reconcileShadowCreate(
                         authoritative,
                         shadow as CreatePersonResult,
                         properties,
+                        isIdentified,
                         primaryDistinctId.distinctId,
                         batchId,
                         abandoned
@@ -428,40 +456,38 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * A create the client gave up on may have left the person without its properties, and the event does not retry
-     * here, so its properties are held set-once for the distinct id. A deterministic rejection would fail again, and
-     * an abandoned create's batch may be released, so neither is held.
+     * A failed create retries in place, whatever failed: Postgres holds the person now, so no later event would
+     * create it on the personhog side. The deadline, not a try count, bounds the loop.
      */
-    private async shadowCreate(
-        create: () => Promise<CreatePersonResult>,
-        teamId: number,
-        properties: Properties,
-        isIdentified: boolean,
-        distinctId: string,
-        batchId: number,
-        abandoned: AbortSignal
-    ): Promise<CreatePersonResult> {
-        try {
-            return await create()
-        } catch (error) {
-            if (!abandoned.aborted && (error as { isRetriable?: boolean })?.isRetriable === true) {
-                this.personhog.holdEventOps(
-                    teamId,
-                    distinctId,
-                    {
-                        set: {},
-                        setOnce: properties,
-                        unset: [],
-                        denied: false,
-                        shouldForceUpdate: true,
-                        eventName: CREATE_EVENT_NAME,
-                        ...(isIdentified ? { isIdentified: true } : {}),
-                    },
-                    batchId
-                )
+    private async shadowCreate(create: () => Promise<CreatePersonResult>): Promise<CreatePersonResult> {
+        let attempts = 0
+        const result = await retryIfRetriable(
+            async () => {
+                attempts += 1
+                if (attempts > 1) {
+                    personhogStoreShadowCreateRetriesCounter.labels({ outcome: 'retried' }).inc()
+                }
+                try {
+                    return await create()
+                } catch (error) {
+                    if (isTransientCreateFailure(error)) {
+                        throw error
+                    }
+                    const failure = error instanceof Object ? error : new Error(String(error))
+                    throw Object.assign(failure, { isRetriable: false })
+                }
+            },
+            {
+                tries: Number.POSITIVE_INFINITY,
+                sleepMs: SHADOW_CREATE_RETRY_SLEEP_MS,
+                maxSleepMs: SHADOW_CREATE_RETRY_MAX_SLEEP_MS,
+                softDeadlineMs: SHADOW_CREATE_RETRY_DEADLINE_MS,
             }
-            throw error
+        )
+        if (attempts > 1) {
+            personhogStoreShadowCreateRetriesCounter.labels({ outcome: 'recovered' }).inc()
         }
+        return result
     }
 
     /** Postgres created the person and personhog only found it: apply the creation properties set-once. */
@@ -469,6 +495,7 @@ export class RoutingPersonsStore implements PersonsStore {
         authoritative: CreatePersonResult,
         shadow: CreatePersonResult,
         properties: Properties,
+        isIdentified: boolean,
         distinctId: string,
         batchId: number,
         abandoned: AbortSignal
@@ -480,15 +507,7 @@ export class RoutingPersonsStore implements PersonsStore {
         ) {
             return
         }
-        const ops: EventOps = {
-            set: {},
-            setOnce: properties,
-            unset: [],
-            denied: false,
-            shouldForceUpdate: true,
-            eventName: CREATE_EVENT_NAME,
-        }
-        await this.personhog.applyEventOps(shadow.person, ops, distinctId, batchId)
+        await this.personhog.applyEventOps(shadow.person, creationOps(properties, isIdentified), distinctId, batchId)
     }
 
     applyEventOps(

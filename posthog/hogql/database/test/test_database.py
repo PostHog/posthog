@@ -393,6 +393,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             Database.create_for(team_id=missing_team_id)
         self.assertIn(str(missing_team_id), str(cm.exception))
 
+    def test_create_hogql_database_records_duration_metrics(self):
+        with patch("posthog.hogql.database.database._OTEL_DATABASE.record_histogram_twin") as record:
+            Database.create_for(team=self.team)
+
+        assert {call.args[2]["phase"] for call in record.call_args_list} == {
+            "fetch_sources",
+            "build_from_sources",
+            "total",
+        }
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
         with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
