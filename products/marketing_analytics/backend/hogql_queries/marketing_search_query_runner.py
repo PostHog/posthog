@@ -84,18 +84,6 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             database=self.hogql_database,
         )
 
-    def _google_keywords(self, keyword_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
-        return parse_select(
-            """
-            SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
-                any(ad_group_criterion_keyword_text) AS keyword,
-                any(ad_group_criterion_keyword_match_type) AS match_type
-            FROM {keywords}
-            GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
-            """,
-            placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
-        )
-
     def _placement_fields(self, source: MarketingAnalyticsSearchSource) -> dict[str, ast.Expr]:
         table = self.hogql_database.get_table(source.statsTable.split("."))
         fields = (
@@ -111,6 +99,33 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 else value
             )
         return result
+
+    @cached_property
+    def unavailable_placement_tables(self) -> set[str]:
+        if self.query.breakdown == "page":
+            return set()
+        return {
+            source.placementTable
+            for source in self.query.sources
+            if source.sourceType == "GoogleAds"
+            and source.placementTable
+            and (
+                self.hogql_database.is_table_access_denied(source.placementTable)
+                or not self.hogql_database.has_table(source.placementTable)
+            )
+        }
+
+    def _google_keywords(self, keyword_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
+                any(ad_group_criterion_keyword_text) AS keyword,
+                any(ad_group_criterion_keyword_match_type) AS match_type
+            FROM {keywords}
+            GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
+            """,
+            placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
+        )
 
     @property
     def include_posthog_conversions(self) -> bool:
@@ -318,7 +333,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             )
         if self.query.breakdown != "page":
             for source in self.query.sources:
-                if source.sourceType == "GoogleAds" and source.placementTable:
+                if (
+                    source.sourceType == "GoogleAds"
+                    and source.placementTable
+                    and source.placementTable not in self.unavailable_placement_tables
+                ):
                     source_queries.append(self._google_placement_query(source, self.query_date_range, 0))
                     if self.comparison_date_range:
                         source_queries.append(self._google_placement_query(source, self.comparison_date_range, 1))
@@ -495,7 +514,9 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     previous=MarketingAnalyticsSearchMetrics(**previous) if self.comparison_date_range else None,
                 )
             )
-        response = MarketingAnalyticsSearchQueryResponse(results=rows)
+        response = MarketingAnalyticsSearchQueryResponse(
+            results=rows, placementUnavailable=bool(self.unavailable_placement_tables)
+        )
         if self.include_posthog_conversions:
             self._add_posthog_conversions(response, ambiguous_keys)
         return response

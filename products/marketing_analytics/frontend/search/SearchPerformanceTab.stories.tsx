@@ -518,6 +518,29 @@ export const OnlyGoogleAds: Story = {
         },
     },
 }
+export const PlacementUnavailable: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': {
+                        results: ROWS.map((row) =>
+                            row.platform === 'GoogleAds'
+                                ? { ...row, topImpressionRate: null, absoluteTopImpressionRate: null }
+                                : row
+                        ),
+                        placementUnavailable: true,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(canvas.findByText(/Some Google Ads position data is unavailable/)).resolves.toBeVisible()
+        expect((await canvas.findAllByRole('button', { name: 'product analytics' })).length).toBeGreaterThan(0)
+    },
+}
 export const Empty: Story = {
     parameters: {
         msw: {

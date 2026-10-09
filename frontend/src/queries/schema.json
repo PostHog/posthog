@@ -13098,6 +13098,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
                 "posthogAttributionMode": {
                     "anyOf": [
                         {
@@ -36711,6 +36714,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
                 "posthogAttributionMode": {
                     "anyOf": [
                         {
@@ -45203,6 +45209,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "placementUnavailable": {
+                            "type": "boolean"
                         },
                         "posthogAttributionMode": {
                             "anyOf": [

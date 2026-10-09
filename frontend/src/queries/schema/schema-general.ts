@@ -8319,6 +8319,7 @@ export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMet
 }
 
 export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    placementUnavailable?: boolean
     results: MarketingAnalyticsSearchRow[]
     posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null
     posthogConversionsWarning?: string | null

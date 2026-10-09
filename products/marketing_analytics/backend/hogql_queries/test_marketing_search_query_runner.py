@@ -34,6 +34,7 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 from .marketing_search_query_runner import MarketingAnalyticsSearchQueryRunner
@@ -50,8 +51,9 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    @parameterized.expand([(False,), (True,)])
-    def test_combines_platforms_without_multiplying_metrics_or_mixing_currencies(self, with_placement: bool) -> None:
+    @parameterized.expand([("absent",), ("ready",), ("denied",), ("missing",)])
+    def test_combines_platforms_without_multiplying_metrics_or_mixing_currencies(self, placement_status: str) -> None:
+        with_placement = placement_status == "ready"
         keywords = self._table(
             "search_keywords",
             {
@@ -95,7 +97,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "1,10,100,8,USD,7,70,14000000,1,2023-01-10,SEARCH,0.5,0.5\n",
         )
         placement = None
-        if with_placement:
+        if placement_status in {"ready", "denied"}:
             placement = self._table(
                 "search_google_placement",
                 {
@@ -123,6 +125,30 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 "2,20,200,7,Other keyword,PHRASE,USD,2023-01-10,SEARCH,100,0.6,0.2\n"
                 "1,10,100,8,Unsynced keyword,BROAD,USD,2023-01-10,SEARCH,70,0.5,0.5\n",
             )
+        if placement_status == "denied":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            placement_table = DataWarehouseTable.objects.get(team=self.team, name=placement)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_table",
+                resource_id=str(placement_table.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+            flag = patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
+            )
+            flag.start()
+            self.addCleanup(flag.stop)
+        elif placement_status == "missing":
+            placement = "missing_keyword_placement_stats"
         bing_stats = self._table(
             "search_bing_stats",
             {
@@ -153,7 +179,9 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 MarketingAnalyticsSearchSource(sourceType="BingAds", statsTable=bing_stats),
             ],
         )
-        rows = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
+        response = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert response.placementUnavailable == (placement_status in {"denied", "missing"})
+        rows = response.results
         assert len(rows) == 7
         unsynced = next(row for row in rows if row.platform == "GoogleAds" and row.keyword is None)
         assert unsynced.clicks == 7 and unsynced.impressions == 70

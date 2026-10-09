@@ -3,7 +3,7 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
@@ -45,7 +45,8 @@ export function SearchPerformanceTable({
     })
     const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
-    const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
+    const searchResponse = response as MarketingAnalyticsSearchQueryResponse | undefined
+    const rows = searchResponse?.results ?? []
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
     const hasPositionSources = query.sources.some((source) =>
         ['GoogleSearchConsole', 'GoogleAds', 'BingAds'].includes(source.sourceType)
@@ -80,6 +81,12 @@ export function SearchPerformanceTable({
                 <Reload />
                 <ElapsedTime />
             </div>
+            {!responseLoading && searchResponse?.placementUnavailable && (
+                <LemonBanner type="info">
+                    Some Google Ads position data is unavailable. Check your access to keyword_placement_stats or ask a
+                    project admin for help. Traffic data is available.
+                </LemonBanner>
+            )}
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"

@@ -25,6 +25,7 @@ The placement table does not include click-type segmentation, which Google Ads d
 Clicks, spend, conversions, and total impressions continue to come from `keyword_stats`.
 When keyword traffic tables are ready but placement data is unavailable, a separate notice explains how to enable or restore `keyword_placement_stats`.
 Traffic remains visible while placement data is pending.
+If the placement table is missing or the user cannot access it, the report omits its placement data and shows an access notice.
 Google Ads landing page breakdowns show no placement percentages because Google Ads does not support these metrics for the landing page resource.
 Historical placement columns in `keyword_stats` and `landing_page_stats` are ignored.
 Bing Ads percentages use Microsoft Advertising report values, weighted by impressions.
