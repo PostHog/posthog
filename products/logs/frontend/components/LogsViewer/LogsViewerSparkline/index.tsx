@@ -15,6 +15,7 @@ import { shortTimeZone } from 'lib/utils/timezones'
 import { DateRange } from '~/queries/schema/schema-general'
 
 import type { VisibleLogsTimeRange } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
 import { highlightedBucketRange, selectedDateRange } from './bucketRanges'
 
@@ -30,6 +31,8 @@ export interface LogsSparklineData {
 export interface LogsViewerSparklineProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
+    sparklineError?: string | null
+    onRetry?: () => void
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
     collapsed?: boolean
@@ -41,6 +44,8 @@ export interface LogsViewerSparklineProps {
 export function LogsSparkline({
     sparklineData,
     sparklineLoading,
+    sparklineError = null,
+    onRetry,
     onDateRangeChange,
     displayTimezone,
     collapsed = false,
@@ -178,12 +183,21 @@ export function LogsSparkline({
                                 <HighlightedRange start={highlight.startIndex} end={highlight.endIndex} />
                             ) : null}
                         </TimeSeriesBarChart>
-                    ) : !sparklineLoading ? (
+                    ) : !sparklineLoading && !sparklineError ? (
                         <div className="h-full text-muted flex items-center justify-center">
                             No results matching filters
                         </div>
                     ) : null}
                     {sparklineLoading && <SpinnerOverlay />}
+                    {onRetry && (
+                        <QueryFailedOverlay
+                            error={sparklineError}
+                            title="Couldn't load log volume"
+                            onRetry={onRetry}
+                            compact
+                            className="bg-primary"
+                        />
+                    )}
                 </div>
             )}
         </div>
