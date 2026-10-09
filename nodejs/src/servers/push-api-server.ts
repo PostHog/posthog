@@ -185,7 +185,8 @@ export class PushApiServer implements NodeServer {
         server.headersTimeout = 10_000
         server.requestTimeout = 15_000
         // Envoy keeps an idle upstream connection for up to an hour. If node closes it first, a request
-        // Envoy sends at that moment fails with a 503, so the idle timeout outlasts Envoy's.
+        // Envoy sends at that moment fails with a 503, so the idle timeout outlasts Envoy's. Clients
+        // reach this port only through Envoy, so every idle connection here is one Envoy pools.
         server.keepAliveTimeout = 65 * 60_000
 
         return new Promise((resolve, reject) => {
