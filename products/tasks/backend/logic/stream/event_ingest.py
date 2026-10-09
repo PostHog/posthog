@@ -19,11 +19,13 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.tasks.backend import push_dispatcher
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
 )
+from products.tasks.backend.logic.services.permission_broker import parse_permission_request
 from products.tasks.backend.logic.services.process_killed import (
     PROCESS_KILLED_EVENT,
     ProcessKilledNotice,
@@ -595,6 +597,11 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         if not dispatched:
             await redis_stream.release_first_agent_activity()
 
+    if parse_permission_request(event) is not None:
+        # A pending permission request or question holds the turn open, so no turn-complete push
+        # reaches the user until they answer it.
+        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id)
+
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
         if pi_turn_error(event):
@@ -674,6 +681,23 @@ def _dispatch_turn_completed_sync(run_id: str, *, succeeded: bool = False, turn_
 
     task_run.signal_agent_turn_completed(succeeded=succeeded)
     dispatch_turn_completed(task_run, turn_completed=turn_completed)
+
+
+def _notify_awaiting_input(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
+    try:
+        task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
+    except TaskRun.DoesNotExist:
+        logger.warning("task_run_event_ingest_awaiting_input_run_missing", run_id=run_id)
+        return
+    except (OperationalError, InterfaceError):
+        # The event is already accepted, so a failed lookup loses only the push and must not fail the request.
+        logger.warning("task_run_event_ingest_awaiting_input_lookup_failed", run_id=run_id, exc_info=True)
+        return
+
+    push_dispatcher.notify_task_run_awaiting_input(task_run)
 
 
 async def _dispatch_turn_failed(run_id: str) -> None:
