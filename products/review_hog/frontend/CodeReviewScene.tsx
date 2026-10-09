@@ -1,14 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    IconBalance,
-    IconBolt,
-    IconChat,
     IconChevronDown,
-    IconConfetti,
     IconDirectedGraph,
     IconExternal,
-    IconFilter,
     IconGithub,
     IconPlus,
     IconPullRequest,
@@ -23,7 +18,6 @@ import {
     LemonInput,
     LemonSegmentedButton,
     LemonSkeleton,
-    LemonSlider,
     LemonSwitch,
     LemonTabs,
     LemonTag,
@@ -32,11 +26,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconStamphog } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
@@ -54,7 +46,6 @@ import type {
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
     ReviewResolutionStatusApi,
-    UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
@@ -63,6 +54,8 @@ import {
 
 import { AdoptSkillModal } from './AdoptSkillModal'
 import { PipelineDetailModal } from './PipelineDetailModal'
+import { InstallationClaims } from './repositories/InstallationClaims'
+import { RepositoriesPanes } from './repositories/RepositoriesPanes'
 import {
     CodeReviewTab,
     REVIEWS_PAGE_SIZE,
@@ -70,6 +63,9 @@ import {
     ReviewSkillKind,
     reviewHogSettingsLogic,
 } from './reviewHogSettingsLogic'
+import { SectionHeader } from './SectionHeader'
+import { FullReviewSettingsSection } from './settings/FullReviewSettingsSection'
+import { InboxSection } from './settings/InboxSection'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -137,54 +133,6 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
         ],
     },
 ]
-
-const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description: string }[] = [
-    {
-        key: 'consider',
-        label: 'All issues',
-        description:
-            'Every validated finding is published, including the minor consider-level ones. This is the default.',
-    },
-    {
-        key: 'should_fix',
-        label: 'Should fix',
-        description: 'Recommended fixes and anything more serious. Minor consider-level findings are dropped.',
-    },
-    {
-        key: 'must_fix',
-        label: 'Must fix',
-        description: 'Only blocking issues, the highest-priority findings. Everything else is dropped.',
-    },
-]
-
-function SectionHeader({
-    icon,
-    title,
-    pill,
-    action,
-    children,
-}: {
-    icon: JSX.Element
-    title: string
-    pill?: JSX.Element
-    action?: JSX.Element
-    children: string
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary bg-surface-primary text-secondary *:size-4">
-                    {icon}
-                </span>
-                <h3 className="m-0 text-base font-semibold">{title}</h3>
-                {pill}
-                {action && <div className="ml-auto">{action}</div>}
-            </div>
-            {/* Indented so the copy aligns under the title, not the icon tile */}
-            <p className="m-0 ml-9 max-w-160 text-xs text-secondary">{children}</p>
-        </div>
-    )
-}
 
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
 const REVIEWS_SCOPE_OPTIONS: {
@@ -446,9 +394,8 @@ function resolutionLabel(resolution: ReviewResolutionStatusApi): string {
 
 /** A first review still running: no findings to expand into yet, just the live stage. */
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
-    const { reviewsScope } = useValues(reviewHogSettingsLogic)
-    // On Everyone, whose PR it is matters at a glance; on Mine it is mostly yours.
-    const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
+    const { showReviewAuthor } = useValues(reviewHogSettingsLogic)
+    const showAuthor = showReviewAuthor(review)
     return (
         <div className="flex items-center gap-3 px-4 py-3">
             <span className="flex w-6 shrink-0 justify-center">
@@ -483,12 +430,11 @@ function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.El
 
 /** One expandable review row: essentials collapsed; PR facts + funnel + findings entry when open. */
 function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
-    const { expandedReviewIds, reviewsScope } = useValues(reviewHogSettingsLogic)
+    const { expandedReviewIds, showReviewAuthor } = useValues(reviewHogSettingsLogic)
     const { toggleReviewRowExpanded, openReviewDetail } = useActions(reviewHogSettingsLogic)
     const expanded = expandedReviewIds.includes(review.id)
     const validated = review.must_fix_count + review.should_fix_count + review.consider_count
-    // On Everyone, whose PR it is matters at a glance; on Mine it is mostly yours.
-    const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
+    const showAuthor = showReviewAuthor(review)
 
     // A first review has no completed turn to expand into — it renders as a live progress row.
     if (review.in_progress && review.run_count === 0) {
@@ -713,7 +659,8 @@ function RecentReviewsSection(): JSX.Element | null {
  * actions are the per-run variants (review without resolving / resolve only / flash).
  */
 function TriggerReviewSection(): JSX.Element {
-    const { triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
+    const { triggerPrUrl, triggeringReview, triggerUrlResolving, triggerUrlHasFullReview } =
+        useValues(reviewHogSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showInternalFeatures = !!featureFlags[FEATURE_FLAGS.REVIEW_HOG_INTERNAL]
     const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
@@ -723,11 +670,15 @@ function TriggerReviewSection(): JSX.Element {
     // get the same refusal from the trigger endpoint.
     const resolvingReason = triggerUrlResolving ? 'Still resolving comments from the last review' : undefined
     const inFlightReason = triggeringReview ? 'A run is already starting…' : undefined
+    const flashAfterFullReason = triggerUrlHasFullReview
+        ? 'This pull request already has a Full review. Flash does not run after one.'
+        : undefined
     return (
         <section className="flex flex-col gap-4">
             <SectionHeader icon={<IconGithub />} title="Review a pull request">
-                Start a review of any pull request the GitHub App can access. The review is posted back to the pull
-                request, runs with your perspectives, and shows up under recent reviews.
+                Start a Full review of any pull request the GitHub App can access. The review is posted back to the pull
+                request and shows up under recent reviews. Your perspectives and other review skills apply to Full
+                reviews only.
             </SectionHeader>
             <form
                 className="ml-9 flex flex-wrap items-center gap-2"
@@ -763,22 +714,25 @@ function TriggerReviewSection(): JSX.Element {
                                     >
                                         Review without resolving comments
                                     </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() =>
-                                            submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
-                                        }
-                                        tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
-                                    >
-                                        Only resolve existing comments
-                                    </LemonButton>
+                                    {showInternalFeatures && (
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() =>
+                                                submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+                                            }
+                                            tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
+                                        >
+                                            Only resolve existing comments
+                                        </LemonButton>
+                                    )}
                                     {showInternalFeatures && (
                                         <LemonButton
                                             fullWidth
                                             onClick={() =>
                                                 submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)
                                             }
-                                            tooltip="A faster, cheaper review that never resolves comments. Its status comment is marked as flash."
+                                            tooltip="A faster, cheaper review that never resolves comments and uses none of your review skills. Its status comment is marked as flash."
+                                            disabledReason={flashAfterFullReason}
                                         >
                                             Review in Flash mode
                                         </LemonButton>
@@ -1169,203 +1123,6 @@ function ReviewDetailDrawer(): JSX.Element {
                 />
             </div>
         </LemonDrawer>
-    )
-}
-
-function TriggersSection(): JSX.Element {
-    const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showInternalFeatures = !!featureFlags[FEATURE_FLAGS.REVIEW_HOG_INTERNAL]
-    const { updateSettings } = useActions(reviewHogSettingsLogic)
-
-    const switchDisabledReason = settings === null ? 'Loading…' : settingsLoading ? 'Saving…' : undefined
-
-    return (
-        <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader icon={<IconFilter />} title="What gets reviewed">
-                {showInternalFeatures
-                    ? 'Choose which pull requests PostHog Review picks up automatically, and whether reviews also resolve the comment threads on them.'
-                    : 'Choose whether reviews also resolve comment threads and how clean reviews appear on your pull requests.'}
-            </SectionHeader>
-            <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
-                {/* A switch that is on stays visible, so the user can clear a saved opt-in. */}
-                {(showInternalFeatures || settings?.review_inbox_prs) && (
-                    <div className="flex items-center gap-4 p-4">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
-                            <Logomark />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold">Review all your Inbox PRs</div>
-                            <div className="text-xs text-secondary">
-                                When a self-driving implementation from your Inbox opens a pull request, PostHog Review
-                                reviews it and posts the review to the pull request automatically.
-                            </div>
-                        </div>
-                        <LemonSwitch
-                            aria-label="Review all your Inbox PRs"
-                            checked={settings?.review_inbox_prs ?? false}
-                            onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
-                            disabledReason={switchDisabledReason}
-                        />
-                    </div>
-                )}
-                {(showInternalFeatures || settings?.stamphog_review_inbox_prs) && (
-                    <div className="flex items-center gap-4 p-4">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                            <IconStamphog className="size-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                            <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
-                            <div className="text-xs text-secondary">
-                                When a self-driving implementation from your Inbox opens a pull request, Stamphog
-                                reviews it and approves it if it passes.
-                            </div>
-                        </div>
-                        <LemonSwitch
-                            aria-label="Let Stamphog review your Inbox PRs"
-                            checked={settings?.stamphog_review_inbox_prs ?? false}
-                            onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
-                            disabledReason={
-                                // A switch that is already on stays usable while disconnected, so
-                                // turning it off never requires connecting Stamphog first.
-                                settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
-                                    ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
-                                    : switchDisabledReason
-                            }
-                        />
-                    </div>
-                )}
-                <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <IconChat className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">Resolve comments on your PRs</div>
-                        <div className="text-xs text-secondary">
-                            After a review of your pull request is published, PostHog Review works through its
-                            unresolved comment threads: safe fixes land on the branch, and every thread gets a reply.
-                        </div>
-                    </div>
-                    <LemonSwitch
-                        aria-label="Resolve comments on your PRs"
-                        checked={settings?.resolve_comments ?? false}
-                        onChange={(checked) => updateSettings({ resolve_comments: checked })}
-                        disabledReason={switchDisabledReason}
-                    />
-                </div>
-                <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <IconConfetti className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">Celebrate clean reviews</div>
-                        <div className="text-xs text-secondary">
-                            When a review of your pull request finds nothing to raise, the review comment shows a fun
-                            image. Turn this off to end clean reviews with the text summary only.
-                        </div>
-                    </div>
-                    <LemonSwitch
-                        aria-label="Celebrate clean reviews"
-                        data-attr="review-hog-celebrate-clean-reviews"
-                        checked={settings?.celebrate_clean_reviews ?? true}
-                        onChange={(checked) => updateSettings({ celebrate_clean_reviews: checked })}
-                        disabledReason={switchDisabledReason}
-                    />
-                </div>
-            </LemonCard>
-            {showInternalFeatures && (
-                <>
-                    <div className="mt-2">
-                        <h4 className="mb-1 text-sm font-semibold">ReviewHog Flash - Experimental</h4>
-                        <p className="m-0 text-xs text-secondary">This setting applies only to Flash reviews.</p>
-                    </div>
-                    <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
-                        <div className="flex items-center gap-4 p-4">
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                                <IconBolt className="size-5" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <div className="text-sm font-semibold">Review all your PRs in Flash mode</div>
-                                <div className="text-xs text-secondary">
-                                    Automatically review PRs you author in the repositories this project reviews,
-                                    including drafts and new commits. Starts with future PR activity.
-                                </div>
-                            </div>
-                            <LemonSwitch
-                                aria-label="Review all your PRs in Flash mode"
-                                checked={settings?.default_review_mode === 'flash'}
-                                onChange={(checked) =>
-                                    updateSettings({ default_review_mode: checked ? 'flash' : 'off' })
-                                }
-                                disabledReason={switchDisabledReason}
-                                loading={settingsLoading}
-                            />
-                        </div>
-                    </LemonCard>
-                </>
-            )}
-        </section>
-    )
-}
-
-function UrgencySection(): JSX.Element {
-    const { settings } = useValues(reviewHogSettingsLogic)
-    const { updateSettings } = useActions(reviewHogSettingsLogic)
-
-    const activeIndex = Math.max(
-        0,
-        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'consider'))
-    )
-
-    return (
-        <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader icon={<IconBalance />} title="Urgency threshold">
-                Set how strict PostHog Review is. The further right, the fewer findings reach the pull request, but the
-                higher their priority.
-            </SectionHeader>
-            <LemonCard hoverEffect={false} className="flex flex-col p-5">
-                <LemonSlider
-                    min={0}
-                    max={2}
-                    step={1}
-                    value={activeIndex}
-                    onChange={(value) => {
-                        // LemonSlider fires per mousemove while dragging — only PATCH on a stop change.
-                        if (value !== activeIndex) {
-                            updateSettings({ urgency_threshold: URGENCY_STOPS[value].key })
-                        }
-                    }}
-                    disabledReason={settings === null ? 'Loading…' : undefined}
-                />
-                <div className="mt-3 flex justify-between">
-                    {URGENCY_STOPS.map((stop, i) => (
-                        <button
-                            key={stop.key}
-                            type="button"
-                            disabled={settings === null}
-                            aria-pressed={i === activeIndex}
-                            className={`cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold ${
-                                i === activeIndex ? 'text-default' : 'text-tertiary'
-                            }`}
-                            onClick={() => {
-                                if (i !== activeIndex) {
-                                    updateSettings({ urgency_threshold: stop.key })
-                                }
-                            }}
-                        >
-                            {stop.label}
-                        </button>
-                    ))}
-                </div>
-                <div className="mt-2 flex justify-between text-xxs text-tertiary">
-                    <span>← every finding</span>
-                    <span>only the most urgent →</span>
-                </div>
-                <div className="mt-3 border-t border-primary pt-3 text-xs text-secondary">
-                    {URGENCY_STOPS[activeIndex].description}
-                </div>
-            </LemonCard>
-        </section>
     )
 }
 
@@ -1783,17 +1540,35 @@ function ActivityTab(): JSX.Element {
     )
 }
 
+const REVIEW_SKILLS_ANCHOR = 'review-hog-skills'
+
 function SettingsTab(): JSX.Element {
     const { blindSpots, validators, resolutionSkills } = useValues(reviewHogSettingsLogic)
     const { selectBlindSpots, selectValidator, selectResolutionSkill } = useActions(reviewHogSettingsLogic)
 
     return (
         <>
-            <PipelineSection />
-            <TriggersSection />
+            <section className="flex flex-col gap-3">
+                <p className="m-0 text-sm text-secondary">
+                    Flash runs automatically on every push, following the rules below. Full runs only when someone asks
+                    for it: the Review button, the reviewhog label, or the Inbox. No Flash runs on a pull request after
+                    it had a Full review.
+                </p>
+                <InstallationClaims />
+                <RepositoriesPanes />
+            </section>
+            <FullReviewSettingsSection
+                onEditSkills={() =>
+                    document
+                        .getElementById(REVIEW_SKILLS_ANCHOR)
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+            />
+            <InboxSection />
             <section className="flex flex-col gap-8 border-t border-primary pt-8">
-                <div className="flex flex-col gap-1.5">
-                    <h2 className="m-0 text-xl font-bold">Review skills</h2>
+                <PipelineSection />
+                <div id={REVIEW_SKILLS_ANCHOR} className="flex flex-col gap-1.5 border-t border-primary pt-8">
+                    <h3 className="m-0 text-lg font-bold">Review skills</h3>
                     <p className="m-0 max-w-160 text-sm text-secondary">
                         Everything below is a regular skill, stored in your PostHog skills store like anything else
                         you've added. Review skills read your changed code, a blind-spot sweep catches what they missed,
@@ -1827,7 +1602,7 @@ function SettingsTab(): JSX.Element {
                 <SingleActiveSection
                     icon={<IconWrench />}
                     title="Resolution criteria"
-                    intro="After a review is published, PostHog Review works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar. Keep several on hand, but only one is applied."
+                    intro="After a review is published, PostHog Review works through the pull request's unresolved comment threads: asks that are worth it and safe get implemented on the branch, and every thread gets a reply. These criteria set that bar and how fixes work: default, big gaps only, or small fixes only. Keep several on hand, but only one is applied."
                     kind="resolution"
                     kindLabel="resolution criteria"
                     createLabel="Create your own resolution criteria"
@@ -1835,14 +1610,14 @@ function SettingsTab(): JSX.Element {
                     onSelect={selectResolutionSkill}
                 />
             </section>
-            <UrgencySection />
         </>
     )
 }
 
 /**
  * The "Code review" scene: ReviewHog's activity and settings page, split into an Activity tab
- * (trigger a review, recent reviews) and a Settings tab (what gets reviewed, skills, threshold).
+ * (trigger a review, recent reviews) and a Settings tab (repositories and who gets automatic Flash,
+ * Full review settings, Inbox, review skills).
  * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
  * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
  * discovers the entry can open the page.

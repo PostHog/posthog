@@ -318,6 +318,7 @@ class OverviewEntry:
     exception_people: Sequence[ReviewRepositoryPerson]
     my_choice: ReviewUserRepositoryChoice | None
     my_result: AutomaticReviewDecision
+    inherited_result: AutomaticReviewDecision
 
 
 class RepositoryOverview:
@@ -355,9 +356,13 @@ class RepositoryOverview:
         in_project = owner is not None and owner.team_id == self.team.id
         choice = self.viewer.choice_for(ref)
         if in_project:
-            result = self.rules.rule_for(own_row).resolve(self.viewer.for_repository(ref))
+            rule = self.rules.rule_for(own_row)
+            author = self.viewer.for_repository(ref)
+            result = rule.resolve(author)
+            inherited = rule.resolve(replace(author, repository_choice=None))
         else:
             result = AutomaticReviewDecision(flash=False, reason=AutomaticReviewReason.NOT_IN_PROJECT)
+            inherited = result
         if owner is None:
             owner_kind, owner_project = RepositoryOwnerKind.NONE, None
         elif in_project:
@@ -376,6 +381,7 @@ class RepositoryOverview:
             exception_people=self.rules.people.get(own_row.id, []) if has_exception and own_row is not None else [],
             my_choice=choice,
             my_result=result,
+            inherited_result=inherited,
         )
 
     def _in_view(self, entry: OverviewEntry, view: str) -> bool:

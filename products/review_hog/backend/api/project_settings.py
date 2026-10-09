@@ -141,6 +141,10 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
     my_result = AutomaticReviewDecisionSerializer(
         help_text="What the requesting user's own pull requests get here, and the rule that decided it."
     )
+    inherited_result = AutomaticReviewDecisionSerializer(
+        help_text="What the requesting user's own pull requests would get here without their choice for this "
+        "repository. Equals my_result when there is no choice."
+    )
 
 
 class ReviewRepositoryOverviewSerializer(serializers.Serializer):
@@ -176,6 +180,7 @@ def _entry_data(entry: OverviewEntry) -> dict[str, Any]:
         "my_choice": entry.my_choice.mode if entry.my_choice is not None else None,
         "my_choice_id": entry.my_choice.id if entry.my_choice is not None else None,
         "my_result": decision_data(entry.my_result),
+        "inherited_result": decision_data(entry.inherited_result),
     }
 
 
