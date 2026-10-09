@@ -414,6 +414,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "https://example.com/announcement",
             ),
             (
+                "padded_announcement_url",
+                _FLAG_CALLED_QUERY,
+                True,
+                1,
+                _move_notices("  https://example.com/announcement  "),
+                "https://example.com/announcement",
+            ),
+            (
                 "command_announcement_url",
                 _FLAG_CALLED_QUERY,
                 True,
