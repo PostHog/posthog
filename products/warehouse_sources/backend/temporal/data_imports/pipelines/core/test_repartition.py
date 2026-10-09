@@ -11,7 +11,7 @@ import collections
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -3311,7 +3311,12 @@ SWAP_TARGET = RepartitionTarget(
 SWAP_DATA_FILES = 15
 
 
-def _stage_swap(folder: Path) -> tuple[str, str]:
+class _StagedSwap(NamedTuple):
+    live_uri: str
+    temp_uri: str
+
+
+def _stage_swap(folder: Path) -> _StagedSwap:
     live_uri = str(folder / "live")
     temp_uri = f"{live_uri}__repartitioned_1a2b3c4d"
     live = _write_month_partitioned(live_uri, SWAP_ROWS)
@@ -3320,7 +3325,7 @@ def _stage_swap(folder: Path) -> tuple[str, str]:
             old_delta=live, temp_uri=temp_uri, storage_options={}, target=SWAP_TARGET, budget=_budget(), logger=logger
         )
     )
-    return live_uri, temp_uri
+    return _StagedSwap(live_uri, temp_uri)
 
 
 def _swap_schema(live_uri: str, temp_uri: str) -> SimpleNamespace:
