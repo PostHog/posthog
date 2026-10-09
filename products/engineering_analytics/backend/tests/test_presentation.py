@@ -605,14 +605,14 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             ("log_expired", contracts.CIEngine.GITHUB_ACTIONS, _PAT, None, 1),
             ("depot_job", contracts.CIEngine.DEPOT_CI, _PAT, None, 0),
             # The team's other GitHub credentials belong to sources this reader may not be allowed to use.
-            ("source_without_a_credential", contracts.CIEngine.GITHUB_ACTIONS, GitHubSourceCredential(), None, 0),
+            ("source_without_a_credential", contracts.CIEngine.GITHUB_ACTIONS, None, None, 0),
         ]
     )
     def test_job_log_insights_reports_log_not_read(
         self,
         _name: str,
         engine: contracts.CIEngine,
-        credential: GitHubSourceCredential,
+        credential: GitHubSourceCredential | None,
         fetched: Exception | None,
         fetches: int,
     ) -> None:
