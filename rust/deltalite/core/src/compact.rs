@@ -463,12 +463,16 @@ async fn read_bin(
             metadata: None,
         };
         let _file = ctx.limits.acquire_file().await?;
-        let builder = open_builder(&ctx.store, &target).await?;
+        let (builder, held_fetch) = open_builder(&ctx.store, &target, &ctx.budgets).await?;
         let bytes_per_row = decoded_bytes_per_row(builder.metadata());
-        let _fetch = ctx
-            .budgets
-            .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
-            .await?;
+        let _fetch = match held_fetch {
+            Some(fetch) => fetch,
+            None => {
+                ctx.budgets
+                    .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
+                    .await?
+            }
+        };
         let batch_rows = byte_bounded_batch_rows(
             builder.metadata(),
             ctx.decode_batch_bytes,

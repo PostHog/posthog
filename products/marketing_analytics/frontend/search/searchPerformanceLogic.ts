@@ -21,6 +21,7 @@ import {
     SearchPlatform,
     selectedSearchSources,
     searchPerformanceSource,
+    searchPerformanceSourceNotice,
 } from './searchPerformance'
 
 export interface searchPerformanceLogicValues extends Pick<
@@ -30,8 +31,6 @@ export interface searchPerformanceLogicValues extends Pick<
     metrics: SearchMetrics
     hasPaidSources: boolean
     displayMetrics: SearchMetrics
-    showPosition: boolean
-    canShowPosition: boolean
     breakdown: SearchBreakdown
     channel: SearchChannel
     selectedRow: MarketingAnalyticsSearchRow | null
@@ -40,12 +39,13 @@ export interface searchPerformanceLogicValues extends Pick<
     missingSources: SearchPlatform[]
     hasActiveFilters: boolean
     hasSearchConsole: boolean
-    hasSelectedBingSource: boolean
     search: string
     querySearch: string
     sourcesError: boolean
     sources: ExternalDataSource[]
-    pendingSources: ExternalDataSource[]
+    sourceNotices: { sourceId: string; message: string }[]
+    detailSourceNotices: { sourceId: string; message: string }[]
+    detailSources: ExternalDataSource[]
     readySources: MarketingAnalyticsSearchSource[]
     query: MarketingAnalyticsSearchQuery
 }
@@ -55,7 +55,6 @@ export interface searchPerformanceLogicActions extends Pick<
     'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
 > {
     clearFilters: () => { value: true }
-    setShowPosition: (showPosition: boolean) => { showPosition: boolean }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
     setBreakdown: (breakdown: SearchBreakdown) => { breakdown: SearchBreakdown }
     setChannel: (channel: SearchChannel) => { channel: SearchChannel }
@@ -81,7 +80,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     actions({
         clearFilters: true,
         setMetrics: (metrics: SearchMetrics) => ({ metrics }),
-        setShowPosition: (showPosition: boolean) => ({ showPosition }),
         setBreakdown: (breakdown: SearchBreakdown) => ({ breakdown }),
         setChannel: (channel: SearchChannel) => ({ channel }),
         selectRow: (row: MarketingAnalyticsSearchRow | null) => ({ row }),
@@ -95,7 +93,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             null as MarketingAnalyticsSearchRow | null,
             { selectRow: (_, { row }) => row, setBreakdown: () => null, setChannel: () => null },
         ],
-        showPosition: [false, { setShowPosition: (_, { showPosition }) => showPosition }],
         metrics: ['traffic' as SearchMetrics, { setMetrics: (_, { metrics }) => metrics }],
         search: ['', { setSearch: (_, { search }) => search }],
         querySearch: ['', { setQuerySearch: (_, { search }) => search }],
@@ -135,29 +132,22 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: ExternalDataSource[]): boolean =>
                 sources.some((source) => source.source_type === 'GoogleSearchConsole'),
         ],
-        hasSelectedBingSource: [
-            (s) => [s.allSearchSources, s.integrationFilter],
-            (sources: ExternalDataSource[], integrationFilter): boolean =>
-                selectedSearchSources(sources, integrationFilter.integrationSourceIds ?? []).some(
-                    (source) => source.source_type === 'BingAds'
-                ),
-        ],
         sources: [
-            (s) => [s.allSearchSources, s.integrationFilter, s.channel, s.breakdown],
-            (allSources, integrationFilter, channel, breakdown): ExternalDataSource[] =>
+            (s) => [s.allSearchSources, s.integrationFilter, s.channel],
+            (allSources, integrationFilter, channel): ExternalDataSource[] =>
                 selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? []).filter(
                     (source) =>
-                        (channel === 'all' ||
-                            (source.source_type === 'GoogleSearchConsole'
-                                ? channel === 'organic'
-                                : channel === 'paid')) &&
-                        (breakdown !== 'page' || source.source_type !== 'BingAds')
+                        channel === 'all' ||
+                        (source.source_type === 'GoogleSearchConsole' ? channel === 'organic' : channel === 'paid')
                 ),
         ],
-        pendingSources: [
+        sourceNotices: [
             (s) => [s.sources, s.breakdown],
-            (sources: ExternalDataSource[], breakdown): ExternalDataSource[] =>
-                sources.filter((source) => !searchPerformanceSource(source, breakdown)),
+            (sources: ExternalDataSource[], breakdown): { sourceId: string; message: string }[] =>
+                sources.flatMap((source) => {
+                    const message = searchPerformanceSourceNotice(source, breakdown)
+                    return message ? [{ sourceId: source.id, message }] : []
+                }),
         ],
         readySources: [
             (s) => [s.sources, s.breakdown],
@@ -176,13 +166,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (s) => [s.hasPaidSources, s.metrics],
             (hasPaidSources: boolean, metrics: SearchMetrics): SearchMetrics => (hasPaidSources ? metrics : 'traffic'),
         ],
-        canShowPosition: [
-            (s) => [s.readySources, s.metrics],
-            (sources: MarketingAnalyticsSearchSource[], metrics: SearchMetrics): boolean =>
-                metrics === 'traffic' &&
-                sources.some((source) => source.sourceType === 'GoogleSearchConsole') &&
-                sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
-        ],
         query: [
             (s) => [s.readySources, s.dateFilter, s.querySearch, s.compareFilter, s.breakdown],
             (sources, dateFilter, search, compareFilter, breakdown): MarketingAnalyticsSearchQuery => ({
@@ -194,22 +177,32 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 search,
             }),
         ],
+        detailSources: [
+            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow],
+            (allSources: ExternalDataSource[], integrationFilter, row): ExternalDataSource[] =>
+                (row?.platform === 'GoogleSearchConsole'
+                    ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
+                    : allSources
+                ).filter((source) => source.source_type === 'GoogleSearchConsole'),
+        ],
+        detailSourceNotices: [
+            (s) => [s.detailSources],
+            (sources: ExternalDataSource[]): { sourceId: string; message: string }[] =>
+                sources.flatMap((source) => {
+                    const message = searchPerformanceSourceNotice(source, 'keyword', true)
+                    return message ? [{ sourceId: source.id, message }] : []
+                }),
+        ],
         detailQuery: [
-            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow, s.query],
-            (allSources: ExternalDataSource[], integrationFilter, row, query): MarketingAnalyticsSearchQuery | null => {
+            (s) => [s.detailSources, s.selectedRow, s.query],
+            (sources: ExternalDataSource[], row, query): MarketingAnalyticsSearchQuery | null => {
                 if (!row || !(row.page || row.keyword)) {
                     return null
                 }
-                const sources =
-                    row.platform === 'GoogleSearchConsole'
-                        ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
-                        : allSources
-                const detailSources = sources
-                    .filter((source) => source.source_type === 'GoogleSearchConsole')
-                    .flatMap((source) => {
-                        const detailSource = searchPerformanceSource(source, row.page ? 'keyword' : 'page', true)
-                        return detailSource ? [detailSource] : []
-                    })
+                const detailSources = sources.flatMap((source) => {
+                    const detailSource = searchPerformanceSource(source, row.page ? 'keyword' : 'page', true)
+                    return detailSource ? [detailSource] : []
+                })
                 return {
                     ...query,
                     sources: detailSources,

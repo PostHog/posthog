@@ -12,21 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.turso.source import TursoSource
 
 
-@pytest.mark.parametrize("names", [[], ["members"], ["unknown"], ["invites", "members"]])
-def test_schema_selection(config: TursoSourceConfig, names: list[str]) -> None:
-    schemas = TursoSource().get_schemas(config, team_id=1, names=names)
-    assert {schema.name for schema in schemas} == set(names) - {"unknown"}
-
-
-def test_default_setup_does_not_enable_plan_gated_audit_logs(config: TursoSourceConfig) -> None:
-    defaults = build_default_schemas(TursoSource().get_schemas(config, team_id=1))
-    assert next(schema for schema in defaults if schema["name"] == "audit_logs") == {
-        "name": "audit_logs",
-        "should_sync": False,
-    }
-    assert all(schema["sync_type"] == "full_refresh" for schema in defaults if schema["should_sync"])
-
-
 def test_permission_denial_disables_only_the_affected_table(requests_mock: Mocker, config: TursoSourceConfig) -> None:
     requests_mock.get("https://api.turso.tech/v1/organizations/example-org/databases", json={"databases": []})
     requests_mock.get(

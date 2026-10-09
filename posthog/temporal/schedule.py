@@ -141,6 +141,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_signals_scout_coordinator_schedule,
 )
 from products.today.backend.facade.temporal import create_today_briefing_schedule
+from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -156,12 +157,6 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
-
-
-async def cleanup_replay_vision_media_backfill_schedule(client: Client):
-    """Retired: delete the Replay Vision poster backfill schedule, whose workflow no worker registers anymore."""
-    if await a_schedule_exists(client, "replay-vision-media-backfill-schedule"):
-        await a_delete_schedule(client, "replay-vision-media-backfill-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -928,7 +923,6 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 schedules = [
     cleanup_sync_vectors_schedule,
-    cleanup_replay_vision_media_backfill_schedule,
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
@@ -996,6 +990,7 @@ schedules = [
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
+    create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
 ]
 

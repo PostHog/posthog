@@ -1,4 +1,4 @@
-import { LemonBanner, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -54,18 +54,24 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 @3xl:p-6">
                 {!props.fixedConfigId && (
                     <LemonField.Pure label="Scout">
-                        <LemonSelect
-                            value={selectedConfigId}
+                        <LemonInputSelect
+                            mode="single"
+                            value={selectedConfigId ? [selectedConfigId] : []}
                             options={(configs ?? []).map((config) => ({
-                                value: config.id,
+                                key: config.id,
                                 label: scoutDisplayName(config),
                             }))}
-                            onChange={(configId) => props.selectConfig(configId!)}
+                            onChange={([configId]) => {
+                                if (configId && configId !== selectedConfigId) {
+                                    props.selectConfig(configId)
+                                }
+                            }}
+                            placeholder="Search scouts"
+                            data-attr="scout-trial-scout-picker"
                             loading={configsLoading}
                             disabledReason={submitting ? 'Wait for the trial to start.' : undefined}
                             fullWidth
-                            menu={{ className: 'ph-no-capture ph-replay-block' }}
-                            dropdownMatchSelectWidth
+                            popoverClassName="ph-no-capture ph-replay-block"
                         />
                     </LemonField.Pure>
                 )}

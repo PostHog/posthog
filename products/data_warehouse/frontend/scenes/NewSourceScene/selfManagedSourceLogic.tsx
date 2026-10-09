@@ -25,7 +25,8 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     name: '',
     url_pattern: '',
     format: 'Parquet',
-    options: { csv_allow_double_quotes: false },
+    // RFC 4180 is what almost every CSV export produces, and save-time validation redirects the rest.
+    options: { csv_allow_double_quotes: true },
     credential: {
         access_key: '',
         access_secret: '',

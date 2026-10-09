@@ -1,7 +1,33 @@
-import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
+import type { Series } from '@posthog/quill-charts'
+
+import type { ChartDisplayType, FunnelResult, TrendsQuery, TrendsResultItem } from './types'
 
 export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType {
     return query?.trendsFilter?.display || 'ActionsLineGraph'
+}
+
+export interface InsightQueryProperties {
+    queryKind?: string
+    querySourceKind?: string
+    display?: string
+    funnelVizType?: string
+}
+
+export function insightQueryProperties(query: unknown): InsightQueryProperties {
+    if (typeof query !== 'object' || query === null) {
+        return {}
+    }
+    const node = query as Record<string, unknown>
+    const hasSource = typeof node.source === 'object' && node.source !== null
+    const source = (hasSource ? node.source : node) as Record<string, any>
+    const defaultDisplay =
+        source.kind === 'TrendsQuery' || source.kind === 'StickinessQuery' ? 'ActionsLineGraph' : undefined
+    return {
+        queryKind: typeof node.kind === 'string' ? node.kind : undefined,
+        querySourceKind: hasSource && typeof source.kind === 'string' ? source.kind : undefined,
+        display: source.trendsFilter?.display ?? source.stickinessFilter?.display ?? defaultDisplay,
+        funnelVizType: source.funnelsFilter?.funnelVizType,
+    }
 }
 
 export function formatNumber(value: number): string {
@@ -62,6 +88,18 @@ export function formatTooltipDate(dateStr: string): string {
 
 export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {
     return item.label || item.action?.name || `Series ${index + 1}`
+}
+
+export function buildProportionBarSeries(results: TrendsResultItem[], getColor: (index: number) => string): Series[] {
+    // One bar has one total, so a previous period saved with compare on is left out.
+    return results
+        .filter((item) => item.compare_label !== 'previous')
+        .map((item, i) => ({
+            key: String(i),
+            label: getSeriesLabel(item, i),
+            data: [item.aggregated_value ?? 0],
+            color: getColor(i),
+        }))
 }
 
 export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: string; count: number; order: number }> {
