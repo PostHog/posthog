@@ -946,21 +946,16 @@ COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
      group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",
 )
 
-_EVENTS_JSON_COPY_COLUMNS = """uuid, event, properties, temporary_properties, properties_null_keys,
-    temporary_properties_null_keys, timestamp, distinct_id, elements_chain, elements_chain_href, elements_chain_texts,
-    elements_chain_ids, elements_chain_elements, created_at, captured_at, person_id, person_created_at, person_properties,
-    person_properties_null_keys, group0_properties, group1_properties, group2_properties, group3_properties,
-    group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at,
-    person_mode, total_event_size"""
-
 # The copy takes the rows that native ingestion wrote for the source team, so the event cleaner does not run again
 # and the target gets the same events as the source. In cloud, the nodes the app queries have events_json but not
-# writable_events_json, so the copy reads and writes through events_json. A distributed insert sends every column of
-# events_json, and the sharded table rejects the elements_chain_* columns that it declares MATERIALIZED unless
-# insert_allow_materialized_columns is set. The copy therefore carries the source values of those columns.
-COPY_EVENTS_JSON_BETWEEN_TEAMS = f"""
-    INSERT INTO {DISTRIBUTED_EVENTS_JSON_TABLE} (team_id, {_EVENTS_JSON_COPY_COLUMNS})
-    SETTINGS insert_allow_materialized_columns = 1
-    SELECT %(target_team_id)s, {_EVENTS_JSON_COPY_COLUMNS}
-    FROM {DISTRIBUTED_EVENTS_JSON_TABLE} WHERE team_id = %(source_team_id)s
-"""
+# writable_events_json, so the copy reads and writes through events_json. The elements_chain_* columns stay out of the
+# list because the sharded table computes them from elements_chain. Where it declares them MATERIALIZED, an insert
+# that names them fails.
+COPY_EVENTS_JSON_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
+    table_name=DISTRIBUTED_EVENTS_JSON_TABLE,
+    columns_except_team_id="""uuid, event, properties, temporary_properties, properties_null_keys,
+    temporary_properties_null_keys, timestamp, distinct_id, elements_chain, created_at, captured_at, person_id,
+    person_created_at, person_properties, person_properties_null_keys, group0_properties, group1_properties,
+    group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at,
+    group3_created_at, group4_created_at, person_mode, total_event_size""",
+)
