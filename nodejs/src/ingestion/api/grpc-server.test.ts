@@ -579,25 +579,31 @@ describe('WorkerIngestServer', () => {
         expect(await outOfOrderCount()).toBe(before + 1)
     })
 
-    it('acks PARTIAL with the dispositions of a batch whose elements did not all finish', async () => {
+    it('acks PARTIAL with the dispositions of a batch whose elements did not all finish, once it settles', async () => {
         const source = new FrameSource()
         const collected = collect(server, source)
 
         source.push(hello())
         source.push(subBatch(1, [10, 11, 12, 13]))
-        await until(() => driver.feeds.length === 1)
+        source.push(subBatch(2, [14]))
+        await until(() => driver.feeds.length === 2)
+        const streamId = driver.feeds[0].streamId
 
-        driver.complete({
-            streamId: driver.feeds[0].streamId,
-            seq: 1,
-            accepted: 3,
-            timedOut: [1],
-        })
-        await until(() => collected.acks.length === 1)
+        // The consumer commits what a PARTIAL ack accepts, so the ack waits
+        // until the finished events' writes settle.
+        const settled = new Deferred<void>()
+        driver.complete({ streamId, seq: 1, accepted: 3, timedOut: [1] }, settled.promise)
+        driver.complete({ streamId, seq: 2, accepted: 1 })
+        await until(() => collected.acks.length >= 1)
+        expect(collected.acks.map((ack) => ack.seq)).toEqual([2n])
+
+        settled.resolve()
+        await until(() => collected.acks.length >= 2)
         source.end()
         await collected.ended
 
-        const ack = collected.acks[0]
+        expect(collected.acks.map((ack) => ack.seq)).toEqual([2n, 1n])
+        const ack = collected.acks[1]
         expect(ack.status).toBe(SubBatchStatus.PARTIAL)
         expect(ack.timedOut).toEqual([1])
         // The invariant the consumer validates fail-closed: a non-empty
