@@ -15,6 +15,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     icon: './assets/icon.png',
     ios: {
         bundleIdentifier: APP_ID,
+        // Local device builds sign automatically with this team; EAS builds carry their own credentials.
+        appleTeamId: process.env.APPLE_TEAM_ID,
         supportsTablet: false,
         infoPlist: {
             ITSAppUsesNonExemptEncryption: false,
