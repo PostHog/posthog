@@ -52,7 +52,8 @@ def _to_contract(row: MessageCategory) -> MessageCategoryRow:
 
 def list_categories(team_id: int) -> Sequence[MessageCategoryRow]:
     """The team's categories that are not deleted. Sizing is a COUNT, and a slice reads one page."""
-    return LazyList(categories_service.team_categories(team_id), _to_contract)
+    # The mixin only adds its stable pk ordering to a QuerySet, so pages need it set here.
+    return LazyList(categories_service.team_categories(team_id).order_by("pk"), _to_contract)
 
 
 def get_category(team_id: int, category_id: UUID | str) -> MessageCategoryRow:
