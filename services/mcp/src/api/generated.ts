@@ -112427,9 +112427,32 @@ export namespace Schemas {
       baseline: _LogsPatternsDiffWindow;
     }
 
+    export interface _LogsPatternsQueryBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+      /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+      sessionId?: string;
+      /**
+         * Return at most this many pattern groups, highest volume first. Omit to return every group (up to 200). `omitted_pattern_count` reports the groups that this limit dropped.
+         * @minimum 1
+         * @nullable
+         */
+      limit?: number | null;
+    }
+
     export interface _LogsPatternsRequest {
       /** The patterns query to execute. */
-      query: _LogsPatternsBody;
+      query: _LogsPatternsQueryBody;
     }
 
     export interface _LogsPatternsSparklineBucket {
@@ -112474,6 +112497,8 @@ export namespace Schemas {
       remainder_count?: number | null;
       /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
       patterns: _LogPattern[];
+      /** Lowest-volume pattern groups that the request `limit` dropped from `patterns`. Zero when `patterns` holds every group. */
+      omitted_pattern_count?: number;
       /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
       scanned_count: number;
       /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */

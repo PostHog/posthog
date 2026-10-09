@@ -418,6 +418,7 @@ tools:
             idempotent: true
         title: Mine log patterns
         description_file: ./prompts/logs-patterns.md
+        hooks: logs/logsPatternsHooks
         response:
             exclude:
                 - patterns.*.examples

@@ -108,3 +108,25 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert body["scanned_count"] == 1
         assert body["total_count"] == 1
+
+    @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
+    def test_patterns_endpoint_limit_keeps_top_groups(self) -> None:
+        self._insert(
+            [
+                {
+                    "timestamp": "2026-06-23 12:00:00.000000",
+                    "body": body,
+                    "severity_text": "info",
+                    "service_name": "api",
+                }
+                for body in ["db connection failed"] * 3 + ["cache warmed"]
+            ]
+        )
+        query = {"dateRange": {"date_from": "2026-06-23T00:00:00Z", "date_to": "2026-06-23T13:00:00Z"}}
+
+        body = self._request({**query, "limit": 1})
+        rejected = self._request({**query, "limit": 0}, expected_status=status.HTTP_400_BAD_REQUEST)
+
+        assert [p["pattern"] for p in body["patterns"]] == ["db connection failed"]
+        assert body["omitted_pattern_count"] == 1
+        assert rejected.json()["attr"] == "limit"
