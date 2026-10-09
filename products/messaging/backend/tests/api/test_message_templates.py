@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -56,6 +59,24 @@ class TestMessageTemplatesAPI(APIBaseTest):
             "email": {"subject": "Test Subject", "text": "Test Body"},
         }
         assert template["type"] == "email"
+
+    def test_list_pages_templates_with_equal_created_at_by_descending_id(self):
+        ids = [UUID(int=n) for n in (1, 2, 3)]
+        for template_id in ids:
+            MessageTemplate.objects.create(id=template_id, team=self.team, name=str(template_id), type="email")
+        MessageTemplate.objects.filter(id__in=ids).update(created_at=datetime(2100, 1, 1, tzinfo=UTC))
+
+        pages = [
+            [
+                row["id"]
+                for row in self.client.get(
+                    f"/api/environments/{self.team.id}/messaging_templates/?limit=2&offset={offset}"
+                ).json()["results"]
+            ]
+            for offset in (0, 2)
+        ]
+
+        assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
 
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
