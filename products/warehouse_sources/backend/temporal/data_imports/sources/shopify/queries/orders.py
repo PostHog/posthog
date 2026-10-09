@@ -4,13 +4,13 @@ from .fragments import (
     ID_NAME_CREATED_UPDATED_FRAGMENT,
     ID_NAME_FRAGMENT,
     KV_FRAGMENT,
-    LINE_ITEM_FRAGMENT,
     MAILING_ADDRESS_FRAGMENT,
     METAFIELD_CONNECTIONS_FRAGMENT,
     MONEY_BAG_FRAGMENT,
     MONEY_V2_FRAGMENT,
     NODE_CONNECTION_ID_FRAGMENT,
     TAX_LINES_FRAGMENT,
+    build_line_item_fragment,
 )
 
 ORDERS_SORTKEY = "UPDATED_AT"
@@ -18,11 +18,15 @@ ORDERS_SORTKEY = "UPDATED_AT"
 # Fields gated behind scopes beyond `read_orders` -> scopes that unlock them (any one suffices).
 # Lets a `read_orders`-only token still import the rest of the order instead of "Access denied".
 ORDERS_PROTECTED_FIELDS: dict[str, set[str]] = {
+    "customer": {"read_customers"},
     "fulfillmentOrders": {
         "read_merchant_managed_fulfillment_orders",
         "read_third_party_fulfillment_orders",
         "read_assigned_fulfillment_orders",
     },
+    # `fulfillments.service` is a FulfillmentService, which Shopify gates separately from the fulfillment.
+    "fulfillments.service": {"read_fulfillments", "read_products", "read_custom_fulfillment_services"},
+    "lineItems.product": {"read_products"},
     "paymentTerms": {"read_payment_terms"},
 }
 
@@ -40,12 +44,32 @@ _PAYMENT_TERMS_BLOCK = f"""paymentTerms {{
             }}"""
 
 
+_CUSTOMER_BLOCK = f"customer {CUSTOMER_FRAGMENT}"
+
+_FULFILLMENT_SERVICE_BLOCK = """service {
+                    id
+                    handle
+                    serviceName
+                    trackingSupport
+                    type
+                }"""
+
+
 def build_orders_query(granted_scopes: set[str]) -> str:
     """Orders query with each protected-field selection included only when its scope is granted."""
-    fulfillment_orders = (
-        _FULFILLMENT_ORDERS_BLOCK if granted_scopes & ORDERS_PROTECTED_FIELDS["fulfillmentOrders"] else ""
-    )
-    payment_terms = _PAYMENT_TERMS_BLOCK if granted_scopes & ORDERS_PROTECTED_FIELDS["paymentTerms"] else ""
+    # A `write_x` scope implies `read_x`, and Shopify does not list the implied read scope.
+    granted_scopes = granted_scopes | {
+        "read_" + scope.removeprefix("write_") for scope in granted_scopes if scope.startswith("write_")
+    }
+
+    def granted(field: str) -> bool:
+        return bool(granted_scopes & ORDERS_PROTECTED_FIELDS[field])
+
+    customer = _CUSTOMER_BLOCK if granted("customer") else ""
+    fulfillment_orders = _FULFILLMENT_ORDERS_BLOCK if granted("fulfillmentOrders") else ""
+    fulfillment_service = _FULFILLMENT_SERVICE_BLOCK if granted("fulfillments.service") else ""
+    line_item = build_line_item_fragment(include_product=granted("lineItems.product"))
+    payment_terms = _PAYMENT_TERMS_BLOCK if granted("paymentTerms") else ""
 
     # NOTE: 250 is the max allowable query size for nested connections
     return f"""
@@ -89,7 +113,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
             currentTotalTaxSet {MONEY_BAG_FRAGMENT}
             currentTotalWeight
             customAttributes {KV_FRAGMENT}
-            customer {CUSTOMER_FRAGMENT}
+            {customer}
             customerLocale
             discountApplications(first: 250) {{
                 nodes {{
@@ -131,13 +155,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
                 name
                 requiresShipping
                 status
-                service {{
-                    id
-                    handle
-                    serviceName
-                    trackingSupport
-                    type
-                }}
+                {fulfillment_service}
                 totalQuantity
                 trackingInfo {{
                     company
@@ -150,7 +168,7 @@ query PaginatedOrders($pageSize: Int!, $cursor: String, $query: String) {{
             fullyPaid
             legacyResourceId
             lineItems(first: 250) {{
-                nodes {LINE_ITEM_FRAGMENT}
+                nodes {line_item}
             }}
             metafields(first: 250) {METAFIELD_CONNECTIONS_FRAGMENT}
             name

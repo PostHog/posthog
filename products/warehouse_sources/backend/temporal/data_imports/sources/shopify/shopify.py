@@ -127,6 +127,11 @@ SHOPIFY_STORE_NOT_FOUND_ERROR = (
 # so `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast.
 # The field name varies, so the match anchors on the stable leading phrase.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
+# Appended to the raw denial, so the job error keeps the field and scope names Shopify gives.
+SHOPIFY_GRAPHQL_ACCESS_DENIED_GUIDANCE = (
+    "Your Shopify access token is missing a permission this import needs. Grant the access scope "
+    "named above to your Shopify app, then reconnect your Shopify integration."
+)
 
 # Shopify's Protected Customer Data restriction — an app can only read PII fields (customer
 # names, addresses, emails, phone numbers) when the store's plan grants that access, regardless
@@ -345,6 +350,8 @@ def _make_paginated_shopify_request(
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]
             joined = "; ".join(error_messages)
+            if SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR in joined:
+                raise Exception(f"Shopify GraphQL error: {joined} {SHOPIFY_GRAPHQL_ACCESS_DENIED_GUIDANCE}")
             raise Exception(f"Shopify GraphQL error: {joined}")
 
         if "data" not in payload:
