@@ -87,7 +87,7 @@ class OrganizationEventsRetentionConfig(models.Model):
             raise ValidationError({"min_events_retention_months": "The minimum can't be more than the maximum."})
         if default is not None and not _within(default, low, high):
             raise ValidationError(
-                {"default_events_retention_months": f"The default has to be between {_describe_range(low, high)}."}
+                {"default_events_retention_months": f"The default has to be {describe_months_range(low, high)}."}
             )
 
         out_of_range = sorted(
@@ -99,7 +99,7 @@ class OrganizationEventsRetentionConfig(models.Model):
         )
         if out_of_range:
             raise ValidationError(
-                f"Teams {', '.join(map(str, out_of_range))} have a retention outside {_describe_range(low, high)}. "
+                f"Teams {', '.join(map(str, out_of_range))} have a retention that isn't {describe_months_range(low, high)}. "
                 "Change those teams first, then save this range."
             )
 
@@ -131,7 +131,9 @@ class TeamEventsRetentionConfig(models.Model):
             return
         low, high = org_config.min_events_retention_months, org_config.max_events_retention_months
         if not _within(self.events_retention_months, low, high):
-            raise ValidationError({"events_retention_months": f"The organization allows {_describe_range(low, high)}."})
+            raise ValidationError(
+                {"events_retention_months": f"The organization allows {describe_months_range(low, high)}."}
+            )
 
 
 def _lock_organization_retention(organization_id: object) -> None:
@@ -146,9 +148,9 @@ def _within(months: int, low: int | None, high: int | None) -> bool:
     return (low is None or months >= low) and (high is None or months <= high)
 
 
-def _describe_range(low: int | None, high: int | None) -> str:
+def describe_months_range(low: int | None, high: int | None) -> str:
     if low is not None and high is not None:
-        return f"{low} and {high} months"
+        return f"between {low} and {high} months"
     if low is not None:
         return f"at least {low} months"
     return f"at most {high} months"
