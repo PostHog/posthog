@@ -132,9 +132,12 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         [[checksum]] = results
         return checksum
 
-    def update_commands(self, partition_clause: str = "") -> set[str]:
+    def update_commands(self, partition_clause: str = "", filter_teams: bool = False) -> set[str]:
+        # team_id leads the sorting key, so this set lets the read skip the granules of every team
+        # with no override instead of looking up each of their rows in the dictionary.
+        team_filter = " AND team_id IN (SELECT DISTINCT team_id FROM dictionary(%(name)s))" if filter_teams else ""
         return {
-            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
+            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id)){team_filter}"
         }
 
     @property
