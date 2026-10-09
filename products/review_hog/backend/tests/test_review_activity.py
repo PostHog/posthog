@@ -310,7 +310,34 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     assert kwargs["workflow_id_prefix"] == f"{env.info.workflow_id}:issues-review-p1-c3".lower()
 
 
+def _single_agent_stage(**extra: object) -> dict:
+    return {
+        "team_id": 1,
+        "user_id": 2,
+        "report_id": "rep-1",
+        "head_sha": "sha1",
+        "repository": "o/r",
+        "branch": "feat",
+        "run_index": 1,
+        "review_mode": REVIEW_MODE_FLASH,
+        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
+        **extra,
+    }
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "activity_fn,activity_input",
+    [
+        pytest.param(review_chunk_activity, _review_input(), id="review_chunk"),
+        pytest.param(single_agent_review_activity, SandboxStageInput(**_single_agent_stage()), id="main_session"),
+        pytest.param(
+            lens_review_activity,
+            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            id="lens_session",
+        ),
+    ],
+)
 @pytest.mark.parametrize(
     "category,expected_type",
     [
@@ -320,19 +347,24 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
         (None, AgentTurnFailed),
     ],
 )
-async def test_review_chunk_activity_fails_non_retryably_only_on_non_retryable_agent_categories(
-    category: str | None, expected_type: type[Exception]
+async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_categories(
+    activity_fn: Callable[..., Awaitable[None]],
+    activity_input: SandboxStageInput | ReviewChunkInput,
+    category: str | None,
+    expected_type: type[Exception],
 ) -> None:
     failure = AgentTurnFailed("agent failed", category=category, agent_message="agent failed")
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", MagicMock(return_value="review-prompt")),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", MagicMock(return_value="review-prompt")),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}.load_perspective_results", return_value={}),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
     ):
         with pytest.raises(expected_type) as excinfo:
-            await ActivityEnvironment().run(review_chunk_activity, _review_input())
+            await ActivityEnvironment().run(activity_fn, activity_input)
 
     if isinstance(excinfo.value, ApplicationError):
         assert excinfo.value.non_retryable is True
@@ -481,21 +513,6 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     assert result is None
     assert mock_oneshot.called is False
     assert mock_load.called is False
-
-
-def _single_agent_stage(**extra: object) -> dict:
-    return {
-        "team_id": 1,
-        "user_id": 2,
-        "report_id": "rep-1",
-        "head_sha": "sha1",
-        "repository": "o/r",
-        "branch": "feat",
-        "run_index": 1,
-        "review_mode": REVIEW_MODE_FLASH,
-        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
-        **extra,
-    }
 
 
 @pytest.mark.asyncio
