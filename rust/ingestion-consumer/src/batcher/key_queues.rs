@@ -191,7 +191,9 @@ impl KeyState {
     }
 }
 
-/// Per class, the sum of every ready key's `ready_size`.
+/// Per class, the sum of every ready key's `ready_size`, in send order:
+/// replays first, then by assignment epoch. Older work holds back commits
+/// and polling, so it goes ahead of newer work.
 #[derive(Default)]
 struct ReadySizes(Vec<(RequestClass, ReadySize)>);
 
@@ -234,10 +236,19 @@ impl ReadySizes {
                     total.messages += size.messages;
                     total.bytes += size.bytes;
                 }
-                None => self.0.push((class, size)),
+                None => {
+                    let at = self
+                        .0
+                        .partition_point(|(c, _)| send_order(c) < send_order(&class));
+                    self.0.insert(at, (class, size));
+                }
             }
         }
     }
+}
+
+fn send_order(class: &RequestClass) -> (bool, u64) {
+    (!class.replay, class.assignment_epoch)
 }
 
 #[derive(Default)]
@@ -292,15 +303,6 @@ impl KeyQueues {
 
     pub fn ready_sizes(&self) -> &[(RequestClass, ReadySize)] {
         self.ready_sizes.as_slice()
-    }
-
-    pub fn oldest_ready_class(&self) -> Option<RequestClass> {
-        self.ready_keys.iter().find_map(|key| {
-            self.keys
-                .get(key)
-                .and_then(KeyState::ready_size)
-                .map(|(class, _)| class)
-        })
     }
 
     pub fn push(
@@ -547,7 +549,7 @@ mod tests {
     fn take_all(queues: &mut KeyQueues, now: Instant) -> Vec<ReadyRun> {
         queues.promote_due(now);
         let mut runs = Vec::new();
-        while let Some(class) = queues.oldest_ready_class() {
+        while let Some(&(class, _)) = queues.ready_sizes().first() {
             runs.extend(queues.take_runs(class, |_| false));
         }
         runs
@@ -930,10 +932,6 @@ mod tests {
         assert_eq!(
             claimed(&queues.take_runs(older_epoch, |_| false)),
             vec![("b", vec![2], false)]
-        );
-        assert_eq!(
-            queues.oldest_ready_class().map(|c| c.assignment_epoch),
-            Some(2)
         );
         assert_eq!(
             claimed(&take_all(&mut queues, now)),

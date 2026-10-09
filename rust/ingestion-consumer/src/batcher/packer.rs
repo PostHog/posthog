@@ -81,6 +81,8 @@ impl Packer {
     /// the target wait for the latency budget, counted from the first action
     /// that finds a free slot for them, or go out at once when `draining`.
     /// Replays go out at once, because they already waited out a retry delay.
+    /// Classes go in `KeyQueues::ready_sizes` order, and a later class goes
+    /// ahead only while every earlier one waits below the target.
     pub fn pack(
         &mut self,
         keys: &mut KeyQueues,
@@ -108,30 +110,26 @@ impl Packer {
         now: Instant,
         draining: bool,
     ) -> Option<(RequestClass, PackReason)> {
-        if let Some(class) = self.class_at_target(keys) {
-            return Some((class, PackReason::AtTarget));
+        for &(class, size) in keys.ready_sizes() {
+            if self.targets.reached(size) {
+                return Some((class, PackReason::AtTarget));
+            }
+            if class.replay {
+                return Some((class, PackReason::Replay));
+            }
+            if draining {
+                self.reservation = None;
+                return Some((class, PackReason::Shutdown));
+            }
+            let deadline = *self
+                .reservation
+                .get_or_insert(now + self.targets.latency_budget);
+            if deadline <= now {
+                self.reservation = None;
+                return Some((class, PackReason::Deadline));
+            }
         }
-        if let Some(class) = keys
-            .ready_sizes()
-            .iter()
-            .map(|(class, _)| *class)
-            .find(|class| class.replay)
-        {
-            return Some((class, PackReason::Replay));
-        }
-        let class = keys.oldest_ready_class()?;
-        if draining {
-            self.reservation = None;
-            return Some((class, PackReason::Shutdown));
-        }
-        let deadline = *self
-            .reservation
-            .get_or_insert(now + self.targets.latency_budget);
-        if deadline > now {
-            return None;
-        }
-        self.reservation = None;
-        Some((class, PackReason::Deadline))
+        None
     }
 
     fn build_request(
@@ -144,13 +142,6 @@ impl Packer {
         counter!("ingestion_consumer_batcher_packed_requests_total", "reason" => reason.as_str())
             .increment(1);
         Request::from_runs(class, runs)
-    }
-
-    fn class_at_target(&self, keys: &KeyQueues) -> Option<RequestClass> {
-        keys.ready_sizes()
-            .iter()
-            .find(|(_, size)| self.targets.reached(*size))
-            .map(|(class, _)| *class)
     }
 }
 
@@ -278,6 +269,50 @@ mod tests {
         assert_eq!(shapes(&sent), vec![vec!["r"]]);
         assert!(sent[0].class.replay);
         assert_eq!(packer.deadline(), Some(now + BUDGET));
+    }
+
+    #[test]
+    fn a_replay_goes_before_a_fresh_class_at_the_target() {
+        let now = Instant::now();
+        let mut keys = KeyQueues::default();
+        push(&mut keys, "r", 0, &[1], now);
+        let fresh = RequestClass {
+            assignment_epoch: 0,
+            replay: false,
+        };
+        let claimed = keys.take_runs(fresh, |taken| taken.messages > 0);
+        push(&mut keys, "a", 0, &[2, 3], now);
+        let run = claimed.into_iter().next().expect("a claimed run").run;
+        keys.settle(&run.routing_key, run.messages, None, now)
+            .expect("a claimed key");
+        let mut packer = Packer::new(targets(2));
+
+        let sent = packer.pack(&mut keys, now, 1, false);
+        assert_eq!(shapes(&sent), vec![vec!["r"]]);
+        assert!(sent[0].class.replay);
+    }
+
+    #[test]
+    fn an_older_epoch_goes_first_unless_it_waits_below_the_target() {
+        let now = Instant::now();
+        let mut keys = KeyQueues::default();
+        push(&mut keys, "new", 2, &[1, 2], now);
+        push(&mut keys, "old", 1, &[3, 4], now);
+        let mut packer = Packer::new(targets(2));
+        assert_eq!(
+            shapes(&packer.pack(&mut keys, now, 1, false)),
+            vec![vec!["old"]]
+        );
+
+        push(&mut keys, "late", 1, &[5], now);
+        assert_eq!(
+            shapes(&packer.pack(&mut keys, now, 1, false)),
+            vec![vec!["new"]]
+        );
+        assert_eq!(
+            shapes(&packer.pack(&mut keys, now + BUDGET, 1, false)),
+            vec![vec!["late"]]
+        );
     }
 
     #[test]
