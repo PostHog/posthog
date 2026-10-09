@@ -6,7 +6,11 @@ import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonSelect, LemonS
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
+import { Onboarding } from 'scenes/marketing-analytics/Onboarding/Onboarding'
 import { suggestionsForSection } from 'scenes/marketing-analytics/Setup/sectionRouting'
 import { SuggestionRow } from 'scenes/marketing-analytics/Setup/SuggestionRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -37,6 +41,7 @@ import {
 import { ChartDisplayType } from '~/types'
 
 import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
+import { DetectedSources } from './DetectedSources'
 import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
 import { MarketingQueryError } from './MarketingQueryError'
 import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
@@ -87,6 +92,9 @@ const SECTIONS = [
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { nativeSources, validExternalTables, loading, dataWarehouseSources } = useValues(marketingAnalyticsLogic)
+    const { showOnboarding } = useValues(marketingOnboardingLogic)
+    const { completeOnboarding } = useActions(marketingOnboardingLogic)
     const [selectedSection, setSelectedSection] = useState('acquisition')
     const [trafficBreakdown, setTrafficBreakdown] = useState(WebStatsBreakdown.InitialChannelType)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -107,22 +115,24 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { setDates, setCompareFilter, openSetup, reportDashboardSectionViewed, reportDashboardControlUsed } =
         useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { loadSetupPlan, reviewSuggestion } = useActions(setupPlanLogic)
-    const [sourcesExpanded, setSourcesExpanded] = useLocalStorage('marketing-source-suggestions-expanded', false)
-    const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
-    const reviewSources = (): void => openSetup(SetupSection.SOURCES, 'dashboard_source_suggestions')
-
     const [goalsExpanded, setGoalsExpanded] = useLocalStorage('marketing-goal-suggestions-expanded', false)
     const goalSuggestions = suggestionsForSection(visibleSuggestions, SetupSection.CONVERSION_GOALS)
     const reviewGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_goal_suggestions')
 
     const requestedSetupPlan = useRef(false)
     useEffect(() => {
-        if (!setupPlan && !setupPlanLoading && !requestedSetupPlan.current) {
+        if (
+            featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
+            !setupPlan &&
+            !setupPlanLoading &&
+            !requestedSetupPlan.current
+        ) {
             requestedSetupPlan.current = true
             loadSetupPlan()
         }
-    }, [setupPlan, setupPlanLoading, loadSetupPlan])
+    }, [featureFlags, setupPlan, setupPlanLoading, loadSetupPlan])
 
     const reportedSection = useRef<string | null>(null)
     useEffect(() => {
@@ -167,6 +177,19 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const customerOverview = customerResponse as WebOverviewQueryResponse | undefined
     const reviewCustomerGoals = (): void => openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
 
+    const hasSearchConsole =
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+        !!dataWarehouseSources?.results.some((source) => source.source_type === 'GoogleSearchConsole')
+    if (
+        !loading &&
+        !hasSearchConsole &&
+        nativeSources.length === 0 &&
+        validExternalTables.length === 0 &&
+        showOnboarding
+    ) {
+        return <Onboarding completeOnboarding={completeOnboarding} />
+    }
+
     return (
         <div className="mt-4 flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -194,43 +217,8 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 )}
             </div>
             <MarketingAnalyticsSourceStatusBanner />
+            <DetectedSources />
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-2 empty:hidden">
-                {sourceSuggestions.length > 0 && (
-                    <div className="border rounded relative">
-                        <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewSources}>
-                            Review in Setup
-                        </LemonButton>
-                        <LemonCollapse
-                            embedded
-                            size="small"
-                            activeKey={sourcesExpanded ? 'sources' : null}
-                            onChange={(key) => {
-                                reportControl('source_suggestions', key !== null)
-                                setSourcesExpanded(key !== null)
-                            }}
-                            panels={[
-                                {
-                                    key: 'sources',
-                                    header: {
-                                        children: `Suggested ad sources (${sourceSuggestions.length})`,
-                                        className: 'pr-36',
-                                    },
-                                    content: sourceSuggestions.map((suggestion) => (
-                                        <SuggestionRow
-                                            key={suggestion.id}
-                                            suggestion={suggestion}
-                                            currentSection={SetupSection.SOURCES}
-                                            onReview={(item) => {
-                                                reviewSources()
-                                                reviewSuggestion(item)
-                                            }}
-                                        />
-                                    )),
-                                },
-                            ]}
-                        />
-                    </div>
-                )}
                 {goalSuggestions.length > 0 && (
                     <div className="border rounded relative">
                         <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewGoals}>

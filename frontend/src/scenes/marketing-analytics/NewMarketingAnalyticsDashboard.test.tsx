@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
@@ -88,6 +90,12 @@ jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/Ret
     RetentionTab: () => <div>Retention explorer</div>,
 }))
 
+jest.mock('scenes/marketing-analytics/Onboarding/Onboarding', () => ({
+    Onboarding: () => <div>Marketing onboarding</div>,
+}))
+
+jest.mock('products/marketing_analytics/frontend/dashboard/DetectedSources', () => ({ DetectedSources: () => null }))
+
 describe('NewMarketingAnalyticsDashboard', () => {
     afterEach(cleanup)
 
@@ -105,7 +113,12 @@ describe('NewMarketingAnalyticsDashboard', () => {
             responseLoading: false,
             setupPlan: {},
             visibleSuggestions: [],
+            featureFlags: {},
+            nativeSources: [{ id: 'connected-source', source_type: 'GoogleAds' }],
+            validExternalTables: [],
+            showOnboarding: false,
             allAvailableSourcesWithStatus: [],
+            hasSyncedMarketingSources: true,
             sourceValidationError: null,
             trafficOrderBy: {},
             trafficChartMetric: 'visitors',
@@ -129,7 +142,8 @@ describe('NewMarketingAnalyticsDashboard', () => {
         expect(error.textContent).not.toContain('previous-successful-query')
     })
 
-    it('shows every section without per-section flags', () => {
+    it.each(['ads', 'gsc', 'gsc-without-flag', 'none'] as const)('handles source onboarding for %s', (sourceState) => {
+        const searchConsoleOnly = sourceState.startsWith('gsc')
         jest.mocked(useValues).mockReturnValue({
             dateFilter: { dateFrom: '-30d', dateTo: null },
             compareFilter: { compare: false },
@@ -137,7 +151,13 @@ describe('NewMarketingAnalyticsDashboard', () => {
             responseLoading: false,
             setupPlan: {},
             visibleSuggestions: [],
+            featureFlags: { [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: sourceState === 'gsc' },
+            nativeSources: sourceState === 'ads' ? [{ id: 'connected-source', source_type: 'GoogleAds' }] : [],
+            dataWarehouseSources: { results: searchConsoleOnly ? [{ source_type: 'GoogleSearchConsole' }] : [] },
+            validExternalTables: [],
+            showOnboarding: sourceState !== 'ads',
             allAvailableSourcesWithStatus: [],
+            hasSyncedMarketingSources: true,
             sourceValidationError: null,
             trafficOrderBy: {},
             trafficChartMetric: 'visitors',
@@ -146,6 +166,11 @@ describe('NewMarketingAnalyticsDashboard', () => {
 
         render(<NewMarketingAnalyticsDashboard />)
 
+        if (sourceState === 'gsc-without-flag' || sourceState === 'none') {
+            expect(screen.getByText('Marketing onboarding')).not.toBeNull()
+            return
+        }
+        expect(screen.queryByText('Marketing onboarding')).toBeNull()
         expect(screen.getByLabelText('Acquisition')).not.toBeNull()
         expect(screen.queryByText('Compare periods')).not.toBeNull()
         expect(screen.queryByText('Reload summary')).not.toBeNull()

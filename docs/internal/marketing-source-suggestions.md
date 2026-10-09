@@ -168,9 +168,13 @@ Campaign trend charts accept both `campaign_overview_stats` and the legacy `camp
 The current schema takes precedence when both are available.
 Table resolution uses schema metadata when available and otherwise recognizes source and custom table-name prefixes.
 
-Review fixes preserve source data after request failures and provide a retry for connection errors.
-Blocked required imports show Needs attention with a Manage source link.
-Dashboard dismissals use the shared Setup restore controls.
-The rescan cooldown uses the actual server scan time; failed plan requests can retry without a fresh scan.
-Search controls and the Search Console connection action remain available during paid sync.
-Background source refreshes keep the Search table mounted, and manual setup links keep the originating project.
+Source refresh failures preserve the last successful source list and retry with a bounded backoff while the onboarding flow is mounted.
+An initial connection failure offers a retry in both paid and search sections.
+The one-hour rescan cooldown uses the server's seven-day source scan timestamp; loading a cached plan does not start a new cooldown.
+A failed plan request can retry during the cooldown without forcing an event scan.
+Dashboard dismissals share Setup's restore controls; existing dashboard dismissals migrate to the shared list.
+When all detected platforms are dismissed, the card offers Restore suggestions instead of reporting no detections.
+Required tables that are missing, disabled, failed, paused, or canceled show Needs attention with a Manage source link before the first sync.
+Search date and comparison controls remain available with only Search Console connected, and Search Console can be connected while paid sources sync.
+Background source refreshes keep the Search performance table mounted.
+Manual source setup opens with the originating project in the URL.
