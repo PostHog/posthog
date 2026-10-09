@@ -1,6 +1,6 @@
 import { routes } from 'scenes/scenes'
 
-import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemType } from '~/types'
@@ -123,7 +123,7 @@ export function libraryTypeForPath(path: string): string | null {
 
 /** The last segment of a file system path, with escaped slashes restored. */
 export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string {
-    return unescapePath(splitPath(entry.path).pop() ?? entry.path)
+    return splitPath(entry.path).pop() ?? entry.path
 }
 
 /** The type's name in lower case, for a label beside an object: "feature flag", but "SQL insight" keeps its acronym. */
