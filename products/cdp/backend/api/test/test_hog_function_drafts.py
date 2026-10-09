@@ -579,3 +579,40 @@ class TestHogFunctionRevisions(DraftTestCase):
         restored_draft = HogFunction.objects.get(id=function_id).draft
         assert restored_draft is not None
         assert restored_draft["hog"] == LIVE_HOG
+
+
+SIGNED_URL = "https://hooks.example.com/in?sv=2024&sig=fake-signature"
+REDACTED_SIGNED_URL = "https://hooks.example.com/in?sv=2024&sig=********"
+
+
+class TestHogFunctionUrlCredentialRedaction(DraftTestCase):
+    def _create_signed(self) -> str:
+        return self._create(enabled=False, inputs={**BASE_FUNCTION["inputs"], "url": {"value": SIGNED_URL}})
+
+    def test_agent_read_redacts_url_credentials_in_value_and_bytecode(self):
+        function_id = self._create_signed()
+
+        agent_inputs = self.client.get(self._url(function_id), headers={"x-posthog-client": "mcp"}).json()["inputs"]
+        web_inputs = self.client.get(self._url(function_id)).json()["inputs"]
+
+        assert agent_inputs["url"]["value"] == REDACTED_SIGNED_URL
+        assert "fake-signature" not in str(agent_inputs)
+        assert web_inputs["url"]["value"] == SIGNED_URL
+
+    @parameterized.expand(
+        [
+            ("resent_redacted_url_keeps_stored", REDACTED_SIGNED_URL, status.HTTP_200_OK),
+            (
+                "other_redacted_url_is_rejected",
+                "https://other.example.com/in?sig=********",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_agent_write_never_persists_a_redacted_url(self, _name: str, url: str, expected_status: int):
+        function_id = self._create_signed()
+
+        response = self._agent_patch(function_id, {"inputs": {"url": {"value": url}, "token": {"secret": True}}})
+
+        assert response.status_code == expected_status, response.json()
+        assert HogFunction.objects.get(id=function_id).inputs["url"]["value"] == SIGNED_URL

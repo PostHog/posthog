@@ -44,6 +44,7 @@ from posthog.cdp.validation import (
     compile_hog,
     generate_template_bytecode,
     masked_secret_input_keys,
+    redact_config_url_credentials,
     reserved_functions_used,
 )
 from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
@@ -594,6 +595,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
+        self.context["stored_inputs"] = [(instance.draft or {}).get("inputs"), instance.inputs] if instance else []
 
         template = None
         if data["template_id"]:
@@ -818,6 +820,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         data["inputs"] = inputs
         data["draft"] = self._mask_draft_secrets(data.get("draft"), draft_encrypted_inputs, encrypted_inputs)
+
+        request = self.context.get("request")
+        if request is not None and get_event_source(request) in AGENT_EVENT_SOURCES:
+            # Agent context ends up in transcripts and task logs. A URL input that is not flagged
+            # secret can still carry a signed credential, so hide it there too.
+            data = redact_config_url_credentials(data)
+            data["draft"] = redact_config_url_credentials(data.get("draft"))
 
         return data
 
@@ -1752,7 +1761,10 @@ class HogFunctionViewSet(
             revision = HogFunctionRevision.objects.get(hog_function=instance, version=int(version or 0))
         except HogFunctionRevision.DoesNotExist:
             raise exceptions.NotFound("No such revision for this function.")
-        return Response(HogFunctionRevisionSerializer(revision).data)
+        data = HogFunctionRevisionSerializer(revision).data
+        if self._is_agent_request(request):
+            data["content"] = redact_config_url_credentials(data.get("content"))
+        return Response(data)
 
     @extend_schema(
         parameters=[

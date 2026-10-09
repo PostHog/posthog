@@ -18,6 +18,7 @@ from posthog.cdp.validation import (
     RecordAliasRewriter,
     compile_hog,
     generate_template_bytecode,
+    redact_url_credentials,
     reserved_functions_used,
 )
 from posthog.models.integration import Integration
@@ -1466,3 +1467,39 @@ class TestReservedFunctionsUsed(SimpleTestCase):
     )
     def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
         assert reserved_functions_used(hog) == expected
+
+
+class TestRedactUrlCredentials(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "signed_query",
+                "https://hooks.example.com/in?sv=2024&sig=abc123&se=2030",
+                "https://hooks.example.com/in?sv=2024&sig=********&se=2030",
+            ),
+            (
+                "aws_signature",
+                "https://bucket.example.com/o?X-Amz-Credential=AKIA&X-Amz-Signature=deadbeef",
+                "https://bucket.example.com/o?X-Amz-Credential=********&X-Amz-Signature=********",
+            ),
+            ("userinfo", "https://user:pass@example.com/hook", "https://********@example.com/hook"),
+            (
+                "inside_template",
+                "https://example.com/hook?token=abc&user={event.distinct_id}",
+                "https://example.com/hook?token=********&user={event.distinct_id}",
+            ),
+            ("ordinary_url", "https://example.com/hook?utm_source=posthog&page=2", None),
+            ("empty_credential_param", "https://example.com/hook?token=", None),
+            ("not_a_url", "sig=abc123", None),
+        ]
+    )
+    def test_redacts_url_credentials(self, _name: str, value: str, expected: str | None) -> None:
+        assert redact_url_credentials(value) == (expected if expected is not None else value)
+
+    def test_redacts_bytecode_constants(self) -> None:
+        assert redact_url_credentials(
+            {"value": "https://example.com/?key=abc", "bytecode": ["_H", 1, 32, "https://example.com/?key=abc"]}
+        ) == {
+            "value": "https://example.com/?key=********",
+            "bytecode": ["_H", 1, 32, "https://example.com/?key=********"],
+        }
