@@ -214,7 +214,7 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
         )
         reports: list[JsonValue] = []
         memory: JsonValue = {}
-        invalid_reason = None
+        invalid_reason: JsonValue = None
         result_key = None
         export_error = None
         error = None

@@ -1325,7 +1325,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert [row["comparison_id"] for row in history.json()["results"]] == comparison_ids[:1]
             assert history.json()["has_more"] is False
             assert any("StartAfter" in call.kwargs for call in storage_client.list_objects_v2.call_args_list)
-            included = self.client.get(history_url, {"limit": 1, "include_archived": "true"})
+            included = self.client.get(history_url, {"limit": "1", "include_archived": "true"})
             assert included.status_code == 200, included.data
             assert included.json()["results"][0]["comparison_id"] == comparison_ids[-1]
             assert included.json()["results"][0]["archived"] is True
