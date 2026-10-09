@@ -541,7 +541,10 @@ export interface supportTicketSceneLogicMeta {
         discussionsEnabled: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => boolean
         sidePanelContext: (ticket: Ticket | null, discussionsEnabled: boolean) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
-        deleteDisabledReason: (ticket: Ticket | null, hasAvailableFeature: any) => string | undefined
+        deleteDisabledReason: (
+            ticket: Ticket | null,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+        ) => string | undefined
         unsavedTicketChanges: (
             priority: TicketPriority | null,
             assignee: TicketAssignee,
@@ -1039,7 +1042,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Without the access control add-on there is no manager role, so the backend lets editors delete.
         deleteDisabledReason: [
             (s) => [s.ticket, s.hasAvailableFeature],
-            (ticket: Ticket | null, hasAvailableFeature): string | undefined =>
+            (
+                ticket: Ticket | null,
+                hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            ): string | undefined =>
                 hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
                     ? (getAccessControlDisabledReason(
                           AccessControlResourceType.Ticket,

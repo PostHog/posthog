@@ -1381,7 +1381,6 @@ expose = [
     "backend\\.constants.*",
     "backend\\.models.*",
     "backend\\.temporal.*",
-    "backend\\.facade.*",
     # Other products register LearningEvidenceProvider here. BK never imports them.
     "backend\\.learning\\.contracts.*",
     "backend\\.learning\\.providers.*",
@@ -1392,6 +1391,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
     "backend\\.routes.*",
 ]
 from = [
