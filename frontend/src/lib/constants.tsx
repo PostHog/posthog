@@ -374,6 +374,7 @@ export const FEATURE_FLAGS = {
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
+    INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the comic "BANGER!" burst on the inbox report thumbs-up
     INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the staff-only ranking model sort options and the probability tag on inbox cards
     INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',

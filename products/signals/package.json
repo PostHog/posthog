@@ -30,7 +30,9 @@
         "@testing-library/dom": "*",
         "@testing-library/user-event": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
-        "react": "*"
+        "react": "*",
+        "react-dom": "*"
     }
 }
