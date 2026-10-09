@@ -942,6 +942,7 @@ export interface sourceWizardLogicMeta {
             showDestinationStep: boolean,
             arg: any,
             returnConfig: {
+                entryPoint?: string
                 returnLabel: string
                 returnUrl: string
             } | null,
