@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { sendActivityParams } from './broadcastPerformanceLogic'
+import { STEP_FAILED_KEY, buildPerformanceStats, sendActivityParams } from './broadcastPerformanceLogic'
 
 describe('sendActivityParams', () => {
     const started = '2026-09-20T09:17:00Z'
@@ -25,5 +25,15 @@ describe('sendActivityParams', () => {
             interval,
             dateFrom,
         })
+    })
+})
+
+describe('buildPerformanceStats', () => {
+    it.each([
+        ['recipients who failed before the email service ran', { [STEP_FAILED_KEY]: 100 }, 100],
+        ['failed sends, which also fail their step', { email_failed: 4, [STEP_FAILED_KEY]: 4 }, 4],
+        ['failed sends with no step failure recorded', { email_failed: 4 }, 4],
+    ])('counts %s as failed', (_name, totals, failed) => {
+        expect(buildPerformanceStats(totals)?.failed).toBe(failed)
     })
 })

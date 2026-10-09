@@ -219,6 +219,18 @@ describe('buildEmailMetricRows', () => {
     ])('derives delivered=$delivered when email_delivered is absent', ({ totals, delivered }) => {
         expect(buildEmailMetricRows([{ id: 'a1', name: 'E' }], { a1: totals })[0].delivered).toBe(delivered)
     })
+
+    it.each([
+        [
+            'adds one row for sends from removed steps',
+            { a1: { email_sent: 2 }, old1: { email_sent: 20 }, old2: { email_sent: 9 } },
+            [2, 29],
+        ],
+        ['adds no row when every send is from a current step', { a1: { email_sent: 2 } }, [2]],
+    ])('%s', (_name, totals, expectedSent) => {
+        const rows = buildEmailMetricRows([{ id: 'a1', name: 'E' }], totals)
+        expect(rows.map((row) => row.sent)).toEqual(expectedSent)
+    })
 })
 
 describe('buildPushMetricRows', () => {

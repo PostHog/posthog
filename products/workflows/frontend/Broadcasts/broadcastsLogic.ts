@@ -160,7 +160,7 @@ export function getBroadcastStatus(
             if (details.hasPendingSchedule === undefined) {
                 return 'unknown'
             }
-            return details.hasPendingSchedule ? 'scheduled' : 'sent'
+            return details.hasPendingSchedule ? 'scheduled' : getCompletedRunStatus(details.totals)
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
         // tells the sender another send is still pending when nothing is coming.
@@ -175,9 +175,22 @@ export function getBroadcastStatus(
     return 'scheduled'
 }
 
+/**
+ * A run completes once its audience is queued, before the emails go out. So a run reads as sent only
+ * when it recorded a send. A run with only failures did not send, and a run with no outcome yet is
+ * still sending. Unloaded totals keep the "sent" reading, so a slow metrics query can't hide a send.
+ */
+export function getCompletedRunStatus(totals: Record<string, number> | null): BroadcastStatus {
+    if (!totals || (totals.email_sent ?? 0) > 0) {
+        return 'sent'
+    }
+    // `failed` also counts recipients who never reached the email service, such as an empty "To" field.
+    return (totals.failed ?? 0) + (totals.email_failed ?? 0) > 0 ? 'failed' : 'sending'
+}
+
 // A batch send's email metrics are recorded against the batch job, not the flow, so the row counts
 // come from the latest run rather than the flow-scoped totals endpoint.
-async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
+export async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
     const created = dayjs(job.created_at)
     const response = await loadAppMetricsTotals(
         {

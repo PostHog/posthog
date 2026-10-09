@@ -63,6 +63,7 @@ import {
     canEditInWizard,
     canMoveToDraft,
     getBroadcastStatus,
+    loadRunMetricTotals,
 } from './broadcastsLogic'
 import {
     advanceAgentDraft,
@@ -236,6 +237,8 @@ export interface broadcastWizardLogicValues {
     hasHydrated: boolean
     hasLoadedBatchJobs: boolean
     isReadOnly: boolean
+    latestRunTotals: Record<string, number> | null
+    latestRunTotalsLoading: boolean
     launching: boolean
     linkAudienceRejected: boolean
     movingToDraft: boolean
@@ -350,6 +353,21 @@ export interface broadcastWizardLogicActions {
     }
     loadExternalEdit: () => {
         value: true
+    }
+    loadLatestRunTotals: () => any
+    loadLatestRunTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLatestRunTotalsSuccess: (
+        latestRunTotals: Record<string, number> | null,
+        payload?: any
+    ) => {
+        latestRunTotals: Record<string, number> | null
+        payload?: any
     }
     moveToDraft: () => {
         value: true
@@ -479,7 +497,8 @@ export interface broadcastWizardLogicMeta {
         summaryStatus: (
             broadcast: HogFlowApi | null,
             batchJobs: HogFlowBatchJobApi[],
-            hasLoadedBatchJobs: boolean
+            hasLoadedBatchJobs: boolean,
+            latestRunTotals: Record<string, number> | null
         ) => BroadcastStatus
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
@@ -626,6 +645,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         return []
                     }
                     return await hogFlowsBatchJobsList(String(values.currentProjectId), values.broadcastId)
+                },
+            },
+        ],
+        latestRunTotals: [
+            null as Record<string, number> | null,
+            {
+                loadLatestRunTotals: async () => {
+                    const latestBatchJob = values.batchJobs[0]
+                    return latestBatchJob
+                        ? await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
+                        : null
                 },
             },
         ],
@@ -933,11 +963,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 !!broadcast && canEditInWizard(broadcast.actions as any, broadcast.edges as any),
         ],
         summaryStatus: [
-            (s) => [s.broadcast, s.batchJobs, s.hasLoadedBatchJobs],
+            (s) => [s.broadcast, s.batchJobs, s.hasLoadedBatchJobs, s.latestRunTotals],
             (
                 broadcast: HogFlowApi | null,
                 batchJobs: HogFlowBatchJobApi[],
-                hasLoadedBatchJobs: boolean
+                hasLoadedBatchJobs: boolean,
+                latestRunTotals: Record<string, number> | null
             ): BroadcastStatus =>
                 broadcast
                     ? getBroadcastStatus(
@@ -945,7 +976,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                           hasLoadedBatchJobs
                               ? {
                                     latestBatchJob: batchJobs[0] ?? null,
-                                    totals: null,
+                                    totals: latestRunTotals,
                                     hasPendingSchedule: !!broadcast.schedules?.some(
                                         (schedule) => schedule.status === 'active'
                                     ),
@@ -1124,6 +1155,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        loadBatchJobsSuccess: () => {
+            actions.loadLatestRunTotals()
+        },
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
         },

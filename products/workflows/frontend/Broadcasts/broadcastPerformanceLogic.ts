@@ -1,7 +1,11 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { AppMetricsCommonParams, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import {
+    AppMetricsCommonParams,
+    AppMetricsTotalsResponse,
+    loadAppMetricsTotals,
+} from 'lib/components/AppMetrics/appMetricsLogic'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,6 +44,16 @@ const TOTALS_METRICS = [
     'conversion',
 ]
 
+export const STEP_FAILED_KEY = 'step_failed'
+
+/**
+ * Step failures, without the run-level row (empty instance_id) that repeats them. A step fails when
+ * its send fails, and also when the run stops before the send, for example on an empty "To" field.
+ */
+function sumStepFailures(response: AppMetricsTotalsResponse): number {
+    return Object.values(response).reduce((sum, { total, breakdowns }) => (breakdowns[0] ? sum + total : sum), 0)
+}
+
 /** Hourly buckets read well for a few days after a send, then the tail of late opens needs daily ones. */
 const HOURLY_WINDOW_DAYS = 3
 
@@ -58,6 +72,26 @@ export function sendActivityParams(
         metricName: ['email_sent', 'email_delivered', 'email_opened', 'email_link_clicked'],
         interval,
         dateFrom: started.toISOString(),
+    }
+}
+
+export function buildPerformanceStats(totals: Record<string, number> | null): BroadcastPerformanceStats | null {
+    if (!totals) {
+        return null
+    }
+    const sent = totals.email_sent ?? 0
+    return {
+        sent,
+        delivered: totals.email_delivered ?? 0,
+        opened: totals.email_opened ?? 0,
+        clicked: totals.email_link_clicked ?? 0,
+        bounced: totals.email_bounced ?? 0,
+        // Spam complaints are stored under email_blocked.
+        markedAsSpam: totals.email_blocked ?? 0,
+        // Every failed send also fails its step, so the larger count holds both.
+        failed: Math.max(totals.email_failed ?? 0, totals[STEP_FAILED_KEY] ?? 0),
+        trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
+        converted: totals.conversion ?? 0,
     }
 }
 
@@ -142,19 +176,34 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
                 null as Record<string, number> | null,
                 {
                     loadTotals: async () => {
-                        const response = await loadAppMetricsTotals(
-                            {
-                                appSource: 'hog_flow',
-                                appSourceId: props.runId,
-                                metricName: TOTALS_METRICS,
-                                breakdownBy: ['metric_name'],
-                                ...window(),
-                            },
-                            values.currentTeam?.timezone ?? 'UTC'
-                        )
-                        return Object.fromEntries(
+                        const timezone = values.currentTeam?.timezone ?? 'UTC'
+                        const [response, failedResponse] = await Promise.all([
+                            loadAppMetricsTotals(
+                                {
+                                    appSource: 'hog_flow',
+                                    appSourceId: props.runId,
+                                    metricName: TOTALS_METRICS,
+                                    breakdownBy: ['metric_name'],
+                                    ...window(),
+                                },
+                                timezone
+                            ),
+                            loadAppMetricsTotals(
+                                {
+                                    appSource: 'hog_flow',
+                                    appSourceId: props.runId,
+                                    metricName: ['failed'],
+                                    breakdownBy: ['instance_id'],
+                                    ...window(),
+                                },
+                                timezone
+                            ),
+                        ])
+                        const totals = Object.fromEntries(
                             Object.values(response).map(({ total, breakdowns }) => [breakdowns[0], total])
                         )
+                        totals[STEP_FAILED_KEY] = sumStepFailures(failedResponse)
+                        return totals
                     },
                 },
             ],
@@ -195,24 +244,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
     selectors({
         stats: [
             (s) => [s.totals],
-            (totals: Record<string, number> | null): BroadcastPerformanceStats | null => {
-                if (!totals) {
-                    return null
-                }
-                const sent = totals.email_sent ?? 0
-                return {
-                    sent,
-                    delivered: totals.email_delivered ?? 0,
-                    opened: totals.email_opened ?? 0,
-                    clicked: totals.email_link_clicked ?? 0,
-                    bounced: totals.email_bounced ?? 0,
-                    // Spam complaints are stored under email_blocked.
-                    markedAsSpam: totals.email_blocked ?? 0,
-                    failed: totals.email_failed ?? 0,
-                    trackedSends: Math.max(sent - (totals.email_untracked ?? 0), 0),
-                    converted: totals.conversion ?? 0,
-                }
-            },
+            (totals: Record<string, number> | null): BroadcastPerformanceStats | null => buildPerformanceStats(totals),
         ],
     }),
     afterMount(({ actions }) => {

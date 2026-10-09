@@ -40,7 +40,7 @@ export function BroadcastPerformance({
         { label: 'Delivered', value: share(stats.delivered, stats.sent), detail: stats.delivered },
         { label: 'Bounced', value: share(stats.bounced, stats.sent), detail: stats.bounced },
         { label: 'Marked as spam', value: share(stats.markedAsSpam, stats.sent), detail: stats.markedAsSpam },
-        { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
+        { label: 'Failed', value: share(stats.failed, stats.sent + stats.failed), detail: stats.failed },
     ]
     const engagement = [
         { label: 'Opened', part: stats.opened, whole: stats.trackedSends },

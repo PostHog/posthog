@@ -1513,35 +1513,60 @@ export function channelSentLabel({ hasEmail, hasPush }: { hasEmail: boolean; has
     return hasEmail && hasPush ? 'Messages sent' : hasPush ? 'Push notifications sent' : 'Emails sent'
 }
 
+export const REMOVED_EMAIL_STEPS_ROW_ID = 'removed-email-steps'
+
 export function buildEmailMetricRows(
     emailActions: { id: string; name: string }[],
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
 ): EmailMetricRow[] {
-    return emailActions.map((action) => {
-        const totals = emailTotalsByActionId[action.id] || {}
-        const sent = totals.email_sent ?? 0
-        const bounced = totals.email_bounced ?? 0
-        const markedAsSpam = totals.email_blocked ?? 0
-        const untracked = totals.email_untracked ?? 0
-        return {
-            id: action.id,
-            email: action.name,
-            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
-            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
-            sent,
-            opened: totals.email_opened ?? 0,
-            linkClicked: totals.email_link_clicked ?? 0,
-            bounced,
-            bouncedHard: totals.email_bounced_hard ?? 0,
-            bouncedSoft: totals.email_bounced_transient ?? 0,
-            bouncedUnknown: totals.email_bounced_undetermined ?? 0,
-            bouncePrevented: totals.email_bounce_prevented ?? 0,
-            markedAsSpam,
-            untracked,
-            trackedSends: Math.max(0, sent - untracked),
+    const rows = emailActions.map((action) =>
+        buildEmailMetricRow(action.id, action.name, emailTotalsByActionId[action.id] || {})
+    )
+    // Sends from steps no longer in the workflow still count in the summary tiles, so one row holds
+    // them to make the table add up to the tiles.
+    const currentIds = new Set(emailActions.map((action) => action.id))
+    const removedTotals: Partial<Record<EmailMetricName, number>> = {}
+    for (const [actionId, totals] of Object.entries(emailTotalsByActionId)) {
+        if (currentIds.has(actionId)) {
+            continue
         }
-    })
+        for (const [metricName, total] of Object.entries(totals) as [EmailMetricName, number][]) {
+            removedTotals[metricName] = (removedTotals[metricName] ?? 0) + total
+        }
+    }
+    if (Object.values(removedTotals).some((total) => total > 0)) {
+        rows.push(buildEmailMetricRow(REMOVED_EMAIL_STEPS_ROW_ID, 'Removed steps', removedTotals))
+    }
+    return rows
+}
+
+function buildEmailMetricRow(
+    id: string,
+    email: string,
+    totals: Partial<Record<EmailMetricName, number>>
+): EmailMetricRow {
+    const sent = totals.email_sent ?? 0
+    const bounced = totals.email_bounced ?? 0
+    const markedAsSpam = totals.email_blocked ?? 0
+    const untracked = totals.email_untracked ?? 0
+    return {
+        id,
+        email,
+        // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+        // feedback-loop reports recipients send after delivery, so they are not subtracted here.
+        delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
+        sent,
+        opened: totals.email_opened ?? 0,
+        linkClicked: totals.email_link_clicked ?? 0,
+        bounced,
+        bouncedHard: totals.email_bounced_hard ?? 0,
+        bouncedSoft: totals.email_bounced_transient ?? 0,
+        bouncedUnknown: totals.email_bounced_undetermined ?? 0,
+        bouncePrevented: totals.email_bounce_prevented ?? 0,
+        markedAsSpam,
+        untracked,
+        trackedSends: Math.max(0, sent - untracked),
+    }
 }
 
 export function buildPushMetricRows(
