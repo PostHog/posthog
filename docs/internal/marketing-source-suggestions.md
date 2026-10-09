@@ -83,3 +83,5 @@ Table resolution uses schema metadata when available and otherwise recognizes so
 The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
 Source health polling refreshes metadata without forcing every dashboard query.
 Campaign reporting waits for all required schemas to complete their first sync.
+Source refresh failures retain the previous list and allow a later retry.
+Native source readiness checks include required schema failures and paused imports.
