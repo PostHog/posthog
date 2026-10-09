@@ -133,8 +133,10 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         return checksum
 
     def update_commands(self, partition_clause: str = "") -> set[str]:
+        # team_id leads the sorting key of every target, so this set lets ClickHouse skip the granules
+        # of every team with no override instead of looking up each of their rows in the dictionary.
         return {
-            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
+            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id)) AND team_id IN (SELECT DISTINCT team_id FROM dictionary(%(name)s))"
         }
 
     @property
