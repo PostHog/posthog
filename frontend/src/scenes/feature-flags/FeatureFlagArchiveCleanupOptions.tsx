@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCheckbox, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { CleanupKeepOption } from './featureFlagCleanupKeep'
 import { featureFlagCleanupTargetLogic } from './featureFlagCleanupTargetLogic'
+import { FlagCleanupPrOptions } from './FlagCleanupPrOptions'
 
 export interface FeatureFlagArchiveCleanupOptionsProps {
     featureFlagId: number
@@ -33,38 +34,25 @@ export function FeatureFlagArchiveCleanupOptions({
     const logic = featureFlagCleanupTargetLogic({ featureFlagId })
     const { cleanupTarget, cleanupTargetLoading, cleanupTargetFailed } = useValues(logic)
     const { loadCleanupTarget } = useActions(logic)
-    const needsRepositoryPick = cleanupTarget?.source === 'ambiguous'
 
     return (
         <div className="space-y-2 mt-4">
-            <LemonCheckbox
+            <FlagCleanupPrOptions
+                flagKey={featureFlagKey}
+                target={cleanupTarget}
                 checked={openCleanupPr}
-                onChange={onOpenCleanupPrChange}
-                data-attr="feature-flag-archive-open-cleanup-pr"
+                onCheckedChange={onOpenCleanupPrChange}
+                repository={repository}
+                onRepositoryChange={onRepositoryChange}
+                dataAttrPrefix="feature-flag-archive"
                 disabledReason={
                     cleanupTargetLoading
                         ? 'Checking connected repositories'
                         : cleanupTargetFailed
                           ? 'Could not check connected repositories'
-                          : cleanupTarget?.source === 'no_integration'
-                            ? 'Connect GitHub in your project settings to open cleanup PRs'
-                            : undefined
+                          : undefined
                 }
-                label={
-                    <span>
-                        Open a draft PR removing <code>{featureFlagKey}</code> from your code
-                    </span>
-                }
-            />
-            {cleanupTargetFailed && (
-                <div className="text-xs text-muted flex items-center gap-1">
-                    Could not check which repositories are connected.
-                    <LemonButton size="xsmall" type="secondary" onClick={() => loadCleanupTarget()}>
-                        Try again
-                    </LemonButton>
-                </div>
-            )}
-            {openCleanupPr && (
+            >
                 <>
                     <div>
                         <div className="font-semibold mb-1">Code to keep</div>
@@ -77,24 +65,6 @@ export function FeatureFlagArchiveCleanupOptions({
                             data-attr="feature-flag-archive-cleanup-keep"
                         />
                     </div>
-                    {cleanupTarget?.repository && (
-                        <div className="text-xs text-muted">
-                            The PR will be opened in <code>{cleanupTarget.repository}</code>.
-                        </div>
-                    )}
-                    {needsRepositoryPick && (
-                        <LemonInputSelect
-                            mode="single"
-                            value={repository ? [repository] : []}
-                            onChange={(repositories) => onRepositoryChange(repositories[0] ?? null)}
-                            options={cleanupTarget.candidates.map((candidate) => ({
-                                key: candidate,
-                                label: candidate,
-                            }))}
-                            placeholder="Select a repository"
-                            data-attr="feature-flag-archive-cleanup-repository"
-                        />
-                    )}
                     {isFlagActive && (
                         <div className="text-xs text-muted">
                             Archiving disables the flag now. Until the PR is merged and deployed, users get the code
@@ -102,6 +72,14 @@ export function FeatureFlagArchiveCleanupOptions({
                         </div>
                     )}
                 </>
+            </FlagCleanupPrOptions>
+            {cleanupTargetFailed && (
+                <div className="text-xs text-muted flex items-center gap-1">
+                    Could not check which repositories are connected.
+                    <LemonButton size="xsmall" type="secondary" onClick={() => loadCleanupTarget()}>
+                        Try again
+                    </LemonButton>
+                </div>
             )}
         </div>
     )
