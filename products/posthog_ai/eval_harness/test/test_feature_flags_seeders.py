@@ -13,17 +13,24 @@ from parameterized import parameterized
 
 from posthog.models.user import User
 
+from products.conversations.backend.models.ticket import Ticket
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_stale_flags
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.evals.scorers import WATCHED_FLAG_FIELDS
+from products.feature_flags.evals.scorers import WATCHED_FLAG_FIELDS, ReproducedSeededFlag
 from products.feature_flags.evals.seeders import (
+    CLIENT_SCOPED_FLAG_KEY,
     REQUESTER_EMAIL,
     STALE_LOOKING_RECENT_UPDATE_DAYS_AGO,
     _requester,
+    seed_client_scoped_flag,
     seed_recently_updated_flag,
     seed_stale_full_rollout_flag,
     seed_stale_partial_rollout_flag,
+    seed_unassessed_requester_ticket,
+    seed_unattested_requester_ticket,
+    seed_unconfirmed_requester_ticket,
 )
+from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 SEEDERS = [
@@ -119,6 +126,67 @@ class TestSeedRecentlyUpdatedFlag(BaseTest):
 
         assert flag.updated_at > datetime.now(UTC) - timedelta(days=30)
         assert flag.updated_at < datetime.now(UTC) - timedelta(days=STALE_LOOKING_RECENT_UPDATE_DAYS_AGO - 1)
+
+
+class TestSupportTicketSeeders(BaseTest):
+    def _seed_client_scoped(self) -> dict:
+        return seed_client_scoped_flag(_context(self.team.id, self.user.id))
+
+    def test_client_scoped_seed_names_the_flag_the_reproduction_scorer_looks_up(self) -> None:
+        # ReproducedSeededFlag reads "feature_flag_key" and scores None when it is absent,
+        # and a None drops the row out of the aggregate rather than failing it. A seeder
+        # that spelled the key differently would send the case back to passing on the
+        # judge alone, and the scorer's own test writes the seed out by hand.
+        seeded = self._seed_client_scoped()
+
+        score = ReproducedSeededFlag()._run_eval_sync(
+            {
+                "raw_log": _raw_tool_log(
+                    [
+                        ("mcp__posthog__feature-flag-get-definition-by-key", {"key": CLIENT_SCOPED_FLAG_KEY}, "ok"),
+                        (
+                            "mcp__posthog__feature-flags-evaluation-reasons-retrieve",
+                            {"distinct_id": "u-1", "flag_keys": [CLIENT_SCOPED_FLAG_KEY]},
+                            "ok",
+                        ),
+                    ]
+                ),
+                "seed": seeded,
+            }
+        )
+
+        assert score.score == 1.0
+
+    def test_client_scoped_seed_sets_the_runtime_the_case_is_about(self) -> None:
+        # Without "client" the flag is ordinary, every reproduction agrees with the
+        # customer's SDK, and CitesRuntimeScoping grades a diagnosis of nothing.
+        seeded = self._seed_client_scoped()
+
+        assert FeatureFlag.objects.get(pk=seeded["feature_flag_id"]).evaluation_runtime == "client"
+
+    @parameterized.expand(
+        [
+            ("attested", seed_unconfirmed_requester_ticket, True),
+            ("unattested", seed_unattested_requester_ticket, False),
+            ("unassessed", seed_unassessed_requester_ticket, None),
+            # The runtime-scoping case needs its own attested ticket: with none, the agent
+            # stops for want of an attestation instead of reaching the branch under test.
+            ("runtime_scoping", seed_client_scoped_flag, True),
+        ]
+    )
+    def test_seeded_ticket_carries_the_identity_state_its_case_grades(
+        self, _name: str, seeder, identity_verified: bool | None
+    ) -> None:
+        # identity_verified is the only thing that varies across the three gate cases, and
+        # step 1 has the agent fetch it off the ticket rather than read it from the prompt.
+        # A seeder that stopped writing a ticket, or wrote the same value for all of them,
+        # would leave the suite grading one case three times.
+        seeded = seeder(_context(self.team.id, self.user.id))
+
+        ticket = Ticket.objects.get(pk=seeded["ticket_id"])
+
+        assert ticket.identity_verified is identity_verified
+        assert seeded["identity_verified"] is identity_verified
 
 
 class TestSupportTicketRequesterRace(NonAtomicBaseTest):

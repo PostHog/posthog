@@ -6,7 +6,7 @@ so reach for it only when §2 didn't settle the question or the ticket is about 
 straight to §4 on "it used to work", and to §6 whenever the flag's `evaluation_runtime` isn't `all` —
 that's the only step here that sees what a particular caller receives.
 
-**Step 2 of the SKILL's workflow comes first.** Every call below answers for the session's **active**
+**Steps 2 to 6 of the SKILL's workflow come first.** Every call below answers for the session's **active**
 project and takes no project ID, so if `posthog:switch-project` hasn't put you on the ticket's project
 you get a complete, plausible answer about a different one — usually your own — with nothing to signal
 it. Run the entitlement check, then come back here.
@@ -113,9 +113,26 @@ ORDER BY timestamp DESC
 LIMIT 100
 ```
 
-**The discriminator for runtime scoping** is a variant of the first query: drop the `$feature_flag`
-predicate, filter on the caller's `$lib` instead, and group by flag key. Then read each returned key's
-`evaluation_runtime` — but don't fetch it one flag at a time. That query returns up to 50 keys, and
+**The discriminator for runtime scoping** asks which flag keys that one caller evaluated. It needs no
+aggregate beyond a count and no more than a day of traffic, so keep it to this rather than reworking
+the first query — that one's `uniq(person_id)` is the expensive part, and dropping `$feature_flag`
+without dropping the aggregate runs it over every flag in the project:
+
+```sql
+SELECT
+  properties.$feature_flag AS flag_key,
+  count() AS calls
+FROM events
+WHERE event = '$feature_flag_called'
+  AND properties.$lib = '<lib>'
+  AND timestamp >= now() - INTERVAL 1 DAY
+GROUP BY flag_key
+ORDER BY calls DESC
+LIMIT 50
+```
+
+Then read each returned key's `evaluation_runtime` — but don't fetch it one flag at a time.
+That query returns up to 50 keys, and
 `posthog:feature-flag-get-all` filters on the field directly: one call with
 `evaluation_runtime: "client"` and one with `"server"` name every runtime-scoped flag in the project, so
 intersect those keys with the ones the query returned. (The list response omits the field itself, so
@@ -148,6 +165,12 @@ changed".
 `posthog:advanced-activity-logs-list` covers the same rows across the project, carrying `item_id` (the
 flag's numeric ID) and `detail.name` (its key) — sweep with `scopes: ["FeatureFlag"]` plus `search_text`
 or `detail_filters` when the customer can't name the flag, then come back here for the field-level diff.
+**Bound that sweep.** `search_text` compiles to `detail::text ILIKE '%…%'`, which no index can serve, so
+without a date range the planner walks the project's activity newest-first and runs the match on every
+row — and this is the path where you're guessing at text, so a guess that matches nothing reads the lot
+before returning an empty page. Pass `start_date` from the customer's "it used to work" date (plus
+`end_date` when they gave you one), and `fields` so the response comes back as identifiers rather than
+full diffs.
 
 ## 5. Offline rollout / variant hash (fallback only)
 
