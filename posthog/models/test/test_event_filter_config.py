@@ -178,6 +178,10 @@ class TestPruneFilterTree(SimpleTestCase):
         tree = _or(group, _cond(value="keep"))
         self.assertEqual(prune_filter_tree(tree), tree)
 
+    def test_collapses_single_child_group_with_blank_comment(self):
+        tree = _or({**_and(_cond()), "comment": "   "}, _cond(value="keep"))
+        self.assertEqual(prune_filter_tree(tree), _or(_cond(), _cond(value="keep")))
+
     def test_collapses_nested_single_child_groups(self):
         # Deeply nested single-child groups collapse down to one group at the root.
         cond = _cond()

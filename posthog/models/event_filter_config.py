@@ -119,7 +119,7 @@ def _prune_node(node: dict) -> dict | None:
         if len(children) == 0:
             return None
         # Keep a commented group even with one child, so that its comment is not lost.
-        if len(children) == 1 and not node.get("comment"):
+        if len(children) == 1 and not str(node.get("comment") or "").strip():
             return children[0]
         return {**node, "children": children}
 
