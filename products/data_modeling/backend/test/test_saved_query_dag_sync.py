@@ -312,18 +312,33 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         self.assertEqual({edge.source.name for edge in Edge.objects.filter(target=node)}, {"events"})
 
-    def test_sync_creates_edge_to_other_saved_query(self):
+    @parameterized.expand(
+        [
+            ("view", "upstream_view", False),
+            ("view_under_models_root", "models.upstream_view", False),
+            ("matview", "upstream_view", True),
+            ("matview_under_models_root", "models.upstream_view", True),
+        ]
+    )
+    def test_sync_creates_edge_to_other_saved_query(self, _name: str, reference: str, materialized: bool):
         upstream_query = DataWarehouseSavedQuery.objects.create(
             name="upstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
         )
+        if materialized:
+            upstream_query.table = DataWarehouseTable.objects.create(
+                team=self.team, name="upstream_view", format="Parquet", columns={"event": "String"}
+            )
+            upstream_query.is_materialized = True
+            upstream_query.save(update_fields=["table", "is_materialized"])
         upstream_node = sync_saved_query_to_dag(upstream_query)
 
         downstream_query = DataWarehouseSavedQuery.objects.create(
             name="downstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
         )
         downstream_node = sync_saved_query_to_dag(downstream_query)
 
