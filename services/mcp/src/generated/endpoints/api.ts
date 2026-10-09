@@ -444,21 +444,23 @@ export const EndpointsRunCreateBody = () => zod.object({
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Period comparison forced onto every insight that supports one.'),
+                    .describe('Period comparison forced onto every insight that supports one. Absent\/null = inherit.'),
                 date_from: zod.union([zod.string(), zod.null()]).optional(),
                 date_to: zod.union([zod.string(), zod.null()]).optional(),
                 explicitDate: zod.union([zod.boolean(), zod.null()]).optional(),
                 filterTestAccounts: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
-                    .describe('Tri-state test-account override. True = force on; false = force off.'),
+                    .describe(
+                        'Tri-state test-account override. Null\/absent = inherit; true = force on; false = force off.'
+                    ),
                 interval: zod
                     .union([
                         zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year']),
                         zod.null(),
                     ])
                     .optional()
-                    .describe('Time granularity forced onto every insight that supports one.'),
+                    .describe('Time granularity forced onto every insight that supports one. Absent\/null = inherit.'),
                 metricFilters: zod
                     .union([
                         zod.array(

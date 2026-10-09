@@ -1003,14 +1003,14 @@ export interface BehavioralPropertyFilterApi {
 
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
-    /** Period comparison forced onto every insight that supports one. */
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
     compareFilter?: CompareFilterApi | null
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
-    /** Tri-state test-account override. True = force on; false = force off. */
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
     filterTestAccounts?: boolean | null
-    /** Time granularity forced onto every insight that supports one. */
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null

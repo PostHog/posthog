@@ -27511,15 +27511,18 @@ class DashboardFilter(BaseModel):
     breakdown_filter: BreakdownFilter | None = None
     compareFilter: CompareFilter | None = Field(
         default=None,
-        description="Period comparison forced onto every insight that supports one.",
+        description=("Period comparison forced onto every insight that supports one. Absent/null = inherit."),
     )
     date_from: str | None = None
     date_to: str | None = None
     explicitDate: bool | None = None
-    filterTestAccounts: bool | None = Field(default=None, description="Tri-state test-account override.")
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description=("Tri-state test-account override. Null/absent = inherit; true = force on; false = force off."),
+    )
     interval: IntervalType | None = Field(
         default=None,
-        description="Time granularity forced onto every insight that supports one.",
+        description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
     )
     metricFilters: list[MetricsQueryFilter] | None = Field(
         default=None,

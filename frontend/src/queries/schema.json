@@ -18778,7 +18778,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Period comparison forced onto every insight that supports one."
+                    "description": "Period comparison forced onto every insight that supports one. Absent/null = inherit."
                 },
                 "date_from": {
                     "type": ["string", "null"]
@@ -18790,7 +18790,7 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
-                    "description": "Tri-state test-account override.",
+                    "description": "Tri-state test-account override. Null/absent = inherit; true = force on; false = force off.",
                     "type": ["boolean", "null"]
                 },
                 "interval": {
@@ -18802,7 +18802,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Time granularity forced onto every insight that supports one."
+                    "description": "Time granularity forced onto every insight that supports one. Absent/null = inherit."
                 },
                 "metricFilters": {
                     "anyOf": [

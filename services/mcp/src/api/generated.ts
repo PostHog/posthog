@@ -3543,14 +3543,14 @@ export namespace Schemas {
 
     export interface DashboardFilter {
       breakdown_filter?: BreakdownFilter | null;
-      /** Period comparison forced onto every insight that supports one. */
+      /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
       compareFilter?: CompareFilter | null;
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
-      /** Tri-state test-account override. True = force on; false = force off. */
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
       filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. */
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
       interval?: IntervalType | null;
       /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
       metricFilters?: MetricsQueryFilter[] | null;

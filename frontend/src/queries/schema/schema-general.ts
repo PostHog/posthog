@@ -6871,11 +6871,11 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
     explicitDate?: boolean
-    /** Time granularity forced onto every insight that supports one. */
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalType | null
-    /** Tri-state test-account override. */
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
     filterTestAccounts?: boolean | null
-    /** Period comparison forced onto every insight that supports one. */
+    /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
     compareFilter?: CompareFilter | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilter[] | null
