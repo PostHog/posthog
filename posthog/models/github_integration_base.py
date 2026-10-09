@@ -2257,41 +2257,8 @@ class GitHubIntegrationBase:
     _ROLLUP_FAILING_CHECK_KEY = "ci-rollup-failing"
 
     @classmethod
-    def _extract_failing_checks(cls, rollup: dict[str, Any] | None) -> list[dict[str, Any]]:
-        failing: list[dict[str, Any]] = []
-        for node in ((rollup or {}).get("contexts") or {}).get("nodes") or []:
-            if not isinstance(node, dict):
-                continue
-            if node.get("__typename") == "CheckRun":
-                if node.get("conclusion") not in cls._FAILING_CHECK_RUN_CONCLUSIONS:
-                    continue
-                workflow = (((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}).get("name")
-                name = node.get("name") or "unnamed check"
-                failing.append(
-                    {"key": f"{workflow}/{name}" if workflow else name, "details_url": node.get("detailsUrl")}
-                )
-            elif node.get("__typename") == "StatusContext":
-                if node.get("state") not in cls._FAILING_STATUS_CONTEXT_STATES:
-                    continue
-                failing.append({"key": node.get("context") or "unnamed status", "details_url": node.get("targetUrl")})
-        return failing
-
     @staticmethod
-    def _feedback_item(node: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": node.get("id"),
-            "author": (node.get("author") or {}).get("login"),
-            "author_association": node.get("authorAssociation"),
-            "body": node.get("body") or "",
-            "url": node.get("url"),
-        }
-
     @staticmethod
-    def _is_bot_author(node: dict[str, Any]) -> bool:
-        # GraphQL drops the `[bot]` login suffix REST adds, and authorAssociation says
-        # nothing about whether an author is automated.
-        return ((node.get("author") or {}).get("__typename")) == "Bot"
-
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.
 

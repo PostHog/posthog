@@ -43,40 +43,6 @@ from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 
-class TestExtractFailingChecks(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("failure", "FAILURE", True),
-            ("timed_out", "TIMED_OUT", True),
-            ("action_required", "ACTION_REQUIRED", True),
-            ("startup_failure", "STARTUP_FAILURE", True),
-            ("cancelled", "CANCELLED", True),
-            ("stale", "STALE", True),
-            ("success", "SUCCESS", False),
-            ("neutral", "NEUTRAL", False),
-            ("skipped", "SKIPPED", False),
-        ]
-    )
-    def test_check_run_is_reported_only_when_its_conclusion_blocks_merge(self, _name, conclusion, expected_reported):
-        rollup = {
-            "contexts": {
-                "nodes": [
-                    {
-                        "__typename": "CheckRun",
-                        "conclusion": conclusion,
-                        "name": "unit tests",
-                        "checkSuite": {"workflowRun": {"workflow": {"name": "CI"}}},
-                        "detailsUrl": "https://ci/1",
-                    }
-                ]
-            }
-        }
-
-        failing = GitHubIntegrationBase._extract_failing_checks(rollup)
-
-        assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
-
-
 class TestGitHubPullRequestChecks(SimpleTestCase):
     def test_reports_missing_checks_permission(self):
         integration = MagicMock(kind="github", config={"permissions": {"contents": "read"}})
