@@ -1146,6 +1146,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=response.json()["id"])
         assert suite_run.status == "running"
         assert response.json()["workflow_id"] == suite_run.workflow_id
+        assert response.json()["question_progress"] == []
         # The handle is only pollable if it carries the subject: the nested routes filter on it.
         with patch(
             "products.data_quality.backend.facade.api.question_progress",
@@ -1164,7 +1165,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert polled.status_code == status.HTTP_200_OK
         assert polled.json()["question_progress"][0]["evaluated_row_count"] == 2500
         listed = self.client.get(self._runs_of(self.view.id))
-        assert str(suite_run.id) in {row["id"] for row in listed.json()["results"]}
+        listed_run = next(row for row in listed.json()["results"] if row["id"] == str(suite_run.id))
+        assert listed_run["question_progress"] == []
 
     def test_running_a_whole_subject_records_it_on_the_report(self) -> None:
         self._create_check()

@@ -496,8 +496,9 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: DataQualitySuiteRun) -> dict[str, Any]:
         data = super().to_representation(instance)
-        if "question_progress" in self.context:
-            data["question_progress"] = QuestionProgressSerializer(self.context["question_progress"], many=True).data
+        data["question_progress"] = QuestionProgressSerializer(
+            self.context.get("question_progress", []), many=True
+        ).data
         return data
 
     status = serializers.CharField(
