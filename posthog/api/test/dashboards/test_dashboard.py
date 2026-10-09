@@ -2019,6 +2019,35 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
         self.assertEqual(dashboard["customization"], {})
 
+    @parameterized.expand(
+        [
+            ("unknown_badge", {"badge": "Winner"}, "badge"),
+            ("non_string_group_key", {"group_key": 5}, "group_key"),
+        ]
+    )
+    def test_invalid_marking_on_a_content_edit_is_rejected_before_anything_is_saved(
+        self, _name: str, invalid_marking: dict, expected_attr: str
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        _, created = self.dashboard_api.create_text_tile(dashboard_id, text="original")
+        text_tile = created["tiles"][0]
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "name": "renamed",
+                "group_titles": {"plans": "Pricing plans"},
+                "tiles": [{"id": text_tile["id"], "text": {"body": "edited"}, **invalid_marking}],
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], expected_attr)
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        self.assertEqual(dashboard["name"], "test")
+        self.assertEqual(dashboard["customization"], {})
+        self.assertEqual(dashboard["tiles"][0]["text"]["body"], "original")
+
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_dashboard_from_template(self, mock_report_user_action):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
