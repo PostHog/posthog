@@ -29,4 +29,16 @@ describe("notificationTargetSchema", () => {
       notificationTargetSchema.safeParse({ kind: "nope", id: "x" }).success,
     ).toBe(false);
   });
+
+  // The compile-time parity above cannot see a field the schema is missing, and zod drops
+  // unknown keys silently — so a target's artifact would reach the host stripped.
+  it("keeps the artifact a task target points at", () => {
+    expect(
+      notificationTargetSchema.parse({
+        kind: "task",
+        taskId: "t1",
+        artifact: { itemId: "a1" },
+      }),
+    ).toMatchObject({ artifact: { itemId: "a1" } });
+  });
 });

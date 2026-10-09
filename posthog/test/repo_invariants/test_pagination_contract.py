@@ -69,6 +69,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "posthog.api.proxy_record.ProxyRecordViewset",
     "posthog.api.search.SearchViewSet",
     "posthog.api.sharing.SharingConfigurationViewSet",
+    # This custom list returns one sharing configuration for the artifact in the URL.
+    "posthog.api.sharing.TaskArtifactSharingConfigurationViewSet",
     "posthog.api.tagged_item.TaggedItemViewSet",
     "posthog.api.uploaded_media.MediaViewSet",
     "posthog.api.user_integration.UserIntegrationViewSet",

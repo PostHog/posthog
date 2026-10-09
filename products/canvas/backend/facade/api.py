@@ -4,8 +4,16 @@ This module pulls the build path (and Temporal) onto import. Put reads that run 
 ``django.setup()`` or on hot request paths in ``facade/search.py`` or ``facade/access.py``.
 """
 
+from typing import Any
+from uuid import UUID
+
 from django.http import Http404, HttpRequest
 
+from posthog.auth import organization_disallows_public_sharing
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.user import User
+
+from products.canvas.backend import build_service
 from products.canvas.backend.actions import canvas_actions_disabled as canvas_actions_disabled
 from products.canvas.backend.artifacts import (
     canvas_artifact as _canvas_artifact,
@@ -26,8 +34,17 @@ from products.canvas.backend.contract import (
     canvas_sdk_version as canvas_sdk_version,
     contract_limits as contract_limits,
 )
-from products.canvas.backend.facade.contracts import CanvasArtifact
+from products.canvas.backend.facade.contracts import (
+    CanvasArtifact,
+    CanvasBuildCapacityExceeded,
+    CanvasForkNotAllowedError,
+    CanvasForkRecord,
+    CanvasNotFoundError,
+    CanvasNotPublishedError,
+    CanvasViewer,
+)
 from products.canvas.backend.facade.enums import (
+    CanvasAccess,
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,
 )
@@ -52,6 +69,7 @@ from products.canvas.backend.logic.canvases import (
     provision_home_canvas as provision_home_canvas,
     update_canvas as update_canvas,
 )
+from products.canvas.backend.logic.records import canvas_record
 from products.canvas.backend.logic.runtime import (
     action_required_scopes as action_required_scopes,
     action_starts_cloud_run as action_starts_cloud_run,
@@ -84,6 +102,11 @@ from products.canvas.backend.logic.sources import (
     revert as revert,
     wait_for_build as wait_for_build,
 )
+from products.canvas.backend.models import Canvas
+from products.canvas.backend.sharing import (
+    canvas_app_path as canvas_app_path,
+    canvas_is_shareable,
+)
 from products.canvas.backend.source import (
     has_errors as has_errors,
     validate_source_project as validate_source_project,
@@ -93,6 +116,74 @@ from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     seed_teaching_canvas as seed_teaching_canvas,
 )
+from products.tasks.backend.facade import api as tasks_facade
+
+
+def fork_canvas(
+    viewer: CanvasViewer,
+    *,
+    source_canvas_id: UUID | None,
+    share_token: str | None,
+    user_access_control: Any,
+    was_impersonated: bool,
+) -> CanvasForkRecord:
+    if viewer.user_id is None or viewer.sandboxed:
+        raise CanvasNotFoundError
+
+    if source_canvas_id is not None:
+        source_record = get_canvas(
+            viewer,
+            CanvasAccess.READ,
+            source_canvas_id,
+            user_access_control=user_access_control,
+            required_level="viewer",
+        )
+        source = Canvas.objects.for_team(viewer.team_id).select_related("published_build").get(id=source_record.id)
+        build = source.published_build
+    elif share_token is not None:
+        share = (
+            SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q(), canvas__isnull=False)
+            .select_related("canvas", "canvas__shared_build", "team__organization")
+            .filter(access_token=share_token)
+            .first()
+        )
+        source = share.canvas if share is not None else None
+        if (
+            share is None
+            or source is None
+            or not canvas_is_shareable(kind=source.kind, deleted=source.deleted)
+            or organization_disallows_public_sharing(share)
+        ):
+            raise CanvasNotFoundError
+        if not (share.settings or {}).get("allowForking"):
+            raise CanvasForkNotAllowedError("The owner of this canvas hasn't allowed copies.")
+        if share.password_required:
+            raise CanvasForkNotAllowedError("Password-protected canvases can't be copied.")
+        build = source.shared_build
+    else:
+        raise CanvasNotFoundError
+
+    user = User.objects.get(id=viewer.user_id)
+    channel_id = tasks_facade.ensure_personal_channel_id(viewer.team_id, user.id)
+    try:
+        fork = build_service.fork_canvas(
+            source,
+            build,
+            team_id=viewer.team_id,
+            channel_id=channel_id,
+            created_by=user,
+            was_impersonated=was_impersonated,
+        )
+    except build_service.CanvasNotPublished as error:
+        raise CanvasNotPublishedError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise CanvasBuildCapacityExceeded from error
+    return CanvasForkRecord(
+        canvas=canvas_record(fork.canvas),
+        source_canvas_id=source.id,
+        source_version_id=fork.canvas.forked_from_version_id,
+        cross_team=source.team_id != viewer.team_id,
+    )
 
 
 def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none_match: str | None) -> CanvasArtifact:

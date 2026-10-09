@@ -61,6 +61,7 @@ ActivityScope = Literal[
     "Notebook",
     "GeneratedWidget",
     "Canvas",
+    "Task",
     "Endpoint",
     "EndpointVersion",
     "Dashboard",
