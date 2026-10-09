@@ -257,7 +257,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             """,
             placeholders={
                 "period": ast.Constant(value=period),
-                "placement": ast.Field(chain=source.placementTable.split(".")),
+                "placement": ast.Field(chain=[*source.placementTable.split(".")]),
                 "date_from": ast.Constant(value=date_range.date_from()),
                 "date_to": ast.Constant(value=date_range.date_to()),
             },
