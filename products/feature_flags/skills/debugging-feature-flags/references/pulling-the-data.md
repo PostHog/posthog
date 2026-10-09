@@ -142,7 +142,11 @@ catalog in the SKILL (events disabled, bulk/payload accessor, or local eval with
 
 `posthog:feature-flags-activity-retrieve { id: <flag_id> }` gives field-level diffs (who changed the
 conditions/rollout/variants, and when). Most "it changed / it used to work" surprises are a condition
-or rollout edit visible here.
+or rollout edit visible here. It returns only the **10 newest** rows by default (newest-first), so on a
+flag edited more than a handful of times the change you're after can sit off the first page — raise
+`limit` or walk `page` until the results pass the time you care about, using the `next` URL and
+`total_count` in the response as the signal there's more. Don't read an empty first page as "nothing
+changed".
 
 `posthog:advanced-activity-logs-list` covers the same rows across the project, carrying `item_id` (the
 flag's numeric ID) and `detail.name` (its key) — sweep with `scopes: ["FeatureFlag"]` plus `search_text`
