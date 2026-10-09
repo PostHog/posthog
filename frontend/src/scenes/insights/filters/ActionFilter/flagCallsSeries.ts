@@ -108,6 +108,12 @@ const FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY: Record<string, string> = {
     $feature_flag_response: 'response',
 }
 
+// An event read turns a missing property into NULL. The table stores a missing flag key as '' and a missing response as '' or 'null'.
+const FLAG_CALLS_UNSET_VALUES_BY_COLUMN: Record<string, string[]> = {
+    flag_key: [''],
+    response: ['', 'null'],
+}
+
 /** Rewrites an event series' flag filters onto the flag_evaluations columns and keeps its SQL filters. */
 export function flagCallsFiltersFromEventFilters(properties: AnyPropertyFilter[] | undefined): AnyPropertyFilter[] {
     return (properties ?? []).flatMap((property): AnyPropertyFilter[] => {
@@ -118,18 +124,15 @@ export function flagCallsFiltersFromEventFilters(properties: AnyPropertyFilter[]
             return []
         }
         const column = FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY[property.key]
-        // An event read turns a missing response into NULL. The table stores it as '' or 'null', so set checks differ.
-        if (
-            !column ||
-            property.operator === PropertyOperator.IsSet ||
-            property.operator === PropertyOperator.IsNotSet
-        ) {
+        if (!column) {
             return []
         }
+        const checksSet = property.operator === PropertyOperator.IsSet
+        const checksNotSet = property.operator === PropertyOperator.IsNotSet
         const filter: DataWarehousePropertyFilter = {
             key: column,
-            value: property.value,
-            operator: property.operator,
+            value: checksSet || checksNotSet ? FLAG_CALLS_UNSET_VALUES_BY_COLUMN[column] : property.value,
+            operator: checksSet ? PropertyOperator.NotIn : checksNotSet ? PropertyOperator.In : property.operator,
             type: PropertyFilterType.DataWarehouse,
         }
         return [filter]

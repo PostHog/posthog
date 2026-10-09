@@ -1027,13 +1027,19 @@ describe('ActionFilterRow', () => {
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.DataWarehouse,
                             },
+                            {
+                                key: 'response',
+                                value: ['', 'null'],
+                                operator: PropertyOperator.NotIn,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
                             { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
                         ],
                     })
                 )
             })
             expect(infoToast.mock.calls.map(([message]) => message)).toEqual([
-                'Feature flag called supports only flag key, response and SQL filters, so 2 other filters were removed.',
+                'Feature flag called supports only flag key, response and SQL filters, so 1 other filter was removed.',
             ])
             infoToast.mockRestore()
         })
