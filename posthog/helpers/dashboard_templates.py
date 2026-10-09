@@ -736,12 +736,12 @@ FEATURE_FLAG_ENRICHED_INSIGHT_DESCRIPTION = (
 
 
 def feature_flag_generated_insight_q() -> Q:
-    """Match the insights this module generated for a feature flag usage dashboard.
+    """Match the generated insights on a feature flag usage dashboard.
 
-    A name on its own is not provenance, because a person can type any of these, so each name is
-    paired with the description the template writes beside it. That makes this narrower than
-    `delete_feature_flag_usage_insights._classifier_q`, which matches a name or a description so a
-    cleanup sweep still reaches rows an older template version wrote.
+    A name on its own is not provenance, because a person can type any of these. This query
+    therefore pairs each name with the description that PostHog generated beside it. That makes
+    this narrower than `delete_feature_flag_usage_insights._classifier_q`, which matches a name or a
+    description so a cleanup sweep still reaches rows an older template version wrote.
     """
     return Q(
         Q(name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME)
@@ -778,155 +778,11 @@ def _get_aggregation_entity_labels(feature_flag) -> tuple[str | None, str | None
     return singular, plural
 
 
-def _build_feature_flag_called_property_group(feature_flag) -> dict[str, Any]:
-    filter_values: list[dict[str, Any]] = [
-        {
-            "key": "$feature_flag",
-            "operator": "exact",
-            "type": "event",
-            "value": feature_flag.key,
-        }
-    ]
-    group_type_index = feature_flag.aggregation_group_type_index
-    if group_type_index is not None:
-        filter_values.append(
-            {
-                "key": f"$group_{group_type_index}",
-                "operator": "is_set",
-                "type": "event",
-                "value": "is_set",
-            }
-        )
-
-    return {
-        "type": "AND",
-        "values": [
-            {
-                "type": "AND",
-                "values": filter_values,
-            }
-        ],
-    }
-
-
-def _get_feature_flag_unique_calls_series(feature_flag) -> dict[str, Any]:
-    series: dict[str, Any] = {
-        "event": "$feature_flag_called",
-        "kind": "EventsNode",
-        "name": "$feature_flag_called",
-    }
-    group_type_index = feature_flag.aggregation_group_type_index
-    if group_type_index is not None:
-        series["math"] = "unique_group"
-        series["math_group_type_index"] = group_type_index
-    else:
-        series["math"] = "dau"
-    return series
-
-
 def _get_feature_flag_unique_calls_insight_name(feature_flag) -> str:
     _, plural = _get_aggregation_entity_labels(feature_flag)
     if plural is None:
         return FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME
     return f"{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_PREFIX}{plural}{FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX}"
-
-
-# The feature flag Usage tab renders these same charts inline for flags without a usage dashboard —
-# keep frontend/src/scenes/feature-flags/featureFlagUsageQueries.ts in sync with this template.
-def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
-    dashboard.filters = {"date_from": "-30d"}
-    tag, _ = Tag.objects.get_or_create(
-        name="feature flags",
-        team_id=dashboard.team_id,
-        defaults={"team_id": dashboard.team_id},
-    )
-    dashboard.tagged_items.create(tag_id=tag.id)
-    dashboard.save(update_fields=["filters"])
-
-    # 1 row
-    _create_tile_for_insight(
-        dashboard,
-        name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
-        description=_get_feature_flag_total_volume_insight_description(feature_flag),
-        query={
-            "kind": "InsightVizNode",
-            "source": {
-                "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "filterTestAccounts": False,
-                "interval": "day",
-                "kind": "TrendsQuery",
-                "properties": _build_feature_flag_called_property_group(feature_flag),
-                "series": [{"event": "$feature_flag_called", "kind": "EventsNode", "name": "$feature_flag_called"}],
-                "trendsFilter": {
-                    "aggregationAxisFormat": "numeric",
-                    "display": "ActionsLineGraph",
-                    "showAlertThresholdLines": False,
-                    "showLegend": False,
-                    "showPercentStackView": False,
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "yAxisScaleType": "linear",
-                },
-            },
-        },
-        layouts={
-            "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
-            "xs": {
-                "w": 1,
-                "h": 5,
-                "x": 0,
-                "y": 0,
-                "i": "21",
-                "minW": 1,
-                "minH": 5,
-            },
-        },
-        color="blue",
-        user=user,
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name=_get_feature_flag_unique_calls_insight_name(feature_flag),
-        description=_get_feature_flag_unique_calls_insight_description(feature_flag),
-        query={
-            "kind": "InsightVizNode",
-            "source": {
-                "breakdownFilter": {"breakdown": "$feature_flag_response", "breakdown_type": "event"},
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
-                "filterTestAccounts": False,
-                "interval": "day",
-                "kind": "TrendsQuery",
-                "properties": _build_feature_flag_called_property_group(feature_flag),
-                "series": [_get_feature_flag_unique_calls_series(feature_flag)],
-                "trendsFilter": {
-                    "aggregationAxisFormat": "numeric",
-                    "display": "ActionsTable",
-                    "showAlertThresholdLines": False,
-                    "showLegend": False,
-                    "showPercentStackView": False,
-                    "showValuesOnSeries": False,
-                    "smoothingIntervals": 1,
-                    "yAxisScaleType": "linear",
-                },
-            },
-        },
-        layouts={
-            "sm": {"i": "22", "x": 6, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
-            "xs": {
-                "w": 1,
-                "h": 5,
-                "x": 0,
-                "y": 5,
-                "i": "22",
-                "minW": 1,
-                "minH": 5,
-            },
-        },
-        color="green",
-        user=user,
-    )
 
 
 def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dashboard:
