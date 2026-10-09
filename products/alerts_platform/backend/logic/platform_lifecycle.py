@@ -7,9 +7,11 @@ and every write to these rows, stays here. A source never holds one of these mod
 from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Final
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
+from django.utils import timezone as django_timezone
 
 from posthog.models import Team
 
@@ -154,10 +156,11 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     a source's copy would cost Temporal payload on every batch.
 
     One path can write a configuration between an evaluation and its record, so the snapshot is
-    evaluation-time by convention rather than by construction: `upsert_configuration`, reached
-    only through a hand-run backfill command, and only for a configuration already copied whose
-    source row changed since. The row then states the new condition beside a verdict measured
-    against the old one. Carry the snapshot on the outcome if that stops being acceptable.
+    evaluation-time by convention rather than by construction: a hand-run backfill's
+    `upsert_configuration`, for a configuration already copied whose source row changed since. The
+    row then states the new condition beside a verdict measured against the old one. Carry the
+    snapshot on the outcome if that stops being acceptable. A logs evaluation also upserts a drifted
+    copy, but before it evaluates, so its snapshot matches its verdict.
 
     The source's bound is flattened in beside the platform's own fields, so a reader finds it at
     the top level whatever shape the source gives it.
@@ -341,6 +344,25 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
         alert.snooze_until = upsert.snooze_until
         alert.save(update_fields=["snooze_until"])
     return created
+
+
+def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
+    """Writes a source's current settings onto its copy, so history and messages state what a check
+    evaluated.
+
+    Settings only. The schedule, `enabled` and the alert rows stay as they are, so an evaluation can
+    call this before it decides and a retried attempt still finds the same checks due.
+    """
+    PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
+        name=upsert.name,
+        source_config=upsert.source_config,
+        evaluation_periods=upsert.evaluation_periods,
+        datapoints_to_alarm=upsert.datapoints_to_alarm,
+        cooldown_minutes=upsert.cooldown_minutes,
+        schedule_restriction=upsert.schedule_restriction,
+        # `update()` skips `auto_now`.
+        updated_at=django_timezone.now(),
+    )
 
 
 def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:

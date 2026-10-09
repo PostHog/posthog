@@ -44,6 +44,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     return platform_lifecycle.upsert_configuration(upsert)
 
 
+def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
+    """Write a source's current settings onto its copy, leaving the schedule and state alone."""
+    platform_lifecycle.refresh_settings(team_id, configuration_id, upsert)
+
+
 def disable_configurations(source_kind: SourceKind, *, team_id: int | None = None) -> int:
     """Switch off a source's copies, or one team's. Returns how many it switched off."""
     return platform_lifecycle.disable_configurations(source_kind.value, team_id=team_id)
