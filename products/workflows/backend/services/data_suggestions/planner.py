@@ -118,6 +118,7 @@ class PlannedWorkflow(BaseModel):
 class IdeaContext:
     events: tuple[tuple[str, int], ...]
     stages: dict[str, LifecycleStage]
+    prioritize_onboarding: bool
     channels: frozenset[Channel]
     has_slack: bool
 
@@ -137,12 +138,6 @@ _SIMPLE_RULE = (
     "Do not add steps that only record state, like setting a person property, unless a later step depends on it."
 )
 
-_ONBOARDING_RULE = (
-    "This team has no workflows yet, and welcome and onboarding workflows convert best. When the list has an "
-    "event for a new sign-up or for onboarding, make one of the ideas a welcome or onboarding workflow on it, "
-    "even when other events fire more often. Then prefer other meaningful moments."
-)
-
 _COPY_RULES = "Write plain, friendly copy in sentence case. No emojis, no em dashes, no placeholders like [Name], no template tags."
 
 _IDEAS_PROMPT = f"""You suggest marketing and automation workflows for a product team using PostHog Workflows.
@@ -150,7 +145,7 @@ Suggest up to 6 workflows the project does not have yet. Each one starts when on
 
 Rules:
 - trigger_event must be copied exactly from the event list.
-- {_ONBOARDING_RULE}
+- {{priority_rule}}
 - Each idea must use a different trigger_event.
 - Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}
@@ -188,6 +183,14 @@ recipients. The team fills them in. Say what is left in setup_note.
 
 def suggest_ideas(*, team: Team, user: User, context: IdeaContext) -> list[WorkflowIdea]:
     slack_rule = "" if context.has_slack else "The team has not connected Slack yet, so prefer other steps."
+    priority_rule = (
+        "This team has no workflows yet, and welcome and onboarding workflows convert best. When the list has an "
+        "event for a new sign-up or for onboarding, make one of the ideas a welcome or onboarding workflow on it, "
+        "even when other events fire more often. Then prefer other meaningful moments."
+        if context.prioritize_onboarding
+        else "This team already runs workflows. Prefer the meaningful moments in the list, such as a trial start, "
+        "purchase, failure or cancellation."
+    )
     lines = [
         f"{name} ({count} in the last 7 days, stage: {context.stages[name]})"
         if name in context.stages
@@ -201,7 +204,9 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext) -> list[Workf
         effort="low",
         feature="data_suggestion_ideas",
         schema=WorkflowIdeas,
-        system=_IDEAS_PROMPT.format(channel_rule=_channel_rule(context.channels), slack_rule=slack_rule),
+        system=_IDEAS_PROMPT.format(
+            channel_rule=_channel_rule(context.channels), slack_rule=slack_rule, priority_rule=priority_rule
+        ),
         excluded_values=_missing_channels(context.channels),
         human=as_untrusted_data("project_events", lines, source="event names sent by this project's app"),
     )

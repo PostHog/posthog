@@ -636,7 +636,7 @@ export const FEATURE_FLAGS = {
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_RUN_SCOUT_ACTION: 'workflow-run-scout-action', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
-    WORKFLOWS_DATA_SUGGESTIONS: 'workflows-data-suggestions', // owner: #team-workflows, suggests workflows built from the project's events on the empty state
+    WORKFLOWS_DATA_SUGGESTIONS: 'workflows-data-suggestions', // owner: #team-workflows, suggests templates that match the project's events on the empty state and the workflows list
     WORKFLOWS_DELAY_UNTIL_DATE: 'workflows-delay-until-date', // owner: @dmarchuk #team-workflows
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GUIDED_ONBOARDING: 'workflows-guided-onboarding', // owner: #team-workflows, first-run path choice and the messaging setup guide
