@@ -5059,7 +5059,7 @@ export const ExperimentsCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'warehouse_native']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -6176,7 +6176,7 @@ export const ExperimentsCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'warehouse_native']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -11188,7 +11188,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'warehouse_native']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -12309,7 +12309,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'warehouse_native']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -17296,7 +17296,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'warehouse_native']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
@@ -18417,7 +18417,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .describe(
                                     'For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.'
                                 ),
-                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
+                            metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention', 'warehouse_native']),
                             name: zod
                                 .union([zod.string(), zod.null()])
                                 .optional()

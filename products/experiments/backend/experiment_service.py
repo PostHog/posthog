@@ -785,7 +785,7 @@ class ExperimentService:
             )
 
     @staticmethod
-    def validate_experiment_metrics(metrics: list | None) -> None:
+    def validate_experiment_metrics(metrics: list | None, team: Team) -> None:
         """Validate metric payloads accepted by the API layer."""
         if metrics is None:
             return
@@ -794,7 +794,7 @@ class ExperimentService:
             raise ValidationError("Metrics must be a list")
 
         for i, metric in enumerate(metrics):
-            parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ")
+            parse_and_validate_metric(metric, error_prefix=f"Invalid metric at index {i}: ", team=team)
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 
@@ -1122,8 +1122,8 @@ class ExperimentService:
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
         running_time_calculation = running_time_calculation or {}
-        self.validate_experiment_metrics(metrics)
-        self.validate_experiment_metrics(metrics_secondary)
+        self.validate_experiment_metrics(metrics, self.team)
+        self.validate_experiment_metrics(metrics_secondary, self.team)
         validate_metric_action_ids(metrics, self.team.id)
         validate_metric_action_ids(metrics_secondary, self.team.id)
         if not allow_unknown_events:
@@ -3406,7 +3406,7 @@ class ExperimentService:
 
         if "metrics" in update_data:
             update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
-            self.validate_experiment_metrics(update_data["metrics"])
+            self.validate_experiment_metrics(update_data["metrics"], self.team)
             validate_metric_action_ids(update_data["metrics"], self.team.id, known_action_ids=persisted_action_ids)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"], known_event_names=persisted_event_names)
@@ -3414,7 +3414,7 @@ class ExperimentService:
             update_data["metrics_secondary"] = self._assign_uuids_to_metrics(
                 update_data["metrics_secondary"], seen=seen_metric_uuids
             )
-            self.validate_experiment_metrics(update_data["metrics_secondary"])
+            self.validate_experiment_metrics(update_data["metrics_secondary"], self.team)
             validate_metric_action_ids(
                 update_data["metrics_secondary"], self.team.id, known_action_ids=persisted_action_ids
             )
@@ -4027,8 +4027,8 @@ class ExperimentService:
 
         cloned_exposure_criteria = source_experiment.exposure_criteria
         self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
-        self.validate_experiment_metrics(source_experiment.metrics)
-        self.validate_experiment_metrics(source_experiment.metrics_secondary)
+        self.validate_experiment_metrics(source_experiment.metrics, self.team)
+        self.validate_experiment_metrics(source_experiment.metrics_secondary, self.team)
 
         if name:
             clone_name = name

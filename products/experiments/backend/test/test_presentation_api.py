@@ -25,6 +25,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeMetric,
 )
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -67,6 +68,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 from ee.api.test.base import APILicensedTest
 
@@ -8926,6 +8928,9 @@ class TestExperimentApiMetricParity(unittest.TestCase):
         "breakdownFilter",
         "breakdownAttributionType",
         "breakdownAttributionValue",
+        # Warehouse-native metrics are behind a flag; they join the write schema when it lifts.
+        "connection_id",
+        "query",
     }
 
     def test_api_schema_exposes_every_runtime_field(self) -> None:
@@ -8935,6 +8940,7 @@ class TestExperimentApiMetricParity(unittest.TestCase):
             ExperimentFunnelMetric,
             ExperimentRatioMetric,
             ExperimentRetentionMetric,
+            ExperimentWarehouseNativeMetric,
         ):
             runtime_fields |= set(metric_model.model_fields)
 
@@ -9683,3 +9689,65 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
         self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)
+
+
+class TestWarehouseNativeMetricCheck(APILicensedTest):
+    def _create_direct_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="pg",
+            job_inputs={},
+        )
+
+    def _check(self, connection_id: str, query: str) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/experiments/check_warehouse_native_metric/",
+            {"connection_id": connection_id, "query": query, "variant_keys": ["control", "test"]},
+            format="json",
+        )
+
+    def test_rejected_when_the_flag_is_off(self) -> None:
+        response = self._check(str(self._create_direct_source().id), "SELECT 1")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("not enabled", response.json()["detail"])
+
+    def test_reports_columns_variant_counts_and_unknown_variants(self) -> None:
+        source = self._create_direct_source()
+        sample = SimpleNamespace(columns=["variant", "entity_id", "value"], results=[["control", "u1", 1.5]])
+        counts = SimpleNamespace(columns=["variant", "row_count"], results=[["control", 10], ["holdout", 2]])
+        executor = MagicMock()
+        executor.execute.side_effect = [sample, counts]
+
+        with (
+            patch(
+                "products.experiments.backend.presentation.views.warehouse_native_metrics_enabled", return_value=True
+            ),
+            patch(
+                "products.experiments.backend.warehouse_native_metrics.HogQLQueryExecutor", return_value=executor
+            ) as executor_class,
+        ):
+            response = self._check(str(source.id), "SELECT variant, entity_id, value FROM metric_rows;")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            response.json(),
+            {
+                "columns": ["variant", "entity_id", "value"],
+                "missing_columns": [],
+                "sample_rows": [["control", "u1", 1.5]],
+                "variant_row_counts": {"control": 10, "holdout": 2},
+                "unknown_variants": ["holdout"],
+                "error": None,
+            },
+        )
+        # The trailing semicolon is stripped so the wrapped query stays a single statement.
+        sample_sql = executor_class.call_args_list[0].kwargs["query"]
+        self.assertNotIn(";", sample_sql)
+        self.assertIn("LIMIT 20", sample_sql)
+        self.assertEqual(executor_class.call_args_list[0].kwargs["connection_id"], str(source.id))

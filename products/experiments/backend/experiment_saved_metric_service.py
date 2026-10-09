@@ -26,12 +26,12 @@ class ExperimentSavedMetricService:
         self.team = team
         self.user = user
 
-    @classmethod
-    def validate_query(cls, query: dict | None) -> None:
+    @staticmethod
+    def validate_query(query: dict | None, team: Team) -> None:
         """Validate saved metric queries accepted by the API layer."""
         if not query:
             raise ValidationError("Query is required to create a saved metric")
-        parse_and_validate_metric(query, error_prefix="Invalid metric: ")
+        parse_and_validate_metric(query, error_prefix="Invalid metric: ", team=team)
 
     @transaction.atomic
     def create_saved_metric(
@@ -42,7 +42,7 @@ class ExperimentSavedMetricService:
         description: str | None = None,
     ) -> ExperimentSavedMetric:
         """Create a saved metric with full business-logic validation."""
-        normalized_query = self.normalize_query_for_write(query)
+        normalized_query = self.normalize_query_for_write(query, team=self.team)
         validate_metric_action_ids([normalized_query], self.team.id)
         enforce_warehouse_metric_access([normalized_query], team=self.team, user=self.user)
 
@@ -62,7 +62,7 @@ class ExperimentSavedMetricService:
 
         if "query" in update_data:
             update_data["query"] = self.normalize_query_for_write(
-                update_data["query"], existing_query=saved_metric.query
+                update_data["query"], team=self.team, existing_query=saved_metric.query
             )
             _, stored_action_ids = extract_entity_nodes([saved_metric.query] if saved_metric.query else [])
             validate_metric_action_ids([update_data["query"]], self.team.id, known_action_ids=stored_action_ids)
@@ -87,7 +87,7 @@ class ExperimentSavedMetricService:
             raise ValidationError("Saved metric does not exist or does not belong to this project")
 
     @classmethod
-    def normalize_query_for_write(cls, query: dict, *, existing_query: dict | None = None) -> dict:
+    def normalize_query_for_write(cls, query: dict, *, team: Team, existing_query: dict | None = None) -> dict:
         existing_uuid = existing_query.get("uuid") if existing_query else None
         # Clients resend the whole query on any edit, including a rename or a tag change. A stored
         # query that comes back unchanged is not validated again, so a rule added after it was saved
@@ -98,7 +98,7 @@ class ExperimentSavedMetricService:
             and without_action_names(query) == without_action_names(existing_query)
         )
         if not is_unchanged:
-            cls.validate_query(query)
+            cls.validate_query(query, team)
 
         normalized_query = dict(query)
         incoming_uuid = normalized_query.get("uuid")

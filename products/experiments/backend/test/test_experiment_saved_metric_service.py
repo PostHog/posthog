@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -9,6 +11,7 @@ from posthog.models import Team
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 _THRESHOLD_MEAN: dict[str, object] = {
     "kind": "ExperimentMetric",
@@ -16,7 +19,15 @@ _THRESHOLD_MEAN: dict[str, object] = {
     "source": {"kind": "EventsNode", "event": "$pageview", "math": "sum", "math_property": "amount"},
 }
 
+_WAREHOUSE_NATIVE_METRIC: dict[str, object] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "warehouse_native",
+    "connection_id": "00000000-0000-0000-0000-000000000000",
+    "query": "SELECT variant, entity_id, value FROM metric_rows",
+}
+
 _SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
+    ("warehouse_native_behind_flag", _WAREHOUSE_NATIVE_METRIC, "warehouse-native metrics are not enabled"),
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},
@@ -79,6 +90,41 @@ class TestExperimentSavedMetricService(APIBaseTest):
             "source": {"kind": "EventsNode", "event": "$pageview"},
         }
 
+    @parameterized.expand(
+        [
+            ("unknown_connection", False, "cannot be queried directly"),
+            ("direct_connection", True, None),
+        ]
+    )
+    def test_warehouse_native_metric_saves_only_with_a_direct_connection(
+        self, _: str, connection_exists: bool, expected_error: str | None
+    ) -> None:
+        connection_id = _WAREHOUSE_NATIVE_METRIC["connection_id"]
+        if connection_exists:
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id=str(uuid4()),
+                connection_id=str(uuid4()),
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type="Postgres",
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                prefix="pg",
+                job_inputs={},
+            )
+            connection_id = str(source.id)
+        metric = {**_WAREHOUSE_NATIVE_METRIC, "connection_id": connection_id}
+
+        with patch(
+            "products.experiments.backend.metric_validation.warehouse_native_metrics_enabled", return_value=True
+        ):
+            if expected_error is not None:
+                with self.assertRaises(ValidationError) as ctx:
+                    self._service().create_saved_metric(name="Warehouse metric", query=metric)
+                assert expected_error in str(ctx.exception)
+            else:
+                saved_metric = self._service().create_saved_metric(name="Warehouse metric", query=metric)
+                assert saved_metric.query["metric_type"] == "warehouse_native"
+
     @parameterized.expand([("without_uuid", {}), ("with_client_uuid", {"uuid": "inline-metric-uuid"})])
     def test_create_saved_metric_with_minimum_fields(self, _name: str, client_uuid: dict) -> None:
         original_query = self._valid_experiment_metric()
@@ -120,7 +166,7 @@ class TestExperimentSavedMetricService(APIBaseTest):
                     "metric_type": "invalid",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
-                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
+                "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', or 'warehouse_native'",
             ),
             (
                 "conversion_window_on_exposure_start_retention",

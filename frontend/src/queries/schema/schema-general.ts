@@ -5960,6 +5960,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
     RATIO = 'ratio',
     RETENTION = 'retention',
+    WAREHOUSE_NATIVE = 'warehouse_native',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -6095,6 +6096,22 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRetentionMetric = (metric: ExperimentMetric): metric is ExperimentRetentionMetric =>
     metric.metric_type === ExperimentMetricType.RETENTION
 
+/** A metric computed inside the customer's own warehouse through a direct connection. The customer's
+ *  SQL returns one row per user as `(variant, entity_id, value)`; PostHog wraps it in aggregation SQL
+ *  at analysis time, so only aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`,
+ *  which reads tables synced into PostHog. */
+export type ExperimentWarehouseNativeMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.WAREHOUSE_NATIVE
+    /** The direct-query source (an ExternalDataSource id) the query runs against. */
+    connection_id: string
+    /** Read-only SQL in the warehouse's dialect, returning `variant`, `entity_id` and `value` columns. */
+    query: string
+}
+
+export const isExperimentWarehouseNativeMetric = (
+    metric: ExperimentMetric
+): metric is ExperimentWarehouseNativeMetric => metric.metric_type === ExperimentMetricType.WAREHOUSE_NATIVE
+
 // Legacy experiment query type guards
 export const isExperimentTrendsQuery = (
     query: ExperimentTrendsQuery | ExperimentFunnelsQuery
@@ -6108,12 +6125,17 @@ export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof Exp
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentWarehouseNativeMetricTypeProps = Omit<
+    ExperimentWarehouseNativeMetric,
+    keyof ExperimentMetricBaseProperties
+>
 
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
+    | ExperimentWarehouseNativeMetricTypeProps
 
 // Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
 // can attach without colliding with the `NodeKind.ExperimentMetric` enum value
@@ -6127,6 +6149,7 @@ export type ExperimentMetricUnion =
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+    | ExperimentWarehouseNativeMetric
 
 export type ExperimentMetric = ExperimentMetricUnion
 

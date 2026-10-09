@@ -13,13 +13,20 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeMetric,
 )
 
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
-ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+ExperimentMetric = (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentWarehouseNativeMetric
+)
 
 # Modern ExperimentMetric types (kind="ExperimentMetric"). Legacy Trends/Funnels metrics carry no
 # metric_type and are filtered out by is_scheduled_metric, so they never reach build_metric.
@@ -28,12 +35,14 @@ METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
     "funnel": ExperimentFunnelMetric,
     "ratio": ExperimentRatioMetric,
     "retention": ExperimentRetentionMetric,
+    "warehouse_native": ExperimentWarehouseNativeMetric,
 }
 
 # The daily timeseries activities compute every buildable type. A type the recalculation computes but the
 # daily run skips publishes nothing, so the results panel recomputes on first open every morning for the
 # experiments that use it; a deliberate future exclusion must subtract from METRIC_BUILDERS explicitly.
-DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS)
+# Warehouse-native metrics have no calculation path yet, so the daily run must not attempt them.
+DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset(METRIC_BUILDERS) - {"warehouse_native"}
 
 
 def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
@@ -204,8 +213,11 @@ def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
         nodes = list(metric.series)
     elif isinstance(metric, ExperimentRatioMetric):
         nodes = [metric.numerator, metric.denominator]
-    else:
+    elif isinstance(metric, ExperimentRetentionMetric):
         nodes = [metric.start_event, metric.completion_event]
+    else:
+        # A warehouse-native metric runs in the customer's warehouse, not against synced tables.
+        nodes = []
     return any(isinstance(node, ExperimentDataWarehouseNode) for node in nodes)
 
 

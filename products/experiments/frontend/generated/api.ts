@@ -53,6 +53,8 @@ import type {
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
     ShipVariantApi,
+    WarehouseNativeMetricCheckRequestApi,
+    WarehouseNativeMetricCheckResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1203,6 +1205,33 @@ export const experimentsCalculateRunningTimeCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(runningTimeCalculationInputApi),
     })
+}
+
+export const getExperimentsCheckWarehouseNativeMetricCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/check_warehouse_native_metric/`
+}
+
+/**
+ * Check a warehouse-native metric query before saving it.
+ *
+ * Runs the query in the customer's warehouse with a row cap and reports the columns it returns,
+ * a few sample rows, the row count per variant, and variants the experiment does not know.
+ * Nothing is saved.
+ */
+export const experimentsCheckWarehouseNativeMetricCreate = async (
+    projectId: string,
+    warehouseNativeMetricCheckRequestApi: WarehouseNativeMetricCheckRequestApi,
+    options?: RequestInit
+): Promise<WarehouseNativeMetricCheckResponseApi> => {
+    return apiMutator<WarehouseNativeMetricCheckResponseApi>(
+        getExperimentsCheckWarehouseNativeMetricCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(warehouseNativeMetricCheckRequestApi),
+        }
+    )
 }
 
 export const getExperimentsCreateFromPromptCreateUrl = (projectId: string) => {

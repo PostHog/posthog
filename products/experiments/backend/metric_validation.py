@@ -6,6 +6,8 @@ referenced actions through `validate_metric_action_ids`. Checks that need a user
 waive (team ownership, permissions, whether a referenced event exists) stay with the callers.
 """
 
+from typing import TYPE_CHECKING
+
 import pydantic
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -17,6 +19,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeMetric,
 )
 
 from products.actions.backend.models.action import Action
@@ -25,6 +28,13 @@ from products.experiments.backend.hogql_queries.funnel_validation import FunnelD
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
 from products.experiments.backend.models.experiment import LEGACY_METRIC_KINDS
+from products.experiments.backend.warehouse_native_metrics import (
+    has_direct_connection,
+    warehouse_native_metrics_enabled,
+)
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -103,10 +113,11 @@ def _semantic_error(metric: ExperimentMetric) -> str | None:
     return None
 
 
-def parse_and_validate_metric(metric: object, *, error_prefix: str) -> ExperimentMetric:
+def parse_and_validate_metric(metric: object, *, error_prefix: str, team: "Team") -> ExperimentMetric:
     """Parse a metric payload into its schema type and apply the intrinsic metric rules.
 
     `error_prefix` locates the metric in the request, for example "Invalid metric at index 2: ".
+    `team` resolves the connection a warehouse-native metric runs against.
     """
     if not isinstance(metric, dict):
         raise ValidationError(f"{error_prefix}must be a dict")
@@ -124,7 +135,8 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}ExperimentMetric requires a metric_type")
     if not isinstance(metric_type, str) or metric_type not in METRIC_BUILDERS:
         raise ValidationError(
-            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', 'retention', "
+            "or 'warehouse_native'"
         )
 
     try:
@@ -135,9 +147,21 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
     error = _semantic_error(parsed)
+    if error is None and isinstance(parsed, ExperimentWarehouseNativeMetric):
+        error = _warehouse_native_error(parsed, team)
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed
+
+
+def _warehouse_native_error(metric: ExperimentWarehouseNativeMetric, team: "Team") -> str | None:
+    if not warehouse_native_metrics_enabled(team):
+        return "warehouse-native metrics are not enabled for this project."
+    if not metric.query.strip():
+        return "warehouse-native metrics require a query."
+    if not has_direct_connection(team, metric.connection_id):
+        return "the selected connection does not exist or cannot be queried directly."
+    return None
 
 
 class _SavedMetricLinkOverrides(pydantic.BaseModel):

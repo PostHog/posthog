@@ -2,6 +2,7 @@
 
 from products.experiments.backend.metric_resolution import (
     METRIC_BUILDERS,
+    ExperimentMetric,
     build_metric,
     is_daily_timeseries_metric,
     is_scheduled_metric,
@@ -13,6 +14,7 @@ from products.experiments.backend.timeseries_sync import sync_timeseries_recalcu
 __all__ = [
     "METRIC_BUILDERS",
     "backfill_experiment_timeseries",
+    "ExperimentMetric",
     "build_metric",
     "is_daily_timeseries_metric",
     "is_scheduled_metric",
