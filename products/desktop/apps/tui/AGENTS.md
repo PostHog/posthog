@@ -85,6 +85,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 - **The engine stops watching a run once it ends.** A run brought back with `resume_in_cloud` keeps its id, so the pane's watch never re-subscribes. `CloudRuns.agentRestarted` watches it again, and a newer copy of the same run in `fresh` wins over the work list (`findTask` compares `updated_at`).
 - **The backend fails a cloud run whose pi turn ends with `stopReason: "error"`, and destroys its sandbox.** An Esc can cut off a model request that then reports an error. The agent's translator ends such a turn as cancelled (`translatePiConversation.ts`); a cloud sandbox only gets that fix with a new `@posthog/agent` release.
 - **Local agents live in a global map keyed by task id**, so they survive hot reloads. In tests, give each local chat its own task id, or a later test gets an earlier test's agent.
+- **The cloud engine lives in a global map keyed by account, for the same reason.** A cloud Claude Code sandbox asks the TUI for the Claude token once and waits 120 seconds; the engine's watcher answers it. A hot reload used to rebuild the engine and every watcher, and a request that landed in that gap was never answered ("The Claude token did not arrive"). `cloudEngineFor` keeps the engine and reads tokens through the latest sign-in.
 - **Local Docker sandboxes need the agent-server bundle linked**, or the pi capability probe fails. See `products/tasks/backend/sandbox/images/Dockerfile.sandbox-local`.
 
 ## Open ends

@@ -184,6 +184,37 @@ const noMcpApps: AgentMcpApps = {
   cleanup: async () => {},
 };
 
+// The cloud engine for an account, built once. Kept on globalThis because a hot swap of src/ re-runs this module,
+// and the watchers it holds answer a sandbox's Claude token request, which arrives once and waits 120 seconds:
+// a watcher torn down and rebuilt around that request never sees it, and the run fails. A reload signs in again
+// from the saved session, so the engine reads its tokens through `latest`, which each sign-in replaces.
+const hotSwapSafe = globalThis as {
+  __posthogTuiEngines?: Map<string, { engine: unknown; latest: TokenSource }>;
+};
+hotSwapSafe.__posthogTuiEngines ??= new Map();
+export function cloudEngineFor<Engine>(
+  account: string,
+  signIn: TokenSource,
+  build: (tokens: TokenSource) => Engine,
+): Engine {
+  const engines = hotSwapSafe.__posthogTuiEngines as Map<
+    string,
+    { engine: Engine; latest: TokenSource }
+  >;
+  const kept = engines.get(account);
+  if (kept) {
+    kept.latest = signIn;
+    return kept.engine;
+  }
+  const holder = { engine: undefined as unknown as Engine, latest: signIn };
+  holder.engine = build({
+    getAccessToken: () => holder.latest.getAccessToken(),
+    refreshAccessToken: () => holder.latest.refreshAccessToken(),
+  });
+  engines.set(account, holder);
+  return holder.engine;
+}
+
 export function createCloud(
   auth: TuiAuth,
   api: PostHogAPIClient,
@@ -214,16 +245,21 @@ export function createCloud(
     options?.includeAccount
       ? { ...(await context()), accountKey: auth.apiHost }
       : context();
-  const engine = createCloudTaskEngine({
-    auth: {
-      authenticatedFetch: authenticatedFetch(auth),
-      getCloudContext: contextWithAccount,
-    },
-    analytics: noAnalytics,
-    logger,
-    transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
-    claudeSubscriptionTokenStore: claudeTokenStore(),
-  });
+  const engine = cloudEngineFor(
+    `${auth.apiHost} ${auth.account ?? ""}`,
+    auth,
+    (tokens) =>
+      createCloudTaskEngine({
+        auth: {
+          authenticatedFetch: authenticatedFetch(tokens),
+          getCloudContext: contextWithAccount,
+        },
+        analytics: noAnalytics,
+        logger,
+        transcriptTailWindow: TRANSCRIPT_TAIL_WINDOW,
+        claudeSubscriptionTokenStore: claudeTokenStore(),
+      }),
+  );
   const runs = new CloudRuns(
     engine,
     context,
