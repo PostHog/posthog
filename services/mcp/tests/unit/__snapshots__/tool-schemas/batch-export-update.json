@@ -1130,6 +1130,11 @@
             "description": "A UUID string identifying this batch export.",
             "type": "string"
         },
+        "incremental_mode": {
+            "description": "How this batch export handles incremental updates.\n\n* `APPEND` - Append\n* `MERGE` - Merge",
+            "enum": ["APPEND", "MERGE"],
+            "type": "string"
+        },
         "interval": {
             "description": "How often the batch export should run.\n\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `every 5 minutes` - every 5 minutes\n* `every 15 minutes` - every 15 minutes",
             "enum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
@@ -1174,6 +1179,20 @@
             "description": "Whether the batch export is paused.",
             "type": "boolean"
         },
+        "primary_key": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export."
+        },
         "timezone": {
             "anyOf": [
                 {
@@ -1184,6 +1203,20 @@
                 }
             ],
             "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+        },
+        "version_key": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export."
         }
     },
     "required": ["id"],
