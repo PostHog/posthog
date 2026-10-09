@@ -19552,6 +19552,71 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `success` - Success
+     * * `failure` - Failure
+     */
+    export type CITimingSampleStatusEnum = typeof CITimingSampleStatusEnum[keyof typeof CITimingSampleStatusEnum];
+
+
+    export const CITimingSampleStatusEnum = {
+      Success: 'success',
+      Failure: 'failure',
+    } as const;
+
+    export interface CITimingSample {
+      /** Integer run id of the sampled run; unique only together with ci_engine. */
+      run_id: number;
+      /** Run attempt the sample was taken from, which is the run's latest. */
+      run_attempt: number;
+      /**
+         * Job id of the matched job. Null for a workflow or matrix sample, which spans jobs.
+         * @nullable
+         */
+      job_id: number | null;
+      /**
+         * Number of the matched step in the sampled job. Steps match by name, so it can differ from the selected step's number. Null unless kind is 'step'.
+         * @nullable
+         */
+      step_number: number | null;
+      /** CI engine that ran the sampled run.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine: CIEngineEnum;
+      /**
+         * Source-native run id; use with ci_engine to link to the run.
+         * @nullable
+         */
+      native_run_id: string | null;
+      /**
+         * Source-native workflow run id; use with ci_engine to link to the run.
+         * @nullable
+         */
+      native_workflow_run_id: string | null;
+      /**
+         * Source-native job id of the matched job. Null for a workflow or matrix sample.
+         * @nullable
+         */
+      native_job_id: string | null;
+      /**
+         * Source-native job attempt id of the matched job. Null for a workflow or matrix sample.
+         * @nullable
+         */
+      native_attempt_id: string | null;
+      /** 'success' when every matched job succeeded, or the matched step did. Otherwise 'failure'.
+       *
+       * * `success` - Success
+       * * `failure` - Failure */
+      status: CITimingSampleStatusEnum;
+      /** For a workflow, matrix or job: seconds from the first matched job's start to the last one's end. For a step: the step's own duration. */
+      duration_seconds: number;
+      /** When the last matched job finished. */
+      completed_at: string;
+      /** Commit SHA the sampled run ran on. */
+      head_sha: string;
+    }
+
+    /**
      * * `workflow_id` - Workflow id
      * * `workflow_name` - Workflow name
      */
@@ -19577,83 +19642,7 @@ export namespace Schemas {
       NotExecuted: 'not_executed',
     } as const;
 
-    /**
-     * * `success` - Success
-     * * `failure` - Failure
-     */
-    export type CITimingSampleStatusEnum = typeof CITimingSampleStatusEnum[keyof typeof CITimingSampleStatusEnum];
-
-
-    export const CITimingSampleStatusEnum = {
-      Success: 'success',
-      Failure: 'failure',
-    } as const;
-
-    export interface CITimingSample {
-      /** CI engine that ran the sampled run.
-       *
-       * * `github_actions` - GitHub Actions
-       * * `depot_ci` - Depot CI */
-      ci_engine: CIEngineEnum;
-      /** 'success' when every matched job succeeded, or the matched step did. Otherwise 'failure'.
-       *
-       * * `success` - Success
-       * * `failure` - Failure */
-      status: CITimingSampleStatusEnum;
-      /** Integer run id of the sampled run; unique only together with ci_engine. */
-      run_id: number;
-      /** Run attempt the sample was taken from, which is the run's latest. */
-      run_attempt: number;
-      /**
-         * Job id of the matched job. Null for a workflow or matrix sample, which spans jobs.
-         * @nullable
-         */
-      job_id: number | null;
-      /**
-         * Number of the matched step in the sampled job. Steps match by name, so it can differ from the selected step's number. Null unless kind is 'step'.
-         * @nullable
-         */
-      step_number: number | null;
-      /**
-         * Source-native run id; use with ci_engine to link to the run.
-         * @nullable
-         */
-      native_run_id: string | null;
-      /**
-         * Source-native workflow run id; use with ci_engine to link to the run.
-         * @nullable
-         */
-      native_workflow_run_id: string | null;
-      /**
-         * Source-native job id of the matched job. Null for a workflow or matrix sample.
-         * @nullable
-         */
-      native_job_id: string | null;
-      /**
-         * Source-native job attempt id of the matched job. Null for a workflow or matrix sample.
-         * @nullable
-         */
-      native_attempt_id: string | null;
-      /** For a workflow, matrix or job: seconds from the first matched job's start to the last one's end. For a step: the step's own duration. */
-      duration_seconds: number;
-      /** When the last matched job finished. */
-      completed_at: string;
-      /** Commit SHA the sampled run ran on. */
-      head_sha: string;
-    }
-
     export interface CITimingContext {
-      /** How runs of the same workflow were found: by 'workflow_id', which a rename keeps, or by 'workflow_name' when the run has no workflow id.
-       *
-       * * `workflow_id` - Workflow id
-       * * `workflow_name` - Workflow name */
-      identity: CITimingIdentityEnum;
-      /** Why no comparison was made: 'default_branch_unknown' (no synced pull request names the repository's default branch), 'jobs_not_synced', or 'not_executed' (every selected job was skipped, so there is no duration to compare). Null when the comparison ran, even if it found no samples.
-       *
-       * * `default_branch_unknown` - Default branch unknown
-       * * `jobs_not_synced` - Jobs not synced
-       * * `not_executed` - Not executed */
-      unavailable_reason: CITimingUnavailableReasonEnum | null;
       /** The newest matched samples of any status, newest first. At most three. */
       recent: CITimingSample[];
       /**
@@ -19663,6 +19652,11 @@ export namespace Schemas {
       default_branch: string | null;
       /** How many days back the comparison looks. */
       window_days: number;
+      /** How runs of the same workflow were found: by 'workflow_id', which a rename keeps, or by 'workflow_name' when the run has no workflow id.
+       *
+       * * `workflow_id` - Workflow id
+       * * `workflow_name` - Workflow name */
+      identity: CITimingIdentityEnum;
       /** How many default-branch runs of the workflow were checked for a match. */
       runs_scanned: number;
       /** True when the window held more eligible runs than were checked, so the figures cover the newest runs only. */
@@ -19684,6 +19678,12 @@ export namespace Schemas {
          * @nullable
          */
       jobs_synced_at: string | null;
+      /** Why no comparison was made: 'default_branch_unknown' (no synced pull request names the repository's default branch), 'jobs_not_synced', or 'not_executed' (every selected job was skipped, so there is no duration to compare). Null when the comparison ran, even if it found no samples.
+       *
+       * * `default_branch_unknown` - Default branch unknown
+       * * `jobs_not_synced` - Jobs not synced
+       * * `not_executed` - Not executed */
+      unavailable_reason: CITimingUnavailableReasonEnum | null;
     }
 
     export interface EventsHeatMapColumnAggregationResult {
