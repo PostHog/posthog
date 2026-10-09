@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -44,22 +42,11 @@ import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
-import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
 
 const MetricsTab = (): JSX.Element => {
-    const {
-        experiment,
-        orderedPrimaryMetricsWithResults,
-        orderedSecondaryMetricsWithResults,
-        isExperimentLaunched,
-        healthFindings,
-        browserNoMetricsWarning,
-    } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
-    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
+    const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
+        useValues(experimentLogic)
 
     // With health findings, the health panel above the tabs shows the "No metrics defined" and bias warnings.
     const showsHealthPanel = healthFindings !== null
@@ -75,8 +62,6 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <ResultsNotificationBanner />
-
             <div className="w-full mb-4 flex flex-col gap-4">
                 <Hypothesis />
                 <div>
@@ -85,7 +70,7 @@ const MetricsTab = (): JSX.Element => {
                 </div>
             </div>
 
-            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
+            {hasMetrics && <RecalculationStatus experiment={experiment} />}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
