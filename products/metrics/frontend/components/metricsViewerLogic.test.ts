@@ -448,9 +448,13 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
-    it('keeps the type of a metric picked while the service scope reloads', () => {
+    it.each([
+        ['from the full list', 'request_duration'],
+        ['from a server search', 'checkout_latency'],
+    ])('keeps the type of a metric picked %s while the service scope reloads', (_source, metricName) => {
+        metricNamePickerLogic.actions.searchItemsSuccess([{ name: 'checkout_latency', metric_type: 'histogram' }])
         metricNamePickerLogic.actions.setServices(['web'])
-        logic.actions.setMetricName('request_duration')
+        logic.actions.setMetricName(metricName)
         expect(logic.values.selectedMetricType).toBe('histogram')
     })
 

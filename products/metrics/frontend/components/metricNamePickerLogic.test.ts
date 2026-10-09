@@ -179,6 +179,26 @@ describe('metricNamePickerLogic', () => {
         )
     })
 
+    it('drops names an old-scope search found once the new scope loads', async () => {
+        jest.mocked(metricsNamesRetrieve)
+            .mockResolvedValueOnce({ results: fullPage } as any)
+            .mockResolvedValueOnce({ results: [{ name: 'old.scope.metric' }] } as any)
+            .mockResolvedValueOnce({ results: [ITEMS[2]] } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('old')
+        }).toDispatchActions(['searchItemsSuccess'])
+        logic.actions.setSearch('')
+
+        await expectLogic(logic, () => {
+            logic.actions.setServices(['api'])
+        }).toDispatchActions(['loadItemsSuccess'])
+
+        expect(logic.values.items).toEqual([ITEMS[2]])
+    })
+
     it('shows the old list again when the new scope fails to load', async () => {
         logic = metricNamePickerLogic()
         logic.mount()
