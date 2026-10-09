@@ -253,7 +253,7 @@ export const workflowsSetupGuideLogic = kea<workflowsSetupGuideLogicType>([
         showMessagingReminder: [
             (s) => [s.showGuide, s.chosenPath],
             (showGuide: boolean, chosenPath: WorkflowsOnboardingPath | null): boolean =>
-                showGuide && (chosenPath === 'messaging' || chosenPath === 'broadcast'),
+                showGuide && chosenPath === 'messaging',
         ],
         showAutomationSuggestion: [
             (s) => [s.teamState],
