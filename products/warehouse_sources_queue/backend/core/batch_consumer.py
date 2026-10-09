@@ -559,6 +559,31 @@ class BatchConsumer:
             raise
         return conn
 
+    async def _connect_with_startup_retry(
+        self, *, statement_timeout_seconds: float | None, event: str
+    ) -> psycopg.AsyncConnection[Any]:
+        """Dial the queue DB at startup, retrying a self-healing blip indefinitely.
+
+        `_connect` only retries QUEUE_RETRY_MAX_ATTEMPTS times before raising -- enough for a
+        blip mid-run, where the poll and recovery loops simply redial on the next cycle, but
+        not for the queue DB still being unreachable the moment this process starts. Raising
+        here crashes the whole consumer before `_poll_conn`/`_recovery_conn` even exist, for
+        the same DNS, server-not-ready, connect-timeout, and admin-shutdown shapes the running
+        consumer already treats as self-healing everywhere else.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return await self._connect(statement_timeout_seconds=statement_timeout_seconds)
+            except Exception as error:
+                if not _is_transient_queue_db_error(error):
+                    raise
+                logger.warning(self._event(event), attempt=attempt, error=str(error))
+                await self._wait_or_shutdown(_queue_retry_delay(min(attempt, QUEUE_RETRY_MAX_ATTEMPTS)))
+                if self._shutdown.is_set():
+                    raise
+
     async def _drop_conn(self, attr: str) -> None:
         """Close and forget a connection after a timed-out operation.
 
@@ -692,8 +717,14 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
-        self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
+        self._poll_conn = await self._connect_with_startup_retry(
+            statement_timeout_seconds=self._config.poll_timeout_seconds,
+            event="startup_poll_connect_retrying",
+        )
+        self._recovery_conn = await self._connect_with_startup_retry(
+            statement_timeout_seconds=self._config.sweep_timeout_seconds,
+            event="startup_recovery_connect_retrying",
+        )
 
         logger.info(
             self._event("batch_consumer_started"),

@@ -75,7 +75,7 @@ const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/query/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['results']) as typeof result
+        const filtered = pickResponseFields(result, ['results', 'hint']) as typeof result
         return filtered
     },
 })

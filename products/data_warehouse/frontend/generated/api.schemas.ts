@@ -2663,6 +2663,7 @@ export interface CredentialApi {
  * * `Squarespace` - Squarespace
  * * `Statsig` - Statsig
  * * `Statuspage` - Statuspage
+ * * `Steam` - Steam
  * * `Stigg` - Stigg
  * * `Strava` - Strava
  * * `SurveySparrow` - SurveySparrow
@@ -3539,6 +3540,7 @@ export interface CredentialApi {
  * * `Arcade` - Arcade
  * * `Neo4j` - Neo4j
  * * `TestDino` - TestDino
+ * * `ChessCom` - ChessCom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4039,6 +4041,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Squarespace: 'Squarespace',
     Statsig: 'Statsig',
     Statuspage: 'Statuspage',
+    Steam: 'Steam',
     Stigg: 'Stigg',
     Strava: 'Strava',
     SurveySparrow: 'SurveySparrow',
@@ -4915,6 +4918,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Arcade: 'Arcade',
     Neo4j: 'Neo4j',
     TestDino: 'TestDino',
+    ChessCom: 'ChessCom',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

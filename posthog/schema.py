@@ -49,6 +49,7 @@ from posthog.schema_enums import (
     AssistantMessageType as AssistantMessageType,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantRetentionDisplayType as AssistantRetentionDisplayType,
     AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
     AssistantStickinessDisplayType as AssistantStickinessDisplayType,
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
@@ -119,6 +120,11 @@ from posthog.schema_enums import (
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     EventMatchScope as EventMatchScope,
+    ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
+    ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
+    ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -142,6 +148,7 @@ from posthog.schema_enums import (
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
     GroupMathType as GroupMathType,
+    GroupTypeIndex as GroupTypeIndex,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -208,6 +215,7 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
@@ -597,6 +605,14 @@ class AssistantDataVisualizationGoalLine(BaseModel):
     )
     label: str = Field(..., description="Label rendered next to the goal line.")
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
+
+
+class AssistantDataVisualizationMetricSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showChange: bool | None = None
+    summary: Summary | None = None
 
 
 class AssistantDataVisualizationYAxisSettings(BaseModel):
@@ -1503,6 +1519,15 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentApiGroupBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_type_index: GroupTypeIndex = Field(..., description="Which group type the property belongs to.")
+    property: str = Field(..., description="Property name to break down by.")
+    type: Literal["group"] = "group"
+
+
 class ExperimentExposureEstimateConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2063,6 +2088,10 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
+    )
     clicks: float
     conversions: float | None = None
     cost: float | None = None
@@ -2071,11 +2100,19 @@ class MarketingAnalyticsSearchMetrics(BaseModel):
     ctr: float | None = None
     impressions: float
     position: float | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchRow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    absoluteTopImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown as the first ad.",
     )
     clicks: float
     conversions: float | None = None
@@ -2091,6 +2128,10 @@ class MarketingAnalyticsSearchRow(BaseModel):
     platform: Platform
     position: float | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
+    topImpressionRate: float | None = Field(
+        default=None,
+        description="Fraction of Google Search ad impressions shown among the top ads.",
+    )
 
 
 class MarketingAnalyticsSearchSource(BaseModel):
@@ -2844,10 +2885,10 @@ class PieChartSettings(BaseModel):
     )
     showTotal: bool | None = Field(
         default=None,
-        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+        description=("Whether to show the aggregation total. Defaults to on only when slices show values."),
     )
     sliceContent: SliceContent | None = Field(
-        default=None, description="What to render on each slice. Defaults to labels."
+        default=None, description="What to render on each slice. Defaults to values."
     )
     valueDisplay: ValueDisplay | None = Field(
         default=None,
@@ -3800,6 +3841,15 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantDataVisualizationMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -4861,10 +4911,14 @@ class AssistantTrendsFilter(BaseModel):
             " with one bar per breakdown value or series; good for categorical data"
             ' such as "top pages" or "failures by reason". `ActionsPie` - total value'
             " pie chart; good for visualizing proportions. `ActionsDonut` - total value"
-            " donut chart; same use as `ActionsPie`. `ActionsTable` - total value"
-            " table; good when using breakdown to list users or other entities."
-            " `WorldMap` - total value world map; use when breaking down by country"
-            " using property `$geoip_country_code`, and only then."
+            " donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total"
+            " value chart that shows the parts of one whole as a single flat bar, with"
+            " one segment per breakdown value or series. Use it to show the share of"
+            " each part in a total. It cannot compare to a previous period, so do not"
+            " set `compareFilter.compare` with it. `ActionsTable` - total value table;"
+            " good when using breakdown to list users or other entities. `WorldMap` -"
+            " total value world map; use when breaking down by country using property"
+            " `$geoip_country_code`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -5599,6 +5653,16 @@ class ExperimentApiEventSource(BaseModel):
     )
 
 
+class ExperimentApiPropertyBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    property: str = Field(..., description="Property name to break down by.")
+    type: ExperimentApiPropertyBreakdownType | None = Field(
+        default=None, description="Where the property lives. Defaults to 'event'."
+    )
+
+
 class ExperimentApiRetentionStart(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5647,12 +5711,60 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
+class ExperimentExposureHealthFinding(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actions: list[ExperimentExposureHealthFindingActionKind] = Field(
+        ..., description="The actions that fix the problem, in order of preference."
+    )
+    code: ExperimentExposureHealthFindingCode = Field(
+        ...,
+        description=(
+            "Stable identifier of the problem. Each code has one meaning across every surface that reports it."
+        ),
+    )
+    detail: str = Field(
+        ...,
+        description="What is wrong, what it does to the experiment, and how to fix it.",
+    )
+    diagnostic_ref: str | None = Field(
+        ...,
+        description=(
+            "The id of the matching diagnostic in the diagnosing-experiment-health"
+            " skill, for example 'A2'. Null when the skill has none."
+        ),
+    )
+    evidence: dict[str, str | float | None] = Field(
+        ...,
+        description=(
+            "The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code."
+        ),
+    )
+    severity: ExperimentExposureHealthFindingSeverity = Field(
+        ...,
+        description=("How much the problem affects the results: critical, warning, or info."),
+    )
+    subcode: str | None = Field(
+        ...,
+        description=("The case within the code, when a code covers several. Null when the code has one case."),
+    )
+    title: str = Field(..., description="One-line summary of the problem.")
+
+
 class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -6782,7 +6894,10 @@ class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation: MetricsAggregation
+    aggregation: MetricsAggregation | None = Field(
+        default=None,
+        description=("Omit to get one line per series (at most 100), without combining them"),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -6801,6 +6916,10 @@ class MetricsQueryClause(BaseModel):
     quantile: float | None = Field(
         default=None,
         description=("In (0, 1); required for `quantile` / `histogram_quantile` aggregations"),
+    )
+    rangeFunction: MetricsRangeFunction | None = Field(
+        default=None,
+        description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
 
 
@@ -7188,6 +7307,13 @@ class QueryResponseAlternative21(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -9989,13 +10115,16 @@ class AssistantDataVisualizationNode(BaseModel):
         description=(
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
-            " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
-            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
-            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
-            " Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with"
-            " `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`."
+            " row) → `BoldNumber`.\n- Headline number with its change over time (KPI,"
+            " scorecard) → `Metric`.\n- Time series → `ActionsLineGraph` or"
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie` or"
+            " `ActionsDonut`.\n- Categorical comparison → `ActionsBar` or"
+            " `ActionsStackedBar`.\n- Ranking of categories by one value (top N,"
+            " horizontal bars) → `ActionsBarValue`.\n- Two-dimensional aggregation →"
+            " `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures,"
+            " one point per row → `ScatterPlot`.\n- Distribution summaries from"
+            " pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -10528,6 +10657,10 @@ class AssistantRetentionFilter(BaseModel):
             " retention means that a user coming back in period 5 makes them count"
             " towards all the previous periods."
         ),
+    )
+    display: AssistantRetentionDisplayType | None = Field(
+        default=None,
+        description=("`ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars."),
     )
     meanRetentionCalculation: MeanRetentionCalculation | None = Field(
         default=None,
@@ -12335,6 +12468,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    health_findings: list[ExperimentExposureHealthFinding] | None = Field(
+        default=None,
+        description=(
+            "Health check diagnostics that read the exposures: zero exposures, a sample"
+            " ratio mismatch, and bias. Empty when every check passed."
+        ),
+    )
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
@@ -18339,9 +18479,39 @@ class EventsQueryResponse(BaseModel):
     )
 
 
+class ExperimentApiBreakdownFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: int | None = Field(
+        default=None,
+        description="Maximum number of breakdown values to compute results for.",
+    )
+    breakdowns: list[ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown] | None = Field(
+        default=None,
+        description="Properties to break the metric results down by.",
+        max_length=3,
+    )
+
+
 class ExperimentApiMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: ExperimentApiBreakdownAttributionType | None = Field(
+        default=None,
+        description=(
+            "For funnel metrics with breakdowns: which step the breakdown value is read"
+            " from. 'all_events' is not supported for experiment funnels."
+        ),
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is 'step', the 0-indexed step to attribute from."),
+    )
+    breakdownFilter: ExperimentApiBreakdownFilter | None = Field(
+        default=None,
+        description=("Break the metric results down by up to 3 event, person, session or group properties."),
     )
     completion_event: ExperimentApiEventSource | None = Field(
         default=None, description="For retention metrics: completion event."
