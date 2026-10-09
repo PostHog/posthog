@@ -6114,8 +6114,21 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(result[0][1], 5)
 
     def test_get_teams_with_event_count_with_groups_in_period_excludes_non_billable_events(self) -> None:
+        # make sure we don't collapse duplicate rows
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        grouped_event_uuid = create_event(
+            event_uuid=uuid4(),
+            event="grouped_event",
+            team=self.team,
+            distinct_id="grouped_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$group_0": "org:1"},
+        )
         for event in ["grouped_event", "$feature_flag_called", "$exception", "$ai_generation"]:
             _create_event(
+                event_uuid=grouped_event_uuid if event == "grouped_event" else None,
                 event=event,
                 team=self.team,
                 distinct_id="grouped_user",
@@ -6125,7 +6138,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             )
         flush_persons_and_events()
 
-        self.assertEqual(get_teams_with_event_count_with_groups_in_period(self.begin, self.end), [(self.team.id, 1)])
+        self.assertEqual(get_teams_with_event_count_with_groups_in_period(self.begin, self.end), [(self.team.id, 2)])
         self.assertEqual(
             get_teams_with_event_count_with_groups_in_period(self.begin, self.end, count_distinct=True),
             [(self.team.id, 1)],
