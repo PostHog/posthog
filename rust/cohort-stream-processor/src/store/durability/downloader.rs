@@ -1,12 +1,14 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
 
 #[async_trait]
 pub trait CheckpointDownloader: Send + Sync + std::fmt::Debug {
-    /// List remote checkpoint-attempt metadata.json keys, sorted newest to oldest.
-    async fn list_recent_checkpoints(&self) -> Result<Vec<String>>;
+    /// List the metadata.json keys of the checkpoint attempts inside the import window that ends at
+    /// `now`, sorted newest to oldest.
+    async fn list_recent_checkpoints(&self, now: DateTime<Utc>) -> Result<Vec<String>>;
 
     /// Download a single remote file and return its bytes.
     async fn download_file(&self, remote_key: &str) -> Result<Vec<u8>>;

@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use super::manifest::{ManifestError, OffsetManifest, MANIFEST_FILENAME};
@@ -43,9 +45,10 @@ impl CheckpointImporter {
         }
     }
 
-    /// Metadata keys of the lineage's attempts inside the listing window, newest first.
-    pub async fn candidates(&self) -> anyhow::Result<Vec<String>> {
-        self.downloader.list_recent_checkpoints().await
+    /// Metadata keys of the lineage's attempts inside the listing window that ends at `now`, newest
+    /// first.
+    pub async fn candidates(&self, now: DateTime<Utc>) -> anyhow::Result<Vec<String>> {
+        self.downloader.list_recent_checkpoints(now).await
     }
 
     pub async fn metadata(&self, metadata_key: &str) -> Result<CheckpointMetadata, ImportError> {
@@ -93,7 +96,11 @@ impl CheckpointImporter {
             .iter()
             .map(|file| file.remote_filepath.clone())
             .collect();
-        let download = self.downloader.download_files(&keys, stage);
+        // Without a token, the files left after a failed one would all still download.
+        let siblings = CancellationToken::new();
+        let download = self
+            .downloader
+            .download_files_cancellable(&keys, stage, Some(&siblings));
         let result = match tokio::time::timeout(self.import_timeout, download).await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(err)) => Err(ImportError::Download(err)),

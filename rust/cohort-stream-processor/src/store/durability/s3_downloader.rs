@@ -353,7 +353,7 @@ impl CheckpointDownloader for S3Downloader {
         Ok(())
     }
 
-    async fn list_recent_checkpoints(&self) -> Result<Vec<String>> {
+    async fn list_recent_checkpoints(&self, now: DateTime<Utc>) -> Result<Vec<String>> {
         let start_time = Instant::now();
         let window = Duration::hours(i64::from(self.checkpoint_import_window_hours));
 
@@ -366,7 +366,7 @@ impl CheckpointDownloader for S3Downloader {
             .context("listing checkpoint folders from S3")?;
         let metadata_keys = recent_metadata_keys(
             result.common_prefixes.iter().map(|folder| folder.as_ref()),
-            Utc::now(),
+            now,
             window,
         );
 

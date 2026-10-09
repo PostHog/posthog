@@ -183,6 +183,7 @@ A failed listing, a failed Kafka commit and a local file error also block.
 A blocked boot retries in process, with a backoff that starts at 30 seconds and doubles to 5 minutes.
 The health server is already listening, so `/_health` answers and `/_ready` returns 503 with "events consumer boot recovery in progress".
 `checkpoint_restore_blocked` reads 1 while it retries, and each round logs the error.
+Every round measures the local staleness window and the remote listing window up to the first round's start, so a candidate that failed stays a candidate however long the boot blocks.
 A candidate whose stage failed validation is not downloaded again in later rounds.
 To give up on object storage, set `CHECKPOINT_ENABLED=false`.
 The boot then creates the store, and every slice begins behind the coverage fence.
@@ -220,7 +221,7 @@ It renames the store to the staging path first, so a deletion cut short never le
 
 With `CHECKPOINT_ENABLED`, the processor takes a whole-store RocksDB checkpoint into `CHECKPOINT_LOCAL_DIR` every `CHECKPOINT_INTERVAL_MS`, and uploads one in every few to object storage, at `CHECKPOINT_S3_UPLOAD_INTERVAL_MS`.
 The loop starts when boot ends.
-Checkpoints require durable restore, a bucket, and an absolute checkpoint directory on the store's filesystem but outside the store, and the pod fails at start without them.
+Checkpoints require durable restore, a bucket, and an absolute checkpoint directory on the store's filesystem but outside the store and its `<STORE_PATH>.restore` staging directory, and the pod fails at start without them.
 
 - **One lineage per pod.**
   A pod's checkpoints live under `cohort_stream_state/<ordinal>`, locally and in object storage, where the ordinal is the number that ends the StatefulSet pod name in `POD_NAME`.
