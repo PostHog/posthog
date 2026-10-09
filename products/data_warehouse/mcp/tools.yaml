@@ -181,13 +181,13 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: ?open_view={id}
-        hooks: dataWarehouse/viewGetHooks
         title: Get saved query
         description: >
             Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL
             query, column schema, materialization status, sync frequency, and run history metadata. Also returns the
             view's semantic `description` and a `description` on each entry of `columns` when set — use this to see what
             a view and its columns mean.
+        hooks: dataWarehouse/viewGetHooks
     view-list:
         operation: warehouse_saved_queries_list
         enabled: true
