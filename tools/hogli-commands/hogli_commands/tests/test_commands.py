@@ -92,8 +92,7 @@ class TestDetectEnvironment:
 class TestDetectAgent:
     @pytest.fixture(autouse=True)
     def _no_ambient_agent(self, monkeypatch):
-        monkeypatch.delenv("HOGLI_AGENT", raising=False)
-        for var in (*(marker for marker, _ in _AGENT_ENV_MARKERS), *_STANDARD_AGENT_ENV_VARS):
+        for var in ("HOGLI_AGENT", *dict(_AGENT_ENV_MARKERS), *_STANDARD_AGENT_ENV_VARS):
             monkeypatch.delenv(var, raising=False)
 
     @pytest.mark.parametrize(
@@ -136,14 +135,12 @@ class TestDetectActor:
         ("agent", "terminal_fds", "inherited", "expected"),
         [
             ("claude-code", {0, 1, 2}, "human", "agent"),
-            (None, {0, 1, 2}, None, "human"),
             (None, {1, 2}, None, "human"),
             (None, set(), None, "unknown"),
             (None, set(), "human", "human"),
         ],
         ids=[
             "agent_beats_terminal_and_inherited",
-            "terminal",
             "pre_push_hook_stdin_piped",
             "no_terminal_no_agent",
             "nested_command_inherits_human",

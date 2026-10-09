@@ -99,7 +99,7 @@ def _detect_agent() -> str | None:
         if declared:
             # Some harnesses append a version (`name@1.2`, `name_1-2_agent`),
             # which would split one harness into a telemetry value per release.
-            name = re.split(r"\s*[@_]\d", declared, maxsplit=1)[0]
+            name = re.split(r"[@_]\d", declared, maxsplit=1)[0]
             # A harness can set the variable as a bare flag (`AGENT=1`) without naming itself.
             return "unknown" if name in {"", "1", "true"} else name
     return None
@@ -237,13 +237,8 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
     # Agent-driven traffic (e.g. skills running metabase:query) otherwise
     # swamps human usage stats.
     agent = _detect_agent()
-    actor = _detect_actor(agent)
-    # The first call runs at command start, before the telemetry send thread
-    # exists. setdefault keeps every later call read-only, because a write to
-    # the environment while that thread runs is unsafe.
-    os.environ.setdefault(_ACTOR_ENV_VAR, actor)
     return {
-        "actor": actor,
+        "actor": _detect_actor(agent),
         "agent": agent,
         "environment": _detect_environment(),
         "git_hook": _declared("HOGLI_GIT_HOOK") or None,
@@ -259,3 +254,8 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
 
 
 register_telemetry_properties(_posthog_telemetry_properties)
+
+# Written at import, because a write to the environment is unsafe once the
+# telemetry send thread runs. Nested hogli commands read it in _detect_actor.
+if _detect_actor(_detect_agent()) == "human":
+    os.environ[_ACTOR_ENV_VAR] = "human"
