@@ -1837,6 +1837,7 @@ export interface AssistantInsightVizNode {
  * - `ActionsBarValue` — horizontal bar chart (bar ranking) with one bar per category. Requires a category column and a numeric column.
  * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
  * - `ActionsDonut` — donut (ring) chart with the total in the center. Same columns as `ActionsPie`.
+ * - `ActionsProportionBar` — one flat bar that shows the parts of one whole, one segment per label. Same columns as `ActionsPie`.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1852,6 +1853,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsProportionBar
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -2022,7 +2024,7 @@ export interface AssistantDataVisualizationNode {
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
      * - Headline number with its change over time (KPI, scorecard) → `Metric`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
-     * - Categorical proportions → `ActionsPie` or `ActionsDonut`.
+     * - Parts of one whole → `ActionsPie`, `ActionsDonut` or `ActionsProportionBar`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Ranking of categories by one value (top N, horizontal bars) → `ActionsBarValue`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
