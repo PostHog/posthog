@@ -88,7 +88,7 @@ const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-sea
  *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
 function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
-        return `- If doc search misses: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+        return `- Code or doc misses: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
     }
     return `- For this team's code, or when document search returns no chunks, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
 }
