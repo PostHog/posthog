@@ -7796,14 +7796,32 @@ describe("AgentServer HTTP Mode", () => {
       });
 
       it.each([
-        ["system prompt", "prompt"],
-        ["detected PR context", "detected"],
+        ["system prompt", "prompt", "slack", {}],
+        ["detected PR context", "detected", "slack", {}],
+        ["review-first system prompt", "prompt", undefined, {}],
+        ["review-first, no PR", "new", undefined, {}],
+        [
+          "no repository, auto-publish",
+          "new",
+          "slack",
+          { repositoryPath: undefined },
+        ],
+        [
+          "no repository, review-first",
+          "new",
+          undefined,
+          { repositoryPath: undefined },
+        ],
       ])(
         "tells a revision of an existing PR to keep its report footer (%s)",
-        (_label, surface) => {
-          process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
+        (_label, surface, origin, config) => {
+          if (origin) {
+            process.env.POSTHOG_CODE_INTERACTION_ORIGIN = origin;
+          } else {
+            delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+          }
           try {
-            const s = createServer() as unknown as TestableServer;
+            const s = createServer(config) as unknown as TestableServer;
             const prUrl = "https://github.com/org/repo/pull/1";
             const text =
               surface === "prompt"
@@ -7811,7 +7829,9 @@ describe("AgentServer HTTP Mode", () => {
                     prUrl,
                     "https://posthog.slack.com/archives/C123/p456",
                   )
-                : s.buildDetectedPrContext(prUrl);
+                : surface === "new"
+                  ? s.buildCloudSystemPrompt()
+                  : s.buildDetectedPrContext(prUrl);
             expect(text).toContain("keep its existing footer");
             expect(text).toContain(
               "Do not remove an inbox report link from it",

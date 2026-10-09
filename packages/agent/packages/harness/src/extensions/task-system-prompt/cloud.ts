@@ -349,6 +349,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
+- If the user explicitly asks you to update the pull request: ${this.buildExistingPrFooterInstruction()}
 ${commonInstructions}
 `;
       }
@@ -401,6 +402,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
+- ${this.buildExistingPrFooterInstruction()}
 - Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
             : `
 When the user explicitly asks for code changes in a GitHub repository:
@@ -410,6 +412,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
+- ${this.buildExistingPrFooterInstruction()}
 - Do NOT create branches, commits, push changes, or open pull requests unless the user explicitly asks for that`;
 
       return `${identityInstructions}
@@ -452,6 +455,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
+- ${this.buildExistingPrFooterInstruction()}
 - Always create the PR as a draft.
 ${commonInstructions}
 `;
