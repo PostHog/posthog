@@ -36774,6 +36774,9 @@
                 "keywordTable": {
                     "type": "string"
                 },
+                "placementTable": {
+                    "type": "string"
+                },
                 "queryPageTable": {
                     "type": "boolean"
                 },

@@ -8264,6 +8264,7 @@ export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
     statsTable: string
     keywordTable?: string
+    placementTable?: string
     queryPageTable?: boolean
 }
 

@@ -28,17 +28,22 @@ const SOURCES = [
         description: 'Example Google Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaign', 'campaign_overview_stats', 'keyword', 'keyword_stats', 'landing_page_stats'].map(
-            (name) => ({
-                id: `example-${name}`,
-                name,
-                should_sync: true,
-                sync_frequency: '24hour',
-                last_synced_at: '2025-02-14T12:00:00Z',
-                status: 'Completed',
-                table: { name: `example_${name}`, hogql_name: `example.${name}` },
-            })
-        ),
+        schemas: [
+            'campaign',
+            'campaign_overview_stats',
+            'keyword',
+            'keyword_stats',
+            'keyword_placement_stats',
+            'landing_page_stats',
+        ].map((name) => ({
+            id: `example-${name}`,
+            name,
+            should_sync: true,
+            sync_frequency: '24hour',
+            last_synced_at: '2025-02-14T12:00:00Z',
+            status: 'Completed',
+            table: { name: `example_${name}`, hogql_name: `example.${name}` },
+        })),
     },
     {
         id: 'example-bing',

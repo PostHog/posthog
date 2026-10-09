@@ -2140,6 +2140,7 @@ class MarketingAnalyticsSearchSource(BaseModel):
         extra="forbid",
     )
     keywordTable: str | None = None
+    placementTable: str | None = None
     queryPageTable: bool | None = None
     sourceType: SourceType
     statsTable: str

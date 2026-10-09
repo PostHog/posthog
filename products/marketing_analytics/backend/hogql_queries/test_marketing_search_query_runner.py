@@ -36,7 +36,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    def test_combines_platforms_without_multiplying_metrics_or_mixing_currencies(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_combines_platforms_without_multiplying_metrics_or_mixing_currencies(self, with_placement: bool) -> None:
         keywords = self._table(
             "search_keywords",
             {
@@ -78,6 +79,30 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "1,10,100,7,USD,8,80,16000000,2,2022-01-10,SEARCH,0.6,0.2\n"
             "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH,0.6,0.2\n",
         )
+        placement = None
+        if with_placement:
+            placement = self._table(
+                "search_google_placement",
+                {
+                    "ad_group_criterion_keyword_text": "String",
+                    "ad_group_criterion_keyword_match_type": "String",
+                    "customer_currency_code": "String",
+                    "segments_date": "Date",
+                    "segments_ad_network_type": "String",
+                    "metrics_impressions": "Float64",
+                    "metrics_top_impression_percentage": "Float64",
+                    "metrics_absolute_top_impression_percentage": "Float64",
+                },
+                "ad_group_criterion_keyword_text,ad_group_criterion_keyword_match_type,customer_currency_code,segments_date,segments_ad_network_type,metrics_impressions,metrics_top_impression_percentage,metrics_absolute_top_impression_percentage\n"
+                "Hedgehog,EXACT,USD,2023-01-10,SEARCH,40,0.8,0.4\n"
+                "Hedgehog,EXACT,USD,2023-01-11,SEARCH,60,0.3,0.1\n"
+                "Hedgehog,EXACT,USD,2023-01-11,SEARCH_PARTNERS,900,0.99,0.99\n"
+                "Hedgehog,EXACT,EUR,2023-01-10,SEARCH,100,0.6,0.2\n"
+                "Hedgehog,EXACT,USD,2023-01-10,CONTENT,9000,0.99,0.99\n"
+                "Hedgehog,EXACT,USD,2022-12-15,SEARCH,200,0.6,0.2\n"
+                "Hedgehog,EXACT,USD,2022-01-10,SEARCH,80,0.6,0.2\n"
+                "Other keyword,PHRASE,USD,2023-01-10,SEARCH,100,0.6,0.2\n",
+            )
         bing_stats = self._table(
             "search_bing_stats",
             {
@@ -102,7 +127,9 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         query = MarketingAnalyticsSearchQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             sources=[
-                MarketingAnalyticsSearchSource(sourceType="GoogleAds", statsTable=google_stats, keywordTable=keywords),
+                MarketingAnalyticsSearchSource(
+                    sourceType="GoogleAds", statsTable=google_stats, keywordTable=keywords, placementTable=placement
+                ),
                 MarketingAnalyticsSearchSource(sourceType="BingAds", statsTable=bing_stats),
             ],
         )
@@ -115,8 +142,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "keyword": "hedgehog",
             "page": None,
             "position": None,
-            "topImpressionRate": 0.5,
-            "absoluteTopImpressionRate": pytest.approx(0.22),
+            "topImpressionRate": pytest.approx(0.5) if with_placement else None,
+            "absoluteTopImpressionRate": pytest.approx(0.22) if with_placement else None,
             "platform": "GoogleAds",
             "matchType": "exact",
             "currency": "USD",
@@ -165,8 +192,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "cpc": 1.5,
             "cpa": 24,
             "position": None,
-            "topImpressionRate": 0.6,
-            "absoluteTopImpressionRate": 0.2,
+            "topImpressionRate": pytest.approx(0.6) if with_placement else None,
+            "absoluteTopImpressionRate": pytest.approx(0.2) if with_placement else None,
         }
         previous_only = next(row for row in compared if row.keyword == "previous only")
         assert previous_only.clicks == 0
@@ -288,8 +315,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert usd.page == "https://example.com/a" and usd.keyword is None
         assert usd.clicks == 15 and usd.impressions == 150
         assert usd.cost == 30 and usd.conversions == 2.5 and usd.position is None
-        assert usd.topImpressionRate == (0.8 if placement_available else None)
-        assert usd.absoluteTopImpressionRate == (0.4 if placement_available else None)
+        assert usd.topImpressionRate == (0.8 if platform == "BingAds" and placement_available else None)
+        assert usd.absoluteTopImpressionRate == (0.4 if platform == "BingAds" and placement_available else None)
 
     def test_organic_positions_are_weighted_and_details_keep_query_page_filters(self) -> None:
         table = self._table(
