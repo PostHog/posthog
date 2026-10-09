@@ -241,7 +241,7 @@ const runs: CustomPropertySyncRunApi[] = [
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Data Management',
+    title: 'Scenes-App/Data Modeling/Property Syncs',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

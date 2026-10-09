@@ -146,21 +146,4 @@ export const manifest: ProductManifest = {
             ],
         },
     ],
-    // Deliberately not behind the Customer analytics flag: warehouse-backed person and group
-    // properties are useful without opting into Customer analytics, so this is their home in Data.
-    treeItemsMetadata: [
-        {
-            path: 'Warehouse properties',
-            category: 'Schema',
-            iconType: 'warehouse_property',
-            iconColor: [
-                'var(--color-product-warehouse-properties-light)',
-                'var(--color-product-warehouse-properties-dark)',
-            ],
-            href: urls.warehouseProperties(),
-            flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
-            sceneKey: 'WarehouseProperties',
-            sceneKeys: ['WarehouseProperties'],
-        },
-    ],
 }

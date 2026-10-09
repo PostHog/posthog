@@ -313,13 +313,6 @@
             "intents": []
         },
         { "path": "Core events", "category": "Schema", "iconType": "core_event", "type": null, "intents": [] },
-        {
-            "path": "Warehouse properties",
-            "category": "Schema",
-            "iconType": "warehouse_property",
-            "type": null,
-            "intents": []
-        },
         { "path": "Models", "category": "Data", "iconType": "data_modeling", "type": "sql", "intents": [] },
         {
             "path": "Sources",

@@ -48,6 +48,12 @@ export const manifest: ProductManifest = {
                     flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                     searchKeywords: ['tests'],
                 },
+                {
+                    name: 'Property syncs',
+                    href: urls.warehouseProperties(),
+                    flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
+                    searchKeywords: ['warehouse properties', 'person properties', 'group properties'],
+                },
             ],
             sceneKey: 'Models',
             sceneKeys: ['Models'],

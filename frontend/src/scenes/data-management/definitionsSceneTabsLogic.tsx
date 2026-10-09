@@ -8,13 +8,7 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-export type DefinitionsSceneTabKey =
-    | 'core-events'
-    | 'events'
-    | 'properties'
-    | 'schema'
-    | 'revenue'
-    | 'warehouse-properties'
+export type DefinitionsSceneTabKey = 'core-events' | 'events' | 'properties' | 'schema' | 'revenue'
 
 interface DefinitionsSceneTab {
     key: DefinitionsSceneTabKey
@@ -59,13 +53,6 @@ export const DEFINITIONS_TABS: DefinitionsSceneTab[] = [
         label: 'Revenue definitions',
         url: urls.revenueSettings(),
         iconType: 'revenue_analytics_metadata',
-    },
-    {
-        key: 'warehouse-properties',
-        label: 'Warehouse properties',
-        url: urls.warehouseProperties(),
-        iconType: 'warehouse_property',
-        flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
     },
 ]
 

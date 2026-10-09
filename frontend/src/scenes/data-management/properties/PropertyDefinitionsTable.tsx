@@ -2,13 +2,14 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE, FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -26,6 +27,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -97,6 +99,17 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.PropertyDefinition].iconType || 'default_icon_type',
                 }}
+                actions={
+                    featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] ? (
+                        <LemonButton
+                            type="secondary"
+                            to={urls.warehouseProperties()}
+                            data-attr="property-definitions-property-syncs"
+                        >
+                            Sync from warehouse
+                        </LemonButton>
+                    ) : undefined
+                }
             />
             <LemonBanner type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
