@@ -1,6 +1,6 @@
 """Payloads for PR-scoped reads: backlog cards, lists, lifecycle, logs, and cost."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
@@ -23,11 +23,10 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
-    ci_engine_field,
 )
 
 
-class AuthorSerializer(DataclassSerializer):
+class AuthorSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = Author
         extra_kwargs = {
@@ -38,7 +37,7 @@ class AuthorSerializer(DataclassSerializer):
         }
 
 
-class PullRequestSerializer(DataclassSerializer):
+class PullRequestSerializer(LabeledChoicesDataclassSerializer):
     author = AuthorSerializer(help_text="The pull request author.")
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
 
@@ -56,12 +55,11 @@ class PullRequestSerializer(DataclassSerializer):
         }
 
 
-class PRLifecycleEventSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
+class PRLifecycleEventSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "kind": {
                 "help_text": "Event kind: opened, ready_for_review, converted_to_draft, ci_started, "
                 "ci_finished, merged, or closed."
@@ -79,7 +77,7 @@ class PRLifecycleEventSerializer(DataclassSerializer):
         }
 
 
-class PRLifecycleSerializer(DataclassSerializer):
+class PRLifecycleSerializer(LabeledChoicesDataclassSerializer):
     pull_request = PullRequestSerializer(help_text="The pull request header.")
     events = PRLifecycleEventSerializer(many=True, help_text="Lifecycle events ordered by time.")
 
@@ -92,7 +90,7 @@ class PRLifecycleSerializer(DataclassSerializer):
         }
 
 
-class CIFailureLogsSerializer(DataclassSerializer):
+class CIFailureLogsSerializer(LabeledChoicesDataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs with their thinned failure logs, grouped by job."
@@ -113,7 +111,7 @@ class CIFailureLogsSerializer(DataclassSerializer):
         }
 
 
-class WorkflowCostSerializer(DataclassSerializer):
+class WorkflowCostSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = WorkflowCost
         extra_kwargs = {
@@ -129,12 +127,11 @@ class WorkflowCostSerializer(DataclassSerializer):
         }
 
 
-class RunCostSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
+class RunCostSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = RunCost
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Integer run id this cost is for; unique only together with ci_engine."},
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
@@ -145,7 +142,7 @@ class RunCostSerializer(DataclassSerializer):
         }
 
 
-class PRLLMSpendSerializer(DataclassSerializer):
+class PRLLMSpendSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PRLLMSpend
         extra_kwargs = {
@@ -161,7 +158,7 @@ class PRLLMSpendSerializer(DataclassSerializer):
         }
 
 
-class PRCostSummarySerializer(DataclassSerializer):
+class PRCostSummarySerializer(LabeledChoicesDataclassSerializer):
     by_workflow = WorkflowCostSerializer(many=True, help_text="Same spend broken down per workflow.")
     by_run = RunCostSerializer(
         many=True, help_text="Same spend broken down per workflow run, keyed by (run_id, run_attempt)."
@@ -200,7 +197,7 @@ class PRCostSummarySerializer(DataclassSerializer):
         }
 
 
-class CIStatusRollupSerializer(DataclassSerializer):
+class CIStatusRollupSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = CIStatusRollup
         extra_kwargs = {
@@ -220,7 +217,7 @@ class CIStatusRollupSerializer(DataclassSerializer):
         }
 
 
-class PushCISampleSerializer(DataclassSerializer):
+class PushCISampleSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = PushCISample
         extra_kwargs = {
@@ -238,7 +235,7 @@ class PushCISampleSerializer(DataclassSerializer):
         }
 
 
-class PullRequestListItemSerializer(DataclassSerializer):
+class PullRequestListItemSerializer(LabeledChoicesDataclassSerializer):
     author = AuthorSerializer(help_text="The pull request author.")
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
     ci = CIStatusRollupSerializer(help_text="CI status from the latest workflow runs on the head SHA.")
@@ -290,7 +287,7 @@ class PullRequestListItemSerializer(DataclassSerializer):
         }
 
 
-class PullRequestListSerializer(DataclassSerializer):
+class PullRequestListSerializer(LabeledChoicesDataclassSerializer):
     items = PullRequestListItemSerializer(
         many=True, help_text="This page of pull requests, newest first, capped at `limit`."
     )
@@ -306,7 +303,7 @@ class PullRequestListSerializer(DataclassSerializer):
         }
 
 
-class AttentionPullRequestListSerializer(DataclassSerializer):
+class AttentionPullRequestListSerializer(LabeledChoicesDataclassSerializer):
     items = PullRequestListItemSerializer(
         many=True, help_text="Open pull requests needing attention, failing CI first, then newest, capped at `limit`."
     )
@@ -321,7 +318,7 @@ class AttentionPullRequestListSerializer(DataclassSerializer):
         }
 
 
-class BranchPRMatchSerializer(DataclassSerializer):
+class BranchPRMatchSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = BranchPRMatch
         extra_kwargs = {
@@ -338,7 +335,7 @@ class BranchPRMatchSerializer(DataclassSerializer):
         }
 
 
-class CICardSummarySerializer(DataclassSerializer):
+class CICardSummarySerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = CICardSummary
         extra_kwargs = {
