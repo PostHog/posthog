@@ -217,6 +217,53 @@ class TestPagination:
             mock.call(LinodeResumeConfig(next_page=3)),
         ]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_invoice_items_fan_out_per_invoice_and_carry_invoice_fields(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [
+            _response([{"id": 11, "date": "2026-01-01T00:00:00"}, {"id": 12, "date": "2026-02-01T00:00:00"}]),
+            _response([{"label": "Linode 1", "amount": 5.0}]),
+            _response([{"label": "Linode 1", "amount": 5.0}, {"label": "Backups", "amount": 2.0}]),
+        ]
+
+        response = _source(endpoint="invoice_items")
+        rows = _rows(response)
+
+        assert [u.rsplit("/v4", 1)[1] for u in urls] == [
+            "/account/invoices",
+            "/account/invoices/11/items",
+            "/account/invoices/12/items",
+        ]
+        assert [(r["invoice_id"], r["invoice_date"], r["label"]) for r in rows] == [
+            (11, "2026-01-01T00:00:00", "Linode 1"),
+            (12, "2026-02-01T00:00:00", "Linode 1"),
+            (12, "2026-02-01T00:00:00", "Backups"),
+        ]
+        assert response.partition_keys == ["invoice_date"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_account_transfer_yields_the_bare_object_as_one_row(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        transfer = {"quota": 4000, "used": 120, "billable": 0, "region_transfers": []}
+        resp = Response()
+        resp.status_code = 200
+        resp._content = json.dumps(transfer).encode()
+        params = _wire(session, [resp])
+
+        rows = _rows(_source(endpoint="account_transfer"))
+
+        assert rows == [transfer]
+        assert "page_size" not in params[0]
+        assert session.send.call_count == 1
+
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])

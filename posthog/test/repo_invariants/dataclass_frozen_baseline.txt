@@ -1,7 +1,6 @@
 1 common/hogvm/python/execute.py
 1 common/hogvm/python/stl/__init__.py
 1 ee/billing/salesforce_enrichment/conversations_signals.py
-1 ee/billing/salesforce_enrichment/stripe_signals.py
 1 ee/billing/salesforce_enrichment/usage_signals.py
 1 ee/clickhouse/models/test/test_action.py
 1 ee/clickhouse/views/test/funnel/util.py
@@ -83,7 +82,6 @@
 1 products/apm/backend/logic/anomaly_detection/types.py
 1 products/apm/backend/logic/anomaly_detection/validation/simulation.py
 1 products/approvals/backend/decorators.py
-1 products/batch_exports/backend/presentation/views/destination_tests/base.py
 1 products/batch_exports/backend/debug/debugger.py
 1 products/batch_exports/backend/temporal/destinations/azure_blob_batch_export.py
 1 products/batch_exports/backend/temporal/destinations/bigquery_batch_export.py
@@ -761,9 +759,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lever/lever.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lever/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lightdash/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lightfield/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lightspeed_retail/lightspeed_retail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lightspeed_retail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/linear.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linear/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linearb/linearb.py
@@ -772,9 +767,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/linkrunner.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/linode.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/llama_cloud/llama_cloud.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/llama_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/lob.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/logz_io.py

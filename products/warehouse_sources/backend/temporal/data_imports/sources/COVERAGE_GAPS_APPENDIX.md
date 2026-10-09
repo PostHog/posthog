@@ -5134,14 +5134,14 @@ Note: Most Lever gaps are sub-resources nested under /opportunities/{id}, which 
 
 ## Lightdash — gaps
 
-Today (6): `charts`, `dashboards`, `metrics_catalog`, `org_users`, `projects`, `spaces`
+Today (9): `charts`, `dashboards`, `explores`, `metrics_catalog`, `org_users`, `projects`, `scheduler_runs`, `schedulers`, `spaces`
 
 Diffed against: <https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json>
 
-- [ ] `projects/{projectUuid}/explores` — lookup of every dbt model/table and its fields - resolves the field IDs embedded in the charts we already sync (high)
-- [ ] `analytics/user-activity/{projectUuid}` — Lightdash's headline adoption metric: per-user views, queries and chart creation (high)
-- [ ] `schedulers/{projectUuid}/list` — scheduled delivery definitions; the parent for run history below (high)
-- [ ] `schedulers/{projectUuid}/runs (and /logs)` — per-run state and failure history for scheduled deliveries - the reliability table (high)
+- [x] `projects/{projectUuid}/explores` — lookup of every dbt model/table and its fields - resolves the field IDs embedded in the charts we already sync (high). Added as `explores` (fan-out over `projects`). The list returns explore summaries only; per-field definitions need one `explores/{exploreId}` call per explore and were not added.
+- [ ] `analytics/user-activity/{projectUuid}` — Lightdash's headline adoption metric: per-user views, queries and chart creation (high). Skipped: it returns one object of project-level aggregates and top-N user lists, not one row per user, so it is not table material.
+- [x] `schedulers/{projectUuid}/list` — scheduled delivery definitions; the parent for run history below (high). Added as `schedulers` (fan-out over `projects`).
+- [x] `schedulers/{projectUuid}/runs (and /logs)` — per-run state and failure history for scheduled deliveries - the reliability table (high). Added as `scheduler_runs` (fan-out over `projects`, incremental merge on `runId` because the API returns only the last 7 days of runs). `/logs` skipped: its rows are per-job status transitions with no unique key, and each run row already carries its status and child job counts.
 - [ ] `projects/{projectUuid}/dataCatalog/{table}/analytics (and /{field})` — which charts and dashboards use each table/field - drives model deprecation decisions (medium)
 - [ ] `org/groups (+ groups/{groupUuid}/members)` — group membership table resolving access for the org users we already sync (medium)
 - [ ] `v2/content` — unified listing of charts, dashboards and sql charts including spaces and last-updated, useful as a single content inventory (medium)
@@ -5159,8 +5159,8 @@ Today (9): `accounts`, `contacts`, `emails`, `lists`, `meetings`, `members`, `no
 
 Diffed against: <https://docs.lightfield.app/api/resources/object/methods/list/>
 
-- [ ] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
-- [ ] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
+- [x] `objects/{entitySlug} (custom object records)` — customer-defined CRM objects - the only entity type with records that PostHog does not expose at all (high)
+- [x] `{resource}/definitions (account, contact, opportunity, meeting, note, task, object)` — field/attribute definitions - the lookup that resolves the custom field slugs appearing inside the fields map on every record we already sync (medium)
 
 Note: Lightfield's full resource list is account, contact, email, file, list, meeting, member, note, object, opportunity, task (plus auth/merge helpers), so PostHog already covers 9 of 11. Custom objects are addressed dynamically by entitySlug (GET /v1/objects/{entitySlug}), so implementing them requires discovering the slugs at sync time rather than a static table list. File endpoints were excluded as uploads/plumbing.
 
@@ -5170,10 +5170,10 @@ Today (8): `customers`, `inventory`, `outlets`, `products`, `registers`, `sales`
 
 Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 
-- [ ] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
-- [ ] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
-- [ ] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
-- [ ] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
+- [x] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
+- [x] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
+- [x] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
+- [x] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
 - [ ] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
 - [ ] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
 - [ ] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
@@ -5221,10 +5221,10 @@ Today (9): `domains`, `events`, `invoices`, `linodes`, `lke_clusters`, `nodebala
 
 Diffed against: <https://raw.githubusercontent.com/linode/linode-api-openapi/main/openapi.json>
 
-- [ ] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
-- [ ] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
-- [ ] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
-- [ ] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
+- [x] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
+- [x] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
+- [x] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
+- [x] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
 - [ ] `linode/instances/{linodeId}/transfer/{year}/{month}` — per-instance monthly bandwidth usage, the breakdown behind account-level transfer (medium)
 - [ ] `images` — custom and recovery images with size and expiry; a billed resource with no coverage today (medium)
 - [ ] `databases/instances (plus databases/types)` — managed database inventory, a billed service class entirely absent from the current tables (medium)
@@ -5238,14 +5238,14 @@ Note: The Akamai/Linode techdocs site serves no spec directly; the authoritative
 
 ## LlamaCloud — gaps
 
-Today (10): `batches`, `classify_jobs`, `extract_jobs`, `files`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
+Today (13): `batches`, `classify_jobs`, `extract_jobs`, `extraction_agents`, `extraction_runs`, `files`, `indexes`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
 
 Diffed against: <https://api.cloud.llamaindex.ai/api/openapi.json>
 
-- [ ] `GET /api/v1/extraction/extraction-agents` — lookup table resolving the extraction-agent id carried on every extract job (high)
-- [ ] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high)
-- [ ] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium)
-- [ ] `GET /api/v1/pipelines/{pipeline_id}/documents/paginated` — per-pipeline document inventory with status, the unit of indexing work (medium)
+- [x] `GET /api/v1/extraction/extraction-agents` — lookup table resolving the extraction-agent id carried on every extract job (high). Added as `extraction_agents`, read from `GET /api/v1/beta/extraction-agents`: the v1 listing is deprecated and unpaginated, and the beta listing returns the same agents with page tokens. The v2 `extract_jobs` rows carry a `configuration_id`, not an agent id, so the agents resolve `extraction_runs`, not extract jobs.
+- [x] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high). Added as `extraction_runs` (fan-out over `extraction_agents`, full refresh). The extracted `data` is not imported.
+- [x] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium). Added as `indexes`.
+- ~~`GET /api/v1/pipelines/{pipeline_id}/documents/paginated`~~ — skipped: the vendor spec marks it deprecated, and each document row carries the full document text.
 - [ ] `GET /api/v1/pipelines/{pipeline_id}/files2` — pipeline-to-file membership join for the files table we already sync (medium)
 - [ ] `GET /api/v1/beta/batch-processing/{job_id}/items` — per-item rows inside a batch; batches alone give only the job header (medium)
 - [ ] `GET /api/v1/data-sources` — lookup resolving the data-source ids attached to pipelines (medium)
