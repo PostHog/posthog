@@ -21,7 +21,9 @@ import structlog
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
@@ -265,6 +267,29 @@ def capture_prior_state(
     )
 
 
+def _transition_actor(instance: SignalReport) -> ArtefactAttribution | None:
+    """Who asked for this transition, when the caller set `_transition_actor` before the save."""
+    return getattr(instance, "_transition_actor", None)
+
+
+def _actor_properties(actor: ArtefactAttribution | None) -> dict[str, Any]:
+    """Actor properties for the status-change label. A transition with no caller-set actor is `system`."""
+    actor = actor or ArtefactAttribution.system()
+    properties: dict[str, Any] = {
+        "actor_kind": actor.kind,
+        "actor_user_uuid": None,
+        "actor_distinct_id": None,
+        "actor_agent": actor.agent_name,
+        "actor_task_id": actor.task_id,
+    }
+    if actor.user_id is not None:
+        user = User.objects.filter(id=actor.user_id).values("uuid", "distinct_id").first()
+        if user is not None:
+            properties["actor_user_uuid"] = str(user["uuid"])
+            properties["actor_distinct_id"] = user["distinct_id"]
+    return properties
+
+
 def _status_changed_on_this_save(
     instance: SignalReport,
     *,
@@ -335,7 +360,8 @@ def close_pr_when_report_dismissed(
     # The person who asked for this transition, when a caller set it before the save. GitHub
     # credits the App for the close, so the comment left beside it is the only place they appear.
     # Absent on every automated transition (PR webhook, judges, temporal), which stays unattributed.
-    actor_user_id = getattr(instance, "_transition_actor_user_id", None)
+    actor = _transition_actor(instance)
+    actor_user_id = actor.user_id if actor is not None else None
     reason = _pr_close_reason(
         instance,
         created=created,
@@ -850,6 +876,7 @@ def capture_status_change_analytics(
     # caller supplied it — a PR-merge resolve from the tasks webhook writes none, and must not pick
     # up an unrelated earlier reason that happens to fall inside the freshness window.
     wrote_dismissal_feedback = bool(getattr(instance, "_wrote_dismissal_feedback", False))
+    actor = _transition_actor(instance)
 
     def _capture() -> None:
         try:
@@ -874,6 +901,7 @@ def capture_status_change_analytics(
                 properties={
                     **properties,
                     "previous_status": previous_status,
+                    **_actor_properties(actor),
                     **_classification_snapshot(
                         report_id,
                         include_dismissal=wrote_dismissal_feedback
