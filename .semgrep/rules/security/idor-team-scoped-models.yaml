@@ -238,6 +238,7 @@ rules:
                               |GitHubSyncConfig
                               |GitHubSyncPlan
                               |GitHubSyncedModel
+                              |HealthCheckLastRun
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
@@ -688,6 +689,7 @@ rules:
                         |GitHubSyncConfig
                         |GitHubSyncPlan
                         |GitHubSyncedModel
+                        |HealthCheckLastRun
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob

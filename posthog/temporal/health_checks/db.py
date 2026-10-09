@@ -1,4 +1,6 @@
-from posthog.models.health_issue import HealthIssue, _filter_existing_team_ids
+from django.utils import timezone
+
+from posthog.models.health_issue import HealthCheckLastRun, HealthIssue, _filter_existing_team_ids
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 
@@ -48,3 +50,17 @@ def resolve_stale_issues_with_deltas(
         keep_hashes[team_id] = {HealthIssue.compute_unique_hash(kind, r.payload, r.hash_keys) for r in results}
 
     return HealthIssue.bulk_resolve(kind, all_team_ids, keep_hashes or None)
+
+
+def record_health_check_runs(kind: str, team_ids: set[int]) -> None:
+    now = timezone.now()
+    # Without a database-level foreign key, a team deleted mid-workflow would keep an orphan row forever.
+    HealthCheckLastRun.objects.unscoped().bulk_create(
+        [
+            HealthCheckLastRun(team_id=team_id, kind=kind, last_checked_at=now)
+            for team_id in _filter_existing_team_ids(team_ids)
+        ],
+        update_conflicts=True,
+        unique_fields=["team", "kind"],
+        update_fields=["last_checked_at"],
+    )

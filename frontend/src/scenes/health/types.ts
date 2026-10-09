@@ -36,8 +36,15 @@ export interface HealthIssueSummary {
     snoozed: HealthIssueCounts
 }
 
+export interface HealthCheck {
+    kind: string
+    last_checked_at: string | null
+}
+
 export interface CategoryHealthSummary {
     category: string
     issueCount: number
     worstSeverity: HealthIssueSeverity | null
+    hasChecks: boolean
+    lastCheckedAt: string | null
 }

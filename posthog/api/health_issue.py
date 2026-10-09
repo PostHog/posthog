@@ -27,7 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.health_issue import HealthIssue
+from posthog.models.health_issue import HealthCheckLastRun, HealthIssue
 from posthog.models.team import Team
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import HealthIssueRefreshThrottle
@@ -170,6 +170,17 @@ class HealthIssueSummarySerializer(serializers.Serializer):
             "Counts for active, non-dismissed issues whose snooze has not expired yet. Reported separately "
             "so callers can decide for themselves whether a snoozed issue is worth surfacing."
         )
+    )
+
+
+class HealthCheckSerializer(serializers.Serializer):
+    kind = serializers.CharField(help_text="The health check, matching `kind` on health issues (e.g. 'sdk_outdated').")
+    last_checked_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When this check last finished for the project, or null if it has not run on the project yet. "
+            "A check with no active issues found nothing wrong at that time."
+        ),
     )
 
 
@@ -503,6 +514,32 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
                 "snoozed": _issue_counts(active_issues.filter(currently_snoozed)),
             }
         )
+
+    @extend_schema(
+        summary="List health checks and when each last ran",
+        description=(
+            "Returns every scheduled health check and when it last finished for this project. A check that ran "
+            "and found nothing leaves no issue behind, so use this to tell a healthy project apart from one that "
+            "has not been checked. Checks in dry run are left out, because they never report issues."
+        ),
+        responses={200: HealthCheckSerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None, required_scopes=["health_issue:read"])
+    def checks(self, request: Request, **kwargs) -> Response:
+        from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
+
+        ensure_registry_loaded()
+        visible_kinds = {
+            kind for kind, check in HEALTH_CHECKS.items() if not check.dry_run
+        } - _kinds_hidden_by_access_control(request, self.user_access_control)
+
+        last_checked_at = dict(
+            HealthCheckLastRun.objects.for_team(self.team_id)
+            .filter(kind__in=visible_kinds)
+            .values_list("kind", "last_checked_at")
+        )
+        checks = [{"kind": kind, "last_checked_at": last_checked_at.get(kind)} for kind in sorted(visible_kinds)]
+        return Response(HealthCheckSerializer(checks, many=True).data)
 
     @extend_schema(
         request=None,

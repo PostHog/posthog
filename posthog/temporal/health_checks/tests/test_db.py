@@ -1,8 +1,13 @@
+from datetime import UTC, datetime
+
+import time_machine
 from posthog.test.base import BaseTest
 
-from posthog.models.health_issue import HealthIssue
+from posthog.models.health_issue import HealthCheckLastRun, HealthIssue
+from posthog.models.team import Team
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.temporal.health_checks.processing import _process_batch_detection
 
 
 class TestResolveStaleIssuesWithDeltas(BaseTest):
@@ -53,3 +58,26 @@ class TestResolveStaleIssuesWithDeltas(BaseTest):
             HealthIssue.objects.filter(team=self.team, kind="test_kind", status=HealthIssue.Status.ACTIVE).exists()
         )
         self.assertFalse(HealthIssue.objects.filter(team_id=missing_team_id).exists())
+
+
+class TestRecordHealthCheckRuns(BaseTest):
+    def test_batch_records_healthy_and_failing_teams_and_updates_on_rerun(self):
+        failing_team = Team.objects.create(organization=self.organization, project=self.project)
+        missing_team_id = self.team.id + 999_999
+
+        def detect(team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+            return {
+                failing_team.id: [HealthCheckResult(severity=HealthIssue.Severity.WARNING, payload={}, hash_keys=[])]
+            }
+
+        for day in (1, 2):
+            with time_machine.travel(datetime(2026, 1, day, tzinfo=UTC), tick=False):
+                _process_batch_detection([self.team.id, failing_team.id, missing_team_id], "test_kind", detect)
+
+        rows = dict(
+            HealthCheckLastRun.objects.unscoped().filter(kind="test_kind").values_list("team_id", "last_checked_at")
+        )
+        self.assertEqual(
+            rows,
+            {self.team.id: datetime(2026, 1, 2, tzinfo=UTC), failing_team.id: datetime(2026, 1, 2, tzinfo=UTC)},
+        )

@@ -3,7 +3,11 @@ import time
 import structlog
 
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
-from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
+from posthog.temporal.health_checks.db import (
+    record_health_check_runs,
+    resolve_stale_issues_with_deltas,
+    upsert_issues_with_deltas,
+)
 from posthog.temporal.health_checks.framework import health_check_class_for_kind
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
@@ -77,6 +81,8 @@ def _process_batch_detection(
     newly_resolved = resolve_stale_issues_with_deltas(kind, issues_by_team, healthy_team_ids)
     result.issues_resolved = len(newly_resolved)
     result.resolve_duration = time.monotonic() - start
+
+    record_health_check_runs(kind, healthy_team_ids | set(issues_by_team.keys()))
 
     for issue in newly_active:
         emit_health_check_alert(issue, status="firing")

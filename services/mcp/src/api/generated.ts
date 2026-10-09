@@ -53107,6 +53107,16 @@ export namespace Schemas {
       current_head: string;
     }
 
+    export interface HealthCheck {
+      /** The health check, matching `kind` on health issues (e.g. 'sdk_outdated'). */
+      kind: string;
+      /**
+         * When this check last finished for the project, or null if it has not run on the project yet. A check with no active issues found nothing wrong at that time.
+         * @nullable
+         */
+      last_checked_at: string | null;
+    }
+
     export type HealthCheckSignalExtraPayload = { [key: string]: unknown };
 
     export type HealthCheckSignalExtraSeverityEnum = typeof HealthCheckSignalExtraSeverityEnum[keyof typeof HealthCheckSignalExtraSeverityEnum];

@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { CATEGORY_DETAIL_CONFIG } from '../categoryDetail/categoryDetailConfig'
@@ -39,6 +40,7 @@ export const HealthIssueSummaryCards = (): JSX.Element => {
 }
 
 const CategoryCard = ({ summary }: { summary: CategoryHealthSummary }): JSX.Element => {
+    const { showLastChecked } = useValues(healthSceneLogic)
     const config = HEALTH_CATEGORY_CONFIG[summary.category as HealthIssueCategory]
     const isHealthy = summary.issueCount === 0
 
@@ -57,16 +59,25 @@ const CategoryCard = ({ summary }: { summary: CategoryHealthSummary }): JSX.Elem
                 <span className="text-primary">{config.icon}</span>
                 <h3 className="text-sm font-semibold mb-0">{config.label}</h3>
             </div>
-            {isHealthy ? (
-                <p className="text-sm text-success flex items-center gap-1 mb-0">
-                    <IconCheck className="size-4" />
-                    {config.healthyDescription ?? 'No issues'}
-                </p>
-            ) : (
-                <p className={`text-sm mb-0 ${severityColor(summary.worstSeverity!)}`}>
-                    {summary.issueCount} {summary.issueCount === 1 ? 'issue' : 'issues'}
-                </p>
-            )}
+            <div className="flex flex-col gap-0.5">
+                {!isHealthy ? (
+                    <p className={`text-sm mb-0 ${severityColor(summary.worstSeverity!)}`}>
+                        {summary.issueCount} {summary.issueCount === 1 ? 'issue' : 'issues'}
+                    </p>
+                ) : showLastChecked && summary.hasChecks && !summary.lastCheckedAt ? (
+                    <Tooltip title="Checks run automatically. Use the refresh button to run them now.">
+                        <p className="text-sm text-secondary mb-0">Not checked yet</p>
+                    </Tooltip>
+                ) : (
+                    <p className="text-sm text-success flex items-center gap-1 mb-0">
+                        <IconCheck className="size-4" />
+                        {config.healthyDescription ?? 'No issues'}
+                    </p>
+                )}
+                {showLastChecked && summary.lastCheckedAt && (
+                    <p className="text-xs text-secondary mb-0">{`Last checked ${dayjs(summary.lastCheckedAt).fromNow()}`}</p>
+                )}
+            </div>
         </Link>
     )
 }

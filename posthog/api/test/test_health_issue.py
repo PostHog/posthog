@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
@@ -12,10 +13,11 @@ from rest_framework import status
 
 from posthog.api.health_issue import HealthIssueSerializer
 from posthog.constants import AvailableFeature
-from posthog.models.health_issue import HealthIssue
+from posthog.models.health_issue import HealthCheckLastRun, HealthIssue
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.redis import get_client
+from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.growth.backend.constants import github_sdk_versions_key
@@ -386,6 +388,29 @@ class TestHealthIssueAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["unsnoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
         self.assertEqual(data["snoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
+
+    def test_checks_lists_live_checks_with_this_teams_last_run(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+        checked_at = datetime(2026, 1, 2, tzinfo=UTC)
+        HealthCheckLastRun.objects.unscoped().bulk_create(
+            [
+                HealthCheckLastRun(team=self.team, kind="sdk_outdated", last_checked_at=checked_at),
+                HealthCheckLastRun(team=self.team, kind="retired_check", last_checked_at=checked_at),
+                HealthCheckLastRun(team=other_team, kind="no_live_events", last_checked_at=checked_at),
+            ]
+        )
+        ensure_registry_loaded()
+        dry_web_vitals = dataclasses.replace(HEALTH_CHECKS["web_vitals"], dry_run=True)
+
+        with patch.dict(HEALTH_CHECKS, {"web_vitals": dry_web_vitals}):
+            response = self.client.get(self._url("/checks"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        checks = {check["kind"]: check["last_checked_at"] for check in response.json()}
+        self.assertEqual(checks["sdk_outdated"], "2026-01-02T00:00:00Z")
+        self.assertIsNone(checks["no_live_events"])
+        self.assertNotIn("retired_check", checks)
+        self.assertNotIn("web_vitals", checks)
 
     def test_sdk_issue_visible_even_when_latest_release_is_fresh(self):
         # A fresh upstream release (<7 days old) must not hide sdk_outdated issues — fast-releasing

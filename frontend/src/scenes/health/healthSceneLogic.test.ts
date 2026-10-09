@@ -55,4 +55,34 @@ describe('healthSceneLogic', () => {
 
         summaryLogic.unmount()
     })
+
+    it('summarizes each category by its latest check and tells unrun checks apart from no checks', async () => {
+        getSpy.mockImplementation(async (url: string) =>
+            url.includes('/health_issues/checks/')
+                ? [
+                      { kind: 'sdk_outdated', last_checked_at: '2026-01-02T00:00:00Z' },
+                      { kind: 'web_vitals', last_checked_at: '2026-01-03T00:00:00Z' },
+                      { kind: 'no_live_events', last_checked_at: '2026-01-01T00:00:00Z' },
+                      { kind: 'ingestion_warning', last_checked_at: null },
+                  ]
+                : { results: [], count: 0 }
+        )
+        logic = healthSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadHealthChecksSuccess'])
+
+        const byCategory = Object.fromEntries(
+            logic.values.categorySummaries.map(({ category, hasChecks, lastCheckedAt }) => [
+                category,
+                { hasChecks, lastCheckedAt },
+            ])
+        )
+        expect(byCategory).toMatchObject({
+            sdk: { hasChecks: true, lastCheckedAt: '2026-01-02T00:00:00Z' },
+            web_analytics: { hasChecks: true, lastCheckedAt: '2026-01-03T00:00:00Z' },
+            ingestion: { hasChecks: true, lastCheckedAt: null },
+            feature_flags: { hasChecks: false, lastCheckedAt: null },
+        })
+    })
 })

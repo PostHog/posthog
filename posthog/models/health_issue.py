@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 logger = structlog.get_logger(__name__)
@@ -294,3 +295,26 @@ class HealthIssue(UUIDModel):
         self.status = self.Status.RESOLVED
         self.resolved_at = timezone.now()
         self.save(update_fields=["status", "resolved_at", "updated_at"])
+
+
+class HealthCheckLastRun(models.Model):
+    """When each health check last ran for a team. A clean run leaves no issue behind, so this is the proof it ran."""
+
+    # Every upsert takes a sequence value, also on conflict, so a daily write per team and kind outgrows an int.
+    id = models.BigAutoField(primary_key=True)
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="health_check_last_runs",
+        db_constraint=False,
+        db_index=False,
+    )
+    kind = models.CharField(max_length=100)
+    last_checked_at = models.DateTimeField()
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(name="unique_health_check_last_run", fields=["team", "kind"]),
+        ]
