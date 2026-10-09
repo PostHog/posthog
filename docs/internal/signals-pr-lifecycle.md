@@ -3,10 +3,13 @@
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR resolves the report; otherwise all closed PRs suppress it.
 
+The schema reserves `monitoring` and a nullable `monitoring_started_at`, but current report transitions do not enter that state. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats evaluation failures as disabled.
+
 Attaching a new open, draft, or unknown PR to a resolved report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.
 An existing attachment retry does not reopen a report, and importing legacy assignments preserves its status.
 Suppressed reports remain suppressed when another PR is attached.
+A report merged into another report cannot be restored or resolved from the archive; act on the surviving report instead.
 
 A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
 When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.
@@ -37,6 +40,8 @@ Custom HogQL aggregations are parsed before a metric or check is authored. Inval
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
 
 ## Follow-up measurement timing
+
+Reopening or archiving a resolved report immediately parks its active checks and clears their measurement starts and dispatches. It resets both error and inconclusive retry streaks. Delayed resolution callbacks only arm checks while the report is still resolved. Results from an earlier measurement window or dispatch cannot update the current check.
 
 Metric follow-up checks wait until their full trailing query window contains only post-resolution data. The configured soak is an independent minimum wait. Reopening a report clears the measurement anchor; resolving it again starts a new window. Legacy active metric checks without an anchor start their window at the next coordinator tick and recalculate expiry from the remaining schedule, capped at 90 days from that tick. Legacy rows do not distinguish supplied expiries from defaults, so both follow this re-arming policy. Checks with an existing anchor retain their expiry. A window that cannot finish before expiry records an inconclusive result instead of scheduling an unreachable run. Agent checks keep their soak-based schedule.
 
