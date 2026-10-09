@@ -1,6 +1,6 @@
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from django.conf import settings
 
@@ -121,15 +121,18 @@ def _comment_range(comment: PRComment) -> tuple[str, LineRange] | None:
 
 
 def _select_dedup_candidates(
-    issues: list[Issue], prior_ranges: list[tuple[str, LineRange]]
+    issues: list[Issue], prior_ranges: list[tuple[str, LineRange]], commented_files: Collection[str] = ()
 ) -> tuple[list[Issue], list[Issue]]:
     """Split issues into (dedup candidates, definitely-unique) by deterministic position.
 
     Only an issue that shares a file and overlapping lines with another issue — or with prior
-    coverage (a review comment, or an earlier turn's finding) — can be a duplicate, so the rest skip
+    coverage (an earlier turn's finding) — can be a duplicate, so the rest skip
     the LLM dedupe entirely. This keeps the single dedupe call small as the number of perspectives
     grows, and never drops a positionally isolated finding. Whether two positionally-colliding
     issues are *actually* duplicates is still left to the content-aware LLM.
+
+    A PR comment anywhere in the issue's file (`commented_files`) makes it a candidate too: the review does
+    not see other reviewers' comments, so it often anchors the same problem on other lines.
     """
     candidates: list[Issue] = []
     unique: list[Issue] = []
@@ -138,7 +141,7 @@ def _select_dedup_candidates(
             i != j and issue.file == other.file and _ranges_overlap(issue.lines, other.lines)
             for j, other in enumerate(issues)
         )
-        collides_with_prior = any(
+        collides_with_prior = issue.file in commented_files or any(
             path == issue.file and _ranges_overlap(issue.lines, [prior_range]) for path, prior_range in prior_ranges
         )
         (candidates if collides_with_issue or collides_with_prior else unique).append(issue)
@@ -299,10 +302,11 @@ async def deduplicate_issues(
     candidates: list[Issue] = issues
     unique: list[Issue] = []
     if not for_flash:
-        prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
-        prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
+        prior_ranges = [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
         prior_ranges += [(anchor.file, lr) for anchor in anchors for lr in anchor.lines]
-        candidates, unique = _select_dedup_candidates(issues, prior_ranges)
+        candidates, unique = _select_dedup_candidates(
+            issues, prior_ranges, commented_files={comment.path for comment in pr_comments}
+        )
     logger.info(
         f"Deduplication: {len(candidates)} candidate(s); "
         f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"

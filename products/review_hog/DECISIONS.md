@@ -207,8 +207,11 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   reads another bot's finding tends to agree with it or skip it, so Full's own judgment and its agreement both lost
   meaning. Seeing comments and posting duplicates are separate choices: detection stays independent, and the output
   is consolidated after it.
+- **Also.** The chunking prompt gets the same author-only comments, because its free-text chunk summary reaches every
+  review prompt. Dedup treats a PR comment anywhere in a finding's file as a possible repeat, not only one on
+  overlapping lines, because a review that never saw the comment often anchors the same problem elsewhere.
 - **Measure.** Compare `reviewhog-full-1-4` with `1-3` on findings per turn, overlaps listed per turn, and how often
-  authors act on Full's findings. The chunking prompt still reads every comment; it only groups files.
+  authors act on Full's findings.
 
 ### ✅ BUILT 2026-10-09 — Full lists what other reviewers already raised; Flash never reads PR comments (`reviewhog-full-1-3`)
 
