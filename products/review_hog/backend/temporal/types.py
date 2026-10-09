@@ -77,6 +77,8 @@ class ReviewPRWorkflowInputs:
     # Off by default, so a review posts what it finds whatever other comments on the PR say. A trigger that
     # asks for only the findings not on the PR yet turns it on.
     dedupe_against_pr_comments: bool = False
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
     @property
     def repository(self) -> str:

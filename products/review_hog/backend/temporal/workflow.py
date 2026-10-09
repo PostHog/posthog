@@ -527,6 +527,8 @@ class ReviewPRWorkflow:
                 trigger_source=inputs.trigger_source,
                 default_user_id=inputs.user_id,
                 repository=repository,
+                installation_id=inputs.installation_id,
+                github_repo_id=inputs.github_repo_id,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,

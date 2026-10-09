@@ -268,6 +268,8 @@ class TestAuthoredPRReviewTask(BaseTest):
             "review_mode": "flash",
             "trigger_source": "automatic",
             "requested_head_sha": _HEAD_SHA,
+            "installation_id": _INSTALLATION_ID,
+            "github_repo_id": _REPO_ID,
         }
 
     @parameterized.expand([("own_flash_default",), ("listed_by_the_project",), ("repository_exception",)])

@@ -270,6 +270,8 @@ class ResolveActingUserInput:
     # `owner/name` of the PR, for the automatic trigger's re-check of the repository rules. None in
     # payloads serialized before the field existed, which fails that re-check closed.
     repository: str | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
 
 @dataclass(frozen=False)
@@ -840,6 +842,8 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
             repository=input.repository,
             user_id=acting_user_id,
             author_login=input.author_login,
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
         )
     )
     if input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed:
