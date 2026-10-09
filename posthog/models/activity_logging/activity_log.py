@@ -591,6 +591,9 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "Subscription": [
         "next_delivery_date",
     ],
+    # The facade logs a version change as `uploaded_version` or `activated_version` at the write
+    # site, so the save that only moves the active version must not add an `updated` row.
+    "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
     # and the failure streak by the runner on every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit

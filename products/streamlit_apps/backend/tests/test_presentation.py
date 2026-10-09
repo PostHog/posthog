@@ -14,9 +14,13 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Organization, OrganizationMembership
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
+from products.streamlit_apps.backend.facade import api as streamlit_api
 from products.streamlit_apps.backend.facade.api import MAX_FILE_COUNT
+from products.streamlit_apps.backend.facade.contracts import UpdateAppInput
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 from products.streamlit_apps.backend.presentation.serializers import (
     CreateVersionFromSourceInputSerializer,
@@ -469,6 +473,79 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
         # The body is rejected by size before it is ever read or persisted.
         mock_storage_write.assert_not_called()
+
+
+class TestStreamlitAppActivityLog(_StreamlitAppsFlagMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        other_organization = Organization.objects.create(name="Other org")
+        OrganizationMembership.objects.create(organization=other_organization, user=self.user)
+        self.user.current_organization = other_organization
+        self.user.save()
+        self.app = StreamlitApp.objects.create(team=self.team, name="Test App", created_by=self.user)
+        self.version = StreamlitAppVersion.objects.create(
+            app=self.app, version_number=1, zip_file="test/v1.zip", zip_hash="abc", created_by=self.user
+        )
+
+    def _new_rows(self, after_id: int) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(scope="StreamlitApp", id__gt=after_id).order_by("id"))
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "New App"}, "created", "New App", None),
+            ("update", "patch", "{short_id}/", {"name": "Renamed"}, "updated", "Renamed", "name"),
+            ("delete", "delete", "{short_id}/", None, "deleted", "Test App", None),
+            (
+                "activate_version",
+                "post",
+                "{short_id}/activate_version/",
+                {"version_number": 1},
+                "activated_version",
+                "Test App v1",
+                None,
+            ),
+            (
+                "create_version_from_source",
+                "post",
+                "{short_id}/create_version_from_source/",
+                {"source": "import streamlit as st"},
+                "uploaded_version",
+                "Test App v2",
+                None,
+            ),
+        ]
+    )
+    @patch("posthog.storage.object_storage.write")
+    def test_write_logs_one_row_under_the_team_organization(
+        self, _name, method, path, data, expected_activity, expected_name, expected_changed_field, _mock_write
+    ):
+        last_id = ActivityLog.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        url = f"/api/projects/{self.team.id}/streamlit_apps/{path.format(short_id=self.app.short_id)}"
+
+        response = getattr(self.client, method)(url, data=data, format="json")
+
+        assert response.status_code < 300, response.content
+        rows = self._new_rows(last_id)
+        assert [row.activity for row in rows] == [expected_activity]
+        row = rows[0]
+        assert row.organization_id == self.team.organization_id
+        assert row.user_id == self.user.id
+        assert row.detail is not None
+        assert row.detail["name"] == expected_name
+        changed_fields = [change["field"] for change in row.detail["changes"] or []]
+        if expected_changed_field is None:
+            assert changed_fields == []
+        else:
+            assert expected_changed_field in changed_fields
+
+    def test_write_outside_a_request_logs_a_system_row(self):
+        last_id = ActivityLog.objects.order_by("-id").values_list("id", flat=True).first() or 0
+
+        streamlit_api.update_app(self.team.id, self.app.short_id, UpdateAppInput(name="Renamed by a job"))
+
+        rows = self._new_rows(last_id)
+        assert [(row.activity, row.user_id, row.is_system) for row in rows] == [("updated", None, True)]
+        assert rows[0].organization_id == self.team.organization_id
 
 
 class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
