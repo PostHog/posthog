@@ -36,7 +36,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
