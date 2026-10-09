@@ -110,6 +110,25 @@ describe('AddWidgetModal', () => {
         expect(screen.getByLabelText('Canvas app')).toBeInTheDocument()
     })
 
+    it('drops a stored canvas app selection once its creation flag turns off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SMALL_SOFTWARE_APPS], {
+            [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true,
+        })
+        renderAddWidgetModal()
+        await userEvent.click(screen.getByLabelText('Canvas app'))
+        await userEvent.click(screen.getByLabelText('Top issues'))
+        expect(screen.getByTestId('add-widget-submit')).toHaveTextContent('Add 2 widgets')
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: false })
+        const onAdd = jest.fn().mockResolvedValue(undefined)
+        renderAddWidgetModal({ onAdd })
+        expect(screen.getByTestId('add-widget-submit')).toHaveTextContent('Add widget')
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
+
+        expect(onAdd).toHaveBeenCalledWith([expect.objectContaining({ widgetType: 'error_tracking_list' })])
+    })
+
     it('allows multi-select checkbox behavior within grouped layout', async () => {
         renderAddWidgetModal()
 
