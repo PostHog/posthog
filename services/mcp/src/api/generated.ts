@@ -13839,6 +13839,37 @@ export namespace Schemas {
       readonly realized_auc: number;
     }
 
+    export interface AutoresearchPredictionCoverage {
+      /** People in the inference population at the run's cutoff. */
+      readonly population: number;
+      /** People with a champion score inside the lookback window before the cutoff. Shadow scores do not count. */
+      readonly with_score: number;
+      /** People with no champion score inside the lookback window. A rolling run scores these people first. */
+      readonly never_scored: number;
+      /**
+         * Mean age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_avg: number | null;
+      /**
+         * Median age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_p50: number | null;
+      /**
+         * 90th percentile age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_p90: number | null;
+      /**
+         * Oldest score age in days. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_max: number | null;
+      /** How many days before the cutoff the measure reads scores. Older scores count as never scored. */
+      readonly lookback_days: number;
+    }
+
     export interface AutoresearchPipeline {
       /** Unique UUID of this pipeline. */
       readonly id: string;
@@ -13946,6 +13977,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly people_scored: number | null;
+      /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
+      readonly coverage: AutoresearchPredictionCoverage | null;
       /** Training runs started for this pipeline. */
       readonly training_run_count: number;
       /** Experiments (iterations) recorded across every training run. */
@@ -14105,6 +14138,8 @@ export namespace Schemas {
       rows_scored?: number | null;
       /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
       metrics: AutoresearchRunMetrics;
+      /** Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs. */
+      readonly coverage: AutoresearchPredictionCoverage | null;
       /** Error message if the run failed. */
       error?: string;
       /**
@@ -19065,7 +19100,7 @@ export namespace Schemas {
       active?: ActiveEnum;
       /** Filter to flags created by a specific user ID. */
       created_by_id?: number;
-      /** Search by feature flag key or name (case-insensitive). */
+      /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
       search?: string;
       /** Filter by flag type.
        *
@@ -45586,6 +45621,11 @@ export namespace Schemas {
       statement: string;
       /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
       count: number;
+      /**
+         * How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.
+         * @nullable
+         */
+      read: number | null;
       /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
       example_observation_ids: string[];
     }
@@ -45868,6 +45908,11 @@ export namespace Schemas {
      */
     export type VariantAnalysisDifferenceCounts = {[key: string]: number};
 
+    /**
+     * Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.
+     */
+    export type VariantAnalysisDifferenceRead = {[key: string]: number};
+
     export interface VariantAnalysisDifference {
       /** The theme the difference rests on. */
       theme: string;
@@ -45875,6 +45920,8 @@ export namespace Schemas {
       statement: string;
       /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
       counts: VariantAnalysisDifferenceCounts;
+      /** Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them. */
+      read: VariantAnalysisDifferenceRead;
     }
 
     export interface VariantsAnalysisState {
@@ -54663,9 +54710,9 @@ export namespace Schemas {
     export type MappingsInputs = {[key: string]: InputsItem};
 
     export interface Mappings {
-      name?: string;
       inputs_schema?: InputsSchemaItem[];
       inputs?: MappingsInputs;
+      name?: string;
       filters?: HogFunctionFilters;
     }
 
@@ -71871,6 +71918,7 @@ export namespace Schemas {
      * * `in_progress` - In Progress
      * * `pending_input` - Pending Input
      * * `ready` - Ready
+     * * `monitoring` - Monitoring
      * * `resolved` - Resolved
      * * `failed` - Failed
      * * `deleted` - Deleted
@@ -71885,6 +71933,7 @@ export namespace Schemas {
       InProgress: 'in_progress',
       PendingInput: 'pending_input',
       Ready: 'ready',
+      Monitoring: 'monitoring',
       Resolved: 'resolved',
       Failed: 'failed',
       Deleted: 'deleted',
@@ -120765,7 +120814,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string;
     /**

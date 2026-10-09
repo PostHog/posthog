@@ -1852,8 +1852,10 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert outcome.status == expected_status
     assert replay.run_id == outcome.run_id
     assert len(captured) == 1
+    assert captured[0]["max_poll_seconds"] == 30 * 60
     sandbox_context = captured[0]["context"]
     assert isinstance(sandbox_context, CustomPromptSandboxContext)
+    assert sandbox_context.sandbox_timeout_seconds == 37 * 60
     assert sandbox_context.model == "gpt-5.6-sol"
     assert sandbox_context.reasoning_effort == "high"
     assert sandbox_context.posthog_mcp_scopes == "signals_scout_experiment"
@@ -1922,6 +1924,8 @@ async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
     assert captured["ai_agent_name"] == "signals-scout-errors"
+    assert captured["max_poll_seconds"] == 15 * 60
+    assert captured["context"].sandbox_timeout_seconds is None
 
 
 @pytest.mark.asyncio
@@ -3572,8 +3576,13 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["completed", "preflight_error", "timeout", "cancelled"])
-@pytest.mark.parametrize("workflow_origin_key", ["job:step:1", None])
-async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(outcome, workflow_origin_key):
+@pytest.mark.parametrize(
+    "workflow_origin_key,trial_launch_id,timeout_minutes",
+    [("job:step:1", None, 16), (None, None, 16), (None, "11111111-1111-1111-1111-111111111111", 36)],
+)
+async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
+    outcome, workflow_origin_key, trial_launch_id, timeout_minutes
+):
     output = RunSignalsScoutOutput(
         run_id="abc",
         task_run_id="def",
@@ -3600,6 +3609,7 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
 
     async def execute_activity(activity_function, input=None, **kwargs):
         if activity_function is run_signals_scout_activity:
+            assert kwargs["start_to_close_timeout"] == timedelta(minutes=timeout_minutes)
             if outcome == "cancelled":
                 raise asyncio.CancelledError()
             if outcome != "completed":
@@ -3618,7 +3628,12 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
     ):
         workflow = RunSignalsScoutWorkflow()
-        input = RunSignalsScoutInput(team_id=7, skill_name=output.skill_name, workflow_origin_key=workflow_origin_key)
+        input = RunSignalsScoutInput(
+            team_id=7,
+            skill_name=output.skill_name,
+            workflow_origin_key=workflow_origin_key,
+            trial_launch_id=trial_launch_id,
+        )
         if outcome == "completed":
             assert await workflow.run(input) == output
         else:
