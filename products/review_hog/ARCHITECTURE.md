@@ -97,7 +97,7 @@ and MUST land before public release or resolution on untrusted PRs or repositori
    than a fix in this repo.
 
 **Full reviews can include resolving**: a published Full review chains into the stage when the acting user's
-`resolve_comments` setting is on (default on; the toggle sits with the trigger opt-outs on the Code review scene,
+`resolve_comments` preference is on (default off; the toggle sits with the trigger opt-outs on the Code review scene,
 which also carries a single-active resolution-criteria skill block and a split Review button with
 review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
 `run_resolution` command, or the UI's resolve-only action. Standalone runs without a pinned acting user apply
@@ -783,17 +783,6 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   An explicit `--review-mode` must match the stored mode.
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
-- **Turn a per-user toggle on or off in bulk:** `python manage.py {enable,disable}_inbox_reviews --team-id <id>
-[--user-ids <id> ...] [--dry-run]` sets `review_inbox_prs` on every active org member's `ReviewUserSettings`
-  (or only the listed users, each of whom must be an org member). `{enable,disable}_stamphog_inbox_reviews` is
-  the same pair for `stamphog_review_inbox_prs`, and `{enable,disable}_comment_resolution` for `resolve_comments`.
-  `{enable,disable}_authored_pr_reviews` sets `default_review_mode` to `flash` or `off` (and the deprecated `review_authored_prs` switch with it).
-  `enable_authored_pr_reviews` also accepts `--effort medium` or `--effort xhigh` to set the user's effort for all Flash requests; omitting it preserves the saved choice.
-  Disabling automatic reviews preserves the effort preference and lets running reviews finish while stopping future and pending automatic starts.
-  Each command changes only its named toggle and any explicit effort choice. A run creates rows only when the requested value differs from the
-  field's default (a missing row already reads as the default) and otherwise flips existing rows. A deliberate
-  operator action because the per-user defaults are the budget and posture gates; members who join later keep
-  the default until a re-run. Shared logic: `backend/settings_toggles.py`.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** the product's `backend:test` script covers **both** `backend/tests` and `backend/reviewer/tests`
   (sandbox calls mocked, fixtures under `reviewer/tests/fixtures/`; persistence/model tests hit the test DB). Verify
@@ -822,15 +811,35 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   sandbox tasks run as. They are threaded as **explicit activity inputs** (no ContextVar identity); the team's
   `kind="github"` `Integration` is validated up front by `validate_github_integration_activity`.
   The sandbox `repository` is the PR's own `owner/repo`, derived from the PR URL.
-- **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret),
-  the first `REVIEWHOG_TEAM_IDS` entry from the `REVIEWHOG_TEAM_ID` environment variable (the run team),
-  and `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
-  Enabling manual project access requires no changes to these settings or the shared secret.
-- **Automatic authored-PR trigger** uses the first `REVIEWHOG_TEAM_IDS` entry and requires a matching GitHub installation on that team.
-  The repository must be a `ReviewRepository` of that team.
-  The PR author's linked GitHub identity must map to an active member of the team's organization.
-  The repository rules (`backend/automatic_review_rules.py`) then decide the mode: excluded bots get none, the author's own per-repository choice or `default_review_mode` wins, else the repository's `flash_for` rule and its listed and excepted people apply.
-  A resolved Full review does not dispatch yet.
+- **Settings storage** — personal preferences live in `ReviewUserSettings.preferences`, a sparse JSON dict typed by
+  `backend/preferences.py`: an absent key inherits, unknown keys and invalid values are ignored on read, and a write
+  equal to the inherited value removes the key. `urgency_threshold` and `celebrate_clean_reviews` inherit from the
+  project defaults in `ReviewProjectSettings.preferences`, then from the code defaults; the other keys
+  (`default_review_mode` follow/flash/off, `resolve_comments` default off, the two Inbox opt-ins) inherit from code
+  only. Read them with `ReviewUserSettings.load_preferences[_many]`. The older boolean and choice columns on
+  `ReviewUserSettings` are unused. A GET creates no row; the first PATCH does.
+- **Repository ownership** (`backend/ownership.py`) — a repository belongs to at most one project, like GitHub's
+  install picker. A `ReviewInstallationClaim` per (project, installation) is `all` (every repository no other
+  project selected, at most one project per installation) or `selected`. A `ReviewRepository` row is either
+  selected into its project or a repository exception (`flash_for`); a repository has one row across all
+  projects. Ownership: a selected row (or a row in the project that claims all) → that project; else the `all`
+  claim → that project; else nobody, so no automatic review and the label trigger answers "not set up". The
+  webhook prefilter (`OwnedRepositoryPrefilter`) caches a per-installation summary and fails open. Repository
+  lookups match GitHub's repository id first and then the name, and backfill both. The repository list in the
+  settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
+  core `installation_repositories` webhook keeps fresh.
+- **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret).
+  The project that owns the repository runs and publishes the review. `REVIEWHOG_RUN_USER_ID` (optional) applies
+  only where it is an active member; otherwise the run user is whoever connected the installation, then the
+  oldest active member. Enabling manual project access requires no changes to these settings or the shared secret.
+- **Automatic authored-PR trigger** runs in the owning project and requires that project's GitHub integration for
+  the delivery's installation. The rules in `backend/automatic_review_rules.py` decide, highest first: the
+  author's choice for the repository (`ReviewUserRepositoryChoice`, flash/off, stored only when it differs from
+  the inherited result), the author's `default_review_mode` unless `follow`, the repository exception, then the
+  project rule (`ReviewProjectSettings.flash_for`: everyone except the excepted people, the listed people, or
+  opt-in only, the default). Bot authors and authors who map to no active member get automatic Flash only when the
+  project sets `bot_prs=run`; the review then runs as the user who connected the installation, with default
+  settings and no resolution. `REVIEWHOG_TEAM_IDS` no longer picks the project for any trigger.
 - **Internal UI features** use `show_internal_features` in the settings response, true only for the first
   `REVIEWHOG_TEAM_IDS` entry. That project retains Flash and all automation controls. Other enabled projects
   show manual review and resolution without Flash or automation controls, except that saved Inbox or
@@ -838,7 +847,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   Existing automation routing and its configuration remain separate from the flag.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`reviewhog` **label** on a PR in a repository added to the trigger team (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
+`reviewhog` **label** on a PR in a repository that a project reviews (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving and resolve-only variants; the configured internal project also shows
 **Flash**, which pins resolution off), an **inbox** trigger (a
@@ -847,11 +856,11 @@ a PR is not reviewed, and the PR must sit in the task's own repository because `
 whoever controls the run, the sandbox agent included), **MCP tools**
 (`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
-The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the repository, identity, and rule checks.
+The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the ownership, identity, and rule checks.
 It accepts `opened` and `synchronize` for open PRs whose head and base belong to the delivery's repository, including drafts.
-The webhook handler reads no database, so the task checks that the repository is added.
+The webhook handler reads only the cached ownership summary, so the task checks ownership again.
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
-The turn rechecks the repository rules before starting and uses the author's saved severity threshold; Flash never starts resolution.
+The turn rechecks ownership and the rules before starting and uses the author's severity threshold; Flash never starts resolution.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
