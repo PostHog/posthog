@@ -158,7 +158,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         except CredentialScopeDenied:
             raise serializers.ValidationError(SCOPED_TEAMS_ACCESS_ERROR) from None
 
-        return scoped_teams
+        return list(dict.fromkeys(scoped_teams))
 
     def validate_scoped_organizations(self, scoped_organizations):
         requesting_user: User = self.context["request"].user
