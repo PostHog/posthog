@@ -29,7 +29,7 @@ import type { ShellResult } from "../shell";
 import { startingOptions } from "../starting";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
-import { App } from "./App";
+import { App, type Session } from "./App";
 
 vi.mock("../openUrl", () => ({ openUrl: vi.fn(), openImage: vi.fn() }));
 const { openUrl } = await import("../openUrl");
@@ -98,30 +98,32 @@ function cloudApp({
         ...control,
       }) as PiControl,
   );
+  // One session object: the work list effect keys on its identity, and a new literal each render would cancel the fetch.
+  const session: Session = {
+    account: ACCOUNT,
+    work: {
+      listRecent: async () => ({ tasks: [task], hasMore: false }),
+      get: async () => task,
+    } as unknown as WorkList,
+    runs: {
+      watch: (
+        _taskId: string,
+        _runId: string,
+        onView: (view: RunView) => void,
+      ) => {
+        onView(view);
+        return { stop: () => {}, loadOlder: async () => {} };
+      },
+      prefetch: async () => {},
+    } as unknown as CloudRuns,
+    chats: chats as PiChats,
+    control: controlFor,
+    startLocal: () => Promise.reject(new Error("no local")),
+  };
   const { instance, output, type } = renderInTerminal(
     <Box height={30} flexDirection="column">
       <App
-        session={{
-          account: ACCOUNT,
-          work: {
-            listRecent: async () => ({ tasks: [task], hasMore: false }),
-            get: async () => task,
-          } as unknown as WorkList,
-          runs: {
-            watch: (
-              _taskId: string,
-              _runId: string,
-              onView: (view: RunView) => void,
-            ) => {
-              onView(view);
-              return { stop: () => {}, loadOlder: async () => {} };
-            },
-            prefetch: async () => {},
-          } as unknown as CloudRuns,
-          chats: chats as PiChats,
-          control: controlFor,
-          startLocal: () => Promise.reject(new Error("no local")),
-        }}
+        session={session}
         login={async () => {}}
         logout={() => {}}
         mouse={mouse}

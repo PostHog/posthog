@@ -61,6 +61,7 @@ const EDGE_SCROLL_MS = 50;
 export function usePointer({
   rows,
   activate,
+  navigate,
   setNavigating,
   setLayout,
   chatIn,
@@ -73,6 +74,8 @@ export function usePointer({
 }: {
   rows: SidebarRow[];
   activate: (index: number) => void;
+  // The wheel over the sidebar walks its chats, as the arrow keys do.
+  navigate: (step: 1 | -1) => void;
   setNavigating: (navigating: boolean) => void;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   chatIn: (paneId: string) => ChatView;
@@ -268,6 +271,11 @@ export function usePointer({
       if (changed) repaint();
     },
     onWheel: (wheel) => {
+      const sidebar = sidebarBox.current && boxOf(sidebarBox.current);
+      if (sidebar && hitTest(wheel, [["sidebar", sidebar]])) {
+        navigate(wheel.delta);
+        return;
+      }
       const paneId = paneHit(wheel);
       if (!paneId) return;
       scrollPane(paneId, wheel.delta * 3);

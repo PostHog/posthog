@@ -368,6 +368,7 @@ export function App({
   const { boxes, paneAtDrop, ...pointer } = usePointer({
     rows: sidebar.rows,
     activate: sidebar.activate,
+    navigate: sidebar.navigate,
     setNavigating: sidebar.setNavigating,
     setLayout,
     chatIn,
