@@ -1,12 +1,15 @@
 import json
+from collections.abc import Iterable
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import load_turn_findings
 
 
-def review_mode_for_run(report: ReviewReport, run_index: int) -> str:
-    for finding, _ in load_turn_findings(team_id=report.team_id, report_id=str(report.id), run_index=run_index):
+def turn_review_mode(pairs: Iterable[tuple[ReviewIssueFinding, ValidationVerdict | None]]) -> str:
+    """The mode a turn ran in, read from its findings. A turn without findings reads as a Deep (full) turn."""
+    for finding, _ in pairs:
         if finding.validation_context:
             try:
                 context = json.loads(finding.validation_context)
@@ -17,6 +20,10 @@ def review_mode_for_run(report: ReviewReport, run_index: int) -> str:
                 if isinstance(mode, str) and mode in (REVIEW_MODE_FULL, REVIEW_MODE_FLASH):
                     return mode
     return REVIEW_MODE_FULL
+
+
+def review_mode_for_run(report: ReviewReport, run_index: int) -> str:
+    return turn_review_mode(load_turn_findings(team_id=report.team_id, report_id=str(report.id), run_index=run_index))
 
 
 def published_heads_by_mode(report: ReviewReport) -> dict[str, str]:

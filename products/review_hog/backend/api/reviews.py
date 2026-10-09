@@ -53,6 +53,7 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_state import turn_review_mode
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ MAX_REVIEWS_LIMIT = 100
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
+OWN_DEEP_STATS_REVIEW_LIMIT = 10
 
 _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
@@ -89,13 +91,21 @@ class ReviewsListParamsSerializer(serializers.Serializer):
     )
 
 
+class PerspectiveStatsScope(models.TextChoices):
+    MINE = SCOPE_MINE, "Mine"
+    EVERYONE = SCOPE_EVERYONE, "Everyone"
+    OWN_DEEP = "own_deep", "Own Deep reviews"
+
+
 class PerspectiveStatsParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
-        choices=[SCOPE_MINE, SCOPE_EVERYONE],
-        default=SCOPE_MINE,
+        choices=PerspectiveStatsScope.choices,
+        default=PerspectiveStatsScope.MINE,
         help_text="Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran "
         "plus reviews of pull requests they authored (matched via their linked GitHub login), "
-        "`everyone` for every review on this project.",
+        "`everyone` for every review on this project, `own_deep` for the last "
+        f"{OWN_DEEP_STATS_REVIEW_LIMIT} Deep reviews the requesting user started. The review skills "
+        "in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.",
     )
 
 
@@ -671,20 +681,31 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         summary="Perspective effectiveness stats",
         description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
         "recent completed reviews in scope — the requesting user's by default, every review on this project "
-        "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
+        "with `scope=everyone`, the user's own last Deep reviews with `scope=own_deep` — and how many of those "
+        "the validator kept vs dismissed.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
+        scope = params.validated_data["scope"]
+        queryset: QuerySet[ReviewReport]
+        if scope == PerspectiveStatsScope.OWN_DEEP:
+            team_id = resolve_effective_team_id(self.team_id)
+            queryset = ReviewReport.objects.for_team(team_id, canonical=True).filter(acting_user_id=request.user.id)
+        else:
+            team_id, queryset = self._reports(request, scope=scope)
         reports = list(
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
-        stats: dict[str, dict[str, int]] = {}
         bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
-        for report in reports:
-            pairs = bundle.turn(str(report.id), report.run_count)
+        turns = [bundle.turn(str(report.id), report.run_count) for report in reports]
+        if scope == PerspectiveStatsScope.OWN_DEEP:
+            # Standard turns read none of the user's skills, so they would dilute the kept counts.
+            turns = [pairs for pairs in turns if turn_review_mode(pairs) == REVIEW_MODE_FULL]
+            turns = turns[:OWN_DEEP_STATS_REVIEW_LIMIT]
+        stats: dict[str, dict[str, int]] = {}
+        for pairs in turns:
             for finding, verdict in pairs:
                 entry = stats.setdefault(
                     finding.source_perspective or "unknown", {"raised": 0, "kept": 0, "dismissed": 0}
@@ -694,7 +715,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                     entry["kept" if verdict.is_valid else "dismissed"] += 1
         items: list[dict[str, Any]] = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
         items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
-        payload = {"report_count": len(reports), "perspectives": items}
+        payload = {"report_count": len(turns), "perspectives": items}
         return Response(ReviewPerspectiveStatsSerializer(payload).data)
 
     @extend_schema(
