@@ -2403,8 +2403,8 @@ class TestExperimentService(APIBaseTest):
         ctx = service._build_serializer_context()
 
         # fresh payload per call — update_experiment mutates update_data in place
-        def attach(metric_type: str) -> dict:
-            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+        def attach(role: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": role}}]}
 
         if initial_type is not None:
             service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
@@ -6252,7 +6252,7 @@ class TestExperimentService(APIBaseTest):
         _name: str,
         field: str,
         other_field: str,
-        metric_type: str,
+        role: str,
         collides: bool,
     ) -> None:
         self._create_flag(key="attach-dedup-with-saved")
@@ -6296,7 +6296,7 @@ class TestExperimentService(APIBaseTest):
         )
 
         updated = service.update_experiment(
-            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": metric_type}}]}
+            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": role}}]}
         )
 
         sm.refresh_from_db()
@@ -6317,7 +6317,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_update_regenerates_stored_inline_copy_that_collides_with_saved_metric_uuid(
-        self, _name: str, field: str, ordering_attr: str, metric_type: str, attach_another: bool
+        self, _name: str, field: str, ordering_attr: str, role: str, attach_another: bool
     ) -> None:
         self._create_flag(key="stored-collision")
         shared_uuid = "77bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6336,7 +6336,7 @@ class TestExperimentService(APIBaseTest):
             name="Stored collision",
             feature_flag_key="stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(
             **{
@@ -6353,9 +6353,9 @@ class TestExperimentService(APIBaseTest):
         )
         experiment.refresh_from_db()
 
-        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": metric_type}}]
+        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": role}}]
         if attach_another:
-            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": metric_type}})
+            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": role}})
             payload: dict = {"saved_metrics_ids": saved_metrics_ids}
         else:
             payload = {field: deepcopy(getattr(experiment, field))}
@@ -6408,7 +6408,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_detaching_saved_metric_keeps_uuid_its_stored_inline_copy_uses(
-        self, metric_type: str, field: str, ordering_attr: str
+        self, role: str, field: str, ordering_attr: str
     ) -> None:
         self._create_flag(key="detach-stored-collision")
         shared_uuid = "99bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6424,7 +6424,7 @@ class TestExperimentService(APIBaseTest):
             name="Detach stored collision",
             feature_flag_key="detach-stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(**{field: [metric], ordering_attr: [shared_uuid]})
         experiment.refresh_from_db()
