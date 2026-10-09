@@ -1,6 +1,6 @@
 """Payloads for the friction read: every author's friction as a multiple of the typical author."""
 
-from rest_framework_dataclasses.serializers import DataclassSerializer
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     AuthorFriction,
@@ -14,7 +14,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 
-class FrictionGroupShareSerializer(DataclassSerializer):
+class FrictionGroupShareSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = FrictionGroupShare
         extra_kwargs = {
@@ -26,7 +26,7 @@ class FrictionGroupShareSerializer(DataclassSerializer):
         }
 
 
-class AuthorFrictionSerializer(DataclassSerializer):
+class AuthorFrictionSerializer(LabeledChoicesDataclassSerializer):
     groups = FrictionGroupShareSerializer(many=True, help_text="The score split by the kind of friction.")
 
     class Meta:
@@ -52,7 +52,7 @@ class AuthorFrictionSerializer(DataclassSerializer):
         }
 
 
-class TeamFrictionSerializer(DataclassSerializer):
+class TeamFrictionSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = TeamFriction
         extra_kwargs = {
@@ -65,7 +65,7 @@ class TeamFrictionSerializer(DataclassSerializer):
         }
 
 
-class PullRequestFrictionItemSerializer(DataclassSerializer):
+class PullRequestFrictionItemSerializer(LabeledChoicesDataclassSerializer):
     groups = FrictionGroupShareSerializer(many=True, help_text="The pull request's friction split by kind.")
 
     class Meta:
@@ -79,7 +79,7 @@ class PullRequestFrictionItemSerializer(DataclassSerializer):
         }
 
 
-class AuthorFrictionListSerializer(DataclassSerializer):
+class AuthorFrictionListSerializer(LabeledChoicesDataclassSerializer):
     items = AuthorFrictionSerializer(many=True, help_text="Authors by friction, most first.")
     teams = TeamFrictionSerializer(
         many=True, help_text="Teams with at least 3 scored members, by median member friction, most first."
@@ -104,7 +104,7 @@ class AuthorFrictionListSerializer(DataclassSerializer):
         }
 
 
-class AuthorFrictionDetailSerializer(DataclassSerializer):
+class AuthorFrictionDetailSerializer(LabeledChoicesDataclassSerializer):
     author = AuthorFrictionSerializer(
         allow_null=True, help_text="The author's score and rank. Null below 3 merged pull requests in the window."
     )
@@ -130,7 +130,7 @@ class AuthorFrictionDetailSerializer(DataclassSerializer):
         }
 
 
-class PullRequestFrictionBreakdownSerializer(DataclassSerializer):
+class PullRequestFrictionBreakdownSerializer(LabeledChoicesDataclassSerializer):
     groups = FrictionGroupShareSerializer(many=True, help_text="The pull request's friction split by kind.")
 
     class Meta:
@@ -155,7 +155,7 @@ class PullRequestFrictionBreakdownSerializer(DataclassSerializer):
         }
 
 
-class PullRequestFrictionDetailSerializer(DataclassSerializer):
+class PullRequestFrictionDetailSerializer(LabeledChoicesDataclassSerializer):
     pull_request = PullRequestFrictionBreakdownSerializer(
         allow_null=True,
         help_text="Null when the pull request did not merge in the window, or a bot authored it.",

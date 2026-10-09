@@ -18,7 +18,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
@@ -75,7 +75,7 @@ const ENTITY_VISIBLE_LIMIT = 8
 
 function resolveAgentStatus(
     armed: boolean,
-    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
+    syncStatus: SignalSourceConfigStatus | CISignalsSyncStatusEnumApi | null | undefined
 ): AgentRosterStatus {
     if (syncStatus === SignalSourceConfigStatus.FAILED) {
         return 'sync_failed'
@@ -111,7 +111,7 @@ interface AgentSourceState {
     loading: boolean
     /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
-    syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
+    syncStatus: SignalSourceConfigStatus | CISignalsSyncStatusEnumApi | null | undefined
     entities: RosterEntity[]
     /** The entity list is still loading, so the count would read as a wrong zero. */
     entitiesLoading: boolean
