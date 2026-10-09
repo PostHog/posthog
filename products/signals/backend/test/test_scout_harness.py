@@ -101,9 +101,11 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
 from products.signals.backend.temporal.agentic.scout_scheduler import (
+    EvaluateScoutPrecheckOutput,
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
     RunSignalsScoutWorkflow,
+    evaluate_signals_scout_precheck_activity,
     run_signals_scout_activity,
     start_trial_signals_scout_run,
 )
@@ -3608,6 +3610,8 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
     )
 
     async def execute_activity(activity_function, input=None, **kwargs):
+        if activity_function is evaluate_signals_scout_precheck_activity:
+            return EvaluateScoutPrecheckOutput(should_run=True)
         if activity_function is run_signals_scout_activity:
             assert kwargs["start_to_close_timeout"] == timedelta(minutes=timeout_minutes)
             if outcome == "cancelled":
@@ -3647,6 +3651,63 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
         assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
         assert resume.call_args.kwargs["raise_on_error"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "triggered_by,precheck,runs",
+    [
+        ("schedule", "skip", False),
+        ("schedule", "run", True),
+        ("schedule", "activity_error", True),
+        ("manual", "skip", True),
+        ("workflow", "skip", True),
+        ("check", "skip", True),
+    ],
+)
+async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered_by, precheck, runs):
+    output = RunSignalsScoutOutput(
+        run_id="abc", task_run_id="def", status="completed", runtime_s=1.0, skill_name="s", skill_version=1
+    )
+    called: list[object] = []
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        called.append(activity_function)
+        if activity_function is evaluate_signals_scout_precheck_activity:
+            if precheck == "activity_error":
+                raise ActivityError(
+                    "Pre-check failed",
+                    scheduled_event_id=1,
+                    started_event_id=2,
+                    identity="worker",
+                    activity_type="evaluate_signals_scout_precheck_activity",
+                    activity_id="precheck",
+                    retry_state=None,
+                )
+            return EvaluateScoutPrecheckOutput(should_run=precheck == "run")
+        return output
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.logger"),
+    ):
+        result = await RunSignalsScoutWorkflow().run(
+            RunSignalsScoutInput(team_id=7, skill_name="s", triggered_by=triggered_by)
+        )
+
+    assert (run_signals_scout_activity in called) is runs
+    assert (evaluate_signals_scout_precheck_activity in called) is (triggered_by == "schedule")
+    if runs:
+        assert result == output
+    else:
+        assert result.run_id is None
+        assert result.skip_reason == "precheck_skipped"
 
 
 class TestScoutCosts(BaseTest):
