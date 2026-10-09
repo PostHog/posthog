@@ -31,6 +31,7 @@ from posthog.hogql.index_eligibility import (
 )
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
+from posthog.hogql.partition_pruning import UNPRUNED_SCAN_MESSAGE
 from posthog.hogql.property_metadata import MaterializedColumnsByTable, PropertyMetadata
 from posthog.hogql.property_planner import (
     ComparisonCompatibility,
@@ -692,12 +693,18 @@ class TestIndexEligibilityAnalysis(BaseTest):
         ):
             response = self._metadata(query)
 
+        unpruned_warnings = [
+            warning for warning in response.warnings if warning.message.startswith(UNPRUNED_SCAN_MESSAGE)
+        ]
+        assert len(unpruned_warnings) == 1
+        taxonomy_warnings = [warning for warning in response.warnings if warning not in unpruned_warnings]
+
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert response.warnings == []
+            assert taxonomy_warnings == []
             [predicate] = response.index_usage or []
             assert predicate.quickfix is None
             return
-        [warning] = response.warnings
+        [warning] = taxonomy_warnings
         assert warning.fix == "'120'"
         assert query[warning.start : warning.end] == "120"
         [predicate] = response.index_usage or []
@@ -718,3 +725,17 @@ class TestIndexEligibilityAnalysis(BaseTest):
 
         assert response.isUsingIndices == QueryIndexUsage.UNDECISIVE
         assert response.index_usage == []
+
+    def test_metadata_reports_an_events_scan_with_no_time_range(self) -> None:
+        response = self._metadata("select count() from events where event = '$pageview'")
+
+        assert response.unpruned_scans is not None
+        [scan] = response.unpruned_scans
+        assert scan.table_name == "events"
+        assert scan.partition_key == "toYYYYMM(timestamp)"
+        assert scan.fix
+
+    def test_metadata_reports_no_scan_once_the_time_range_is_bounded(self) -> None:
+        response = self._metadata("select count() from events where timestamp > now() - interval 7 day")
+
+        assert response.unpruned_scans == []
