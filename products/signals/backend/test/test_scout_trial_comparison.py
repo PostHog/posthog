@@ -121,7 +121,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
                 assert prepared and finished and not failed
 
     async def test_judging_wait_bounds_sandbox_evaluation_workflows(self) -> None:
-        expected_minutes = 5107
+        expected_minutes = 4437
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
         started = now
@@ -166,7 +166,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
-            assert call.kwargs["execution_timeout"] == timedelta(minutes=5192)
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=4522)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))
