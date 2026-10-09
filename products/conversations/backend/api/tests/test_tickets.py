@@ -41,7 +41,11 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import (
+    ComposeTicketSerializer,
+    TicketReplyRequestSerializer,
+    TicketViewSet,
+)
 from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
@@ -148,6 +152,24 @@ class TestTicketAPI(APIBaseTest):
         comment_detail = self.client.get(f"/api/projects/{self.team.id}/comments/{comment.id}/")
         self.assertEqual(comment_detail.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIsNone(get_cached_tickets(self.team.id, self.ticket.widget_session_id))
+
+    def test_update_after_delete_keeps_ticket_deleted(self, mock_on_commit):
+        load_ticket = TicketViewSet.get_object
+
+        def load_then_delete(view: TicketViewSet) -> Ticket:
+            ticket = load_ticket(view)
+            Ticket.all_objects.filter(id=ticket.id).update(deleted_at=timezone.now())
+            return ticket
+
+        with patch.object(TicketViewSet, "get_object", load_then_delete):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", {"status": Status.RESOLVED}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
+        ticket = Ticket.all_objects.get(id=self.ticket.id)
+        self.assertIsNotNone(ticket.deleted_at)
+        self.assertEqual(ticket.status, Status.NEW)
 
     def test_soft_deleted_ticket_number_is_not_reused(self, mock_on_commit):
         deleted_number = self.ticket.ticket_number

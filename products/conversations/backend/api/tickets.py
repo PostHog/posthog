@@ -607,7 +607,14 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        return super().update(instance, validated_data)
+        validated_data.pop("tags", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        # Only the submitted columns. A full save writes back every column this request
+        # loaded, so a delete that commits in between would be undone.
+        instance.save(update_fields=[*validated_data, "updated_at"])
+        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        return instance
 
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):
@@ -1266,6 +1273,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         ticket and keep it pending.
         """
         with transaction.atomic():
+            # Lock the live row, so a delete waits for this write, or this write sees the delete.
+            live = (
+                Ticket.objects.select_for_update()
+                .filter(team_id=self.team_id, id=instance.id)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if live is None:
+                raise Http404("Ticket not found")
             self.perform_update(serializer)
 
             implied_status = _status_implied_by_snooze(before.snoozed_until, instance.snoozed_until)

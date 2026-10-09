@@ -1,9 +1,11 @@
+import importlib
 from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from posthog.models import ActivityLog, Comment
@@ -198,6 +200,42 @@ class TestPurgeDeletedTickets(BaseTest):
         self.assertTrue(Ticket.all_objects.filter(id=ticket.id).exists())
         self.assertTrue(UploadedMedia.objects.filter(id=media.id).exists())
         self.assertTrue(Comment.objects.filter(item_id=str(ticket.id)).exists())
+
+    @patch("products.conversations.backend.tasks.maintenance.object_storage.delete")
+    @patch("products.signals.backend.facade.api.retract_source_signals", return_value=0)
+    def test_purge_removes_legacy_attachment_after_backfill(
+        self, _retract: MagicMock, delete_object: MagicMock
+    ) -> None:
+        backfill = importlib.import_module(
+            "products.conversations.backend.migrations.0076_tag_legacy_conversation_attachments"
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="legacy-session",
+            distinct_id="person-1",
+        )
+        legacy = UploadedMedia.objects.create(team=self.team, file_name="old.png", media_location="uploads/old.png")
+        unrelated = UploadedMedia.objects.create(
+            team=self.team, file_name="card.png", media_location="uploads/card.png"
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=f"![old.png](/uploaded_media/{legacy.id})",
+        )
+        Ticket.all_objects.filter(id=ticket.id).update(
+            deleted_at=timezone.now() - TICKET_HARD_DELETE_AFTER - timedelta(days=1)
+        )
+
+        backfill.tag_legacy_attachments(apps, None)
+        purge_deleted_tickets()
+
+        delete_object.assert_called_once_with("uploads/old.png")
+        self.assertFalse(UploadedMedia.objects.filter(id=legacy.id).exists())
+        unrelated.refresh_from_db()
+        self.assertIsNone(unrelated.purpose)
 
     @patch("products.signals.backend.facade.api.retract_source_signals", return_value=0)
     def test_purge_leaves_tickets_inside_the_window(self, retract: MagicMock) -> None:
