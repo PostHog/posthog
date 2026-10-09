@@ -47,6 +47,7 @@ GAUGE_SLOT_WARMUP_SECONDS = RECONCILE_INTERVAL_SECONDS
 RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned by consumer outages
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
+GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS = 3.0
 
 # Cap on the jitter window between failed polls — flat retries make the whole
 # fleet hammer a degraded queue DB in lockstep.
@@ -424,6 +425,10 @@ class BatchConsumerAdapter(Protocol):
         """Sample the queue-wide gauges if this pod holds the gauge slot; True means it does."""
         ...
 
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        """Free the gauge slot if this pod holds it, so another pod can sample at once. Best-effort on shutdown."""
+        ...
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -553,6 +558,31 @@ class BatchConsumer:
             await conn.close()
             raise
         return conn
+
+    async def _connect_with_startup_retry(
+        self, *, statement_timeout_seconds: float | None, event: str
+    ) -> psycopg.AsyncConnection[Any]:
+        """Dial the queue DB at startup, retrying a self-healing blip indefinitely.
+
+        `_connect` only retries QUEUE_RETRY_MAX_ATTEMPTS times before raising -- enough for a
+        blip mid-run, where the poll and recovery loops simply redial on the next cycle, but
+        not for the queue DB still being unreachable the moment this process starts. Raising
+        here crashes the whole consumer before `_poll_conn`/`_recovery_conn` even exist, for
+        the same DNS, server-not-ready, connect-timeout, and admin-shutdown shapes the running
+        consumer already treats as self-healing everywhere else.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return await self._connect(statement_timeout_seconds=statement_timeout_seconds)
+            except Exception as error:
+                if not _is_transient_queue_db_error(error):
+                    raise
+                logger.warning(self._event(event), attempt=attempt, error=str(error))
+                await self._wait_or_shutdown(_queue_retry_delay(min(attempt, QUEUE_RETRY_MAX_ATTEMPTS)))
+                if self._shutdown.is_set():
+                    raise
 
     async def _drop_conn(self, attr: str) -> None:
         """Close and forget a connection after a timed-out operation.
@@ -687,8 +717,14 @@ class BatchConsumer:
     async def run(self) -> None:
         self._install_signal_handlers()
 
-        self._poll_conn = await self._connect(statement_timeout_seconds=self._config.poll_timeout_seconds)
-        self._recovery_conn = await self._connect(statement_timeout_seconds=self._config.sweep_timeout_seconds)
+        self._poll_conn = await self._connect_with_startup_retry(
+            statement_timeout_seconds=self._config.poll_timeout_seconds,
+            event="startup_poll_connect_retrying",
+        )
+        self._recovery_conn = await self._connect_with_startup_retry(
+            statement_timeout_seconds=self._config.sweep_timeout_seconds,
+            event="startup_recovery_connect_retrying",
+        )
 
         logger.info(
             self._event("batch_consumer_started"),
@@ -1859,6 +1895,17 @@ class BatchConsumer:
             except Exception:
                 logger.exception(self._event("recovery_sweep_unlock_failed"))
 
+    async def _release_queue_gauges_slot(self) -> None:
+        """Best-effort: a slow or failing queue DB must never delay or fail the shutdown."""
+        conn = self._recovery_conn
+        if conn is None or conn.closed or conn.broken:
+            return
+        try:
+            async with asyncio.timeout(GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS):
+                await self._adapter.release_queue_gauges_slot(conn)
+        except Exception as e:
+            logger.warning(self._event("release_queue_gauges_slot_failed"), error=str(e) or type(e).__name__)
+
     def _install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
@@ -1874,6 +1921,9 @@ class BatchConsumer:
                     await task
                 except asyncio.CancelledError:
                     pass
+
+        # Free the gauge slot before the drain: no pod samples while the old holder drains.
+        await self._release_queue_gauges_slot()
 
         # Drain in-flight group tasks; each task releases its own lease and closes its connection.
         if self._in_flight:

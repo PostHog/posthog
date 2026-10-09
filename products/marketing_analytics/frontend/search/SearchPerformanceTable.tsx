@@ -3,7 +3,7 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
@@ -23,18 +23,17 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
 import { SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
+import { SearchPositionCell } from './SearchPositionCell'
 
 export function SearchPerformanceTable({
     query,
     metrics,
-    showPosition = false,
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
     queryKey = 'marketing-search-performance',
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
-    showPosition?: boolean
     emptyState?: React.ReactNode
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
@@ -46,17 +45,23 @@ export function SearchPerformanceTable({
     })
     const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
-    const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
+    const searchResponse = response as MarketingAnalyticsSearchQueryResponse | undefined
+    const rows = searchResponse?.results ?? []
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
-    const hasOrganicSources = query.sources.some((source) => source.sourceType === 'GoogleSearchConsole')
-    const metricKeys: (keyof MarketingAnalyticsSearchMetrics)[] =
+    const hasPositionSources = query.sources.some((source) =>
+        ['GoogleSearchConsole', 'GoogleAds', 'BingAds'].includes(source.sourceType)
+    )
+    const metricKeys: Exclude<
+        keyof MarketingAnalyticsSearchMetrics,
+        'topImpressionRate' | 'absoluteTopImpressionRate'
+    >[] =
         metrics === 'traffic'
             ? [
                   'clicks',
                   'impressions',
                   'ctr',
                   ...(hasPaidSources ? ['cost' as const] : []),
-                  ...(hasOrganicSources && (!hasPaidSources || showPosition) ? ['position' as const] : []),
+                  ...(hasPositionSources ? ['position' as const] : []),
               ]
             : ['cost', 'conversions', 'cpc', 'cpa']
 
@@ -76,6 +81,12 @@ export function SearchPerformanceTable({
                 <Reload />
                 <ElapsedTime />
             </div>
+            {!responseLoading && searchResponse?.placementUnavailable && (
+                <LemonBanner type="info">
+                    Some Google Ads position data is unavailable. Check your access to keyword_placement_stats or ask a
+                    project admin for help. Traffic data is available.
+                </LemonBanner>
+            )}
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"
@@ -181,13 +192,19 @@ export function SearchPerformanceTable({
                             cpc: 'Spend divided by clicks',
                             cpa: 'Spend divided by conversions',
                             position:
-                                'Average position in organic Google search, weighted by impressions. Lower is better.',
+                                'Organic search position or paid search top and first-position impression percentages. Hover over a value for details.',
                         }[metric],
                         key: metric,
                         align: 'right' as const,
-                        sorter: (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
-                            (a[metric] ?? -1) - (b[metric] ?? -1),
+                        sorter:
+                            metric === 'position' && hasPaidSources
+                                ? undefined
+                                : (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
+                                      (a[metric] ?? -1) - (b[metric] ?? -1),
                         render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
+                            if (metric === 'position') {
+                                return <SearchPositionCell row={row} compare={!!query.compareFilter?.compare} />
+                            }
                             const value = row[metric] ?? null
                             const money = metric === 'cost' || metric === 'cpc' || metric === 'cpa'
                             const currency =
@@ -204,17 +221,12 @@ export function SearchPerformanceTable({
                                                 ? 'percentage'
                                                 : money && currency
                                                   ? 'currency'
-                                                  : metric === 'conversions' || metric === 'position' || money
+                                                  : metric === 'conversions' || money
                                                     ? 'decimal'
                                                     : 'number'
                                         }
                                         currency={currency ?? CurrencyCode.USD}
-                                        reverseColors={
-                                            metric === 'cost' ||
-                                            metric === 'cpc' ||
-                                            metric === 'cpa' ||
-                                            metric === 'position'
-                                        }
+                                        reverseColors={metric === 'cost' || metric === 'cpc' || metric === 'cpa'}
                                     />
                                     {money && row.platform !== 'GoogleSearchConsole' && (
                                         <span className="block text-xs text-secondary">

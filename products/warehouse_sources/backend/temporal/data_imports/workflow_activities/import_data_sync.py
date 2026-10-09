@@ -58,8 +58,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_non_retryable_error,
     report_heartbeat_timeout,
+    reset_pipeline_requested,
     trim_source_job_inputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -160,14 +162,12 @@ class ImportDataActivityInputs:
 def _resolve_reset_pipeline(
     inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
 ) -> bool:
-    if inputs.reset_pipeline is not None:
-        return inputs.reset_pipeline
-    if schema.sync_type_config.get("reset_pipeline", False) is True:
-        return True
-    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
-    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
-    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
+    return reset_pipeline_requested(
+        schema,
+        workflow_reset_pipeline=inputs.reset_pipeline,
+        scheduled_full_refresh=inputs.scheduled_full_refresh,
+        job_created_at=job_created_at,
+    )
 
 
 @database_sync_to_async_pool
@@ -556,6 +556,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 attempt=attempt,
             )
 
+        # Preemption makes hand-offs frequent, so it applies only to a run whose hand-offs use no
+        # retry attempt.
+        preemption: PreemptionConfig | None = None
+        if settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED and inputs.handoffs_are_free:
+            preemption = PreemptionConfig(
+                quiet_period_seconds=settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS,
+                watermark_carry_over_enabled=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED,
+            )
+
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
@@ -569,8 +578,15 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         # Re-validate against current metadata so a stale filter (dropped column, changed type)
         # fails here with an actionable message rather than emitting a broken query downstream.
+        filterable_columns = (
+            SourceRegistry.get_source(source_type).row_filter_columns_for_schema(schema.name)
+            if schema.row_filters and SourceRegistry.is_registered(source_type)
+            else None
+        )
         try:
-            row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+            row_filters = validate_and_coerce_row_filters(
+                schema.row_filters, schema.schema_metadata, filterable_columns
+            )
         except RowFilterValidationError as e:
             raise RowFilterValidationError(
                 f"Row filter on schema '{schema.name}' no longer matches the current table schema ({e}). "
@@ -740,6 +756,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 on_resumable_retry_budget=inputs.on_resumable_retry_budget,
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
+                preemption=preemption,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1113,6 +1130,7 @@ async def _run(
     incremental_checkpoints_allowed: bool = False,
     resumed_incremental_run_uuid: str | None = None,
     resumed_incremental_value: Any = None,
+    preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
 ) -> PipelineResult:
     try:
@@ -1131,6 +1149,7 @@ async def _run(
             incremental_checkpoints_allowed=incremental_checkpoints_allowed,
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
+            preemption=preemption,
         )
 
         result = await pipeline.run()

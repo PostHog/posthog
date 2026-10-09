@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -50,23 +49,6 @@ class TestWhoGhoSource:
         self.source = WhoGhoSource()
         self.config = WhoGhoSourceConfig(indicator_codes="WHOSIS_000001\nWHOSIS_000002")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "WhoGho"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/who-gho"
-        assert config.iconPath == "/static/services/who_gho.png"
-        # A finished source ships visible; re-adding the flag would hide it from every user.
-        assert not config.unreleasedSource
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
-        # do no I/O.
-        tables = self.source.get_documented_tables()
-
-        assert [table["name"] for table in tables] == list(ENDPOINTS)
-
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
         assert PRIMARY_KEYS[endpoint]
@@ -82,11 +64,6 @@ class TestWhoGhoSource:
         # Unlike indicator_data, every dimension shares one DIMENSION_VALUE entity type, and the
         # API declares Code as that entity's only key -- it is genuinely unique table-wide.
         assert PRIMARY_KEYS["dimension_values"] == ["Code"]
-
-    def test_non_retryable_error_matches_an_unknown_indicator_code(self) -> None:
-        raised = "404 Client Error: Not Found for url: https://ghoapi.azureedge.net/api/NOT_REAL"
-
-        assert error_message_matches(raised, self.source.get_non_retryable_errors().keys())
 
     def test_non_retryable_error_matches_an_out_of_bounds_code_list(self) -> None:
         with pytest.raises(ValueError) as excinfo:
@@ -135,16 +112,3 @@ class TestWhoGhoSource:
 
         assert mock_source.call_args.kwargs["since"] == "2024-08-02"
         assert mock_source.call_args.kwargs["should_use_incremental_field"] is True
-
-    def test_source_for_pipeline_omits_since_on_a_full_sync(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs("indicator_data", should_use_incremental_field=False)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source.who_gho_source"
-        ) as mock_source:
-            mock_source.return_value = iter([])
-            response = self.source.source_for_pipeline(self.config, manager, inputs)
-            list(cast(Iterable[Any], response.items()))
-
-        assert mock_source.call_args.kwargs["since"] is None

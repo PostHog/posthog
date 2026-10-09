@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 import time_machine
@@ -86,6 +87,19 @@ class TestFilters(BaseTest):
         )
         with self.assertRaisesMessage(QueryError, "Select a"):
             replace_filters(query, None, self.team)
+
+    def test_comparison_window_bounds_use_the_same_range_as_previous_rows(self) -> None:
+        filters = HogQLFilters(dateRange=DateRange(date_from="2026-01-08", date_to="2026-01-14"))
+        query = replace_filters(
+            parse_select("SELECT {filters.previous.dateRange.from}, {filters.previous.dateRange.to}"),
+            filters,
+            self.team,
+        )
+        assert isinstance(query, ast.SelectQuery)
+        for expression, expected in zip(query.select, ["2026-01-01", "2026-01-08"], strict=True):
+            assert isinstance(expression, ast.Constant)
+            assert isinstance(expression.value, datetime)
+            assert expression.value.strftime("%Y-%m-%d") == expected
 
     def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))

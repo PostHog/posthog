@@ -334,6 +334,35 @@ def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch
     assert pipeline.classification["dep_manifests_without_lockfile"] == [manifest]
 
 
+@pytest.mark.parametrize(
+    "filename, touched_paths",
+    [
+        pytest.param(".github/workflows/ci-backend.yml", [], id="github-workflow"),
+        pytest.param(".depot/workflows/ci-backend.yml", [], id="depot-workflow"),
+        pytest.param("docs/ci-backend.yml", [".github/workflows/ci-backend.yml"], id="workflow-renamed-out"),
+        pytest.param(".github/workflows/tests/test_ci.py", [], id="test-named-file-under-workflows"),
+    ],
+)
+def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
+    monkeypatch: pytest.MonkeyPatch, filename: str, touched_paths: list[str]
+) -> None:
+    # A workflow is .yml, so once the owner-only exemption lifts the deny, the allow-list
+    # would classify it T0 and approve it with no reviewer.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.author_team_slugs = {"team-devex"}
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": filename, "additions": 2, "deletions": 1, "status": "M"}]
+    pr.touched_paths = touched_paths
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["deny_categories"] == []
+    assert pipeline.classification["tier"] == "T1-agent"
+
+
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
     # The deterministic scan is the first line against scripts/hook edits —
     # when it fires, the PR must land T2-never rather than the LLM-only path.
@@ -450,7 +479,7 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
     verdict = pipeline.run()
 
     assert verdict == "REFUSED"
-    assert pipeline.classification["deny_categories"] == ["infra_cicd"]
+    assert pipeline.classification["deny_categories"] == ["ci_workflows"]
 
 
 class _FakeCompleted:
@@ -657,7 +686,7 @@ def test_familiarity_computed_on_every_tier_but_prompted_only_on_t1(
     ],
 )
 def test_capture_review_completed_includes_familiarity_and_provenance(
-    monkeypatch: pytest.MonkeyPatch, populated: bool
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, populated: bool
 ) -> None:
     # Downstream HogQL queries key on these property names and null/empty
     # defaults; a rename or a crash on the early-exit paths (bot author, WAIT —
@@ -687,6 +716,8 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
             top_prior_authors=("Alice",),
         )
         pipeline.familiarity_source = "server"
+        monkeypatch.delenv("STAMPHOG_REVIEWER_ENGINE", raising=False)
+        pipeline._new_reviewer(tmp_path)
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
@@ -710,6 +741,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
         assert props["stamphog_review_trigger"] == "manual"
+        assert props["stamphog_reviewer_engine"] == "openai"
     else:
         assert props["stamphog_owner_teams"] == []
         assert props["stamphog_familiarity_band"] == ""
@@ -719,6 +751,8 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_generated_by"] == []
         assert props["stamphog_task_ids"] == []
         assert props["stamphog_review_trigger"] == ""
+        # A gate-only verdict ran no reviewer, so it must not name one.
+        assert props["stamphog_reviewer_engine"] == ""
 
 
 def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:

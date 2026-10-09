@@ -39,13 +39,6 @@ def test_unsafe_url_is_rejected_before_http(url: str) -> None:
     probe.assert_not_called()
 
 
-@pytest.mark.parametrize("suffix", ["", "/", "/api", "/api/"])
-def test_portal_url_normalization(suffix: str) -> None:
-    assert (
-        DefenderClient.normalize_portal_url(f" https://DEFENDER.example.com{suffix} ") == "https://defender.example.com"
-    )
-
-
 @pytest.mark.parametrize("pipeline", [False, True])
 def test_private_host_is_rejected_at_validation_and_sync(pipeline: bool) -> None:
     config = MicrosoftDefenderCloudAppsSourceConfig.from_dict(

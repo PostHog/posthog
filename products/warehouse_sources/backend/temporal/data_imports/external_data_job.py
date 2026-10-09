@@ -31,8 +31,11 @@ from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import (
+    SyncAlertEvent,
+    SyncAlertKind,
     a_unpause_external_data_schedule,
     create_warehouse_templates_for_source,
+    emit_sync_alert,
     update_external_job_status,
 )
 from products.managed_warehouse.backend.facade.temporal import (
@@ -667,6 +670,18 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         counts_as_source_failure=counts_as_source_failure,
     )
 
+    if has_non_retryable_error:
+        # A non-retryable failure does not count toward the failure streak, so the status write
+        # above sends no failed alert for it. The schema stops syncing until a person turns it back
+        # on, which is the failure a destination most needs to hear about.
+        await database_sync_to_async_pool(emit_sync_alert)(
+            team_id=inputs.team_id,
+            schema_id=inputs.schema_id,
+            event=SyncAlertEvent.FAILED,
+            kind=SyncAlertKind.SCHEMA_PAUSED,
+            job_id=job_id,
+        )
+
     if inputs.internal_error and source is not None:
         # This activity runs once the workflow has given up, so every error reaching here has
         # already exhausted its retries — including the ones no source classified. Those used to
@@ -1106,6 +1121,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=str(inputs.external_data_schema_id),
                             job_id=str(job_id),
                             source_id=str(inputs.external_data_source_id),
+                            reset_pipeline=inputs.reset_pipeline,
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),

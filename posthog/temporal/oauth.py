@@ -116,7 +116,6 @@ McpScopePreset = Literal[
     "signals_scout",
     "signals_scout_reports",
     "signals_scout_experiment",
-    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 ]
@@ -238,12 +237,12 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
-#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
-#                          suggestion loop and the shared rating on observations. Scanning spends
-#                          the organization's credits, and delete is PERMANENT (it takes the
-#                          scanner's observations with it), so this scope alone misses the bar the
-#                          others meet. One scope object covers the whole surface, so the two
-#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the shared
+#                          rating on observations. Scanning spends the organization's credits,
+#                          and delete is PERMANENT (it takes the scanner's observations with it),
+#                          so this scope alone misses the bar the others meet. One scope object
+#                          covers the whole surface, so the two exclusions live in
+#                          `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
 #   customer_task:write    Every Customer analytics task in the scout's project: create, update
 #                          (status, due date, assignee, linked account) and archive. There is no
@@ -341,7 +340,6 @@ MCP_SCOPE_PRESETS = (
     "signals_scout",
     "signals_scout_reports",
     "signals_scout_experiment",
-    "signals_scout_judge",
     "signals_research",
     "signals_implementation",
 )
@@ -446,8 +444,6 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
-        elif scopes == "signals_scout_judge":
-            resolved = ["scout_experiment_internal:read"] if include_internal_scopes else []
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [

@@ -49,11 +49,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiGateway": {
-        "template": "/ai-gateway",
-        "params": [],
-        "scope": "project"
-    },
     "aiHistory": {
         "template": "/ai/history",
         "params": [],
@@ -682,6 +677,11 @@
     "engineeringAnalyticsAuthors": {
         "template": "/engineering-analytics/authors",
         "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsCIExplorer": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}/ci-explorer",
+        "params": ["repoOwner", "repoName", "number"],
         "scope": "project"
     },
     "engineeringAnalyticsDeploys": {
@@ -1344,6 +1344,16 @@
         "params": [],
         "scope": "project"
     },
+    "platformAlert": {
+        "template": "/platform-alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "platformAlerts": {
+        "template": "/platform-alerts",
+        "params": [],
+        "scope": "project"
+    },
     "precomputeDebug": {
         "template": "/debug/precompute",
         "params": [],
@@ -1461,11 +1471,6 @@
     },
     "replayVisionScannerOverview": {
         "template": "/replay-vision/{id}/overview",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "replayVisionScannerSelfDriving": {
-        "template": "/replay-vision/{id}/self-driving",
         "params": ["id"],
         "scope": "project"
     },

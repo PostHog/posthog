@@ -52,3 +52,4 @@ tools:
         response:
             include:
                 - results
+                - hint
