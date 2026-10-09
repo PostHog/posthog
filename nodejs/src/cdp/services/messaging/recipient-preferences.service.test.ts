@@ -717,6 +717,22 @@ describe('RecipientPreferencesService', () => {
             expect(await sendAt(emailAction(), start + 7 * day + 1)).toBe(false)
         })
 
+        it('lets a re-entered step visit keep its slot and counts a later visit to the same step', async () => {
+            frequencyCap = { max_messages: 1, window_days: 7 }
+            const action = emailAction()
+            const invocation = createFunctionStepInvocation(action)
+            invocation.state.actionId = action.id
+            invocation.state.actionStepCount = 1
+            jest.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+
+            // The email queue runs the step a second time after the hog queue routed it there.
+            expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(false)
+            expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(false)
+
+            invocation.state.actionStepCount = 3
+            expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(true)
+        })
+
         it.each([
             ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
             ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
