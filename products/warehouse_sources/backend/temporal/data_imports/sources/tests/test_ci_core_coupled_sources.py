@@ -1,3 +1,4 @@
+import re
 import ast
 import json
 from pathlib import Path
@@ -15,10 +16,13 @@ from pathlib import Path
 # every facade re-export a Core/CorePOE file actually consumes back to its source vendor and
 # fails if that vendor is missing from the turbo.json contract-check inputs.
 #
-# Limitation: `SourceRegistry.get_source(<type>)` is a dynamic lookup — the vendor it resolves
-# to at runtime isn't visible statically, so this guard can't cover it. Core's real coupling is
-# the concrete `PostgresSource`/`MySQLSource`/... symbols, which it CAN see; the direct-SQL
-# adapters import those explicitly alongside SourceRegistry.
+# Registry lookups resolve vendors dynamically, so this guard cannot enumerate their
+# dependencies. MSSQL stays in the contract inputs because data_warehouse's SQL migration
+# tests depend on its optional schema field. Other registry dependencies can be skipped on
+# PRs and narrowed merge-queue runs; the hourly full master run is their backstop.
+#
+# Generated configs are watched per module, because watching the package re-runs the Django
+# suite for every source. The second test holds that list to what the watched files refer to.
 #
 # Deliberately uses stdlib ast over a path walk, NOT the repo's `grimp` dependency: grimp
 # does not descend products/warehouse_sources/backend/temporal/data_imports/ (an implicit namespace package — no
@@ -34,6 +38,8 @@ _FACADE_MODULES = frozenset({_SOURCE_MGMT, _SOURCES})
 _SCAN_ROOTS = ("posthog", "ee", "products/product_analytics")
 
 _INPUTS_PREFIX = "backend/temporal/data_imports/sources/"
+_GENERATED_CONFIGS_DIR = f"{_INPUTS_PREFIX}generated_configs/"
+_GENERATED_CONFIG_REFERENCE = re.compile(r"(?:[\w.]+\.)?sources\.generated_configs(?:\.(\w+))?(?:\.[\w.]+)?")
 
 
 def _repo_root() -> Path:
@@ -131,16 +137,19 @@ def _core_consumed_facade_symbols(tree: ast.AST) -> set[str]:
     return found
 
 
-def _contract_covered_sources(root: Path) -> set[str] | None:
-    """Vendor dirs the narrowed contract-check inputs watch, or None when the product has no
-    narrowing override — turbo then falls back to watching all of backend/, so every vendor is
-    covered and there is nothing to enumerate."""
+def _contract_check_inputs(root: Path) -> list[str] | None:
+    """The narrowed contract-check inputs, or None when turbo watches all of backend/."""
     turbo_path = root / "products" / "warehouse_sources" / "turbo.json"
     if not turbo_path.exists():
         return None
     turbo = json.loads(turbo_path.read_text())
-    inputs = turbo.get("tasks", {}).get("backend:contract-check", {}).get("inputs")
-    if not inputs:
+    return turbo.get("tasks", {}).get("backend:contract-check", {}).get("inputs") or None
+
+
+def _contract_covered_sources(root: Path) -> set[str] | None:
+    """Vendor dirs the contract-check inputs watch, or None when every vendor is covered."""
+    inputs = _contract_check_inputs(root)
+    if inputs is None:
         return None
     covered = {
         rest.split("/")[0].removesuffix(".py")
@@ -183,4 +192,49 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
         f"not covered by products/warehouse_sources/turbo.json backend:contract-check inputs "
         f"{sorted(covered)}. A change to those sources would skip the Core tests that exercise them. "
         f"Add backend/temporal/data_imports/sources/<vendor>/** to the contract-check inputs."
+    )
+
+
+def _is_watched(rel: Path, inputs: list[str]) -> bool:
+    included = any(rel.full_match(glob) for glob in inputs if not glob.startswith("!"))
+    excluded = any(rel.full_match(glob.removeprefix("!")) for glob in inputs if glob.startswith("!"))
+    return included and not excluded
+
+
+def _referenced_generated_configs(tree: ast.AST, config_modules: set[str]) -> set[str]:
+    dotted: set[str] = set()
+    for node in ast.walk(tree):
+        match node:
+            case ast.ImportFrom(module=str(module), names=names):
+                dotted |= {module, *(f"{module}.{alias.name}" for alias in names)}
+            case ast.Import(names=names):
+                dotted |= {alias.name for alias in names}
+            case ast.Constant(value=str(value)):
+                dotted.add(value)
+    # A name under the package that is not a config module comes from the hand-written __init__.
+    return {
+        match[1] if match[1] in config_modules else "__init__"
+        for path in dotted
+        if (match := _GENERATED_CONFIG_REFERENCE.fullmatch(path))
+    }
+
+
+def test_contract_check_watches_exactly_the_generated_configs_it_refers_to() -> None:
+    root = _repo_root()
+    product_dir = root / "products" / "warehouse_sources"
+    configs_dir = product_dir / _GENERATED_CONFIGS_DIR
+    inputs = _contract_check_inputs(root)
+    if inputs is None or f"{_GENERATED_CONFIGS_DIR}**" in inputs:
+        return
+
+    config_modules = {file.stem for file in configs_dir.glob("*.py")}
+    referenced: set[str] = set()
+    for file in (product_dir / "backend").rglob("*.py"):
+        if _is_watched(file.relative_to(product_dir), inputs) and not file.is_relative_to(configs_dir):
+            referenced |= _referenced_generated_configs(ast.parse(file.read_text(), filename=str(file)), config_modules)
+
+    watched = {Path(glob).stem for glob in inputs if glob.startswith(_GENERATED_CONFIGS_DIR)}
+    assert watched == referenced, (
+        "products/warehouse_sources/turbo.json backend:contract-check inputs must list exactly the "
+        "generated configs the watched files refer to"
     )

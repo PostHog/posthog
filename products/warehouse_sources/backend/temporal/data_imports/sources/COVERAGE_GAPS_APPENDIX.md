@@ -5027,9 +5027,10 @@ Today (6): `auditlog`, `environments`, `flags`, `members`, `metrics`, `projects`
 
 Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 
-- [ ] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/experiments` — experiments and their results are LaunchDarkly's headline analytical object and are entirely absent today (high)
-- [ ] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
-- [ ] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/experiments` — experiments and their results are LaunchDarkly's headline analytical object and are entirely absent today (high)
+- [x] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
+- [x] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
+- [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
 - [ ] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
 - [ ] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
 - [ ] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
@@ -5068,10 +5069,10 @@ Today (5): `activities`, `campaigns`, `team`, `team_senders`, `unsubscribes`
 
 Diffed against: <https://developer.lemlist.com/api-reference/openapi/v2.json>
 
-- [ ] `GET /campaigns/{campaignId}/leads/ (and GET /leads)` — the prospect records a campaign is actually working - the fact table the synced activities point at (high)
-- [ ] `GET /contacts` — unified contact records with custom variables; the identity table for joining activities to people (high)
-- [ ] `GET /campaigns/reports and GET /v2/campaigns/{campaignId}/stats` — headline campaign performance metrics (sends, opens, replies, interested) without re-aggregating raw activities (high)
-- [ ] `GET /campaigns/{campaignId}/sequences` — lookup resolving the sequence and step ids carried on every activity row (high)
+- [x] `GET /campaigns/{campaignId}/leads/ (and GET /leads)` — the prospect records a campaign is actually working - the fact table the synced activities point at (high)
+- [x] `GET /contacts` — unified contact records with custom variables; the identity table for joining activities to people (high)
+- [x] `GET /campaigns/reports and GET /v2/campaigns/{campaignId}/stats` — headline campaign performance metrics (sends, opens, replies, interested) without re-aggregating raw activities (high)
+- [x] `GET /campaigns/{campaignId}/sequences` — lookup resolving the sequence and step ids carried on every activity row (high)
 - [ ] `GET /campaigns/{campaignId}/statutes` — per-lead campaign state (paused, finished, interested) - the transition status behind funnel reporting (medium)
 - [ ] `GET /companies (and GET /companies/{companyId}/notes)` — company records for account-level outreach reporting (medium)
 - [ ] `GET /inbox and GET /inbox/{contactId}` — conversations and messages, the reply side of outreach that activities only summarize (medium)
@@ -5133,14 +5134,14 @@ Note: Most Lever gaps are sub-resources nested under /opportunities/{id}, which 
 
 ## Lightdash — gaps
 
-Today (6): `charts`, `dashboards`, `metrics_catalog`, `org_users`, `projects`, `spaces`
+Today (9): `charts`, `dashboards`, `explores`, `metrics_catalog`, `org_users`, `projects`, `scheduler_runs`, `schedulers`, `spaces`
 
 Diffed against: <https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json>
 
-- [ ] `projects/{projectUuid}/explores` — lookup of every dbt model/table and its fields - resolves the field IDs embedded in the charts we already sync (high)
-- [ ] `analytics/user-activity/{projectUuid}` — Lightdash's headline adoption metric: per-user views, queries and chart creation (high)
-- [ ] `schedulers/{projectUuid}/list` — scheduled delivery definitions; the parent for run history below (high)
-- [ ] `schedulers/{projectUuid}/runs (and /logs)` — per-run state and failure history for scheduled deliveries - the reliability table (high)
+- [x] `projects/{projectUuid}/explores` — lookup of every dbt model/table and its fields - resolves the field IDs embedded in the charts we already sync (high). Added as `explores` (fan-out over `projects`). The list returns explore summaries only; per-field definitions need one `explores/{exploreId}` call per explore and were not added.
+- [ ] `analytics/user-activity/{projectUuid}` — Lightdash's headline adoption metric: per-user views, queries and chart creation (high). Skipped: it returns one object of project-level aggregates and top-N user lists, not one row per user, so it is not table material.
+- [x] `schedulers/{projectUuid}/list` — scheduled delivery definitions; the parent for run history below (high). Added as `schedulers` (fan-out over `projects`).
+- [x] `schedulers/{projectUuid}/runs (and /logs)` — per-run state and failure history for scheduled deliveries - the reliability table (high). Added as `scheduler_runs` (fan-out over `projects`, incremental merge on `runId` because the API returns only the last 7 days of runs). `/logs` skipped: its rows are per-job status transitions with no unique key, and each run row already carries its status and child job counts.
 - [ ] `projects/{projectUuid}/dataCatalog/{table}/analytics (and /{field})` — which charts and dashboards use each table/field - drives model deprecation decisions (medium)
 - [ ] `org/groups (+ groups/{groupUuid}/members)` — group membership table resolving access for the org users we already sync (medium)
 - [ ] `v2/content` — unified listing of charts, dashboards and sql charts including spaces and last-updated, useful as a single content inventory (medium)
@@ -5169,10 +5170,10 @@ Today (8): `customers`, `inventory`, `outlets`, `products`, `registers`, `sales`
 
 Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 
-- [ ] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
-- [ ] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
-- [ ] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
-- [ ] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
+- [x] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
+- [x] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
+- [x] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
+- [x] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
 - [ ] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
 - [ ] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
 - [ ] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
@@ -5190,7 +5191,7 @@ Today (5): `deployments`, `measurements`, `services`, `teams`, `users`
 
 Diffed against: <https://docs.linearb.io/api-overview/>
 
-- [ ] `incidents (GET /api/v1/incidents/search and /api/v1/incidents)` — incident records are the input to change failure rate and MTTR, two of the four DORA metrics LinearB is built around (high)
+- [x] `incidents (GET /api/v1/incidents/search and /api/v1/incidents)` — incident records are the input to change failure rate and MTTR, two of the four DORA metrics LinearB is built around (high)
 
 Note: LinearB's public API reference lists only measurements v2, deployments, incidents, external custom metrics, teams v1/v2, users, services, jobs and health. PostHog already covers deployments, measurements, services, teams and users. External custom metrics is write-only (report a metric), jobs is an async job-status poll and health is a liveness probe, so incidents is the only genuine readable gap.
 
@@ -5220,10 +5221,10 @@ Today (9): `domains`, `events`, `invoices`, `linodes`, `lke_clusters`, `nodebala
 
 Diffed against: <https://raw.githubusercontent.com/linode/linode-api-openapi/main/openapi.json>
 
-- [ ] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
-- [ ] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
-- [ ] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
-- [ ] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
+- [x] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
+- [x] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
+- [x] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
+- [x] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
 - [ ] `linode/instances/{linodeId}/transfer/{year}/{month}` — per-instance monthly bandwidth usage, the breakdown behind account-level transfer (medium)
 - [ ] `images` — custom and recovery images with size and expiry; a billed resource with no coverage today (medium)
 - [ ] `databases/instances (plus databases/types)` — managed database inventory, a billed service class entirely absent from the current tables (medium)

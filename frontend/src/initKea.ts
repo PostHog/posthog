@@ -26,6 +26,9 @@ mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
     'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
+    'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
+    'fetchSpans',
+    'fetchSparkline',
     'loadOfflineExperiments', // Offline views provide inline retry states.
     'loadOfflineScorerOptions',
     'loadOfflineSuggestedScorers',
@@ -121,6 +124,15 @@ Write actions whose own logic toasts the duplicate-key 400 (code `unique` on att
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
+Write actions whose own UI renders a validation 400 on these attrs under the field, so the
+generic toast would be a second one. Every other failure on these actions still toasts.
+Owned by inviteLogic's inviteFieldError reducer.
+*/
+const FIELD_ERROR_SELF_HANDLED: Record<string, Set<string>> = {
+    inviteTeamMembers: new Set(['message', 'first_name']),
+}
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
@@ -228,6 +240,8 @@ export function initKea({
                         DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
                     const isHasDependentsError =
                         error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
+                    const isSelfHandledFieldError =
+                        error.status === 400 && !!FIELD_ERROR_SELF_HANDLED[String(actionKey)]?.has(error.attr)
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -246,7 +260,8 @@ export function initKea({
                         isVerifiedDomainError ||
                         isReadOnlyImpersonationError ||
                         isFeatureFlagDuplicateKey ||
-                        isHasDependentsError
+                        isHasDependentsError ||
+                        isSelfHandledFieldError
                     ) {
                         // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null

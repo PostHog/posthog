@@ -1519,36 +1519,6 @@
             "readOnlyHint": true
         }
     },
-    "billing-alert-create": {
-        "description": "Create a billing-period spend alert in the active organization. The caller must be an organization Admin or Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle, scheduling, destinations, and delivery. The metric picks the billing-period total to watch: spend (current period total so far) or projected_spend (projected period-end total). The first version supports only the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes can create Slack, Microsoft Teams, or HTTPS webhook destinations atomically with the alert.",
-        "category": "Billing alerts",
-        "feature": "billing_alerts",
-        "summary": "Create billing alert",
-        "title": "Create billing alert",
-        "required_scopes": ["organization:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "billing-alerts"
-    },
-    "billing-alert-update": {
-        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. The metric picks the billing-period total to watch (spend or projected_spend); the first version supports only the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates a destination of the same type is rejected, because an alert allows one destination group per type.",
-        "category": "Billing alerts",
-        "feature": "billing_alerts",
-        "summary": "Update billing alert",
-        "title": "Update billing alert",
-        "required_scopes": ["organization:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "billing-alerts"
-    },
     "billing-features-get": {
         "description": "The product features the organization's plans include, with any overrides applied. The cheapest read in the billing API, readable by any member. Use it to check whether a feature such as group analytics or white-labelling is available before suggesting it. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
         "category": "Billing",
@@ -1831,7 +1801,7 @@
         "feature_flag": "business-knowledge-github-repos"
     },
     "business-knowledge-repositories-search": {
-        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search inside file contents and does not call GitHub code search.",
+        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a description says the repository holds a handbook or docs, search that repository for those words and read the file. Does not search inside file contents and does not call GitHub code search.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Search selected repositories",
@@ -3364,7 +3334,7 @@
         "feature_flag": "customer-analytics-customer-tasks"
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.\nA dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring, weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive: an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.\nLoad the building-a-dashboard skill before you create or change a dashboard. It covers when to update an existing dashboard instead, which insights to reuse, and how to lay out the tiles.\nA dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring, weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive: an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -7044,7 +7014,7 @@
         }
     },
     "inbox-report-artefacts-create": {
-        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
+        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Append an artefact to a report",

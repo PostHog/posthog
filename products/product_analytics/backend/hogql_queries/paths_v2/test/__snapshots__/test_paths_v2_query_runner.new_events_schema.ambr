@@ -20,7 +20,7 @@
      FROM
        (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-               tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
+               tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
         FROM events_json AS events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -45,7 +45,8 @@
                    optimize_min_inequality_conjunction_chain_length=4294967295,
                    allow_experimental_join_condition=1,
                    use_hive_partitioning=0,
-                   json_type_escape_dots_in_keys=1
+                   json_type_escape_dots_in_keys=1,
+                   output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestPathsV2QueryRunner.test_default_pageview_preset_snapshot[new_events_schema]
@@ -95,7 +96,7 @@
               FROM
                 (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
                         if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id,
-                        tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$pathname`)), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
+                        tuple(events.event, ifNull(multiIf(equals(events.event, '$pageview'), toString(if(notEquals(toJSONString(events.properties.^`$pathname`), '{}'), toJSONString(events.properties.^`$pathname`), if(isNull(nullIf(toString(events.properties.`$pathname`), '')), NULL, if(and(in(ascii(toString(events.properties.`$pathname`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$pathname`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$pathname`), '[]'), '{}'), toString(events.properties.`$pathname`))))), NULL), '')) AS path_item
                  FROM events_json AS events
                  LEFT OUTER JOIN
                    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -132,6 +133,7 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---

@@ -57,7 +57,8 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
             caption=(
                 "Sync the games and ratings of a list of Chess.com players.\n\n"
                 "Chess.com publishes this data without a key. "
-                "The tables identify each player by an opaque key. They hold no username, game link, or moves.\n\n"
+                "The tables identify each player by an opaque key. They hold no username or game link. "
+                "Each game's PGN keeps the moves and replaces the player names with ?.\n\n"
                 "After you add a username, resync the `games` table to load that player's earlier games."
             ),
             iconPath="/static/services/chess-com.png",
