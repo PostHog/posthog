@@ -97,7 +97,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.messaging.backend.presentation.serializers import DesignOperationSerializer
+from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
@@ -3647,6 +3647,10 @@ class WorkflowProposalSerializer(serializers.Serializer):
     applied_version = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Workflow version the approved change went live as."
     )
+    rejection_reason = serializers.CharField(
+        read_only=True,
+        help_text="Why the person who rejected this suggestion rejected it, or empty when they gave no reason.",
+    )
 
     @extend_schema_field(serializers.BooleanField)
     def get_is_stale(self, proposal: WorkflowProposalRecord) -> bool:
@@ -3787,7 +3791,15 @@ class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
 
 
 class WorkflowProposalRejectRequestSerializer(serializers.Serializer):
-    """Rejecting takes no body today. The serializer stays so a reason can be added without a new endpoint."""
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads "
+            "it before suggesting again, so a reason stops the same idea coming back in other words."
+        ),
+    )
 
 
 def _flatten_graph_errors(error: serializers.ValidationError) -> list[str]:
@@ -5450,6 +5462,7 @@ class HogFlowViewSet(
                 proposal_id=locked_proposal.id,
                 status=WorkflowProposalStatus.REJECTED,
                 resolved_by_id=request.user.pk if request.user.is_authenticated else None,
+                rejection_reason=param_serializer.validated_data.get("reason", "").strip(),
             )
 
         self._log_activity(instance.id, instance.name, "proposal_rejected")

@@ -36,6 +36,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
+    ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
@@ -67,7 +68,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.models import generate_all_schemas
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
@@ -124,12 +125,17 @@ from products.review_hog.backend.reviewer.telemetry import review_event_uuid, re
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
+    PRFilter,
     fetch_branch_compare,
     find_open_pr_for_branch,
 )
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
-from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
+    AlreadyRaised,
+    already_raised,
+    deduplicate_issues,
+)
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     VALIDATION_SYSTEM_PROMPT,
     build_validation_followup_prompt,
@@ -146,6 +152,7 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
     prunable_perspectives,
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    ChangedSinceReview,
     FlashSelection,
     FlashTurnStats,
     SingleAgentPrompt,
@@ -412,6 +419,10 @@ class DedupResult:
     issue_ids: list[str]
     # A single-agent turn's finding counts, which the workflow hands to the completed event.
     flash_stats: FlashTurnStats | None = None
+    # A Full turn's findings that another reviewer's PR comment already raises, for the status comment: the
+    # ones it shows, and how many there are in all, so the payload stays small.
+    raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere_count: int = 0
 
 
 @dataclass(frozen=False)
@@ -1407,6 +1418,54 @@ def _combine_and_clean(
     return clean_issues(raw_issues, pr_files)
 
 
+def _changed_since_last_review(
+    team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
+) -> ChangedSinceReview | None:
+    """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head.
+
+    Only a single-agent snapshot is a baseline: a Full turn at that head fetched a different file set, so the check
+    then does not run.
+    """
+    reviewed_head = (
+        ReviewReport.objects.for_team(team_id).filter(id=report_id).values_list("completed_head_sha", flat=True).first()
+    )
+    if reviewed_head is None or reviewed_head == head_sha:
+        return None
+    reviewed = load_pr_snapshot(
+        team_id=team_id, report_id=report_id, head_sha=reviewed_head, review_design=REVIEW_DESIGN_SINGLE_AGENT
+    )
+    if reviewed is None:
+        return None
+    return ChangedSinceReview.between(reviewed.pr_files, current_files)
+
+
+def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact") -> list[PRComment]:
+    """The PR's inline comments as they stand now, without outdated ones.
+
+    The fetch stage read them when the turn started, and other review bots often post while a Full turn
+    runs, so dedup reads them again. It keeps the first read when the PR moved to a new commit meanwhile,
+    because GitHub then places the comments on code the turn did not review. A comment GitHub no longer
+    places on a line is outdated: the code it was about changed.
+    """
+    comments = snapshot.pr_comments
+    pr_number = snapshot.pr_metadata.number
+    if pr_number is not None:
+        try:
+            token, installation_id = _installation_auth(input.team_id, input.repository)
+            owner, repo = input.repository.split("/", 1)
+            fetcher = PRFetcher(
+                owner=owner, repo=repo, pr_number=pr_number, token=token, installation_id=installation_id
+            )
+            if fetcher.fetch_head_sha() == input.head_sha:
+                # A complete read replaces the first one, so a comment deleted during the turn is gone.
+                comments = fetcher.fetch_pr_comments(PRFilter(), raise_errors=True)
+        except Exception:
+            logger.warning(
+                "Could not read the PR's comments again; deduplicating against the first read", exc_info=True
+            )
+    return [comment for comment in comments if comment.line is not None or comment.start_line is not None]
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1443,39 +1502,50 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
+    raised_elsewhere: list[AlreadyRaised] = []
     flash_selection: FlashSelection | None = None
     flash_stats: FlashTurnStats | None = None
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if single_agent:
             lens_plan = plan_lens_chunks(snapshot.pr_files)
+            changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
+                input.team_id, input.report_id, input.head_sha, snapshot.pr_files
+            )
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
                 issues=issues,
                 pr_metadata=snapshot.pr_metadata,
-                pr_comments=snapshot.pr_comments,
                 prior_findings=prior_findings,
                 branch=input.branch,
                 repository=input.repository,
                 lens_part_count=len(lens_plan.chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
+                changed_since=changed_since,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
         else:
+            # Flash posts what it finds whatever other comments say; only Full checks the PR's comments.
+            pr_comments = (
+                await database_sync_to_async(_current_pr_comments, thread_sensitive=False)(input, snapshot)
+                if input.review_mode == REVIEW_MODE_FULL
+                else []
+            )
             outcome = await deduplicate_issues(
                 team_id=input.team_id,
                 user_id=input.user_id,
                 issues=issues,
                 pr_metadata=snapshot.pr_metadata,
-                pr_comments=snapshot.pr_comments,
+                pr_comments=pr_comments,
                 prior_findings=prior_findings,
                 branch=input.branch,
                 repository=input.repository,
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1512,7 +1582,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             run_index=input.run_index,
         )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
-    return DedupResult(issue_ids=issue_ids, flash_stats=flash_stats)
+    return DedupResult(
+        issue_ids=issue_ids,
+        flash_stats=flash_stats,
+        raised_elsewhere=raised_elsewhere[:ALREADY_RAISED_SHOWN],
+        raised_elsewhere_count=len(raised_elsewhere),
+    )
 
 
 # --- Validate (per-chunk warm-session fan-out) -----------------------------------------------------

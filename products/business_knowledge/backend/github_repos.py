@@ -103,6 +103,7 @@ class RepositoryCacheState:
     repo: str
     tree_truncated: bool
     cache_status: str
+    description: str
 
 
 @frozen
@@ -401,7 +402,7 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
         row.full_name: row
         for row in IntegrationRepositoryCacheEntry.objects.filter(
             team_id=team_id, integration_id=integration_id, full_name__in=repos
-        ).only("full_name", "updated_at", "tree_truncated", "default_branch_sha")
+        ).only("full_name", "updated_at", "tree_truncated", "default_branch_sha", "description")
     }
     fresh_after = timezone.now() - timedelta(seconds=GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS)
     states: list[RepositoryCacheState] = []
@@ -415,6 +416,7 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
                 repo=full_name,
                 tree_truncated=bool(row.tree_truncated) if row is not None else False,
                 cache_status=RepositoryCacheStatus.READY if fresh else RepositoryCacheStatus.WARMING,
+                description=row.description if row is not None and isinstance(row.description, str) else "",
             )
         )
     return states
