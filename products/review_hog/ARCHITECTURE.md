@@ -369,7 +369,9 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
 5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
-   each with **no cross-perspective context** — overlap is left to dedup (7):
+   each with **no cross-perspective context** — overlap is left to dedup (7). The prompt quotes only the PR
+   author's own inline comments (intent and replies), never other reviewers', so the review judges the code
+   before dedup matches its findings against what others already raised:
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)

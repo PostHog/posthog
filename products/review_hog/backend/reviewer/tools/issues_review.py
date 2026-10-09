@@ -74,7 +74,9 @@ def build_review_prompt(
     pass is fed in. The prompt instructs the agent to pull the skill over MCP using its name and
     pinned version. `prior_findings` are problems earlier turns already found on this chunk's files;
     surfacing them tells the agent not to
-    re-investigate already-covered ground.
+    re-investigate already-covered ground. Of `pr_comments` the prompt shows only the PR author's own, as
+    context for their intent and replies: other reviewers' comments would steer the review towards what
+    they already found, and dedup matches findings against them after the review instead.
 
     The blind-spot check adds cross-perspective context WITHIN a turn: `same_turn_findings` are issues
     the wave already raised on this chunk this turn; `dig_deeper` reframes the covered block as "go
@@ -84,8 +86,9 @@ def build_review_prompt(
     chunk with NO lenses — the sweep must then be told it is the chunk's only reviewer.
     """
     main_template, output_schema = load_template_and_schema("issues_review")
+    author_comments = [comment for comment in pr_comments if comment.user.lower() == pr_metadata.author.lower()]
     return main_template.render(
-        **build_chunk_prompt_context(chunk, pr_metadata, pr_comments, pr_files),
+        **build_chunk_prompt_context(chunk, pr_metadata, author_comments, pr_files),
         COVERED_FINDINGS=_covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk),
         DIG_DEEPER=dig_deeper,
         IS_BLIND_SPOT=blind_spot_check,
