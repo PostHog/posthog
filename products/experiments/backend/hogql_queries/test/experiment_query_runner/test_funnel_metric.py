@@ -45,14 +45,21 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("direct", False),
-            ("precomputed", True),
+            ("direct", False, False),
+            ("precomputed", True, False),
+            # A pre-cutoff experiment reads both events, so the same-timestamp $experiment_exposure
+            # copy must not count as a second exposure or funnel entry.
+            ("direct_with_exposure_copies", False, True),
+            ("precomputed_with_exposure_copies", True, True),
         ]
     )
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
-    def test_query_runner_funnel_metric(self, name, use_precomputation):
+    def test_query_runner_funnel_metric(self, name, use_precomputation, with_exposure_copies):
         self._setup_precomputation_test(use_precomputation)
+        exposure_events = (
+            ["$feature_flag_called", "$experiment_exposure"] if with_exposure_copies else ["$feature_flag_called"]
+        )
 
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -79,17 +86,18 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Control: 8 successes, 7 failures (15 total exposures)
         for i in range(15):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_control_{i}",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={
-                    feature_flag_property: "control",
-                    "$feature_flag_response": "control",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
+            for exposure_event in exposure_events:
+                _create_event(
+                    team=self.team,
+                    event=exposure_event,
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: "control",
+                        "$feature_flag_response": "control",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
             if i < 8:  # First 8 users make purchases
                 _create_event(
                     team=self.team,
@@ -102,17 +110,18 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Test: 10 successes, 5 failures (15 total exposures)
         for i in range(15):
             _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_test_{i}",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={
-                    feature_flag_property: "test",
-                    "$feature_flag_response": "test",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
+            for exposure_event in exposure_events:
+                _create_event(
+                    team=self.team,
+                    event=exposure_event,
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: "test",
+                        "$feature_flag_response": "test",
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
             if i < 10:  # First 10 users make purchases
                 _create_event(
                     team=self.team,

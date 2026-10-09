@@ -654,18 +654,23 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, expected event)
-            ("before_cutoff", True, -7, "$feature_flag_called"),
-            ("after_cutoff", True, 7, "$experiment_exposure"),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
+            # (name, flag enabled for team, start/end offsets from cutoff in days, expected event)
+            ("ended_before_cutoff", True, -14, -7, "$feature_flag_called"),
+            ("started_before_cutoff_still_running", True, -7, None, "$experiment_exposure"),
+            ("started_before_cutoff_ended_after", True, -7, 7, "$experiment_exposure"),
+            ("after_cutoff", True, 7, None, "$experiment_exposure"),
+            ("after_cutoff_flag_disabled", False, 7, None, "$feature_flag_called"),
         ]
     )
+    @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30), tick=False)
     def test_detail_reports_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self,
+        _name: str,
+        flag_enabled: bool,
+        start_offset_days: int,
+        end_offset_days: int | None,
+        expected_event: str,
     ) -> None:
-        # The frontend names the exposure event from this field, so it has to agree with what the
-        # results queries actually read (resolve_default_exposure_event). Resolution compares
-        # start_date against a fixed constant, so these cases need no clock control.
         experiment = Experiment.objects.create(
             team=self.team,
             name="resolved-exposure-event",
@@ -673,6 +678,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 team=self.team, key=f"resolved-exposure-{_name}", created_by=self.user
             ),
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            end_date=(
+                EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=end_offset_days)
+                if end_offset_days is not None
+                else None
+            ),
         )
 
         def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:

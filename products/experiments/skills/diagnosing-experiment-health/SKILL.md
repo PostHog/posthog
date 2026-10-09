@@ -42,6 +42,8 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.exposure_config` — the exposure event and its property filters.
   Unset, or naming `$feature_flag_called`, means the default exposure event: read which one
   from `resolved_exposure_event`.
+  An experiment that started before 2026-09-01 (UTC) reads `$feature_flag_called` and `$experiment_exposure`
+  together ("Which event, which property" in `references/diagnostic-snapshot.md`).
   A config that names `$experiment_exposure` counts that event, whatever `resolved_exposure_event` says.
   Any other event, or an action, is a _custom exposure event_.
   Property filters in the config apply to either (B12).

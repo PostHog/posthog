@@ -11,6 +11,7 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    exposure_event_name_filter,
 )
 
 
@@ -221,28 +222,30 @@ class ExposureQueryBuilder:
 
     def build_exposure_event_predicate(self) -> ast.Expr:
         """Event-level exposure predicate, without date, variant, or test-account conditions."""
-        event_predicate = event_or_action_to_filter(self.context.team, self.context.exposure_config)
+        exposure_config = self.context.exposure_config
+        if not (
+            isinstance(exposure_config, ExperimentEventExposureConfig)
+            and exposure_config.event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
+        ):
+            return event_or_action_to_filter(self.context.team, exposure_config)
 
-        # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
-        # flag key filter, exposures of other experiments would count too.
-        if isinstance(
-            self.context.exposure_config, ExperimentEventExposureConfig
-        ) and self.context.exposure_config.event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT):
-            flag_property = f"$feature_flag"
-            event_predicate = ast.And(
-                exprs=[
-                    event_predicate,
-                    parse_expr(
-                        "{flag_property} = {feature_flag_key}",
-                        placeholders={
-                            "flag_property": ast.Field(chain=["properties", flag_property]),
-                            "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
-                        },
-                    ),
-                ]
+        filters: list[ast.Expr] = [
+            exposure_event_name_filter(exposure_config.event),
+            # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
+            # flag key filter, exposures of other experiments would count too.
+            parse_expr(
+                "{flag_property} = {feature_flag_key}",
+                placeholders={
+                    "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
+                    "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
+                },
+            ),
+        ]
+        if exposure_config.properties:
+            filters.append(
+                ast.And(exprs=[property_to_expr(prop, self.context.team) for prop in exposure_config.properties])
             )
-
-        return event_predicate
+        return ast.And(exprs=filters)
 
     def build_entity_key_filter(self) -> ast.Expr:
         """

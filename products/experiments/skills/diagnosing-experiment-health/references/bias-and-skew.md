@@ -37,7 +37,7 @@ file before `numbers-vs-sql.md` — that shape of divergence is most often a buc
 problem (A3/A4), not a query-scope problem.
 
 The SQL in this file follows the query rules in `diagnostic-snapshot.md`: the experiment's exposure event, the flag's variant keys, a window with both ends set, and no test-account filter.
-The exposure event is `resolved_exposure_event`, unless `exposure_criteria.exposure_config` names `$experiment_exposure`: then it is that event ("Which event, which property" in `diagnostic-snapshot.md`).
+The exposure event is `resolved_exposure_event`, or both flag-call events for an experiment that reads two, unless `exposure_criteria.exposure_config` names `$experiment_exposure`: then it is that event ("Which event, which property" in `diagnostic-snapshot.md`).
 The queries count `person_id`.
 On a flag aggregated by a group type (`feature_flag.filters.aggregation_group_type_index` is set), put `$group_<index>` in its place and leave out the rows where it is empty.
 When a result is compared with `$multiple`, leave out the keys in `excluded_variants`: the experiment never counts them.

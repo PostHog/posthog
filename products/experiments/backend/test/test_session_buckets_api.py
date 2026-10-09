@@ -536,15 +536,15 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, rollout flag enabled, experiment start offset from the cutoff, expected event)
-            ("after_cutoff", True, 7, EXPERIMENT_EXPOSURE_EVENT),
-            ("after_cutoff_flag_disabled", False, 7, "$feature_flag_called"),
-            ("before_cutoff", True, -7, "$feature_flag_called"),
+            # (name, rollout flag enabled, experiment start offset from the cutoff, events read)
+            ("after_cutoff", True, 7, {EXPERIMENT_EXPOSURE_EVENT}),
+            ("after_cutoff_flag_disabled", False, 7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
+            ("before_cutoff", True, -7, {"$feature_flag_called", EXPERIMENT_EXPOSURE_EVENT}),
         ]
     )
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=10), tick=False)
     def test_bucket_population_reads_the_resolved_exposure_event(
-        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_event: str
+        self, _name: str, flag_enabled: bool, start_offset_days: int, expected_events: set[str]
     ) -> None:
         # setUp logged in under the class-level freeze, months before this test's frozen clock,
         # so that session has expired; log in again inside the window.
@@ -578,14 +578,19 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
             response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
-        # The analysis queries resolve the default exposure event per experiment
-        # (resolve_default_exposure_event), and the playlist ANDs these ids with an exposure
-        # filter the frontend builds from the same resolved event. A bucket read off the other
-        # event intersects two different populations once the two events stop being emitted
-        # together.
+        # The bucket must hold the population the analysis queries count. An experiment on
+        # $feature_flag_called reads both events, because the $experiment_exposure copy is the
+        # only exposure left once ingestion stops writing $feature_flag_called to events.
         assert response.status_code == status.HTTP_200_OK, response.json()
-        expected_session = new_event_session if expected_event == EXPERIMENT_EXPOSURE_EVENT else legacy_event_session
-        assert response.json()["session_ids"] == [expected_session]
+        expected_sessions = [
+            session
+            for event, session in (
+                (EXPERIMENT_EXPOSURE_EVENT, new_event_session),
+                ("$feature_flag_called", legacy_event_session),
+            )
+            if event in expected_events
+        ]
+        assert sorted(response.json()["session_ids"]) == sorted(expected_sessions)
         # $experiment_exposure is emitted for every experiment, so matching it must still require
         # this experiment's flag key.
         assert other_flag_session not in response.json()["session_ids"]
