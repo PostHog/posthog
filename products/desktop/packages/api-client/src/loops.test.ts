@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { type ApiClient, createApiClient, type Fetcher } from "./generated";
+import {
+  type ApiClient,
+  createApiClient,
+  type Fetcher,
+} from "./generated.runtime";
 import {
   createLoop,
   destroyLoop,

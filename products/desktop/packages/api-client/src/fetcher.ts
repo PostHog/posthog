@@ -1,4 +1,4 @@
-import type { createApiClient } from "./generated";
+import type { createApiClient } from "./generated.runtime";
 
 export type FetchImplementation = (
   input: string | URL | Request,

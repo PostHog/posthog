@@ -1,5 +1,6 @@
 import { ApiRequestError } from "./fetcher";
-import type { ApiClient, Schemas } from "./generated";
+import type { Schemas } from "./generated";
+import type { ApiClient } from "./generated.runtime";
 
 /**
  * Requests behind a workflow-backed loop: the `hog_flows` endpoints Desktop

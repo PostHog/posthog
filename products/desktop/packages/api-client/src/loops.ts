@@ -8,7 +8,7 @@
 // instance, `Schemas.Loop` and friends land in `generated.ts` and this file
 // can be deleted in favor of the generated equivalents.
 import type { EffortLevel } from "@posthog/shared/domain-types";
-import type { ApiClient, Method } from "./generated";
+import type { ApiClient, Method } from "./generated.runtime";
 
 export namespace LoopSchemas {
   export type LoopVisibilityEnum = "personal" | "team";
