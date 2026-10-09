@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use metrics::counter;
-use zstd::zstd_safe::{get_error_name, CCtx, CDict, CParameter, DCtx, DDict};
+use zstd::zstd_safe::{get_error_name, CCtx, CDict, CParameter, DCtx, DDict, ResetDirective};
 
 /// Below this size the zstd frame and block headers cost more than the
 /// dictionary saves, so smaller documents stay raw and are not sampled.
@@ -234,12 +234,20 @@ impl Dictionary {
             // A buffer the size of the input makes zstd fail instead of
             // writing output that is not smaller.
             let mut compressed = Vec::with_capacity(raw.len());
-            cctx.ref_cdict(&self.cdict).ok()?;
-            let written = cctx.compress2(&mut compressed, raw);
+            let written = cctx
+                .ref_cdict(&self.cdict)
+                .and_then(|_| cctx.compress2(&mut compressed, raw));
+            // A failed frame leaves the context mid-session, and a context
+            // in that state refuses every dictionary change. The reset
+            // returns it to its init stage, so the next document can attach
+            // the dictionary again.
+            cctx.reset(ResetDirective::SessionOnly)
+                .expect("zstd documents that a session reset never fails");
             // The thread-local context outlives this dictionary, which is
             // freed when its codec drops. Detach it so the context never
             // holds a dangling dictionary pointer.
-            let _ = cctx.disable_dictionary();
+            cctx.disable_dictionary()
+                .expect("a context in its init stage accepts a dictionary change");
             written.ok()?;
             (compressed.len() < raw.len()).then(|| StoredProperties::ZstdDict {
                 compressed: compressed.into_boxed_slice(),
@@ -338,10 +346,12 @@ mod tests {
                 (state >> 16) as u8
             })
             .collect();
+        // The incompressible document goes first because a frame that fails
+        // must not stop later documents on the same thread from compressing.
         for (document, expect_compressed) in [
+            (incompressible, false),
             (person_properties(10_001), true),
             (br#"{"email":"a@example.com"}"#.to_vec(), false),
-            (incompressible, false),
         ] {
             let stored = codec.encode(document.clone());
             assert_eq!(
