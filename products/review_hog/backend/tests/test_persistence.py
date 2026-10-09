@@ -3,8 +3,7 @@ from dataclasses import replace
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
-
-from django.test import override_settings
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -69,6 +68,8 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import ReasoningEffort
+
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 _ContentT = TypeVar("_ContentT")
 
@@ -167,7 +168,7 @@ class TestUpsertReviewReport(BaseTest):
         # path would flip a report's reviewer between turns and feed a cheap turn's findings into a
         # stronger turn's "already covered" injection; a downgrade would hand a person a cheap review.
         signal_report_id = str(uuid.uuid4())
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+        with patch(_INTERNAL_FLAG, return_value=True):
             report_id = upsert_review_report(
                 team_id=self.team.id,
                 repository="o/r",
@@ -261,7 +262,7 @@ class TestUpsertReviewReport(BaseTest):
         # The tier is recorded for every team (so the label stays truthful and the tiers can be
         # compared on their traffic), but only the dogfood teams run the cheaper arm; a gate that
         # leaks the arm would cut review strength for teams nobody enrolled.
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id + 1]):
+        with patch(_INTERNAL_FLAG, return_value=False):
             report_id = upsert_review_report(
                 team_id=self.team.id,
                 repository="o/r",

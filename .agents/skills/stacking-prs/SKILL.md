@@ -55,6 +55,12 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 - Link PRs that already exist on GitHub, without local tracking: `gh stack link <pr> <pr> <pr>`, bottom to top (branch names and PR URLs work too). Pass a stack number first to append to an existing stack: `gh stack link <stack> <pr>`.
 - Slice by reviewable unit: migration / backend / frontend, or mechanical-rename / behavior-change. Each PR must make sense to review and merge alone.
 - Keep stacks shallow (2–4 layers). Every layer multiplies CI cost and rebase churn, and deep-stack pushes can trip GitHub's dispatch cap (see AGENTS.md, "Stacked PRs").
+- Place a CI-heavy layer by how CI diffs it:
+  - Most jobs pick their work from the layer's own diff against its parent, so such a layer does not make the layers above it heavy. A push to any layer below it starts its jobs again (see the duplicate-run note under "Iterate and keep in sync"). Put it low, unless it is the layer that still changes most.
+  - A few steps diff against master, so they repeat on layers above the change. Trunk's impacted-targets job runs on every layer and computes affected crates when `rust/` or `proto/` differs. Backend jobs build the HogQL parser from source when `common/hogql_parser/` or `rust/hogql/parser/` differs, and Playwright jobs when `common/hogql_parser/` differs. Those builds repeat only on upper layers whose own diff starts backend or Playwright jobs. If upper layers do, put the parser change in the top layer.
+- Put every change that moves a visual review snapshot, Storybook or Playwright, in the top layer.
+  Visual review commits each approved baseline to the layer's branch, which forces a restack of every layer above it.
+  If several layers need it, finalize bottom-up and restack after each one.
 
 ## Publish
 
@@ -81,7 +87,7 @@ gh stack sync --prune    # also delete local branches for merged PRs
 - On rebase conflict, sync restores all branches untouched; run `gh stack rebase`, resolve, then `gh stack rebase --continue` (or `--abort`).
 - `gh stack view --short` shows status (`--json` for scripting); a `⚠` means that layer needs a rebase, which blocks merging. `gh stack checkout <stack-number|PR|URL>` pulls down and tracks a stack you don't have locally, including a teammate's.
 - `gh stack modify` interactively reorders, folds, drops, or renames layers. `gh stack unstack` removes the stack on GitHub (`--local` to only drop local tracking).
-- Batch work before syncing. Each sync force-pushes and re-runs a full CI matrix for every rebased layer, so sync when you need the rebase, not to track master.
+- Batch work before syncing. Each sync force-pushes every rebased layer, and each one runs the CI jobs its own diff starts, so sync when you need the rebase, not to track master.
 - A push that moves a layer and its base in one go sends that layer two `synchronize` events, one per moved ref (the same behavior [git-spice#966](https://github.com/abhinav/git-spice/issues/966) reports). Every workflow then starts twice, and a workflow with a concurrency group cancels the older run, so a `cancelled` row next to a passing one is this duplicate, not a test failure. To avoid it, push the layers one at a time, bottom first, about a minute apart: each layer then gets the extra run on its old head, and its own push supersedes that run cleanly.
 - A cancelled duplicate still blocks the merge, because GitHub keeps its checks next to the newer green ones. Rerun it with the "Cancelled runs on the head" recipe in `/merging-prs` instead of pushing again. When `Django Tests Pass` fails because Depot cancelled its run for the event, its log lists the retry steps: retry the Depot run, then `gh run rerun <run id> --failed` relays the new result.
 - Layer branches move without you: ReviewHog and other bots push fix commits straight onto PR branches. `gh stack sync` fetches first and pushes with `--force-with-lease`, so it refuses when a branch moved; treat that refusal as "someone committed here, go read it", not "retry". Before any manual `git push` or rebase of a layer, `git fetch origin` and fast-forward onto the remote head. Never plain force-push a layer branch.

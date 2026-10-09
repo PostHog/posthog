@@ -107,6 +107,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
+    '/platform-alerts': ['PlatformAlerts', 'platformAlerts'],
+    '/platform-alerts/:id': ['PlatformAlert', 'platformAlert'],
     '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
@@ -186,6 +188,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
+    ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number/ci-explorer': [
+        'EngineeringAnalyticsCIExplorer',
+        'engineeringAnalyticsCIExplorer',
     ],
     '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
         'EngineeringAnalyticsWorkflowRun',
@@ -642,6 +648,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
+    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
         name: 'Precompute debug',
@@ -840,6 +848,13 @@ export const productConfiguration: Record<string, any> = {
         name: 'Pull request',
         layout: 'app-container',
         description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
+        iconType: 'health',
+    },
+    EngineeringAnalyticsCIExplorer: {
+        projectBased: true,
+        name: 'CI explorer',
+        layout: 'app-container',
+        description: "A pull request's CI on one zoomable canvas: workflows, jobs, and matrix shards.",
         iconType: 'health',
     },
     EngineeringAnalyticsWorkflowRun: {
@@ -1309,6 +1324,8 @@ export const productUrls = {
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
+    platformAlerts: (): string => '/platform-alerts',
+    platformAlert: (id: string): string => `/platform-alerts/${id}`,
     precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
@@ -1503,6 +1520,8 @@ export const productUrls = {
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
+    engineeringAnalyticsCIExplorer: (repoOwner: string, repoName: string, number: number | string): string =>
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}/ci-explorer`,
     engineeringAnalyticsWorkflowRun: (
         repoOwner: string,
         repoName: string,
@@ -2498,6 +2517,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: [
             'EngineeringAnalytics',
             'EngineeringAnalyticsPullRequest',
+            'EngineeringAnalyticsCIExplorer',
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
             'EngineeringAnalyticsAuthor',

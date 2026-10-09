@@ -426,6 +426,7 @@ trialFixtureLongReport.variants = trialFixtureLongReport.variants.map((variant) 
 }))
 
 export const trialFixtureServerComparison: ScoutTrialComparisonApi = {
+    archived: false,
     comparison_id: trialFixtureComparison.id,
     config_id: trialFixtureComparison.configId,
     context_id: trialFixtureResult.context_id,

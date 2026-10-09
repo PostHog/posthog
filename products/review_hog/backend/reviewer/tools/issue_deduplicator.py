@@ -1,6 +1,8 @@
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+
+from django.conf import settings
 
 from temporalio.exceptions import ApplicationError
 
@@ -14,10 +16,12 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
+    REVIEW_HOG_FINDING_MARKER,
+    display_level,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication, IssueDeduplication
-from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
+from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
+from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange, ReportedPriority
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_openai_review, run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
@@ -31,8 +35,55 @@ class Duplicate:
 
     issue: Issue
     # The id of what it repeats: a finding of this call, an anchor, an earlier turn's issue key, or a PR
-    # comment id. Only the Flash dedup names it.
+    # comment id.
     duplicate_of: str | None
+
+
+@frozen
+class AlreadyRaised:
+    """A finding a turn did not post because another reviewer's PR comment already raises it."""
+
+    title: str
+    level: ReportedPriority
+    comment_id: int
+    commenter: str
+
+
+def _is_review_hog_finding(comment: PRComment) -> bool:
+    """ReviewHog's own finding comment. The marker is public, so it only counts on a bot's comment, and on
+    ReviewHog's own app when its login is configured; otherwise anyone could paste it to leave the list."""
+    expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
+    by_review_hog = comment.user == expected if expected else comment.user.endswith("[bot]")
+    return by_review_hog and REVIEW_HOG_FINDING_MARKER in comment.body
+
+
+def already_raised(duplicates: Sequence[Duplicate], pr_comments: Sequence[PRComment]) -> list[AlreadyRaised]:
+    """The other reviewers' PR comments that a turn's findings repeat.
+
+    One entry per comment, at the most severe level any of its repeating findings gave it, because several
+    perspectives often find the same problem.
+    """
+    others = {
+        str(comment.id): comment
+        for comment in pr_comments
+        if comment.id is not None and not _is_review_hog_finding(comment)
+    }
+    by_comment: dict[int, AlreadyRaised] = {}
+    for duplicate in duplicates:
+        comment = others.get(duplicate.duplicate_of or "")
+        if comment is None or comment.id is None:
+            continue
+        raised = AlreadyRaised(
+            title=duplicate.issue.title,
+            level=display_level(duplicate.issue.priority, duplicate.issue.reported_priority),
+            comment_id=comment.id,
+            commenter=comment.user,
+        )
+        current = by_comment.get(comment.id)
+        # "P0" sorts before "P3", so the smaller level is the more severe one.
+        if current is None or raised.level < current.level:
+            by_comment[comment.id] = raised
+    return list(by_comment.values())
 
 
 @frozen
@@ -70,15 +121,18 @@ def _comment_range(comment: PRComment) -> tuple[str, LineRange] | None:
 
 
 def _select_dedup_candidates(
-    issues: list[Issue], prior_ranges: list[tuple[str, LineRange]]
+    issues: list[Issue], prior_ranges: list[tuple[str, LineRange]], commented_files: Collection[str] = ()
 ) -> tuple[list[Issue], list[Issue]]:
     """Split issues into (dedup candidates, definitely-unique) by deterministic position.
 
     Only an issue that shares a file and overlapping lines with another issue — or with prior
-    coverage (a review comment, or an earlier turn's finding) — can be a duplicate, so the rest skip
+    coverage (an earlier turn's finding) — can be a duplicate, so the rest skip
     the LLM dedupe entirely. This keeps the single dedupe call small as the number of perspectives
     grows, and never drops a positionally isolated finding. Whether two positionally-colliding
     issues are *actually* duplicates is still left to the content-aware LLM.
+
+    A PR comment anywhere in the issue's file (`commented_files`) makes it a candidate too: the review does
+    not see other reviewers' comments, so it often anchors the same problem on other lines.
     """
     candidates: list[Issue] = []
     unique: list[Issue] = []
@@ -87,7 +141,7 @@ def _select_dedup_candidates(
             i != j and issue.file == other.file and _ranges_overlap(issue.lines, other.lines)
             for j, other in enumerate(issues)
         )
-        collides_with_prior = any(
+        collides_with_prior = issue.file in commented_files or any(
             path == issue.file and _ranges_overlap(issue.lines, [prior_range]) for path, prior_range in prior_ranges
         )
         (candidates if collides_with_issue or collides_with_prior else unique).append(issue)
@@ -120,16 +174,13 @@ def _positional_duplicates(
     return named
 
 
-def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None, *, with_id: bool) -> dict:
-    """One prior finding as prompt data: its content plus how the earlier turn's validator ruled.
-
-    `with_id` adds the issue key as the finding's id, for a dedup that names what each duplicate repeats.
-    """
+def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None) -> dict:
+    """One prior finding as prompt data: its content, its issue key as the id a duplicate names, and how
+    the earlier turn's validator ruled."""
     payload = finding.model_dump(
         mode="json", include={"title", "file", "lines", "body", "suggestion", "priority", "source_perspective"}
     )
-    if with_id:
-        payload["id"] = finding.issue_key
+    payload["id"] = finding.issue_key
     if verdict is None:
         payload["prior_ruling"] = "not validated (the earlier turn did not finish judging it)"
     elif verdict.is_valid:
@@ -233,8 +284,8 @@ async def deduplicate_issues(
 
     `anchors` are findings this turn keeps whatever the LLM answers. They count as prior coverage, so
     an issue that restates one is dropped, and they are never dropped or returned themselves.
-    `for_flash` runs the LLM call on the Flash dedup pins instead of the pipeline's, and asks it to name
-    what each duplicate repeats (`Duplicate.duplicate_of`). A Flash call that fails non-retryably, or
+    Every call names what each duplicate repeats (`Duplicate.duplicate_of`). `for_flash` runs the LLM call
+    on the Flash dedup pins instead of the pipeline's. A Flash call that fails non-retryably, or
     fails at all when `fall_back_on_any_error` says no retry follows, falls back to the positional
     pre-filter alone (`_positional_duplicates`), because the review sessions already ran and a dedup
     failure must not cost the turn.
@@ -251,10 +302,11 @@ async def deduplicate_issues(
     candidates: list[Issue] = issues
     unique: list[Issue] = []
     if not for_flash:
-        prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
-        prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
+        prior_ranges = [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
         prior_ranges += [(anchor.file, lr) for anchor in anchors for lr in anchor.lines]
-        candidates, unique = _select_dedup_candidates(issues, prior_ranges)
+        candidates, unique = _select_dedup_candidates(
+            issues, prior_ranges, commented_files={comment.path for comment in pr_comments}
+        )
     logger.info(
         f"Deduplication: {len(candidates)} candidate(s); "
         f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"
@@ -269,15 +321,11 @@ async def deduplicate_issues(
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
         PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
         PRIOR_FINDINGS_JSON=json.dumps(
-            [_prior_finding_payload(f, v, with_id=for_flash) for f, v in prior_findings]
-            + [_anchor_payload(a) for a in anchors],
+            [_prior_finding_payload(f, v) for f, v in prior_findings] + [_anchor_payload(a) for a in anchors],
             indent=2,
         ),
         ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
-        DEDUPLICATION_SCHEMA=(
-            json.dumps(FlashIssueDeduplication.model_json_schema(), indent=2) if for_flash else schema.strip()
-        ),
-        NAMES_DUPLICATE_OF=for_flash,
+        DEDUPLICATION_SCHEMA=schema.strip(),
     )
 
     # Each removed id, mapped to what it repeats when the dedup names it.
@@ -290,7 +338,7 @@ async def deduplicate_issues(
                 user_id=user_id,
                 prompt=prompt,
                 system_prompt=DEDUP_SYSTEM_PROMPT,
-                model_to_validate=FlashIssueDeduplication,
+                model_to_validate=IssueDeduplication,
                 step_name="dedup",
                 model=FLASH_DEDUP_MODEL,
                 reasoning_effort=FLASH_DEDUP_REASONING_EFFORT,
@@ -314,7 +362,7 @@ async def deduplicate_issues(
             repository=repository,
             workflow_id_prefix=workflow_id_prefix,
         )
-        named_duplicates = {dup.id: None for dup in deduplication_result.duplicates}
+        named_duplicates = {dup.id: dup.duplicate_of for dup in deduplication_result.duplicates}
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
     deduplicated_issues = unique + [issue for issue in candidates if issue.id not in named_duplicates]
     logger.info(
