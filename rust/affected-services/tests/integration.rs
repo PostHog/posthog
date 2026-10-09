@@ -320,6 +320,11 @@ fn multi_binary_crate_produces_all_images() {
     true,
     &[],
 )]
+#[case::base_compose_change_triggers_rebuild_all(
+    "docker-compose.base.yml",
+    true,
+    &[],
+)]
 fn path_rule_ordering(
     #[case] file: &str,
     #[case] expect_rebuild_all: bool,
