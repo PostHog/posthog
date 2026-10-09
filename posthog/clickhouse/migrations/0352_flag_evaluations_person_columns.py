@@ -13,12 +13,15 @@ from posthog.models.flag_evaluations.sql import (
 # Adds person_properties, person_created_at and person_mode to the flag_evaluations family.
 # posthog/models/flag_evaluations/sql.py carries the rationale.
 #
-# The ALTERs run before the Kafka table and MV are dropped, so a failed ALTER leaves the old MV
-# ingesting. Its inserts omit the new columns, so each table fills their defaults. A shard replica
-# that has not yet applied the sharded ALTER rejects a block from writable_flag_evaluations that
-# carries the new columns, so a few inserts can fail and retry until it catches up. The recreate
-# also applies the consumer settings that sql.py declares to any environment whose live table
-# predates them.
+# A Kafka engine table cannot ALTER its columns, so the migration drops and recreates it with its
+# MV. The ALTERs run before that drop, so a failed ALTER leaves the old MV ingesting. Its inserts
+# omit the new columns, so each table fills their defaults. A shard replica that has not yet applied
+# the sharded ALTER rejects a block from writable_flag_evaluations that carries the new columns, so
+# a few inserts can fail and retry until it catches up. The recreate also applies the consumer
+# settings that sql.py declares to any environment whose live table predates them.
+#
+# An environment that kept an older person_properties column without a default skips the ADD COLUMN
+# for it. The MODIFY COLUMN gives that column the '{}' default too.
 
 
 def _add_person_columns(table: str) -> str:
@@ -26,7 +29,8 @@ def _add_person_columns(table: str) -> str:
         f"ALTER TABLE {table} "
         "ADD COLUMN IF NOT EXISTS person_properties String DEFAULT '{}' AFTER person_id, "
         "ADD COLUMN IF NOT EXISTS person_created_at DateTime64(3) AFTER person_properties, "
-        "ADD COLUMN IF NOT EXISTS person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2) AFTER inserted_at"
+        "ADD COLUMN IF NOT EXISTS person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2) AFTER inserted_at, "
+        "MODIFY COLUMN person_properties DEFAULT '{}'"
     )
 
 

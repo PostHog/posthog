@@ -13,13 +13,15 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
 # actually carries: no elements_chain and no group property blobs, because group
-# filters join the groups table instead. It keeps the full
-# properties JSON as the source of truth, so queries and integrations built on
-# event properties survive the routing switch. It stores person_properties,
-# person_created_at and person_mode the way the events table does, because
-# test-account filters read person properties, lifecycle insights read the person's
-# created_at, and a persons join at query time does not fit in memory on the
-# largest teams. The 90-day TTL is what makes rows that wide affordable.
+# filters join the groups table instead. It keeps the full properties JSON as the
+# source of truth, so queries and integrations built on event properties survive
+# the routing switch. It stores person_properties, person_created_at and
+# person_mode the way the events table does, because test-account filters read
+# person properties, lifecycle insights read the person's created_at, and a
+# persons join at query time does not fit in memory on the largest teams.
+# person_mode tells a call processed without a person profile from a person with
+# no properties, because both store '{}' in person_properties. The 90-day TTL is
+# what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
 #   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
@@ -75,8 +77,9 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # writable_flag_evaluations would store epoch or '' instead of the sharded table's
 # DEFAULTs.
 #
-# person_properties defaults to '{}' because the property-removal UDF
-# JSONDropKeysPool fails on an empty string.
+# person_properties defaults to '{}' because the JSONDropKeys UDFs fail on an
+# empty string. HogQL wraps person_properties in one to mask restricted person
+# properties.
 #
 # No column carries a CODEC, including the JSON blobs the events table wraps in
 # ZSTD(3); the general rule is in posthog/clickhouse/migrations/AGENTS.md. Nothing
