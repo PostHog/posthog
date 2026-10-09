@@ -199,22 +199,23 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         .expect("v1 pipeline must accept the batch");
 
     let cfg = test_utils::test_outputs_config();
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), batch_size, "v1 must produce every event");
-        let record = &records[observe];
-        Observed {
-            lane: if record.topic == cfg.analytics_main_topic {
-                Lane::Main
-            } else if record.topic == cfg.analytics_overflow_topic {
-                Lane::Overflow
-            } else {
-                Lane::Other(record.topic.clone())
-            },
-            has_key: record.key.is_some(),
-            person_processing_disabled: record.header("force_disable_person_processing")
-                == Some("true"),
-        }
-    })
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), batch_size, "v1 must produce every event");
+    let record = &records[observe];
+    Observed {
+        lane: if *record.topic == *cfg.analytics_main_topic {
+            Lane::Main
+        } else if *record.topic == *cfg.analytics_overflow_topic {
+            Lane::Overflow
+        } else {
+            Lane::Other(record.topic.to_string())
+        },
+        has_key: record.key.is_some(),
+        person_processing_disabled: record
+            .headers
+            .force_disable_person_processing
+            .unwrap_or(false),
+    }
 }
 
 /// The matrix. Cases with a burst limiter armed send two events and observe

@@ -53,10 +53,9 @@ async fn event_type_routes_to_destination(#[case] event_name: &str, #[case] expe
     assert_eq!(resp.entries().len(), 1);
     assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 1, "expected exactly 1 Kafka record");
-        assert_eq!(records[0].topic, expected_topic);
-    });
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1, "expected exactly 1 Kafka record");
+    assert_eq!(&*records[0].topic, expected_topic);
 }
 
 // -------------------------------------------------------------------------
@@ -161,13 +160,12 @@ async fn historical_rerouting() {
     assert_eq!(resp.entries().len(), 1);
     assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 1);
-        assert_eq!(
-            records[0].topic, "events_hist",
-            "old event should route to historical topic"
-        );
-    });
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(
+        &*records[0].topic, "events_hist",
+        "old event should route to historical topic"
+    );
 }
 
 // -------------------------------------------------------------------------

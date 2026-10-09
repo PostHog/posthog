@@ -4050,13 +4050,13 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 1, "the verified event must be published");
-            assert!(
-                records[0].payload.contains("$ai_gateway_verified"),
-                "verified marker must reach the published payload"
-            );
-        });
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 1, "the verified event must be published");
+        let payload = std::str::from_utf8(&records[0].payload).unwrap();
+        assert!(
+            payload.contains("$ai_gateway_verified"),
+            "verified marker must reach the published payload"
+        );
     }
 
     /// process_batch wiring: a client-set marker with no signature is stripped
@@ -4080,18 +4080,18 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(
-                records.len(),
-                1,
-                "the event is still published, just untrusted"
-            );
-            assert!(
-                !records[0].payload.contains("$ai_gateway"),
-                "forged marker must be stripped before publish"
-            );
-            assert!(records[0].payload.contains("$ai_model"));
-        });
+        let records = ts.mock_producer.get_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "the event is still published, just untrusted"
+        );
+        let payload = std::str::from_utf8(&records[0].payload).unwrap();
+        assert!(
+            !payload.contains("$ai_gateway"),
+            "forged marker must be stripped before publish"
+        );
+        assert!(payload.contains("$ai_model"));
     }
 
     /// process_batch wiring: an AI event lands on the AI topic.
@@ -4106,10 +4106,9 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 1, "the event must be published");
-            assert_eq!(records[0].topic, "ai_events");
-        });
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 1, "the event must be published");
+        assert_eq!(&*records[0].topic, "ai_events");
     }
 
     /// process_batch wiring: overflow stamping must run when only the AI-lane
@@ -4140,14 +4139,13 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            let mut topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
-            topics.sort_unstable();
-            assert_eq!(
-                topics,
-                vec!["ai_events", "ai_events_overflow", "events_main"]
-            );
-        });
+        let records = ts.mock_producer.get_records();
+        let mut topics: Vec<&str> = records.iter().map(|r| &*r.topic).collect();
+        topics.sort_unstable();
+        assert_eq!(
+            topics,
+            vec!["ai_events", "ai_events_overflow", "events_main"]
+        );
     }
 
     /// process_batch wiring: the AI byte budget runs in the v1 pipeline too, so
@@ -4175,15 +4173,14 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            let mut topics: Vec<&str> = records.iter().map(|r| r.topic.as_str()).collect();
-            topics.sort_unstable();
-            assert_eq!(
-                topics,
-                vec!["ai_events", "events_main"],
-                "the over-budget AI event must not reach the sink, and the analytics event must be untouched"
-            );
-        });
+        let records = ts.mock_producer.get_records();
+        let mut topics: Vec<&str> = records.iter().map(|r| &*r.topic).collect();
+        topics.sort_unstable();
+        assert_eq!(
+            topics,
+            vec!["ai_events", "events_main"],
+            "the over-budget AI event must not reach the sink, and the analytics event must be untouched"
+        );
     }
 
     // =========================================================================
@@ -4406,8 +4403,10 @@ mod tests {
             assert_eq!(entry.details, Some(DETAIL_NON_HISTORICAL_DROP));
         }
         assert!(!resp.has_retry, "dropped batch must not signal retry");
-        ts.mock_producer
-            .with_records(|records| assert!(records.is_empty(), "nothing may be published"));
+        assert!(
+            ts.mock_producer.get_records().is_empty(),
+            "nothing may be published"
+        );
     }
 
     fn batch_with_historical_flag(flag: serde_json::Value, events: Vec<Event>) -> Batch {
@@ -4443,9 +4442,11 @@ mod tests {
         for (_, entry) in resp.entries() {
             assert_eq!(entry.result, EventResult::Ok);
         }
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 2, "both historical events must publish");
-        });
+        assert_eq!(
+            ts.mock_producer.get_records().len(),
+            2,
+            "both historical events must publish"
+        );
     }
 
     #[tokio::test]
@@ -4501,20 +4502,20 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 3, "all three historical events must publish");
-            for r in records {
-                let expected = if r.payload.contains("$ai_generation") {
-                    "ai_events"
-                } else {
-                    "events_hist"
-                };
-                assert_eq!(
-                    r.topic, expected,
-                    "unexpected lane for a historical import event",
-                );
-            }
-        });
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 3, "all three historical events must publish");
+        for r in &records {
+            let payload = std::str::from_utf8(&r.payload).unwrap();
+            let expected = if payload.contains("$ai_generation") {
+                "ai_events"
+            } else {
+                "events_hist"
+            };
+            assert_eq!(
+                &*r.topic, expected,
+                "unexpected lane for a historical import event",
+            );
+        }
     }
 
     #[tokio::test]
@@ -4536,10 +4537,9 @@ mod tests {
 
         process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, "ai_events");
-        });
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(&*records[0].topic, "ai_events");
     }
 
     #[tokio::test]
@@ -4606,10 +4606,9 @@ mod tests {
         }
         assert!(!resp.has_retry, "a gated batch must not signal retry");
 
-        ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 1, "only the AI event may publish");
-            assert_eq!(records[0].topic, "ai_events");
-        });
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 1, "only the AI event may publish");
+        assert_eq!(&*records[0].topic, "ai_events");
     }
 
     /// Any `$ai_*` name is admitted; every other name drops.
@@ -4659,8 +4658,7 @@ mod tests {
             assert_eq!(entry.result, EventResult::Ok);
             assert_eq!(entry.details, None);
         }
-        ts.mock_producer
-            .with_records(|records| assert_eq!(records.len(), 3));
+        assert_eq!(ts.mock_producer.get_records().len(), 3);
     }
 
     /// A batch with nothing but non-AI events leaves no event publishable, so
@@ -4689,8 +4687,10 @@ mod tests {
             assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
         }
         assert!(!resp.has_retry, "a fully gated batch must not signal retry");
-        ts.mock_producer
-            .with_records(|records| assert!(records.is_empty(), "nothing may publish"));
+        assert!(
+            ts.mock_producer.get_records().is_empty(),
+            "nothing may publish"
+        );
     }
 
     /// The gate keys on the event name, not the destination, so a restriction

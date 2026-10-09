@@ -382,28 +382,24 @@ async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let body = response.text().await;
     assert_eq!(status, StatusCode::OK, "v1 rejected the batch: {body}");
 
-    ts.mock_producer.with_records(|produced| {
-        assert_eq!(
-            produced.len(),
-            distinct_ids.len(),
-            "v1 must produce every event"
-        );
-        Batch {
-            records: produced
-                .iter()
-                .map(|r| Record {
-                    lane: v1_lane(&r.topic),
-                    has_key: r.key.is_some(),
-                    // The wire header is bytes, so read it back the way a
-                    // consumer would.
-                    force_disable_person_processing: r
-                        .header("force_disable_person_processing")
-                        .map(|v| v == "true"),
-                })
-                .collect(),
-            limiter_consultations: consultations(&snapshotter),
-        }
-    })
+    let produced = ts.mock_producer.get_records();
+    assert_eq!(
+        produced.len(),
+        distinct_ids.len(),
+        "v1 must produce every event"
+    );
+
+    Batch {
+        records: produced
+            .iter()
+            .map(|r| Record {
+                lane: v1_lane(&r.topic),
+                has_key: r.key.is_some(),
+                force_disable_person_processing: r.headers.force_disable_person_processing,
+            })
+            .collect(),
+        limiter_consultations: consultations(&snapshotter),
+    }
 }
 
 // Each path names its lanes differently; the matrix compares lanes, not strings.
