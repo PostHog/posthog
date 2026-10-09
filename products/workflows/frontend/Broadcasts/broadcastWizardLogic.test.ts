@@ -267,7 +267,10 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
-    it('retries a failed email autosave and moves to the draft URL once it saves', async () => {
+    it.each([
+        { where: 'on /broadcasts/new', leaveTo: null, expectedPath: '/broadcasts/broadcast-1' },
+        { where: 'after going back to the list', leaveTo: '/broadcasts', expectedPath: '/broadcasts' },
+    ])('retries a failed email autosave and keeps the person $where once it saves', async (testCase) => {
         router.actions.push('/broadcasts/new')
         logic.actions.setStep('content')
         releaseCreate()
@@ -276,12 +279,15 @@ describe('broadcastWizardLogic', () => {
         failPatches = 1
 
         logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Saved on the retry' })
+        if (testCase.leaveTo) {
+            router.actions.push(testCase.leaveTo)
+        }
 
         await expectLogic(logic)
             .toDispatchActions(['setEmail', 'draftAutosaved', 'showSavedDraftUrl'])
             .toFinishAllListeners()
         expect(patchedSubjects).toEqual(['Saved on the retry'])
-        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.location.pathname).toMatch(new RegExp(`${testCase.expectedPath}$`))
     })
 
     it('moves to the draft URL when Continue saves an email edit still waiting on its autosave', async () => {

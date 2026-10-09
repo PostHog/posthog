@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
@@ -1244,8 +1245,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         showSavedDraftUrl: () => {
             // On /broadcasts/new a reload starts over and orphans the saved draft. The new URL remounts the
             // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
+            // A late autosave must not pull a person who has left the wizard back to this draft.
             if (
                 props.id === 'new' &&
+                removeProjectIdIfPresent(router.values.location.pathname) === urls.broadcastNew() &&
                 !cache.emailEditPending &&
                 values.broadcastId &&
                 values.broadcast?.status === 'draft'
