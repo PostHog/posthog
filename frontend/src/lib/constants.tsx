@@ -327,6 +327,7 @@ export const FEATURE_FLAGS = {
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
+    DWH_SYNC_ALERTS: 'dwh-sync-alerts', // owner: #team-warehouse-sources, gates the data warehouse sync alert sub-templates
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     EMAIL_TEMPLATES_AI_FIRST_NEW: 'email-templates-ai-first-new', // owner: @mayteio #team-workflows
     EMOJI_RELATED_SEARCH: 'emoji-related-search', // owner: @pauldambra, gates the model search in `emojiSuggestionsLogic.ts` when the emoji picker finds no match
@@ -549,7 +550,6 @@ export const FEATURE_FLAGS = {
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SIMPLE_SIDEPANEL: 'simple-sidepanel',
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
-    SLACK_WORKFLOW_TRIGGERS: 'slack-workflow-triggers', // owner: #team-workflows-cdp
     SQL_EDITOR_BI_MODE: 'sql-editor-bi-mode', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_LAZY_SCHEMA: 'sql-editor-lazy-schema', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_VIM_MODE: 'sql-editor-vim-mode', // owner: @arthurdedeus
