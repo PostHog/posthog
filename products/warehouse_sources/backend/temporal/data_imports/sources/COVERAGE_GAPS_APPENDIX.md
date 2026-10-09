@@ -5113,14 +5113,14 @@ Note: LACRM's v2 API is RPC-shaped (single POST endpoint with a Function name), 
 
 ## Lever — gaps
 
-Today (8): `archive_reasons`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
+Today (12): `applications`, `archive_reasons`, `feedback`, `interviews`, `offers`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
 
 Diffed against: <https://hire.lever.co/developer/documentation>
 
-- [ ] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high)
-- [ ] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high)
-- [ ] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high)
-- [ ] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high)
+- [x] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high) — synced as `feedback`
+- [x] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high) — synced as `interviews`
+- [x] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high) — synced as `applications` through `GET /opportunities?expand=applications`, the route Lever recommends over the deprecated per-candidate endpoint; `/applications/deleted` is not synced because it requires 30-day windows with no documented start
+- [x] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high) — synced as `offers`
 - [ ] `disposition_stages` — lookup resolving the disposition/stage codes carried on archived opportunities (medium)
 - [ ] `audit_events` — state-transition history for candidates, postings and users; the only source of change-over-time in Lever (medium)
 - [ ] `opportunities/{id}/notes` — recruiter activity volume per candidate (medium)
@@ -5170,10 +5170,10 @@ Today (8): `customers`, `inventory`, `outlets`, `products`, `registers`, `sales`
 
 Diffed against: <https://x-series-api.lightspeedhq.com/reference/listcustomers>
 
-- [ ] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
-- [ ] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
-- [ ] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
-- [ ] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
+- [x] `consignments (GET /api/2.0/consignments)` — stock orders, transfers and stocktakes - the entire inbound inventory movement side is missing (high)
+- [x] `consignment_products (GET /api/2.0/consignments/{id}/products)` — line items of each stock order, needed for received-vs-ordered and cost analysis (high)
+- [x] `suppliers (GET /api/2.0/suppliers)` — lookup resolving the supplier_id carried on products and consignments (high)
+- [x] `payment_types (GET /api/2.0/payment_types)` — lookup resolving payment type IDs on the sale payments we already sync (high)
 - [ ] `product_categories (GET /api/2.0/product_categories)` — lookup for category IDs on products - required for any category-level sales breakdown (high)
 - [ ] `brands (GET /api/2.0/brands)` — lookup resolving brand_id on products (medium)
 - [ ] `customer_groups (+ /customer_groups/{id}/customers)` — customer segment membership table for cohort and loyalty analysis (medium)
@@ -5221,10 +5221,10 @@ Today (9): `domains`, `events`, `invoices`, `linodes`, `lke_clusters`, `nodebala
 
 Diffed against: <https://raw.githubusercontent.com/linode/linode-api-openapi/main/openapi.json>
 
-- [ ] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
-- [ ] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
-- [ ] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
-- [ ] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
+- [x] `account/invoices/{invoiceId}/items` — invoice line items - without them the synced invoices are just totals with no cost breakdown by service (high)
+- [x] `linode/types` — lookup resolving the plan type ID on every Linode instance we sync, plus its hourly/monthly price and specs (high)
+- [x] `regions (and regions/availability)` — lookup resolving the region ID carried on instances, volumes, nodebalancers and buckets (high)
+- [x] `account/transfer` — network transfer pool usage vs quota - the headline overage-risk metric (high)
 - [ ] `linode/instances/{linodeId}/transfer/{year}/{month}` — per-instance monthly bandwidth usage, the breakdown behind account-level transfer (medium)
 - [ ] `images` — custom and recovery images with size and expiry; a billed resource with no coverage today (medium)
 - [ ] `databases/instances (plus databases/types)` — managed database inventory, a billed service class entirely absent from the current tables (medium)

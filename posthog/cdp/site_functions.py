@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
@@ -7,6 +8,38 @@ from posthog.cdp.validation import transpile_template_code
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import transpile
+
+
+def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
+    """Secret input keys whose value the transpiled JavaScript would carry into a browser.
+
+    The transpiler reads the plaintext `inputs` columns, so a secret is only exposed while its value
+    is still stored in one. `move_secret_inputs` moves a top-level secret into `encrypted_inputs` on
+    every save and never touches a mapping, which is why a mapping secret and a row saved before
+    that split are the ones that reach the browser.
+    """
+    exposed: set[str] = set()
+    configs: list[tuple[Any, bool]] = [
+        ({"inputs_schema": hog_function.inputs_schema, "inputs": hog_function.inputs}, False),
+        # The transpiler skips disabled mappings, so their values never reach the browser.
+        *((mapping, True) for mapping in hog_function.mappings or [] if not (mapping or {}).get("disabled")),
+    ]
+    for config, is_mapping in configs:
+        if not isinstance(config, dict):
+            continue
+        inputs = config.get("inputs") or {}
+        for schema in config.get("inputs_schema") or []:
+            if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
+                continue
+            value = inputs.get(schema["key"])
+            if isinstance(value, dict) and value.get("value") is not None:
+                exposed.add(str(schema["key"]))
+            # The transpiler falls back to a mapping input's own schema default when the input is missing
+            # or null. It builds the top-level inputs from stored values alone, so a top-level default never
+            # reaches the browser.
+            elif is_mapping and inputs.get(schema["key"]) is None and schema.get("default") is not None:
+                exposed.add(str(schema["key"]))
+    return exposed
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:
@@ -86,12 +119,13 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         mapping_code += "(function (){"  # IIFE so that the code below has different globals than the filters above
         mapping_code += "const newInputs = structuredClone(inputs); const __getGlobal = (key) => key === 'inputs' ? newInputs : globals[key];\n"
 
-        for schema in mapping_inputs_schema:
-            if "key" in schema and schema["key"] not in mapping_inputs:
-                mapping_inputs[schema["key"]] = {"value": schema.get("default", None)}
+        mapping_defaults = {schema["key"]: schema.get("default") for schema in mapping_inputs_schema if "key" in schema}
+        for key, default in mapping_defaults.items():
+            if key not in mapping_inputs:
+                mapping_inputs[key] = {"value": default}
 
         for key, input in mapping_inputs.items():
-            value = input.get("value") if input is not None else schema.get("default", None)
+            value = input.get("value") if input is not None else mapping_defaults.get(key)
             key_string = json.dumps(str(key) or "<empty>")
             if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
                 base_code = transpile_template_code(value, compiler)
