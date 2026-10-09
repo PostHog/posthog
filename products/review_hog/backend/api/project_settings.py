@@ -145,6 +145,10 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
         help_text="What the requesting user's own pull requests would get here without their choice for this "
         "repository. Equals my_result when there is no choice."
     )
+    repository_result = AutomaticReviewDecisionSerializer(
+        help_text="What the requesting user's own pull requests would get here from the repository exception or "
+        "the project rule alone, without their default and their choice for this repository."
+    )
 
 
 class ReviewRepositoryOverviewSerializer(serializers.Serializer):
@@ -158,6 +162,10 @@ class ReviewRepositoryOverviewSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Repositories that match the search and the view.")
     has_more = serializers.BooleanField(help_text="Whether more entries follow this page.")
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset of the next page, or null.")
+    my_choices_unlike_default = serializers.IntegerField(
+        help_text="How many of the requesting user's own repository choices in this project give something other "
+        "than their default. Counts every installation, so the search, the view, and the page do not change it."
+    )
 
 
 def _entry_data(entry: OverviewEntry) -> dict[str, Any]:
@@ -181,6 +189,7 @@ def _entry_data(entry: OverviewEntry) -> dict[str, Any]:
         "my_choice_id": entry.my_choice.id if entry.my_choice is not None else None,
         "my_result": decision_data(entry.my_result),
         "inherited_result": decision_data(entry.inherited_result),
+        "repository_result": decision_data(entry.repository_result),
     }
 
 
@@ -365,5 +374,6 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
             "total": total,
             "has_more": has_more,
             "next_offset": offset + len(entries) if has_more else None,
+            "my_choices_unlike_default": overview.choices_unlike_default(),
         }
         return Response(ReviewRepositoryOverviewSerializer(data).data)

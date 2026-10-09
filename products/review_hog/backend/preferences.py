@@ -20,8 +20,8 @@ PreferenceValue = str | bool
 
 
 class DefaultReviewMode(models.TextChoices):
-    FOLLOW = "follow", "Follow each repository"
-    FLASH = "flash", "Flash everywhere"
+    FOLLOW = "follow", "Let each repository decide"
+    FLASH = "flash", "On everywhere"
     OFF = "off", "Off everywhere"
 
 

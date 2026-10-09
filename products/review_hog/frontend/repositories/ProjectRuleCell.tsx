@@ -20,9 +20,9 @@ function botRunLabel(installations: readonly ReviewInstallationApi[]): string {
         )
     )
     if (connectors.size === 1) {
-        return `Automatic Flash, billed to ${[...connectors][0]} (connected GitHub)`
+        return `Automatic review, billed to ${[...connectors][0]} (connected GitHub)`
     }
-    return 'Automatic Flash, billed to the person who connected GitHub'
+    return 'Automatic review, billed to the person who connected GitHub'
 }
 
 export function ProjectRuleCell({ className }: { className?: string }): JSX.Element {
@@ -50,6 +50,9 @@ export function ProjectRuleCell({ className }: { className?: string }): JSX.Elem
                 onRemovePerson={removeProjectPerson}
                 dataAttr="review-hog-project-flash-for"
             />
+            <span className="text-xs text-secondary">
+                People opt in under My pull requests, with their default or a choice for one repository.
+            </span>
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-secondary">Bot PRs, all repositories:</span>
                 <LemonSelect<ReviewProjectSettingsBotPullRequestsEnumApi>

@@ -564,6 +564,8 @@ export interface ReviewRepositoryOverviewEntryApi {
     my_result: AutomaticReviewDecisionApi
     /** What the requesting user's own pull requests would get here without their choice for this repository. Equals my_result when there is no choice. */
     inherited_result: AutomaticReviewDecisionApi
+    /** What the requesting user's own pull requests would get here from the repository exception or the project rule alone, without their default and their choice for this repository. */
+    repository_result: AutomaticReviewDecisionApi
 }
 
 export interface ReviewRepositoryOverviewApi {
@@ -585,6 +587,8 @@ export interface ReviewRepositoryOverviewApi {
      * @nullable
      */
     next_offset: number | null
+    /** How many of the requesting user's own repository choices in this project give something other than their default. Counts every installation, so the search, the view, and the page do not change it. */
+    my_choices_unlike_default: number
 }
 
 export interface ReviewResolutionConfigApi {
@@ -1087,8 +1091,8 @@ export interface ReviewTriggerErrorApi {
 }
 
 /**
- * * `follow` - Follow each repository
- * * `flash` - Flash everywhere
+ * * `follow` - Let each repository decide
+ * * `flash` - On everywhere
  * * `off` - Off everywhere
  */
 export type DefaultReviewModeEnumApi = (typeof DefaultReviewModeEnumApi)[keyof typeof DefaultReviewModeEnumApi]
@@ -1165,8 +1169,8 @@ export interface ReviewProjectDefaultsApi {
 export interface ReviewUserSettingsApi {
     /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.
      *
-     * * `follow` - Follow each repository
-     * * `flash` - Flash everywhere
+     * * `follow` - Let each repository decide
+     * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
@@ -1194,8 +1198,8 @@ export interface ReviewUserSettingsApi {
 export interface PatchedReviewUserSettingsApi {
     /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.
      *
-     * * `follow` - Follow each repository
-     * * `flash` - Flash everywhere
+     * * `follow` - Let each repository decide
+     * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */

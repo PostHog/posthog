@@ -242,10 +242,10 @@ export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
 export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     default_review_mode: zod
         .enum(['follow', 'flash', 'off'])
-        .describe('\* `follow` - Follow each repository\n\* `flash` - Flash everywhere\n\* `off` - Off everywhere')
+        .describe('\* `follow` - Let each repository decide\n\* `flash` - On everywhere\n\* `off` - Off everywhere')
         .optional()
         .describe(
-            "Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.\n\n\* `follow` - Follow each repository\n\* `flash` - Flash everywhere\n\* `off` - Off everywhere"
+            "Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' turns automatic reviews off everywhere. A choice for one repository wins over this default.\n\n\* `follow` - Let each repository decide\n\* `flash` - On everywhere\n\* `off` - Off everywhere"
         ),
     resolve_comments: zod
         .boolean()
