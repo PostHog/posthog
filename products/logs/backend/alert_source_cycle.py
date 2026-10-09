@@ -710,8 +710,8 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
-    checks, stopped = _as_configured_now(checks, team_id=team_id, now=cutoff)
-    triage = _triage(checks, now=cutoff, tz_name=team.timezone)
+    current, stopped = _as_configured_now(checks, team_id=team_id, now=cutoff)
+    triage = _triage(current, now=cutoff, tz_name=team.timezone)
     if not triage.evaluable:
         # Returns before the checkpoint query below, which nothing left would use.
         return _collect([*stopped, *triage.decided], team_id, slot, started_at)
