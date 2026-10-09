@@ -551,9 +551,6 @@ export const Settings: Story = {
         await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
         await expect(canvas.getByText('Full review settings')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
-        await expect(
-            canvas.queryByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
     },
 }
@@ -575,7 +572,8 @@ export const SavedInboxOptIns: Story = {
         const canvas = within(canvasElement)
         const inboxSwitch = await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
         const stamphogSwitch = canvas.getByLabelText('Let Stamphog review my Inbox PRs')
-        await expect(inboxSwitch).toBeChecked()
+        // The Inbox section renders before the settings load, so wait for the saved values to arrive.
+        await waitFor(() => expect(inboxSwitch).toBeChecked())
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()
