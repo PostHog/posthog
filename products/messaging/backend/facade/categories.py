@@ -13,7 +13,9 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.services import categories as categories_service
 from products.messaging.backend.services.lazy_list import LazyList
 
-MESSAGE_CATEGORY_TYPE_CHOICES: list[tuple[str, str]] = list(MessageCategoryType.choices)
+MESSAGE_CATEGORY_TYPE_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in MessageCategoryType.choices
+]
 DEFAULT_MESSAGE_CATEGORY_TYPE: str = MessageCategoryType.MARKETING.value
 
 
