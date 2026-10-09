@@ -19,6 +19,7 @@ A chat runs pi, or Claude Code on the user's own Claude plan, here or in the clo
 ## Run and test
 
 - `pnpm dev` (from this folder) starts the app through Vite, so edits hot-reload into the running screen.
+- `pnpm build` bundles the app into `dist/` with esbuild (pi stays a dependency on disk, since it reads its themes beside its own modules), and `pnpm start` runs that build: no Vite, no hot reload, half the startup time. `files` in `package.json` is what npm publishes.
 - Tests: `../../node_modules/.bin/vitest run` or `hogli test products/desktop/apps/tui`. Typecheck: `../../node_modules/.bin/tsc --noEmit -p .`.
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
@@ -39,7 +40,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `layout.ts` | Workspaces (splits only), the one main view, focus, new chats (`newChat`, `newChatIn`), persistence to one file per account, `~/.config/posthog-tui/layout.<account>.json` |
 | `dividers.ts` | Split cell sizes and places, and the joined glyphs of the pane dividers and the sidebar's edge |
 | `banner.ts` | What an empty chat shows above its composer: the model it starts on, who pays, and where it runs, from the pane's place, `/billing`, pi's starting model or the user's own `~/.claude/settings.json` |
-| `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default, who pays for them, and the mode new Claude Code chats start in |
+| `prefs.ts` | Saved preferences in `~/.config/posthog-tui/prefs.json`: where new chats run by default, who pays for them, the mode new Claude Code chats start in, and the last model picked, which new chats start on |
 | `billing.ts`, `settings.ts`, `chatgpt.ts`, `claudeToken.ts`, `claudeLocal.ts` | The billing picker and what each billing starts (the cloud harness, the local model, or why a local chat cannot start); the settings screen's rows and keys; pi's ChatGPT login, logout and who is logged in; the Claude token file and the engine's store over it. `PiChats.start` takes the cloud harness, and `reply` continues pi, Claude and Codex runs. `LocalAgent` in `local.ts` is what a pane needs from any local agent: pi's `LocalSession`, or `ClaudeLocalSession`, which drives `AgentService` (built in `cloud.ts` with its Electron-only needs stubbed) and turns its ACP permission requests into `acp` prompts |
 | `sidebar.ts` | Sidebar rows, cursor movement, status dots. A split task has two rows, so a workspace row's selection key is its pane |
 | `search.ts` | The task search's result rows and query editing; `hooks/useSearch.ts` asks the server after a pause in typing |
@@ -95,4 +96,3 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 - pi chats have no auto, manual or plan modes: pi has none, and the harness adds none. `/mode` works on local Claude Code chats only. The desktop app's embedded chat view shows Claude's mode picker on pi chats, and it does nothing there.
 - A cloud sandbox stops when idle, and its background shells stop with it.
 - Long cloud pi chats stop taking messages. Before a follow-up, the backend rebinds the sandbox's MCP credentials once its binding marker expires (half the token lifetime), and the pi agent server has no `refresh_session` command, so the backend fails the delivery closed. The TUI shows the failed `followup_delivery` step and puts the message back (`deliveryFailure` in `runs.ts`); the fix is `refresh_session` in the pi agent server.
-- `pnpm build` bundles the app into `dist/` with esbuild (pi stays a dependency on disk, since it reads its themes beside its own modules), and `pnpm start` runs that build: no Vite, no hot reload, half the startup time. `files` in `package.json` is what npm publishes.

@@ -25,6 +25,8 @@ export interface LocalAgent {
   // The user's own plan pays for this chat, not PostHog.
   readonly plan: boolean;
   readonly control: PiControl;
+  // The model an agent that cannot report one started on.
+  readonly model?: string;
   start(): Promise<void>;
   watch(onView: (view: RunView) => void): () => void;
   prompt(message: string, images?: ImageContent[]): Promise<void>;

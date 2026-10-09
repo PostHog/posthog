@@ -15,8 +15,9 @@ import {
   modeSheet,
   type PiControl,
   type RunCommand,
+  shortModelName,
 } from "../models";
-import { savePrefs } from "../prefs";
+import { loadPrefs, savePrefs } from "../prefs";
 import type { Sheet } from "../sheet";
 import { indicatorFor } from "../sidebar";
 import { type HeldPick, heldPick, type StartingOptions } from "../starting";
@@ -39,8 +40,12 @@ export interface Models {
   onRunLive: (paneId: string, taskId: string, runId: string) => void;
   // Called when a new chat gets its task, so the model it starts on stays shown until its run is live.
   onChatStarted: (paneId: string, taskId: string) => void;
-  // The model and effort a pane's chat runs on, for its title.
-  modelLabel: (paneId: string, taskId: string | null) => string | undefined;
+  // The model and effort a pane's chat runs on, for its title; `runModel` is what the run was created on, for a chat its agent has not reported.
+  modelLabel: (
+    paneId: string,
+    taskId: string | null,
+    runModel?: string,
+  ) => string | undefined;
   // The model and effort held for a pane's new chat.
   pickFor: (paneId: string) => StartPick;
 }
@@ -95,10 +100,17 @@ export function useModels({
   // Keyed by task and run: every local chat's run id is "local".
   const synced = useRef(new Set<string>());
 
-  // The pane's held picks, less any the chat's agent cannot start on.
+  // The pane's held picks, less any the chat's agent cannot start on. A new chat starts on the last model picked.
   const held = (paneId: string, starting = startingFor(paneId)): HeldPick =>
     heldPick(
-      { model: heldModels.get(paneId), effort: heldEfforts.get(paneId) },
+      {
+        model:
+          heldModels.get(paneId) ??
+          (findPane(layout, paneId)?.taskId === null
+            ? loadPrefs().lastModel
+            : undefined),
+        effort: heldEfforts.get(paneId),
+      },
       starting,
     );
 
@@ -161,6 +173,7 @@ export function useModels({
                   setTaskModels((models) =>
                     new Map(models).set(target.taskId, model),
                   );
+                  savePrefs({ lastModel: model });
                   // The new model can move the effort to the nearest level it supports.
                   readRun(target.taskId, live).catch(() => {});
                 },
@@ -193,10 +206,12 @@ export function useModels({
         current ?? null,
         "Applies once this chat's run starts.",
       ),
-      (index) =>
+      (index) => {
         setHeldModels((models) =>
           new Map(models).set(paneId, available[index]),
-        ),
+        );
+        savePrefs({ lastModel: available[index] });
+      },
     );
   };
 
@@ -341,10 +356,20 @@ export function useModels({
     synced.current.add(key);
     const live = control(taskId, runId);
     const { model, effort } = held(paneId);
-    // A Claude Code chat already started on its picks, and cannot switch them.
-    if (localSessions.get(taskId)?.runtime === "acp") {
+    // A Claude Code chat already started on its picks, and cannot switch them; it says what it started on instead.
+    const session = localSessions.get(taskId);
+    if (session?.runtime === "acp") {
       if (model) setHeldModels((models) => without(models, paneId));
       if (effort) setHeldEfforts((efforts) => without(efforts, paneId));
+      const started = session.model;
+      if (started)
+        setTaskModels((models) =>
+          new Map(models).set(taskId, {
+            provider: "claude",
+            id: started,
+            name: shortModelName(started),
+          }),
+        );
       return;
     }
     const applyHeld = async (): Promise<void> => {
@@ -365,10 +390,14 @@ export function useModels({
     applyHeld().catch(() => {});
   };
 
+  // The last-picked model is held on the pane from here, so the run applies it once live like any other pick.
   const onChatStarted = (paneId: string, taskId: string): void => {
     const starting = startingFor(paneId);
-    const model = held(paneId, starting).model ?? starting.model;
+    const picked = held(paneId, starting).model;
+    const model = picked ?? starting.model;
     if (model) setTaskModels((models) => new Map(models).set(taskId, model));
+    if (picked && !heldModels.get(paneId))
+      setHeldModels((models) => new Map(models).set(paneId, picked));
   };
 
   // What a pane's new chat should start on, from its held picks.
@@ -415,12 +444,15 @@ export function useModels({
     onRunLive,
     onChatStarted,
     // A chat with no task yet shows the model its run will start on. Its effort shows once the run reports it.
-    modelLabel: (paneId, taskId) => {
+    modelLabel: (paneId, taskId, runModel) => {
       const starting = startingFor(paneId);
       const picks = held(paneId, starting);
       return modelWithEffort(
         picks.model?.name ??
-          (taskId ? taskModels.get(taskId)?.name : starting.model?.name),
+          (taskId
+            ? (taskModels.get(taskId)?.name ??
+              (runModel && shortModelName(runModel)))
+            : starting.model?.name),
         picks.effort ??
           (taskId ? taskEfforts.get(taskId) : (starting.effort ?? undefined)),
       );

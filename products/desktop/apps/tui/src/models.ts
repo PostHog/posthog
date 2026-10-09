@@ -3,6 +3,7 @@ import {
   RemotePiRpcClient,
 } from "@posthog/agent/pi/remote-rpc-client";
 import { SESSION_START_MODEL_ID } from "@posthog/harness/extensions/posthog-provider/model-catalog";
+import type { Task } from "@posthog/shared";
 import { isOfferedModel } from "@posthog/shared/model-catalog";
 import { CHATGPT_PROVIDER } from "./chatgpt";
 import type { Sheet } from "./sheet";
@@ -131,6 +132,10 @@ const choice = (model: { provider: string; id: string }): ModelChoice => ({
   id: model.id,
   name: shortModelName(model.id),
 });
+
+// The model a cloud run was created on, when the run or the team's defaults pinned one.
+export const runModel = (task: Task | undefined): string | undefined =>
+  (task?.latest_run?.state as { model?: string } | undefined)?.model;
 
 // TUI chats pin no model and pi tasks take no saved defaults, so cloud and local runs both start here.
 export const STARTING_MODEL = choice({

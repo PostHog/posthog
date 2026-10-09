@@ -24,8 +24,9 @@ import {
 import type { LocalSession } from "../local";
 import { type PiControl, STARTING_MODEL } from "../models";
 import type { MouseEvents } from "../mouse";
-import { loadPrefs } from "../prefs";
+import { loadPrefs, savePrefs } from "../prefs";
 import { type CloudRuns, emptyRunView } from "../runs";
+import { startingOptions } from "../starting";
 import { renderInTerminal } from "../testing";
 import type { TodayClient } from "../today";
 import type { WorkList } from "../work";
@@ -193,29 +194,37 @@ describe("App", () => {
     }
   });
 
-  it("names the model a new chat starts on, before any /model pick", async () => {
+  it("names the model a new chat starts on: the harness default, then the last one picked", async () => {
     saveLayout(initialLayout());
-    const { instance, output } = renderInTerminal(
-      <App
-        session={{
-          work: {
-            listRecent: () => new Promise(() => {}),
-          } as unknown as WorkList,
-          runs: { prefetch: async () => {} } as unknown as CloudRuns,
-          chats: {} as PiChats,
-          control: () => ({}) as PiControl,
-          startLocal: () => Promise.reject(new Error("no local")),
-        }}
-        login={async () => {}}
-        logout={() => {}}
-      />,
-    );
-    try {
-      await vi.waitFor(() =>
-        expect(output()).toContain(`New chat · ${STARTING_MODEL.name}`),
+    const render = () =>
+      renderInTerminal(
+        <App
+          session={{
+            work: {
+              listRecent: () => new Promise(() => {}),
+            } as unknown as WorkList,
+            runs: { prefetch: async () => {} } as unknown as CloudRuns,
+            chats: {} as PiChats,
+            control: () => ({}) as PiControl,
+            startLocal: () => Promise.reject(new Error("no local")),
+          }}
+          login={async () => {}}
+          logout={() => {}}
+        />,
       );
-    } finally {
-      instance.unmount();
+    const picked = startingOptions("posthog", "local").models.find(
+      (model) => model.id !== STARTING_MODEL.id,
+    );
+    for (const expected of [STARTING_MODEL, picked]) {
+      const { instance, output } = render();
+      try {
+        await vi.waitFor(() =>
+          expect(output()).toContain(`New chat · ${expected?.name}`),
+        );
+      } finally {
+        instance.unmount();
+      }
+      savePrefs({ lastModel: picked });
     }
   });
 
