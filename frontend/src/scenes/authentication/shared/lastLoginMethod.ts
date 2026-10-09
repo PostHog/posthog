@@ -7,7 +7,7 @@ import { LoginMethod } from '~/types'
 // pinned: posthog/middleware.py sets this cookie on a successful login, and the website reads it
 export const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
-function readLastLoginMethod(): LoginMethod {
+export function readLastLoginMethod(): LoginMethod {
     return (getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod) ?? null
 }
 

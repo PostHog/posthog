@@ -5,11 +5,10 @@ import { router } from 'kea-router'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { BeginPasskeyLoginParams, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
-import { LoginMethod, SSOProvider } from '~/types'
+import { SSOProvider } from '~/types'
 
 import passkeyLogo from './passkey.svg'
 import { SocialLoginIcon } from './SocialLoginIcon'
@@ -52,14 +51,12 @@ interface SocialLoginButtonProps {
     provider: SSOProvider
     extraQueryParams?: Record<string, string>
     onProviderClick?: (provider: SSOProvider) => void
-    isLastUsed?: boolean
 }
 
 export function SocialLoginButton({
     provider,
     extraQueryParams,
     onProviderClick,
-    isLastUsed,
 }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
@@ -69,60 +66,35 @@ export function SocialLoginButton({
 
     return (
         <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams} onProviderClick={onProviderClick}>
-            <div className="relative">
-                <LemonButton
-                    size="large"
-                    icon={<SocialLoginIcon provider={provider} />}
-                    active={isLastUsed}
-                    tooltip={SSO_PROVIDER_NAMES[provider]}
-                />
-                {isLastUsed && (
-                    <LemonTag
-                        type="muted"
-                        size="small"
-                        className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                    >
-                        Last used
-                    </LemonTag>
-                )}
-            </div>
+            <LemonButton
+                size="large"
+                icon={<SocialLoginIcon provider={provider} />}
+                tooltip={SSO_PROVIDER_NAMES[provider]}
+            />
         </SocialLoginLink>
     )
 }
 
 interface PasskeyLoginButtonProps {
-    isLastUsed?: boolean
     extraQueryParams?: Record<string, string>
 }
 
-export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
+export function PasskeyLoginButton({ extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
     const { beginPasskeyLogin } = useActions(passkeyLogic)
     const { isLoading } = useValues(passkeyLogic)
 
     return (
-        <div className="relative">
-            <LemonButton
-                size="large"
-                icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
-                active={isLastUsed}
-                tooltip="Passkey"
-                htmlType="button"
-                onClick={() => {
-                    beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
-                }}
-                loading={isLoading}
-                data-attr="passkey-login"
-            />
-            {isLastUsed && (
-                <LemonTag
-                    type="muted"
-                    size="small"
-                    className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
-                >
-                    Last used
-                </LemonTag>
-            )}
-        </div>
+        <LemonButton
+            size="large"
+            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+            tooltip="Passkey"
+            htmlType="button"
+            onClick={() => {
+                beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
+            }}
+            loading={isLoading}
+            data-attr="passkey-login"
+        />
     )
 }
 
@@ -135,7 +107,6 @@ interface SocialLoginButtonsProps {
     bottomDivider?: boolean
     extraQueryParams?: Record<string, string>
     onProviderClick?: (provider: SSOProvider) => void
-    lastUsedProvider?: LoginMethod
     showPasskey?: boolean
     /**
      * Limit the rendered providers to this allowlist. Used when we know which providers a specific
@@ -155,7 +126,6 @@ export function SocialLoginButtons({
     className,
     topDivider,
     bottomDivider,
-    lastUsedProvider,
     showPasskey = false,
     restrictToProviders,
     onProviderClick,
@@ -190,12 +160,11 @@ export function SocialLoginButtons({
                         <SocialLoginButton
                             key={provider}
                             provider={provider as SSOProvider}
-                            isLastUsed={lastUsedProvider === provider}
                             onProviderClick={onProviderClick}
                             {...props}
                         />
                     ))}
-                    {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />}
+                    {showPasskey && <PasskeyLoginButton {...props} />}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>
@@ -217,7 +186,6 @@ export function SSOEnforcedLoginButton({
     extraQueryParams,
     onProviderClick,
     actionText = 'Log in',
-    isLastUsed,
     ...props
 }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
@@ -238,11 +206,6 @@ export function SSOEnforcedLoginButton({
                 {...props}
             >
                 {actionText} with {SSO_PROVIDER_NAMES[provider]}
-                {isLastUsed && (
-                    <LemonTag type="muted" size="medium" className="absolute -top-3 -right-2 pointer-events-none">
-                        Last used
-                    </LemonTag>
-                )}
             </LemonButton>
         </SocialLoginLink>
     )

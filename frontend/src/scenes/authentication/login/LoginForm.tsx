@@ -32,6 +32,8 @@ import { urls } from 'scenes/urls'
 import { LoginMethod, Region, SSOProvider } from '~/types'
 
 import { loginLogic } from './loginLogic'
+import { RecentLogins } from './RecentLogins'
+import { recentLoginsLogic } from './recentLoginsLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -126,6 +128,8 @@ export function LoginForm(): JSX.Element {
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
+    const { isChooserShown, canReturnToRecentLogins, isPasswordFocusRequested } = useValues(recentLoginsLogic)
+    const { selectAnotherAccount, returnToRecentLogins } = useActions(recentLoginsLogic)
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -316,6 +320,19 @@ export function LoginForm(): JSX.Element {
                             </Link>
                         </div>
                     </Form>
+                ) : isChooserShown ? (
+                    <>
+                        <RecentLogins />
+                        <p className="mt-4 mb-0 text-sm text-center">
+                            <Link
+                                onClick={selectAnotherAccount}
+                                data-attr="login-use-another-account"
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                            >
+                                Use another account
+                            </Link>
+                        </p>
+                    </>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
                         <RegionField />
@@ -326,7 +343,7 @@ export function LoginForm(): JSX.Element {
                                     className="ph-ignore-input"
                                     data-attr="login-email"
                                     type="email"
-                                    autoFocus
+                                    autoFocus={!isPasswordFocusRequested}
                                     placeholder="you@yourcompany.com"
                                     // The `webauthn` token enables passkey autofill (conditional UI),
                                     // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
@@ -365,6 +382,7 @@ export function LoginForm(): JSX.Element {
                                         className="ph-ignore-input"
                                         data-attr="password"
                                         type="password"
+                                        autoFocus={isPasswordFocusRequested}
                                         placeholder="••••••••••"
                                         autoComplete="current-password"
                                         value={value ?? ''}
@@ -410,44 +428,43 @@ export function LoginForm(): JSX.Element {
                             </LemonButton>
                         )}
                         {precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton
-                                provider={precheckResponse.sso_enforcement}
-                                email={login.email}
-                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
-                            />
+                            <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                         )}
                         {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton
-                                provider="saml"
-                                email={login.email}
-                                isLastUsed={lastLoginMethod === 'saml'}
-                            />
+                            <SSOEnforcedLoginButton provider="saml" email={login.email} />
                         )}
                         {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
-                            <SSOEnforcedLoginButton
-                                provider="oidc"
-                                email={login.email}
-                                isLastUsed={lastLoginMethod === 'oidc'}
-                            />
+                            <SSOEnforcedLoginButton provider="oidc" email={login.email} />
                         )}
                     </Form>
                 )}
                 {/* Normally SAML replaces this row, but when the account has no password we need to
                     show whatever it does have. */}
                 {!isCodeSent &&
+                    !isChooserShown &&
                     !precheckResponse.sso_enforcement &&
                     (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
                         <SocialLoginButtons
                             topDivider
                             caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
                             captionLocation="top"
-                            lastUsedProvider={lastLoginMethod}
                             restrictToProviders={restrictToProviders}
                             // Once we know the account's methods, only offer a passkey if it actually has
                             // one — otherwise this is the same dead button we're removing.
                             showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
                         />
                     )}
+                {canReturnToRecentLogins && (
+                    <p className="mt-4 mb-0 text-sm text-center">
+                        <Link
+                            onClick={returnToRecentLogins}
+                            data-attr="login-back-to-recent-logins"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Back to recent logins
+                        </Link>
+                    </p>
+                )}
             </AuthSceneCard>
         </AuthScene>
     )

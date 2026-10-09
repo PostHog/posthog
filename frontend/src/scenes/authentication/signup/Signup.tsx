@@ -15,7 +15,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
-import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -44,7 +43,6 @@ function SignupEmailPanel(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
-    const lastLoginMethod = useLastLoginMethod()
     const accountExists = !!signupPanelEmailManualErrors?.email
 
     if (pendingInvite) {
@@ -122,14 +120,7 @@ function SignupEmailPanel(): JSX.Element {
                     Continue
                 </LemonButton>
             </Form>
-            {!preflight?.demo && (
-                <SocialLoginButtons
-                    topDivider
-                    caption="or sign up with"
-                    lastUsedProvider={lastLoginMethod ?? undefined}
-                    captionLocation="top"
-                />
-            )}
+            {!preflight?.demo && <SocialLoginButtons topDivider caption="or sign up with" captionLocation="top" />}
             {!preflight?.demo && (
                 <div className="mt-4 text-center">
                     <button

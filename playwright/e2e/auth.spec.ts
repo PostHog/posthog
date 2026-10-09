@@ -77,6 +77,7 @@ test.describe('Auth', () => {
         })
 
         await page.locator('[data-attr=new-account-menu-logout-button]').click()
+        await loginPage.openAccountForm()
 
         await expect(page.locator('a[href="/login/google-oauth2/"]')).toBeVisible()
     })

@@ -195,6 +195,7 @@ export interface loginLogicValues {
         detail: string
     } | null
     hasNoConfiguredLoginMethod: boolean
+    isAccountFormRequestedByUrl: boolean
     isCodeVerificationSubmitting: boolean
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
@@ -258,6 +259,9 @@ export interface loginLogicActions {
             email: string
             autoAttempt?: boolean
         }
+    }
+    requestAccountFormFromUrl: () => {
+        value: true
     }
     resendCodeBasedVerification: (_: any) => any
     resendCodeBasedVerificationFailure: (
@@ -409,6 +413,7 @@ export const loginLogic = kea<loginLogicType>([
         setCodeVerificationRequired: (email: string) => ({ email }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
+        requestAccountFormFromUrl: true,
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -450,6 +455,13 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 startAutoRedirectToProvider: (_, { email }) => email,
+            },
+        ],
+        // Kept here because the URL handler below removes the params before the recent logins list mounts
+        isAccountFormRequestedByUrl: [
+            false,
+            {
+                requestAccountFormFromUrl: () => true,
             },
         ],
     }),
@@ -724,7 +736,12 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, email, message }) => {
+        '/login': (_, { error_code, error_detail, email, message, next }) => {
+            // A link that names an account, an error, or an invite skips the recent logins list
+            if (email || error_code || getRelativeNextPath(next, location)?.startsWith('/signup/')) {
+                actions.requestAccountFormFromUrl()
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
