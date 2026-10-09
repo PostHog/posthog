@@ -37,7 +37,7 @@ from products.data_warehouse.backend.facade.api import (
     is_any_external_data_schema_paused,
     is_custom_source_ai_builder_enabled_for_team,
 )
-from products.warehouse_sources.backend.facade.api import validate_source_prefix
+from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -89,7 +89,6 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
-from products.warehouse_sources.backend.source_status import effective_source_status
 
 from . import base, connection_options, credential_store, helpers, webhook_setup
 

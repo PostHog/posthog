@@ -94,6 +94,7 @@ __all__ = [
     "list_jobs_for_source",
     "list_column_statistics",
     # framework-free helper transforms
+    "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
     "trino_columns_to_dwh_columns",
