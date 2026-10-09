@@ -64,7 +64,7 @@ class StampArgs:
 
 @frozen
 class ReviewArgs:
-    full: bool = flag("Run the full review instead of Flash.")
+    deep: bool = flag("Run a Deep review instead of the default Standard review.")
 
 
 @frozen
@@ -229,7 +229,7 @@ class CommandDeclaration[A]:
 
 REVIEW = CommandDeclaration(
     verb="review",
-    summary="Start a Flash review of this pull request. Where Flash isn't available yet, the full review runs.",
+    summary="Start a Standard review of this pull request. Where Standard isn't available yet, the Deep review runs.",
     args=ReviewArgs,
     dispatches_to="PostHog Review",
 )

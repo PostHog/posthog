@@ -4,7 +4,7 @@ People with write access to a repository can ask PostHog to do something on a pu
 
 ```text
 @posthog review
-@posthog review --full
+@posthog review --deep
 @posthog stamp
 @posthog qa the signup form
 @posthog loop Triage PR
@@ -20,7 +20,7 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 ## Grammar
 
 - A command is a line that starts with `@posthog`, then the command name.
-- Options come next. A flag is `--name`, such as `--full`. An option with a value is `--name value` or `--name=value`. Names are lowercase, with no short forms.
+- Options come next. A flag is `--name`, such as `--deep`. An option with a value is `--name value` or `--name=value`. Names are lowercase, with no short forms.
 - Option reading stops at the first word that does not start with `--`. Everything from there to the end of the line is the command's text, kept as typed, such as the focus in `@posthog qa the signup form`. A command has at most one text field.
 - A lone `--` also stops option reading, so the text can start with `--`: `@posthog qa -- --verbose flags`.
 - Quotes and apostrophes are plain text. Nothing splits the text like a shell does.

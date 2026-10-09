@@ -48,22 +48,22 @@
         {
             "verb": "review",
             "aliases": [],
-            "summary": "Start a Flash review of this pull request. Where Flash isn't available yet, the full review runs.",
+            "summary": "Start a Standard review of this pull request. Where Standard isn't available yet, the Deep review runs.",
             "dispatches_to": "PostHog Review",
             "options": [
                 {
-                    "name": "full",
-                    "spelling": "--full",
+                    "name": "deep",
+                    "spelling": "--deep",
                     "kind": "flag",
                     "choices": null,
                     "default": false,
-                    "help": "Run the full review instead of Flash."
+                    "help": "Run a Deep review instead of the default Standard review."
                 }
             ],
             "text": null,
             "refuses_forks": true,
             "access": null,
-            "usage": "@posthog review [--full]"
+            "usage": "@posthog review [--deep]"
         },
         {
             "verb": "stamp",

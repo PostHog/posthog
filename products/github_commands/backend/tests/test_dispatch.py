@@ -315,13 +315,13 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("flash", "commenter_project", True, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
+            ("standard", "commenter_project", True, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
             (
-                "no_flash_in_project",
+                "no_standard_in_project",
                 "commenter_project",
                 False,
                 RUN_MODE_REVIEW,
-                "Flash isn't available in this project, so PostHog Review started the full review.",
+                "A Standard review isn't available in this project, so PostHog Review started a Deep review.",
             ),
             ("no_owner", None, True, None, "PostHog Review isn't set up for this repository."),
             (
@@ -359,7 +359,7 @@ class TestDispatchCommentCommand(BaseTest):
             patch(FLASH_AVAILABLE, return_value=flash_available),
             patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
         ):
-            outcome = handle_review(context, ReviewArgs(full=False))
+            outcome = handle_review(context, ReviewArgs(deep=False))
 
         assert outcome.message == expected_message
         assert outcome.accepted == (expected_mode is not None)

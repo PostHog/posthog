@@ -37,8 +37,8 @@ _MODE = CommandDeclaration(verb="mode", summary="Test command.", args=_ModeArgs,
 @pytest.mark.parametrize(
     "declaration,raw,expected",
     [
-        (REVIEW, "", ReviewArgs(full=False)),
-        (REVIEW, "--full", ReviewArgs(full=True)),
+        (REVIEW, "", ReviewArgs(deep=False)),
+        (REVIEW, "--deep", ReviewArgs(deep=True)),
         (STAMP, "", StampArgs()),
         # Prose keeps its apostrophes and words, because nothing splits it like a shell.
         (
@@ -48,7 +48,7 @@ _MODE = CommandDeclaration(verb="mode", summary="Test command.", args=_ModeArgs,
         ),
         (QA, "-- --looks-like-a-flag", QaArgs(focus="--looks-like-a-flag")),
         # Option scanning stops at the first word, so a later `--x` is part of the text.
-        (QA, "check the form --full", QaArgs(focus="check the form --full")),
+        (QA, "check the form --deep", QaArgs(focus="check the form --deep")),
         (QA, "", QaArgs(focus="")),
         (LOOP, "Triage PR", LoopArgs(name="Triage PR")),
         (_MODE, "--mode deep", _ModeArgs(mode="deep")),
@@ -63,9 +63,9 @@ def test_parse_arguments_accepts(declaration: CommandDeclaration[object], raw: s
 @pytest.mark.parametrize(
     "declaration,raw",
     [
-        (REVIEW, "--full --full"),
+        (REVIEW, "--deep --deep"),
         (REVIEW, "--nope"),
-        (REVIEW, "--full=yes"),
+        (REVIEW, "--deep=yes"),
         (REVIEW, "some text"),
         (STAMP, "now"),
         (LOOP, ""),
@@ -118,7 +118,7 @@ def test_signature_and_usage_cover_every_declaration() -> None:
 
     assert sorted(listed) == sorted(declaration.verb for declaration in (*COMMAND_DECLARATIONS, HELP))
     assert [usage(declaration) for declaration in (REVIEW, STAMP, QA, LOOP, _MODE)] == [
-        "@posthog review [--full]",
+        "@posthog review [--deep]",
         "@posthog stamp",
         "@posthog qa [<focus>]",
         "@posthog loop <name>",

@@ -82,10 +82,10 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
         return CommandOutcome(
             accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
         )
-    # Flash is the quick, cheap review, so it is what a plain `@posthog review` asks for. Where a
-    # project has no Flash, the full review is the only review there is.
-    flash_fallback = not args.full and not review_hog_facade.flash_available(team_id)
-    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.full or flash_fallback else review_hog_facade.RUN_MODE_FLASH
+    # Standard is the default review and Deep is the longer one. Where a project has no Standard
+    # review, Deep is the only review there is.
+    standard_fallback = not args.deep and not review_hog_facade.flash_available(team_id)
+    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.deep or standard_fallback else review_hog_facade.RUN_MODE_FLASH
     outcome = review_hog_facade.request_pr_review(
         team_id=team_id,
         requester_id=context.user_id,
@@ -95,9 +95,10 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     )
     if outcome.status == review_hog_facade.PRReviewRequestStatus.ALREADY_REVIEWED:
         return CommandOutcome(accepted=True, message="PostHog Review already reviewed the current commit.")
-    if outcome.started and flash_fallback:
+    if outcome.started and standard_fallback:
         return CommandOutcome(
-            accepted=True, message="Flash isn't available in this project, so PostHog Review started the full review."
+            accepted=True,
+            message="A Standard review isn't available in this project, so PostHog Review started a Deep review.",
         )
     if outcome.started:
         return CommandOutcome(accepted=True, message="PostHog Review is reviewing this pull request.")
