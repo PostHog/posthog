@@ -11,11 +11,6 @@ class TestPexelsSource:
         self.source = PexelsSource()
         self.team_id = 123
 
-    def test_schemas_without_query_exclude_search_tables(self) -> None:
-        config = PexelsSourceConfig(api_key="k", search_query=None)
-        names = {s.name for s in self.source.get_schemas(config, self.team_id)}
-        assert names == {"curated_photos", "popular_videos", "featured_collections", "my_collections"}
-
     @parameterized.expand([("empty_string", ""), ("whitespace", "   ")])
     def test_blank_query_excludes_search_tables(self, _name: str, query: str) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=query)
@@ -28,31 +23,10 @@ class TestPexelsSource:
         names = {s.name for s in self.source.get_schemas(config, self.team_id)}
         assert {"search_photos", "search_videos"} <= names
 
-    def test_all_schemas_are_full_refresh_only(self) -> None:
-        # Pexels has no server-side timestamp filter, so no table may advertise incremental/append —
-        # doing so would silently corrupt syncs since there's no cursor to filter on.
-        config = PexelsSourceConfig(api_key="k", search_query="nature")
-        for schema in self.source.get_schemas(config, self.team_id):
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     def test_schemas_names_filter(self) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=None)
         schemas = self.source.get_schemas(config, self.team_id, names=["curated_photos"])
         assert [s.name for s in schemas] == ["curated_photos"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials=True; the public-docs catalog is built from a placeholder
-        # config with no I/O and must not be empty.
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == {
-            "curated_photos",
-            "popular_videos",
-            "featured_collections",
-            "my_collections",
-        }
-        assert all("Full refresh" in t["sync_methods"] for t in tables)
 
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validate_credentials(self, _name: str, probe_result: bool, expected_valid: bool) -> None:

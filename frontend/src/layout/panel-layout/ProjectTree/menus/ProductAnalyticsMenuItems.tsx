@@ -36,6 +36,7 @@ export function ProductAnalyticsMenuItems({ MenuItem = DropdownMenuItem, onLinkC
                     >
                         <Link
                             to={child.record?.href}
+                            data-attr="tree-item-menu-new-insight"
                             buttonProps={{ menuItem: true }}
                             onClick={() => {
                                 onLinkClick?.(false)

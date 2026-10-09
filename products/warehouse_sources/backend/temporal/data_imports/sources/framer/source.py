@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.framer import (
+    FRAMER_SDK_VERSION_0_1_29,
+    FRAMER_SDK_VERSION_5_1_0,
     framer_source,
     validate_credentials as validate_framer_credentials,
 )
@@ -35,8 +37,8 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
     # Framer has no REST API; the official surface is the `framer-api` SDK's WebSocket
     # protocol, and the pinned version is the SDK release whose message contract we speak
     # (sent as the `sdkVersion` connection parameter).
-    supported_versions = ("0.1.29",)
-    default_version = "0.1.29"
+    supported_versions = (FRAMER_SDK_VERSION_0_1_29, FRAMER_SDK_VERSION_5_1_0)
+    default_version = FRAMER_SDK_VERSION_5_1_0
     api_docs_url = "https://www.framer.com/developers/server-api-introduction"
 
     @property

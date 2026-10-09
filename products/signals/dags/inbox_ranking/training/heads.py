@@ -11,13 +11,13 @@ positive for that moment rather than an outcome of an earlier one, and the label
 Every head reads the `everyone` cohort, so each `p_<head>` is a probability over the
 same reports and the heads can be compared and combined. Impressions are not a label gate: only the
 cloud inbox list emits them, and a report reached from Slack, the desktop app or MCP often has none.
-The dataset keeps them for position bias and the shadow grades.
+The dataset keeps them for position bias.
 
 `action` counts intent from any surface: the inbox UI, external coding agents over MCP, the CLI,
 Slack and the desktop app. Self-driving's own `task` and `system` writes are excluded, because
 they are internal operational work and not a person acting on the report.
 
-Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Eight heads are dense
+Mirrors the workspace `heads.py` (random-dev-internal, `inbox-ranking/`). Nine heads are dense
 enough to read on the holdout. `thumbs_up` and `reviewer_fix` are the explicit human-feedback pair:
 they are rare, so they are carried for the pooled newborn grade and as scorer inputs rather than
 for a holdout AUC. The rest stay workspace-only.
@@ -87,6 +87,10 @@ def dismissed_as_wrong(frame: pd.DataFrame) -> pd.Series:
 
 def fixed(frame: pd.DataFrame) -> pd.Series:
     return _count(frame, "fixed_count") > 0
+
+
+def dismissed_as_low_value(frame: pd.DataFrame) -> pd.Series:
+    return _count(frame, "lowvalue_dismissal_count") > 0
 
 
 def pr_created(frame: pd.DataFrame) -> pd.Series:
@@ -228,6 +232,19 @@ HEADS: tuple[Head, ...] = (
         horizon_days=14,
         min_holdout_positives=20,
         label_columns=("reviewer_add_count", "reviewer_remove_count"),
+    ),
+    # Which reports get dismissed as real but not worth fixing - the relevance-failure negative.
+    # dismiss_wrong says the report was wrong; this head says it was right but not worth anyone's
+    # time. Cohort is everyone, because agents over MCP dismiss reports that no list ever showed.
+    # Many of these dismissals land after 14 days, hence the 21 days.
+    Head(
+        name="dismiss_lowvalue",
+        cohort=everyone,
+        label=dismissed_as_low_value,
+        horizon_days=21,
+        min_holdout_positives=30,
+        label_columns=("lowvalue_dismissal_count",),
+        status_labels=True,
     ),
 )
 

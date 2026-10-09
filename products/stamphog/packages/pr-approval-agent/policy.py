@@ -98,6 +98,7 @@ class DenyCategory:
     # Scope keys are a subset of {"any", "titles", "paths"}.
     match: dict[str, tuple[str, ...]]
     exempt_path_prefixes: tuple[str, ...] = ()
+    exempt_author_teams: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -287,6 +288,23 @@ def _compile_or_raise(pattern: str, context: str) -> None:
         raise PolicyError(f"{context}: pattern {pattern!r} does not compile: {exc}") from exc
 
 
+_TEAM_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+
+def _parse_exempt_author_teams(category: str, raw: Any) -> tuple[str, ...]:
+    context = f"deny.{category}.exempt_author_teams"
+    _require(isinstance(raw, list), f"{context}: must be a list")
+    # A team that may approve edits to the policy could widen its own exemption.
+    _require(not (raw and category == "stamphog_policy"), f"{context}: the self-governance category exempts nobody")
+    for team in raw:
+        # Membership is matched against bare slugs, so `@PostHog/team-x` would exempt nobody without an error.
+        _require(
+            isinstance(team, str) and bool(_TEAM_SLUG_RE.match(team)),
+            f"{context}: {team!r} is not a bare GitHub team slug like 'team-workflows'",
+        )
+    return tuple(raw)
+
+
 def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCategory]:
     _require(isinstance(raw, dict) and bool(raw), "deny: must be a non-empty mapping")
     lockfile_patterns = [re.escape(name) for name in sorted(lockfile_names)]
@@ -321,6 +339,7 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
             rationale=str(spec.get("rationale", "")),
             match=match,
             exempt_path_prefixes=tuple(str(p) for p in exempt),
+            exempt_author_teams=_parse_exempt_author_teams(category, spec.get("exempt_author_teams", [])),
         )
 
     _assert_self_governance(deny)

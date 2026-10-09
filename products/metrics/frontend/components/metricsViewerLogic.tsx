@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -22,12 +22,14 @@ import { urls } from 'scenes/urls'
 
 import {
     GoalLine,
+    MetricsAttributeScope,
     MetricsDisplaySettings,
     MetricsDisplayType,
     MetricsHistogramQuery,
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryFilter,
+    MetricsReducer,
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -48,6 +50,7 @@ import type {
     _MetricQueryBodyApi,
     _MetricSeriesApi,
     MetricAnomalyDirectionEnumApi,
+    MetricQueryIntervalEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
 import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
@@ -55,8 +58,8 @@ import type { Node } from '../../../../frontend/src/queries/schema/schema-genera
 import type { _MetricPickerNameApi } from '../generated/api.schemas'
 import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
-import { correlationServiceNames } from '../metricsLinks'
-import { METRICS_PANELS } from '../panels/registry'
+import { correlationServiceNames, metricsFilterGroup } from '../metricsLinks'
+import { METRICS_PANELS, resolveReducer } from '../panels/registry'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -64,12 +67,29 @@ import type { MetricsChartSeries } from './metricsSeries'
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | 'rate' | 'increase'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase']
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95']
+
+/** Applied to each series before any aggregation, like `rate()` and `increase()` in PromQL. */
+export type MetricRangeFunction = 'rate' | 'increase'
+export const METRIC_RANGE_FUNCTIONS: MetricRangeFunction[] = ['rate', 'increase']
 
 /** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
 export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
     typeof value === 'string' && METRIC_AGGREGATIONS.includes(value as MetricAggregation)
+
+export const isMetricRangeFunction = (value: unknown): value is MetricRangeFunction =>
+    typeof value === 'string' && METRIC_RANGE_FUNCTIONS.includes(value as MetricRangeFunction)
+
+/** The old single `aggregation` field held a range function as one of its values: `rate` meant rate, then sum. */
+export const splitLegacyAggregation = (
+    value: unknown
+): { rangeFunction: MetricRangeFunction | null; aggregation: MetricAggregation | null } => {
+    if (isMetricRangeFunction(value)) {
+        return { rangeFunction: value, aggregation: 'sum' }
+    }
+    return { rangeFunction: null, aggregation: isMetricAggregation(value) ? value : null }
+}
 
 export { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY }
 
@@ -80,9 +100,12 @@ export interface MetricsViewerClause {
     /** Alias a formula refers to; unique within the query (a, b, c…). */
     name: string
     metricName: string
+    /** Latched from the picker for heatmap eligibility and series pinning. Never shown. */
     selectedMetricType: OtelMetricTypeEnumApi | null
-    aggregation: MetricAggregation
-    aggregationExplicitlySet: boolean
+    /** Applied to each series first. Null means the raw samples. */
+    rangeFunction: MetricRangeFunction | null
+    /** Combines series, split by `groupByKeys`. Null means one line per series. */
+    aggregation: MetricAggregation | null
     filterGroup: UniversalFiltersGroup
     groupByKeys: string[]
 }
@@ -95,19 +118,20 @@ export interface MetricsViewerQueryState {
     formula: string
 }
 
-/** One clause's share of the picker's late type/aggregation backfill. */
+/** One clause's share of the picker's late type backfill. */
 export interface MetricsViewerClauseBackfill {
     index: number
-    metricType?: OtelMetricTypeEnumApi
-    aggregation?: MetricAggregation
+    metricType: OtelMetricTypeEnumApi
 }
 
 // Request-body slices the viewer assembles; the window fields are added at fetch time.
-export type MetricsQueryRequestBody = Pick<_MetricQueryBodyApi, 'clauses' | 'formula'>
+export type MetricsQueryRequestBody = Pick<_MetricQueryBodyApi, 'clauses' | 'formula' | 'interval'>
 export type MetricsAnomalyRequestBody = Pick<_MetricAnomalyBodyApi, 'metricName' | 'aggregation' | 'filters'>
 
 // Mirrors the backend's MAX_CLAUSES_PER_QUERY.
 export const MAX_CLAUSES = 10
+// Mirrors the backend's MAX_RAW_SERIES: a clause without an aggregation returns at most this many series.
+export const MAX_UNAGGREGATED_SERIES = 100
 // More letters than MAX_CLAUSES, so the cap is the only thing that limits adding
 // a series — a shorter alias supply would make "Add series" silently no-op.
 const CLAUSE_ALIASES = alphabet.map((letter) => letter.toLowerCase())
@@ -116,8 +140,8 @@ export const createViewerClause = (name: string): MetricsViewerClause => ({
     name,
     metricName: '',
     selectedMetricType: null,
-    aggregation: DEFAULT_AGGREGATION,
-    aggregationExplicitlySet: false,
+    rangeFunction: null,
+    aggregation: null,
     filterGroup: DEFAULT_UNIVERSAL_GROUP_FILTER,
     groupByKeys: [],
 })
@@ -153,23 +177,10 @@ export interface MetricsAnomalyBadge {
     onsetTime: string | null
 }
 
-export const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
-
-// Aggregation applied automatically when a metric of this type is selected.
-// Cumulative counters (OTel type 'sum') summed raw give meaningless ever-growing
-// totals — 'increase' is the honest default and is temporality-aware server-side
-// (delta samples are summed as-is), so it's correct for delta producers too.
-export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> = {
-    gauge: 'avg',
-    sum: 'increase',
-    counter: 'increase',
-    histogram: 'p95',
-    summary: 'p95',
-    exponential_histogram: 'p95',
-}
 export const DEFAULT_DATE_FROM = '-1h'
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
 export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
+export const DEFAULT_REDUCER: MetricsReducer = 'last'
 // A latency-over-time heatmap only makes sense for a distribution metric; gauges and
 // counters have no per-bucket histogram to grid.
 const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
@@ -274,20 +285,24 @@ export const toKnownMetricType = (metricType: string | undefined): OtelMetricTyp
 
 /** The REST viewer's 'p95' shorthand maps to the schema node's quantile aggregation. */
 export const nodeAggregationFields = (
-    aggregation: MetricAggregation
-): Pick<MetricsQueryClause, 'aggregation' | 'quantile'> =>
-    aggregation === 'p95' ? { aggregation: 'quantile', quantile: 0.95 } : { aggregation }
+    aggregation: MetricAggregation | null
+): Pick<MetricsQueryClause, 'aggregation' | 'quantile'> => {
+    if (!aggregation) {
+        return {}
+    }
+    return aggregation === 'p95' ? { aggregation: 'quantile', quantile: 0.95 } : { aggregation }
+}
 
 /** Inverse of `nodeAggregationFields`, for reading a saved node back in viewer vocabulary. */
 export const viewerAggregationFromNode = (aggregation: MetricsQueryClause['aggregation'] | undefined): string | null =>
     aggregation === 'quantile' ? 'p95' : (aggregation ?? null)
 
-const clauseToApiClause = (clause: MetricsViewerClause): _MetricClauseApi => {
+const clauseWithoutAggregation = (clause: MetricsViewerClause): Omit<_MetricClauseApi, 'aggregation'> => {
     const filters = metricFiltersForGroup(clause.filterGroup)
     return {
         name: clause.name,
         metricName: clause.metricName.trim(),
-        aggregation: clause.aggregation,
+        ...(clause.rangeFunction ? { rangeFunction: clause.rangeFunction } : {}),
         // Pins the OTel type so a name that exists as several types (e.g. a counter
         // and a gauge) charts only the picked one instead of blending them.
         ...(clause.selectedMetricType ? { metricType: clause.selectedMetricType } : {}),
@@ -296,13 +311,30 @@ const clauseToApiClause = (clause: MetricsViewerClause): _MetricClauseApi => {
     }
 }
 
-// Derived from the API clause so a new clause field cannot reach one payload and
+// The REST API defaults a missing aggregation to 'sum', so a clause without one sends 'none' explicitly.
+const clauseToApiClause = (clause: MetricsViewerClause): _MetricClauseApi => ({
+    ...clauseWithoutAggregation(clause),
+    aggregation: clause.aggregation ?? 'none',
+})
+
+// Built from the same base as the API clause so a new clause field cannot reach one payload and
 // miss the other — the two shapes differ only in the aggregation vocabulary.
 const clauseToNodeClause = (clause: MetricsViewerClause): MetricsQueryClause =>
     ({
-        ...clauseToApiClause(clause),
+        ...clauseWithoutAggregation(clause),
         ...nodeAggregationFields(clause.aggregation),
     }) as MetricsQueryClause
+
+/** The single aggregation the anomaly endpoint takes, where `rate` and `increase` imply a sum over series.
+ * Null for a combination they cannot express. */
+export const singleAggregationForClause = (
+    clause: Pick<MetricsViewerClause, 'rangeFunction' | 'aggregation'>
+): MetricAggregation | MetricRangeFunction | null => {
+    if (!clause.rangeFunction) {
+        return clause.aggregation ?? 'sum'
+    }
+    return !clause.aggregation || clause.aggregation === 'sum' ? clause.rangeFunction : null
+}
 
 const insightNameForViewerQuery = (clauses: MetricsViewerClause[], formula: string): string => {
     const names = clauses.map((clause) => clause.metricName.trim())
@@ -312,7 +344,9 @@ const insightNameForViewerQuery = (clauses: MetricsViewerClause[], formula: stri
     } else if (clauses.length > 1) {
         name = `${names.join(', ')} (${clauses.length} series)`
     } else {
-        name = `${names[0]} (${clauses[0].aggregation})`
+        const { rangeFunction, aggregation } = clauses[0]
+        const operations = [rangeFunction, aggregation].filter(Boolean).join(', ')
+        name = operations ? `${names[0]} (${operations})` : names[0]
     }
     return truncate(name, 120)
 }
@@ -322,6 +356,68 @@ const DEFAULT_QUERY_STATE: MetricsViewerQueryState = {
     activeClauseIndex: 0,
     formula: '',
 }
+
+export interface MetricsViewerLogicProps {
+    /** Separates an insight editor's state from the `/metrics` viewer's. */
+    key?: string
+    /** Seeds the state once, when the logic mounts. Later changes are not read. */
+    initialQuery?: MetricsQuery
+}
+
+const FILTER_OP_TO_OPERATOR: Record<MetricsQueryFilter['op'], PropertyOperator> = {
+    eq: PropertyOperator.Exact,
+    neq: PropertyOperator.IsNot,
+    regex: PropertyOperator.Regex,
+    not_regex: PropertyOperator.NotRegex,
+}
+
+/** Saved label matchers as filter bar chips. A multi-value chip comes back as one regex chip. */
+export const filterGroupFromMetricFilters = (filters: MetricsQueryFilter[]): UniversalFiltersGroup =>
+    metricsFilterGroup(
+        filters.map((filter) => ({
+            key: filter.key,
+            value: [filter.value],
+            operator: FILTER_OP_TO_OPERATOR[filter.op],
+        }))
+    )
+
+const isAutoScope = (scope: MetricsAttributeScope | undefined): boolean => !scope || scope === 'auto'
+
+/** Whether the builder can show every part of a saved node, so an edit does not drop settings it cannot show. */
+export const isBuilderCompatibleQuery = (query: MetricsQuery): boolean =>
+    query.clauses.every(
+        (clause) =>
+            (!clause.aggregation ||
+                isMetricAggregation(clause.aggregation) ||
+                isMetricRangeFunction(clause.aggregation) ||
+                (clause.aggregation === 'quantile' && clause.quantile === 0.95)) &&
+            (clause.filters ?? []).every((filter) => isAutoScope(filter.scope)) &&
+            (clause.groupBy ?? []).every((groupBy) => isAutoScope(groupBy.scope))
+    )
+
+const viewerClauseFromNode = (clause: MetricsQueryClause): MetricsViewerClause => {
+    // Saved queries predating range functions hold `rate` or `increase` as the aggregation.
+    const legacy = splitLegacyAggregation(clause.aggregation)
+    const aggregation = legacy.aggregation ?? viewerAggregationFromNode(clause.aggregation)
+    return {
+        name: clause.name,
+        metricName: clause.metricName,
+        selectedMetricType: toKnownMetricType(clause.metricType),
+        rangeFunction: legacy.rangeFunction ?? clause.rangeFunction ?? null,
+        aggregation: isMetricAggregation(aggregation) ? aggregation : null,
+        filterGroup: filterGroupFromMetricFilters(clause.filters ?? []),
+        groupByKeys: (clause.groupBy ?? []).map((groupBy) => groupBy.key),
+    }
+}
+
+const queryStateFromNode = (query: MetricsQuery): MetricsViewerQueryState =>
+    query.clauses.length
+        ? {
+              clauses: query.clauses.slice(0, MAX_CLAUSES).map(viewerClauseFromNode),
+              activeClauseIndex: 0,
+              formula: sanitizeFormulaInput(query.formula ?? ''),
+          }
+        : DEFAULT_QUERY_STATE
 
 const withClauseAt = (
     state: MetricsViewerQueryState,
@@ -352,7 +448,7 @@ export interface metricsViewerLogicValues {
     timezone: string // teamLogic
     activeClause: MetricsViewerClause
     activeClauseIndex: number
-    aggregation: MetricAggregation
+    aggregation: MetricAggregation | null
     anomalyAbortController: AbortController | null
     anomalyBadge: MetricsAnomalyBadge | null
     anomalyFingerprint: string
@@ -381,6 +477,7 @@ export interface metricsViewerLogicValues {
     hasResults: boolean
     heatmapEligible: boolean
     histogramQueryNode: MetricsHistogramQuery | null
+    interval: string | null
     isAddToDashboardModalOpen: boolean
     lastSavedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     liveRefresh: boolean
@@ -399,11 +496,14 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
+    rangeFunction: MetricRangeFunction | null
+    reduce: MetricsReducer
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
+    seriesCapReached: boolean
     viewerClauses: MetricsViewerClause[]
     yAxisSettings: MetricsYAxisSettings
 }
@@ -558,8 +658,8 @@ export interface metricsViewerLogicActions {
     setActiveClauseIndex: (index: number) => {
         index: number
     }
-    setAggregation: (aggregation: MetricAggregation) => {
-        aggregation: MetricAggregation
+    setAggregation: (aggregation: MetricAggregation | null) => {
+        aggregation: MetricAggregation | null
     }
     setAnomalyAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
@@ -592,6 +692,9 @@ export interface metricsViewerLogicActions {
     setGroupBySearch: (groupBySearch: string) => {
         groupBySearch: string
     }
+    setInterval: (interval: string | null) => {
+        interval: string | null
+    }
     setLastSavedQueryNode: (query: MetricsHistogramQuery | MetricsQuery) => {
         query: MetricsHistogramQuery | MetricsQuery
     }
@@ -604,8 +707,11 @@ export interface metricsViewerLogicActions {
     setQueryAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
-    setRecommendedAggregation: (aggregation: MetricAggregation) => {
-        aggregation: MetricAggregation
+    setRangeFunction: (rangeFunction: MetricRangeFunction | null) => {
+        rangeFunction: MetricRangeFunction | null
+    }
+    setReduce: (reduce: MetricsReducer) => {
+        reduce: MetricsReducer
     }
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
@@ -630,6 +736,7 @@ export interface metricsViewerLogicActions {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface metricsViewerLogicMeta {
+    key: string
     __keaTypeGenInternalSelectorTypes: {
         viewerClauses: (queryState: MetricsViewerQueryState) => MetricsViewerClause[]
         activeClauseIndex: (queryState: MetricsViewerQueryState) => number
@@ -637,26 +744,33 @@ export interface metricsViewerLogicMeta {
         activeClause: (viewerClauses: MetricsViewerClause[], activeClauseIndex: number) => MetricsViewerClause
         metricName: (activeClause: MetricsViewerClause) => string
         selectedMetricType: (activeClause: MetricsViewerClause) => OtelMetricTypeEnumApi | null
-        aggregation: (activeClause: MetricsViewerClause) => MetricAggregation
+        rangeFunction: (activeClause: MetricsViewerClause) => MetricRangeFunction | null
+        aggregation: (activeClause: MetricsViewerClause) => MetricAggregation | null
         groupByKeys: (activeClause: MetricsViewerClause) => string[]
         filterGroup: (activeClause: MetricsViewerClause) => UniversalFiltersGroup
         namedClauses: (viewerClauses: MetricsViewerClause[]) => MetricsViewerClause[]
         hasMetricName: (namedClauses: MetricsViewerClause[]) => boolean
-        queryPayload: (namedClauses: MetricsViewerClause[], formula: string) => MetricsQueryRequestBody | null
+        queryPayload: (
+            namedClauses: MetricsViewerClause[],
+            formula: string,
+            interval: string | null
+        ) => MetricsQueryRequestBody | null
         queryFingerprint: (queryPayload: MetricsQueryRequestBody | null) => string
         anomalyQuery: (namedClauses: MetricsViewerClause[], formula: string) => MetricsAnomalyRequestBody | null
         anomalyFingerprint: (anomalyQuery: MetricsAnomalyRequestBody | null) => string
         metricsDisplay: (
             displayType: MetricsDisplayType,
             goalLines: GoalLine[],
-            yAxisSettings: MetricsYAxisSettings
+            yAxisSettings: MetricsYAxisSettings,
+            reduce: MetricsReducer
         ) => MetricsDisplaySettings | undefined
         metricsQueryNode: (
             namedClauses: MetricsViewerClause[],
             formula: string,
             dateFrom: string | null,
             dateTo: string | null,
-            metricsDisplay: MetricsDisplaySettings | undefined
+            metricsDisplay: MetricsDisplaySettings | undefined,
+            interval: string | null
         ) => MetricsQuery | null
         heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
         histogramQueryNode: (
@@ -680,6 +794,7 @@ export interface metricsViewerLogicMeta {
         ) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
+        seriesCapReached: (viewerClauses: MetricsViewerClause[], queryResults: _MetricSeriesApi[]) => boolean
         anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
@@ -688,12 +803,14 @@ export interface metricsViewerLogicMeta {
 export type metricsViewerLogicType = MakeLogicType<
     metricsViewerLogicValues,
     metricsViewerLogicActions,
-    Record<string, any>,
+    MetricsViewerLogicProps,
     metricsViewerLogicMeta
 >
 
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
-    path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
+    props({} as MetricsViewerLogicProps),
+    key((props) => props.key ?? 'viewer'),
+    path((key) => ['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic', key]),
     connect(() => ({
         values: [
             teamLogic,
@@ -709,10 +826,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // keeps working unchanged with several clauses on screen.
         setMetricName: (metricName: string) => ({ metricName }),
         setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => ({ metricType }),
-        setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
-        // Auto-applied on metric switch — a separate action so usage tracking can
-        // tell it apart from the user picking an aggregation themselves.
-        setRecommendedAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
+        // Null removes the aggregation, so each series gets its own line.
+        setAggregation: (aggregation: MetricAggregation | null) => ({ aggregation }),
+        setRangeFunction: (rangeFunction: MetricRangeFunction | null) => ({ rangeFunction }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         addClause: true,
@@ -722,11 +838,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setFormula: (formula: string) => ({ formula }),
         // Bulk replace, used by the scene's URL restore.
         setClauses: (clauses: MetricsViewerClause[], formula: string) => ({ clauses, formula }),
-        // The picker's late type/aggregation backfill, applied to every clause in one
+        // The picker's late type backfill, applied to every clause in one
         // pass so a 10-clause deep link costs one reducer run and one URL write.
         backfillClauses: (updates: MetricsViewerClauseBackfill[]) => ({ updates }),
         setDateFrom: (dateFrom: string | null) => ({ dateFrom }),
         setDateTo: (dateTo: string | null) => ({ dateTo }),
+        // Null means auto: the backend picks a step from the range.
+        setInterval: (interval: string | null) => ({ interval }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
@@ -767,18 +885,19 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             key,
             value,
         }),
+        setReduce: (reduce: MetricsReducer) => ({ reduce }),
     }),
-    reducers({
+    reducers(({ props }) => ({
         // The clause list, active index, and formula live in one reducer so the
         // active-clause setters can resolve their target synchronously — URL sync
         // and connected listeners read the updated value in the same dispatch.
         queryState: [
-            DEFAULT_QUERY_STATE as MetricsViewerQueryState,
+            (props.initialQuery
+                ? queryStateFromNode(props.initialQuery)
+                : DEFAULT_QUERY_STATE) as MetricsViewerQueryState,
             {
                 setMetricName: (state, { metricName }) =>
-                    // A metric switch drops the previous deliberate aggregation pick,
-                    // matching what picking a metric always did.
-                    withActiveClause(state, (clause) => ({ ...clause, metricName, aggregationExplicitlySet: false })),
+                    withActiveClause(state, (clause) => ({ ...clause, metricName })),
                 // The picked metric's type, latched at pick time (and backfilled if the
                 // picker list arrives later). Not derived from the picker's `items` —
                 // those are live search results, so typing a new search would wipe a
@@ -786,9 +905,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 setSelectedMetricType: (state, { metricType }) =>
                     withActiveClause(state, (clause) => ({ ...clause, selectedMetricType: metricType })),
                 setAggregation: (state, { aggregation }) =>
-                    withActiveClause(state, (clause) => ({ ...clause, aggregation, aggregationExplicitlySet: true })),
-                setRecommendedAggregation: (state, { aggregation }) =>
-                    withActiveClause(state, (clause) => ({ ...clause, aggregation, aggregationExplicitlySet: false })),
+                    // Without an aggregation there is nothing to split by.
+                    withActiveClause(state, (clause) => ({
+                        ...clause,
+                        aggregation,
+                        groupByKeys: aggregation ? clause.groupByKeys : [],
+                    })),
+                setRangeFunction: (state, { rangeFunction }) =>
+                    withActiveClause(state, (clause) => ({ ...clause, rangeFunction })),
                 // Attribute keys to split the clause into one series each (e.g. ['service.name', 'env']).
                 setGroupByKeys: (state, { groupByKeys }) =>
                     withActiveClause(state, (clause) => ({ ...clause, groupByKeys })),
@@ -804,13 +928,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         }
                         return {
                             ...clause,
-                            // A backfill never overrides a latched type or a deliberate pick.
-                            ...(update.metricType && clause.selectedMetricType === null
-                                ? { selectedMetricType: update.metricType }
-                                : {}),
-                            ...(update.aggregation && !clause.aggregationExplicitlySet
-                                ? { aggregation: update.aggregation }
-                                : {}),
+                            // A backfill never overrides a latched type.
+                            ...(clause.selectedMetricType === null ? { selectedMetricType: update.metricType } : {}),
                         }
                     }),
                 }),
@@ -867,8 +986,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         : state,
             },
         ],
-        dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
-        dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
+        dateFrom: [
+            (props.initialQuery?.dateRange?.date_from ?? DEFAULT_DATE_FROM) as string | null,
+            { setDateFrom: (_, { dateFrom }) => dateFrom },
+        ],
+        dateTo: [
+            (props.initialQuery?.dateRange?.date_to ?? null) as string | null,
+            { setDateTo: (_, { dateTo }) => dateTo },
+        ],
+        interval: [
+            (props.initialQuery?.interval ?? null) as string | null,
+            { setInterval: (_, { interval }) => interval },
+        ],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Free-text search backing the group-by attribute-key autocomplete.
         groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
@@ -881,11 +1010,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             { setAnomalyAbortController: (_, { controller }) => controller },
         ],
         displayType: [
-            DEFAULT_DISPLAY_TYPE as MetricsDisplayType,
+            (props.initialQuery?.display?.type ?? DEFAULT_DISPLAY_TYPE) as MetricsDisplayType,
             { setDisplayType: (_, { displayType }) => displayType },
         ],
         goalLines: [
-            [] as GoalLine[],
+            (props.initialQuery?.display?.goalLines ?? []) as GoalLine[],
             {
                 addGoalLine: (state) => [...state, { label: '', value: 0 }],
                 updateGoalLine: (state, { index, key, value }) =>
@@ -894,7 +1023,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         yAxisSettings: [
-            {} as MetricsYAxisSettings,
+            (props.initialQuery?.display?.yAxis ?? {}) as MetricsYAxisSettings,
             {
                 // An undefined value clears the setting rather than persisting an explicit
                 // undefined, so an emptied number input goes back to automatic.
@@ -908,6 +1037,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return next
                 },
             },
+        ],
+        // Seeded through resolveReducer so a node saved with the deprecated `statSummary` keeps
+        // its summary when the editor rebuilds `display`.
+        reduce: [
+            resolveReducer(props.initialQuery?.display) as MetricsReducer,
+            { setReduce: (_, { reduce }) => reduce },
         ],
         isAddToDashboardModalOpen: [
             false,
@@ -963,13 +1098,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Rides out superseded-query aborts, so the UI must read it instead of the auto
         // `queryResultsLoading`, which drops mid-refetch and flashes the empty state.
         queryLoading: [false as boolean, abortResilientLoading('fetchQueryResults')],
-    }),
+    })),
     listeners(({ actions, values, cache }) => {
-        // Recovers each clause's type, and the aggregation that follows from it, when the metric
-        // names were set before the picker's list arrived — the shape of a deep link on a cold
-        // load. An already-latched type and an explicitly chosen aggregation are left alone.
-        // Without the aggregation half, a link to a cumulative counter charts the raw running
-        // total rather than its rate: nothing recommended an aggregation while the list was empty.
+        // Recovers each clause's type when the metric names were set before the picker's list
+        // arrived — the shape of a deep link on a cold load. An already-latched type is left alone.
         const backfillClauseTypes = (): void => {
             const updates: MetricsViewerClauseBackfill[] = []
             values.viewerClauses.forEach((clause, index) => {
@@ -977,20 +1109,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 if (!trimmedName) {
                     return
                 }
-                const metricType = values.items.find((item) => item.name === trimmedName)?.metric_type
-                const known = toKnownMetricType(metricType)
-                const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
-                const update: MetricsViewerClauseBackfill = { index }
+                const known = toKnownMetricType(values.items.find((item) => item.name === trimmedName)?.metric_type)
                 if (known && clause.selectedMetricType === null) {
-                    update.metricType = known
-                }
-                // The explicit-pick flag, not a compare against the default, is what holds a
-                // deliberate choice — picking the default value is still a choice.
-                if (recommended && !clause.aggregationExplicitlySet && recommended !== clause.aggregation) {
-                    update.aggregation = recommended
-                }
-                if (update.metricType || update.aggregation) {
-                    updates.push(update)
+                    updates.push({ index, metricType: known })
                 }
             })
             if (updates.length) {
@@ -1086,12 +1207,6 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
                 const knownType = toKnownMetricType(metricType)
                 actions.setSelectedMetricType(knownType)
-                // Each metric type has one sensible default; a manual aggregation pick
-                // holds only until the next metric switch.
-                const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
-                if (recommended && recommended !== values.aggregation) {
-                    actions.setRecommendedAggregation(recommended)
-                }
                 // A distribution metric leaving the chart can't keep the heatmap display —
                 // fall back rather than render it against a metric with no histogram.
                 if (values.displayType === 'heatmap' && (!knownType || !HISTOGRAM_METRIC_TYPES.includes(knownType))) {
@@ -1343,6 +1458,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (s) => [s.activeClause],
             (activeClause: MetricsViewerClause) => activeClause.selectedMetricType,
         ],
+        rangeFunction: [(s) => [s.activeClause], (activeClause: MetricsViewerClause) => activeClause.rangeFunction],
         aggregation: [(s) => [s.activeClause], (activeClause: MetricsViewerClause) => activeClause.aggregation],
         groupByKeys: [(s) => [s.activeClause], (activeClause: MetricsViewerClause) => activeClause.groupByKeys],
         filterGroup: [(s) => [s.activeClause], (activeClause: MetricsViewerClause) => activeClause.filterGroup],
@@ -1358,10 +1474,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // loader sends this object verbatim, so the fingerprint below can't drift from
         // the real payload. Null when nothing queries anything yet.
         queryPayload: [
-            (s) => [s.namedClauses, s.formula],
-            (namedClauses: MetricsViewerClause[], formula: string): MetricsQueryRequestBody | null =>
+            (s) => [s.namedClauses, s.formula, s.interval],
+            (
+                namedClauses: MetricsViewerClause[],
+                formula: string,
+                interval: string | null
+            ): MetricsQueryRequestBody | null =>
                 namedClauses.length
-                    ? { clauses: namedClauses.map(clauseToApiClause), ...(formula ? { formula } : {}) }
+                    ? {
+                          clauses: namedClauses.map(clauseToApiClause),
+                          ...(formula ? { formula } : {}),
+                          ...(interval ? { interval: interval as MetricQueryIntervalEnumApi } : {}),
+                      }
                     : null,
         ],
         // Effect key for the chart fetch: string-valued so equal queries compare equal,
@@ -1381,10 +1505,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return null
                 }
                 const clause = namedClauses[0]
+                const aggregation = singleAggregationForClause(clause)
+                if (!aggregation) {
+                    return null
+                }
                 const filters = metricFiltersForGroup(clause.filterGroup)
                 return {
                     metricName: clause.metricName.trim(),
-                    aggregation: clause.aggregation,
+                    aggregation,
                     ...(filters.length ? { filters } : {}),
                 }
             },
@@ -1398,16 +1526,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Chart settings as they'd be persisted, with every default omitted — an all-defaults
         // object would change the shape of newly-saved nodes for no gain.
         metricsDisplay: [
-            (s) => [s.displayType, s.goalLines, s.yAxisSettings],
+            (s) => [s.displayType, s.goalLines, s.yAxisSettings, s.reduce],
             (
                 displayType: MetricsDisplayType,
                 goalLines: GoalLine[],
-                yAxisSettings: MetricsYAxisSettings
+                yAxisSettings: MetricsYAxisSettings,
+                reduce: MetricsReducer
             ): MetricsDisplaySettings | undefined => {
                 const display: MetricsDisplaySettings = {
                     ...(displayType !== DEFAULT_DISPLAY_TYPE ? { type: displayType } : {}),
                     ...(goalLines.length ? { goalLines } : {}),
                     ...(Object.keys(yAxisSettings).length ? { yAxis: yAxisSettings } : {}),
+                    ...(reduce !== DEFAULT_REDUCER ? { reduce } : {}),
                 }
                 return Object.keys(display).length ? display : undefined
             },
@@ -1415,13 +1545,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         metricsQueryNode: [
-            (s) => [s.namedClauses, s.formula, s.dateFrom, s.dateTo, s.metricsDisplay],
+            (s) => [s.namedClauses, s.formula, s.dateFrom, s.dateTo, s.metricsDisplay, s.interval],
             (
                 namedClauses: MetricsViewerClause[],
                 formula: string,
                 dateFrom: string | null,
                 dateTo: string | null,
-                metricsDisplay: MetricsDisplaySettings | undefined
+                metricsDisplay: MetricsDisplaySettings | undefined,
+                interval: string | null
             ): MetricsQuery | null => {
                 if (!namedClauses.length) {
                     return null
@@ -1434,6 +1565,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         date_from: dateFrom ?? DEFAULT_DATE_FROM,
                         ...(dateTo ? { date_to: dateTo } : {}),
                     },
+                    ...(interval ? { interval } : {}),
                     ...(metricsDisplay ? { display: metricsDisplay } : {}),
                 }
             },
@@ -1547,6 +1679,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         hasResults: [
             (s) => [s.queryResults],
             (results: MetricsViewerSeries[]): boolean => results.some((series) => series.points.length > 0),
+        ],
+        // Whether a clause without an aggregation hit the series cap, so the chart is missing series.
+        seriesCapReached: [
+            (s) => [s.viewerClauses, s.queryResults],
+            (clauses: MetricsViewerClause[], results: MetricsViewerSeries[]): boolean =>
+                clauses.some(
+                    (clause) =>
+                        !clause.aggregation &&
+                        results.filter((series) => series.clause === clause.name).length >= MAX_UNAGGREGATED_SERIES
+                ),
         ],
         // The label values behind the current anomaly, ranked. Empty for an ungrouped metric or
         // when nothing stood out, which the panel reports rather than hiding.

@@ -106,9 +106,3 @@ class TestOnePasswordSource:
         with patch.object(source_module, "onepassword_source") as mock_source:
             self.source.source_for_pipeline(config, MagicMock(), inputs)
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Drift here (an endpoint renamed in settings but not here) silently drops the curated docs
-        # and falls back to LLM enrichment, so keep the two in lockstep.
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

@@ -51,7 +51,7 @@ function RankingTooltip({
     )
 }
 
-/** The active model sort's lift for one report, in the card's meta row. Falls back to the probability when the head has no lift. */
+/** The active model sort's lift for one report, in the card's meta row. Falls back to the probability when the head has no lift, and shows no score when the report was edited after it was scored. */
 export function ReportCardRankingTag({
     report,
     sortField,
@@ -67,6 +67,15 @@ export function ReportCardRankingTag({
             <LemonTag size="small" type="muted" data-attr="inbox-ranking-tag">
                 Not scored
             </LemonTag>
+        )
+    }
+    if (report.ranking.stale) {
+        return (
+            <Tooltip title="The title or summary changed after this report was scored, so the score describes the old text.">
+                <LemonTag size="small" type="muted" className="cursor-help" data-attr="inbox-ranking-tag">
+                    Edited since scored
+                </LemonTag>
+            </Tooltip>
         )
     }
     return (

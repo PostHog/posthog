@@ -1,5 +1,7 @@
 import os
 import json
+import datetime as dt
+from collections import Counter
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -18,17 +20,37 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
 
+        log_items = []
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
-            sql = ""
             for line in f:
                 log_item = json.loads(line)
                 log_item["team_id"] = cls.team.id
-                sql += json.dumps(log_item) + "\n"
-            sync_execute(f"""
-                INSERT INTO logs
-                FORMAT JSONEachRow
-                {sql}
-            """)
+                log_items.append(log_item)
+
+        sql = "\n".join(json.dumps(log_item) for log_item in log_items)
+        sync_execute(f"""
+            INSERT INTO logs
+            FORMAT JSONEachRow
+            {sql}
+        """)
+
+        # The severity_text and service_name facets read logs_volume_buckets, not the logs table.
+        # See LogFacetValuesQueryRunner._column_facet_query_from_rollup. Make the rollup rows from
+        # the same fixture, in 5-minute buckets, so that the two tables always agree.
+        bucket_counts: Counter[tuple[int, dt.datetime, str, str]] = Counter()
+        for log_item in log_items:
+            timestamp = dt.datetime.fromisoformat(log_item["timestamp"]).replace(tzinfo=dt.UTC)
+            time_bucket = timestamp.replace(minute=timestamp.minute - timestamp.minute % 5, second=0, microsecond=0)
+            bucket_counts[(log_item["team_id"], time_bucket, log_item["service_name"], log_item["severity_text"])] += 1
+
+        sync_execute(
+            "INSERT INTO logs_volume_buckets "
+            "(team_id, time_bucket, service_name, namespace, environment, severity_text, log_count) VALUES",
+            [
+                (team_id, time_bucket.replace(tzinfo=None), service_name, "", "", severity_text, count)
+                for (team_id, time_bucket, service_name, severity_text), count in bucket_counts.items()
+            ],
+        )
 
     def _facet(self, facet_field: str, **filters) -> dict[str, int]:
         body = {"query": {"facetField": facet_field, "dateRange": self.DATE_RANGE, **filters}}
@@ -74,6 +96,13 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             sum(base.values()),
             f"{other_filter_key} should re-scope {facet_field} counts",
         )
+
+    def test_column_facet_keeps_the_bucket_that_contains_date_from(self):
+        # The rollup has 5-minute buckets. A date_from inside a bucket must not drop that bucket, or
+        # the counts lose up to 5 minutes of logs. Every fixture log in DATE_RANGE is at or after
+        # 09:00, so a start of 09:02 must give the same counts as a start of 09:00.
+        inside_bucket = {**self.DATE_RANGE, "date_from": "2025-12-16T09:02:00Z"}
+        self.assertEqual(self._facet("severity_text", dateRange=inside_bucket), self._facet("severity_text"))
 
     @parameterized.expand(
         [

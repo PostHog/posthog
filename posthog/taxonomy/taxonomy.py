@@ -184,9 +184,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag_called": {
             "label": "Feature flag called",
-            "description": (
-                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
-            ),
+            "description": "Sent by PostHog SDKs each time a feature flag is evaluated.",
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "hidden_in_query_builders": True,
@@ -570,7 +568,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflows_email_bounced": {
             "label": "Workflow email bounced",
-            "description": "Fires when a workflow email bounces.",
+            "description": 'Fires when a workflow email bounces. The `$bounce_type` property holds `hard` when the address will never accept mail (it is also added to the suppression list), `soft` when the failure is temporary such as a full mailbox, and `unknown` when the provider could not tell. `$bounce_sub_type` holds the provider\'s own reason, such as "MailboxFull". Bounces recorded before these properties shipped carry neither.',
         },
         "$workflows_email_blocked": {
             "label": "Workflow email marked as spam",
@@ -814,6 +812,20 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Go version",
             "description": "The Go version that was used to capture the event.",
             "examples": ["go1.23.0"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$react_native_version": {
+            "label": "React Native version",
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$flutter_version": {
+            "label": "Flutter version",
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
             "system": True,
             "ignored_in_assistant": True,
         },
