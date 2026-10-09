@@ -20,7 +20,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
-from products.experiments.backend.metric_calculation.spec import plan_metric
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -52,9 +52,9 @@ _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _discover(recalculation_id: str):
