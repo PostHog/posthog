@@ -24,6 +24,12 @@ import {
 export type PipelineConfig<R extends string = never> = {
     outputs: IngestionOutputs<DlqOutput | R>
     promiseScheduler: PromiseScheduler
+    /**
+     * Reject a DLQ result's side effect when the DLQ produce fails, instead of
+     * logging and swallowing it. Set it only when the consumer stores no
+     * offsets after a rejected side effect, so the message replays.
+     */
+    rejectOnDlqFailure?: boolean
 }
 
 /**
@@ -92,12 +98,10 @@ export class ResultHandlingPipeline<
         const sideEffects: Promise<unknown>[] = []
 
         if (isDlqResult(result)) {
-            const dlqPromise = produceMessageToDLQ(
-                this.config.outputs,
-                originalMessage,
-                result.error || new Error(result.reason),
-                stepName
-            )
+            const error = result.error || new Error(result.reason)
+            const dlqPromise = this.config.rejectOnDlqFailure
+                ? produceMessageToDLQ(this.config.outputs, originalMessage, error, stepName, { rethrowOnFailure: true })
+                : produceMessageToDLQ(this.config.outputs, originalMessage, error, stepName)
             sideEffects.push(dlqPromise)
         } else if (isDropResult(result)) {
             logDroppedMessage(originalMessage, result.reason, stepName)

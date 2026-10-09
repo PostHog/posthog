@@ -55,7 +55,8 @@ export type MetricsIngestionPipeline = BatchingPipeline<
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
     const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter } = config
 
-    const pipelineConfig: PipelineConfig = { outputs, promiseScheduler }
+    // A failed DLQ write must fail the batch so it replays; see MetricsPipelineConsumer.
+    const pipelineConfig: PipelineConfig = { outputs, promiseScheduler, rejectOnDlqFailure: true }
     const sideEffects = { await: false }
 
     return newBatchingPipeline<

@@ -2,8 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
-import { sendMessageToDLQ } from '~/ingestion/framework/result-handling-helpers'
+import { produceMessageToDLQ } from '~/ingestion/framework/result-handling-helpers'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
@@ -75,15 +74,9 @@ export function createProduceMetricsStep<T extends ProduceMetricsInput>(
                         ...Object.entries(headers).map(([k, v]) => ({ [k]: v })),
                     ],
                 }
-                try {
-                    await sendMessageToDLQ(outputs, dlqMessage, error, 'produceMetricsStep')
-                } catch (dlqError) {
-                    logger.error('Failed to send metrics message to DLQ, failing the batch so it replays', {
-                        team_id: teamIdLabel,
-                        error: dlqError,
-                    })
-                    throw dlqError
-                }
+                await produceMessageToDLQ(outputs, dlqMessage, error, 'produceMetricsStep', {
+                    rethrowOnFailure: true,
+                })
             }
         )
 

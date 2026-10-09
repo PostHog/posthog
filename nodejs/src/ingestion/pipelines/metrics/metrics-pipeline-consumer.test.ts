@@ -91,6 +91,18 @@ describe('MetricsPipelineConsumer', () => {
         expect(outputs.queueMessages).not.toHaveBeenCalled()
     })
 
+    it('rejects the background task when a permanent team lookup error and its DLQ write both fail', async () => {
+        teamManager.getTeamByToken.mockRejectedValue(new Error('bad token row'))
+        const dlqError = new Error('broker down')
+        outputs.produce.mockRejectedValue(dlqError)
+
+        const { backgroundTask } = await consumer.handleKafkaBatch([message])
+
+        await expect(backgroundTask).rejects.toBe(dlqError)
+        expect(outputs.produce).toHaveBeenCalledTimes(1)
+        expect(outputs.queueMessages).not.toHaveBeenCalled()
+    })
+
     it('fails the batch when the team lookup keeps failing with a retriable error', async () => {
         const error = new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down'))
         teamManager.getTeamByToken.mockRejectedValue(error)

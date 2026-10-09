@@ -68,44 +68,24 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
     }
 }
 
+export interface ProduceToDLQOptions {
+    /**
+     * Rethrow a failed DLQ produce after logging it. Set it only when the
+     * caller stops offset commits on the error, so the message replays.
+     */
+    rethrowOnFailure?: boolean
+}
+
 /**
  * Send a Kafka message to the dead letter queue with proper logging and metrics.
- * A failed DLQ produce is logged and swallowed.
+ * A failed DLQ produce is logged and swallowed unless `rethrowOnFailure` is set.
  */
 export async function produceMessageToDLQ(
     outputs: IngestionOutputs<DlqOutput>,
     originalMessage: Message,
     error: unknown,
-    stepName: string
-): Promise<void> {
-    try {
-        await sendMessageToDLQ(outputs, originalMessage, error, stepName)
-    } catch (dlqError) {
-        const messageInfo = getEventMetadata(originalMessage)
-        logger.error('Failed to send event to DLQ', {
-            step: stepName,
-            team_id: messageInfo.teamId,
-            distinct_id: messageInfo.distinctId,
-            event: messageInfo.event,
-            uuid: messageInfo.uuid,
-            error: dlqError,
-        })
-        captureException(dlqError, {
-            tags: { team_id: messageInfo.teamId, pipeline_step: stepName },
-            extra: { originalMessage, error: dlqError },
-        })
-    }
-}
-
-/**
- * Like `produceMessageToDLQ`, but a failed DLQ produce rejects, for callers
- * that must not commit the message's offset when the DLQ is unavailable.
- */
-export async function sendMessageToDLQ(
-    outputs: IngestionOutputs<DlqOutput>,
-    originalMessage: Message,
-    error: unknown,
-    stepName: string
+    stepName: string,
+    options: ProduceToDLQOptions = {}
 ): Promise<void> {
     const step = stepName
     const messageInfo = getEventMetadata(originalMessage)
@@ -119,18 +99,36 @@ export async function sendMessageToDLQ(
         error: error instanceof Error ? error.message : String(error),
     })
 
-    await outputs.produce(DLQ_OUTPUT, {
-        value: originalMessage.value,
-        key: originalMessage.key ?? null,
-        headers: copyAndExtendHeaders(originalMessage, {
-            dlq_reason: error instanceof Error ? error.message : String(error),
-            dlq_step: step,
-            dlq_timestamp: new Date().toISOString(),
-            dlq_topic: originalMessage.topic,
-            dlq_partition: String(originalMessage.partition),
-            dlq_offset: String(originalMessage.offset),
-        }),
-    })
+    try {
+        await outputs.produce(DLQ_OUTPUT, {
+            value: originalMessage.value,
+            key: originalMessage.key ?? null,
+            headers: copyAndExtendHeaders(originalMessage, {
+                dlq_reason: error instanceof Error ? error.message : String(error),
+                dlq_step: step,
+                dlq_timestamp: new Date().toISOString(),
+                dlq_topic: originalMessage.topic,
+                dlq_partition: String(originalMessage.partition),
+                dlq_offset: String(originalMessage.offset),
+            }),
+        })
+    } catch (dlqError) {
+        logger.error('Failed to send event to DLQ', {
+            step,
+            team_id: messageInfo.teamId,
+            distinct_id: messageInfo.distinctId,
+            event: messageInfo.event,
+            uuid: messageInfo.uuid,
+            error: dlqError,
+        })
+        captureException(dlqError, {
+            tags: { team_id: messageInfo.teamId, pipeline_step: step },
+            extra: { originalMessage, error: dlqError },
+        })
+        if (options.rethrowOnFailure) {
+            throw dlqError
+        }
+    }
 }
 
 /**
