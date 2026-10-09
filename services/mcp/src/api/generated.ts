@@ -55631,6 +55631,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
       posthogAttributionMode?: AttributionMode | null;
       posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
       posthogConversionsWarning?: string | null;
@@ -90566,6 +90567,7 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
       posthogAttributionMode?: AttributionMode | null;
       posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
       posthogConversionsWarning?: string | null;
