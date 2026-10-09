@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory, SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import OrganizationMembership
@@ -113,3 +114,47 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
         }
+
+    @parameterized.expand(
+        [
+            ["count with no saved window", None, {"marketing_frequency_cap_max_messages": 3}, 400, (None, None)],
+            ["count change on a saved cap", (2, 7), {"marketing_frequency_cap_max_messages": 3}, 200, (3, 7)],
+            ["one field cleared on a saved cap", (2, 7), {"marketing_frequency_cap_window_days": None}, 400, (2, 7)],
+            [
+                "both fields cleared",
+                (2, 7),
+                {"marketing_frequency_cap_max_messages": None, "marketing_frequency_cap_window_days": None},
+                200,
+                (None, None),
+            ],
+        ]
+    )
+    def test_patch_frequency_cap_needs_both_fields_or_neither(
+        self,
+        _name: str,
+        saved: tuple[int, int] | None,
+        patch: dict,
+        expected_status: int,
+        expected_cap: tuple[int | None, int | None],
+    ) -> None:
+        if saved:
+            response = self.client.patch(
+                self.url,
+                {
+                    "workflows_config": {
+                        "marketing_frequency_cap_max_messages": saved[0],
+                        "marketing_frequency_cap_window_days": saved[1],
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.patch(self.url, {"workflows_config": patch})
+
+        assert response.status_code == expected_status, response.json()
+        stored = (
+            TeamWorkflowsConfig.objects.filter(team=self.team)
+            .values_list("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
+            .first()
+        )
+        assert (stored or (None, None)) == expected_cap
