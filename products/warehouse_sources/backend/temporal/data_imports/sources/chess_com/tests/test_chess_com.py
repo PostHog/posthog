@@ -23,6 +23,26 @@ MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.chess
 API = "https://api.chess.com/pub"
 TEAM_ID = 1
 GAME_URL = "https://www.chess.com/game/live/1"
+MOVES = "1. e4 {[%clk 0:02:59.9]} 1... e5 {[%clk 0:02:58.1]} 1-0"
+
+
+def _pgn(white: str, black: str) -> str:
+    return "\n".join(
+        [
+            '[Event "Live Chess"]',
+            '[Site "Chess.com"]',
+            f'[White "{white}"]',
+            f'[Black "{black}"]',
+            '[Result "1-0"]',
+            '[ECO "C20"]',
+            '[WhiteElo "1510"]',
+            f'[Termination "{white} won by resignation"]',
+            f'[Link "{GAME_URL}"]',
+            '[Tournament "https://www.chess.com/tournament/ada-and-grace-arena"]',
+            "",
+            MOVES,
+        ]
+    )
 
 
 def _response(status_code: int, body: dict[str, Any] | None = None) -> Response:
@@ -49,7 +69,7 @@ def _rows(
 def _game(white: str, black: str, white_result: str, black_result: str) -> dict[str, Any]:
     return {
         "url": GAME_URL,
-        "pgn": "1. e4 e5",
+        "pgn": _pgn(white, black),
         "end_time": 1791288000,
         "time_class": "blitz",
         "time_control": "180+2",
@@ -122,9 +142,23 @@ class TestChessCom:
                 "rating": rating,
                 "opponent_rating": opponent_rating,
                 "accuracy": accuracy,
+                "pgn": "\n".join(
+                    [
+                        '[Event "?"]',
+                        '[Site "Chess.com"]',
+                        '[White "?"]',
+                        '[Black "?"]',
+                        '[Result "1-0"]',
+                        '[ECO "C20"]',
+                        '[WhiteElo "1510"]',
+                        "",
+                        MOVES,
+                    ]
+                ),
             }
         ]
-        assert "ada" not in json.dumps(rows, default=str) and "grace" not in json.dumps(rows, default=str)
+        dumped = json.dumps(rows, default=str).lower()
+        assert "ada" not in dumped and "grace" not in dumped and GAME_URL not in dumped
         assert opaque_key(TEAM_ID, "ada") != opaque_key(TEAM_ID + 1, "ada")
 
     def test_an_incremental_sync_skips_months_before_the_last_game(self) -> None:
