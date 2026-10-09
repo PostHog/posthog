@@ -3181,6 +3181,13 @@ email@example.org,
                 "deleted",
                 "This cohort includes cohort 'Retired cohort' (ID {id}), which has been deleted. Restore that cohort first.",
             ),
+            (
+                "restore_of_cohort_that_includes_missing_cohort",
+                "restore",
+                "filters",
+                "missing",
+                "This cohort can't be restored because it includes cohort with id 99999, which does not exist. Create a new cohort instead.",
+            ),
         ]
     )
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -3201,6 +3208,7 @@ email@example.org,
             team=self.team,
             name="Retired cohort",
             deleted=True,
+            # The nested flag check rejects a behavioral cohort. The update rows fail if its lookup stops skipping deleted cohorts.
             filters={
                 "properties": {
                     "type": "AND",
@@ -3241,6 +3249,7 @@ email@example.org,
             response = self.client.post(cohorts_url, data={"name": "cohort A", **criteria})
         elif save == "update":
             cohort_a = Cohort.objects.create(team=self.team, name="cohort A")
+            # The nested flag check runs only on a PATCH to a cohort that an active flag uses.
             FeatureFlag.objects.create(
                 team=self.team,
                 key="cohort-flag",
