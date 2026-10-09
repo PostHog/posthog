@@ -6,6 +6,7 @@ import pytest
 from products.github_commands.backend.logic.intake import CommentCommandRequest, Dropped, read_comment_command
 from products.github_commands.backend.logic.parsing import (
     MAX_ARGUMENT_LENGTH,
+    MAX_BODY_LENGTH,
     AmbiguousCommand,
     ParsedCommand,
     parse_command,
@@ -85,23 +86,33 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         ("- item\n\n@posthog stamp", ParsedCommand(verb="stamp", argument="")),
         # Bold text is still the person's own words.
         ("**@posthog stamp**", ParsedCommand(verb="stamp", argument="")),
+        # GitHub shows a table cell and inline HTML code as displayed text.
+        ("| cmd |\n| --- |\n| @posthog qa |", None),
+        ("Example |\n--- |\n@posthog qa", None),
+        ("<code>@posthog qa</code>", None),
+        ("Try <kbd>@posthog qa</kbd> here", None),
+        ("<CODE class='x'>\n@posthog qa", None),
+        ("<b>@posthog stamp</b>", ParsedCommand(verb="stamp", argument="")),
     ],
 )
 def test_parse_command(body: str, expected: object) -> None:
     assert parse_command(body) == expected
 
 
-def test_parse_command_reads_a_long_backtick_run_in_linear_time() -> None:
+def test_parse_command_ignores_bodies_over_the_cap_and_reads_shorter_ones() -> None:
     # GitHub accepts comments up to 65,536 characters, and intake parses them inside the webhook
     # request before any author check.
-    body = "Example: " + "`" * 65_000
+    oversized = "@posthog qa\n\n" + "<?" * 32_000
 
     started = time.perf_counter()
-    parsed = parse_command(body)
+    parsed = parse_command(oversized)
     elapsed = time.perf_counter() - started
 
     assert parsed is None
     assert elapsed < 1.0
+    near_cap = "x" * 9_900 + "\n\n@posthog stamp"
+    assert len(near_cap) < MAX_BODY_LENGTH
+    assert parse_command(near_cap) == ParsedCommand(verb="stamp", argument="")
 
 
 def test_parse_command_strips_characters_that_hide_or_reorder_text() -> None:

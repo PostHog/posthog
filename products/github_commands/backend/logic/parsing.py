@@ -20,13 +20,19 @@ MENTION = "@posthog"
 # A line with the bare mention asks for help, so the parser owns this verb.
 HELP_VERB = "help"
 MAX_ARGUMENT_LENGTH = 200
+# A command comment is short, and the CommonMark parse of the largest comment GitHub allows costs
+# most of a second inside the webhook request.
+MAX_BODY_LENGTH = 10_000
 
-# The "commonmark" preset parses raw HTML, so HTML blocks become their own tokens.
-_MARKDOWN = MarkdownIt("commonmark")
+# The "commonmark" preset parses raw HTML, so HTML blocks become their own tokens. GitHub renders
+# tables, and a table cell is shown as table content, not as a paragraph.
+_MARKDOWN = MarkdownIt("commonmark").enable("table")
 _CONTAINER_OPEN = frozenset({"blockquote_open", "bullet_list_open", "ordered_list_open", "list_item_open"})
 _CONTAINER_CLOSE = frozenset({"blockquote_close", "bullet_list_close", "ordered_list_close", "list_item_close"})
 # A code span becomes a placeholder, so the text before a mention keeps it off the line start.
 _CODE_SPAN_PLACEHOLDER = "x"
+# GitHub shows the text inside these inline HTML tags as code, like a backtick span.
+_HTML_CODE_OPEN_RE = re.compile(r"^<(code|kbd|samp|var|tt)(?=[\s>/])", re.IGNORECASE)
 # Paragraph lines carry no leading indentation, so the mention must be the first character.
 # The mention must stand alone: `@posthog-bot` and `@posthogx` are other accounts.
 _COMMAND_LINE_RE = re.compile(
@@ -59,7 +65,7 @@ def parse_command(body: str) -> ParseResult:
     """
     # Nearly every comment has no mention, so the CommonMark parse runs only for the few that might
     # hold a command, which keeps the webhook request cheap.
-    if MENTION not in body.casefold():
+    if MENTION not in body.casefold() or len(body) > MAX_BODY_LENGTH:
         return None
     commands: list[ParsedCommand] = []
     for line in _live_lines(body):
@@ -91,8 +97,19 @@ def sanitize_argument(raw: str) -> str:
 
 def _paragraph_lines(inline: Token) -> list[str]:
     lines = [""]
+    # The closing tag of an open inline HTML code element. An unclosed one runs to the paragraph end.
+    html_code_close_tag: str | None = None
     for child in inline.children or []:
-        if child.type == "text":
+        if html_code_close_tag is not None:
+            if child.type == "html_inline" and child.content.replace(" ", "").lower() == html_code_close_tag:
+                html_code_close_tag = None
+            continue
+        if child.type == "html_inline":
+            html_code_match = _HTML_CODE_OPEN_RE.match(child.content)
+            if html_code_match is not None:
+                html_code_close_tag = f"</{html_code_match.group(1).lower()}>"
+                lines[-1] += _CODE_SPAN_PLACEHOLDER
+        elif child.type == "text":
             lines[-1] += child.content
         elif child.type in ("softbreak", "hardbreak"):
             lines.append("")
