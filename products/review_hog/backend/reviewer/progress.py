@@ -33,6 +33,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
@@ -40,11 +41,22 @@ from products.review_hog.backend.reviewer.skill_loader import (
 
 logger = logging.getLogger(__name__)
 
-REVIEW_STAGES = ["fetching", "chunking", "selecting", "reviewing", "deduplicating", "validating", "finalizing"]
+REVIEW_STAGES = [
+    "fetching",
+    "chunking",
+    "selecting",
+    "reviewing",
+    "deduplicating",
+    "validating",
+    "finalizing",
+    # The single-agent design writes no chunk, selection, or validator state, so it has its own shorter sequence.
+    "single_agent_preparing",
+    "single_agent_reviewing",
+    "single_agent_finalizing",
+]
 
-# An ACTIVE report only counts as running while its run is visibly moving (artefacts stream in
-# throughout a run); past this quiet window a review run stops rendering as live, and a resolution
-# run with no closing note starts rendering as died partway.
+# Artefacts and activity heartbeats keep active reviews fresh; stopped runs must age out so the UI
+# does not show a live spinner forever. A resolution run with no closing note then reads as stopped.
 IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
 RESOLUTION_RESOLVING = "resolving"
@@ -55,7 +67,7 @@ RESOLUTION_STOPPED = "stopped"
 RESOLUTION_RUN_NOTE_AUTHOR = "review_hog_resolution"
 
 
-@dataclass
+@dataclass(frozen=True)
 class SnapshotStats:
     """PR facts from the report's latest `pr_snapshot` artefact (metadata only, never `pr_files`)."""
 
@@ -64,9 +76,10 @@ class SnapshotStats:
     # Whether a snapshot exists for the report's CURRENT head (vs. a stale-turn fallback) — the
     # in-flight stage detection needs "has this turn fetched yet", not "was anything ever fetched".
     head_matched: bool = False
+    review_design: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class TurnStats:
     """Pipeline shape of the latest turn, from `chunk_set` / `perspective_result` working state."""
 
@@ -80,6 +93,8 @@ class TurnStats:
     # None when the turn ran without a selection (failed, skipped, or predates the feature).
     selection_roster: list[str] | None = None
     selection_chunks: list[ChunkPerspectiveSelection] | None = None
+    # The turn marker is written right before the review sessions start, so it ends the preparing step.
+    has_turn_marker: bool = False
 
 
 def _content_json() -> Cast:
@@ -116,7 +131,8 @@ def snapshot_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, Snap
             files_reviewed=Func(
                 KeyTransform("pr_files", _content_json()), function="jsonb_array_length", output_field=IntegerField()
             ),
-        ).values("report_id", "meta", "files_reviewed")
+            review_design=KeyTextTransform("review_design", _content_json()),
+        ).values("report_id", "meta", "files_reviewed", "review_design")
 
     def _ingest(row: dict[str, Any], *, head_matched: bool) -> None:
         report_id = str(row["report_id"])
@@ -133,7 +149,12 @@ def snapshot_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, Snap
         except ValidationError as e:
             logger.warning("Skipping unparseable pr_snapshot metadata for report %s: %s", report_id, e)
             meta = None
-        stats[report_id] = SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"], head_matched=head_matched)
+        stats[report_id] = SnapshotStats(
+            meta=meta,
+            files_reviewed=row["files_reviewed"],
+            head_matched=head_matched,
+            review_design=row["review_design"],
+        )
 
     head_q = _turn_scope_q(heads)
     if head_q is not None:
@@ -172,6 +193,15 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     )
     for row in chunk_rows:  # oldest-first, so the turn's latest chunking wins
         stats[str(row["report_id"])].chunk_count = row["chunk_count"]
+
+    marker_report_ids = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(head_q, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .values_list("report_id", flat=True)
+        .distinct()
+    )
+    for report_id in marker_report_ids:
+        stats[str(report_id)].has_turn_marker = True
 
     result_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
@@ -393,6 +423,38 @@ def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int 
     return chunk_count * (perspectives + 1)
 
 
+def _in_publish_window(report: ReviewReport) -> bool:
+    """Whether the turn finished but has not published yet.
+
+    On publishing runs finalize defers the idle write to the publish stage, so the report is still
+    ACTIVE with `run_count` already bumped and no in-flight findings. Scoped to the not-yet-published
+    head so a resolution run's ACTIVE window (published head) keeps its current label.
+    """
+    return bool(
+        report.completed_head_sha
+        and report.completed_head_sha == report.head_sha
+        and report.published_head_sha != report.head_sha
+    )
+
+
+def _single_agent_progress(
+    turn: TurnStats, current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]], in_publish_window: bool
+) -> dict[str, Any]:
+    """Stage for a single-agent turn: preparing → reviewing (main and lens sessions) → finalizing.
+
+    Dedup persists the findings with accepted verdicts in one step, so any finding at the turn means
+    the sessions are done. The reviewing step has no counter, because the number of lens sessions
+    is not persisted and a failed lens session writes no result.
+    """
+    if current_pairs or in_publish_window:
+        stage = "single_agent_finalizing"
+    elif turn.has_turn_marker or turn.perspective_reads:
+        stage = "single_agent_reviewing"
+    else:
+        stage = "single_agent_preparing"
+    return {"review_stage": stage, "done": None, "total": None}
+
+
 def progress_payload(
     team_id: int,
     report: ReviewReport,
@@ -404,24 +466,20 @@ def progress_payload(
 
     Covers the full pipeline: fetching → chunking → selecting → reviewing → deduplicating →
     validating → finalizing (body build + publish, the moments before the turn completes).
+    A single-agent turn gets its own stages once its fetch has recorded the design.
     """
+    if snapshot.head_matched and snapshot.review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return _single_agent_progress(turn, current_pairs, _in_publish_window(report))
     if current_pairs:
         judged = sum(1 for _, verdict in current_pairs if verdict is not None)
         if judged >= len(current_pairs):
             return {"review_stage": "finalizing", "done": judged, "total": len(current_pairs)}
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
-    # The publish window: on publishing runs finalize defers the idle write to the publish stage,
-    # so the report is still ACTIVE with `run_count` already bumped and no in-flight findings, and
-    # the branches below would misread the finished turn's working state as "deduplicating".
-    # Scoped to the not-yet-published head so a resolution run's ACTIVE window (published head)
-    # keeps its current label; relabeling that window properly is its own change. Trade-off: an
-    # unpublished same-head re-run reads "finalizing" until dedup persists its first findings,
-    # a brief stretch because such a turn resumes its chunk and perspective state.
-    if (
-        report.completed_head_sha
-        and report.completed_head_sha == report.head_sha
-        and report.published_head_sha != report.head_sha
-    ):
+    # Without this check the branches below would misread the finished turn's working state as
+    # "deduplicating". Relabeling a resolution run's ACTIVE window properly is its own change.
+    # Trade-off: an unpublished same-head re-run reads "finalizing" until dedup persists its first
+    # findings, a brief stretch because such a turn resumes its chunk and perspective state.
+    if _in_publish_window(report):
         return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0

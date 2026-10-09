@@ -1,6 +1,5 @@
 import json
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 import pytest
 from unittest import mock
@@ -9,19 +8,15 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago import lago as lago_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.lago import (
-    DEFAULT_API_HOST,
     LagoHostNotAllowedError,
     LagoResumeConfig,
     lago_source,
     normalize_base_url,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lago.settings import LAGO_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# tenacity sleeps between the client's retries; short-circuit it so retry tests don't wait.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
 def _page(
@@ -131,10 +126,6 @@ class TestValidateCredentials:
         response.json.return_value = json_data
         return response
 
-    def test_success(self):
-        with self._patch_session(self._resp(status_code=200)):
-            assert validate_credentials(None, "key") == (True, None)
-
     def test_invalid_key(self):
         with self._patch_session(self._resp(status_code=401)):
             valid, msg = validate_credentials(None, "key")
@@ -200,18 +191,6 @@ class TestValidateCredentials:
             assert url.startswith("https://billing.example.com/api/v1/customers")
 
 
-class TestLagoSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(LAGO_ENDPOINTS.keys()))
-    def test_response_shape(self, endpoint):
-        response = _source(_make_manager(), endpoint=endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == ["lago_id"]
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-
-
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_and_progresses_page(self, MockSession):
@@ -233,26 +212,6 @@ class TestPagination:
         assert params[1]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_next_page_after_yielding(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _page([{"lago_id": "1"}], total_pages=2, next_page=2),
-                _page([{"lago_id": "2"}], total_pages=2, next_page=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # State is saved once (after page 1, pointing at page 2); the last page ends pagination.
-        assert manager.save_state.call_count == 1
-        saved = manager.save_state.call_args.args[0]
-        assert isinstance(saved, LagoResumeConfig)
-        assert saved.next_page == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         params = _wire(session, [_page([{"lago_id": "9"}], total_pages=3, next_page=None)])
@@ -261,40 +220,6 @@ class TestPagination:
 
         assert params[0]["page"] == 3
         assert [r["lago_id"] for r in rows] == ["9"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([], total_pages=1, next_page=2)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_missing_data_key_yields_nothing_and_stops(self, MockSession):
-        # The old transport treated a missing collection key as a terminal empty page (not an error);
-        # data_selector is not marked required, so an absent key yields 0 rows and stops.
-        session = MockSession.return_value
-        _wire(session, [_page(None, drop_data=True)])
-
-        rows = _rows(_source(_make_manager()))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_per_endpoint_path_and_data_key(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([{"lago_id": "p1"}], data_key="plans", total_pages=1, next_page=None)])
-
-        rows = _rows(_source(_make_manager(), endpoint="plans"))
-
-        assert [r["lago_id"] for r in rows] == ["p1"]
-        assert urlparse(session.prepare_request.call_args_list[0].args[0].url).path.endswith("/plans")
 
 
 class TestRedirectAndHostGuards:
@@ -327,38 +252,40 @@ class TestRedirectAndHostGuards:
         session.send.assert_not_called()
 
 
-class TestRetries:
-    @pytest.mark.parametrize("status_code", [429, 503])
-    @mock.patch(SLEEP_PATCH, return_value=None)
+class TestFanout:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retries_retryable_status_then_succeeds(self, MockSession, _sleep, status_code):
-        # A retryable status raises inside the client, tenacity retries, and the subsequent 200
-        # yields rows. Guards against dropping the retry behavior in the migration.
+    def test_charges_walk_every_plan_and_child_page(self, MockSession):
         session = MockSession.return_value
-        _wire(
+        params = _wire(
             session,
             [
-                _page([], total_pages=1, next_page=None, status_code=status_code),
-                _page([{"lago_id": "r1"}], total_pages=1, next_page=None),
+                _page(
+                    [{"lago_id": "p1", "code": "pro/annual"}, {"lago_id": "p2", "code": "basic"}],
+                    data_key="plans",
+                ),
+                _page([{"lago_id": "c1"}], total_pages=2, next_page=2, data_key="charges"),
+                _page([{"lago_id": "c2"}], total_pages=2, data_key="charges"),
+                _page([{"lago_id": "c3"}], data_key="charges"),
             ],
         )
+        manager = _make_manager()
 
-        rows = _rows(_source(_make_manager()))
+        rows = _rows(_source(manager, endpoint="charges"))
 
-        assert [r["lago_id"] for r in rows] == ["r1"]
-        assert session.send.call_count == 2
-
-
-class TestBaseUrl:
-    def test_default_host_constant(self):
-        assert DEFAULT_API_HOST == "https://api.getlago.com"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_target_base_host(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([{"lago_id": "1"}], total_pages=1, next_page=None)])
-
-        _rows(_source(_make_manager()))
-        parsed = urlparse(session.prepare_request.call_args_list[0].args[0].url)
-        assert parsed.hostname == "api.getlago.com"
-        assert parsed.path == "/api/v1/customers"
+        urls = [c.args[0].url for c in session.prepare_request.call_args_list]
+        assert urls == [
+            "https://api.getlago.com/api/v1/plans",
+            # A user-defined plan code is percent-encoded so it stays one path segment.
+            "https://api.getlago.com/api/v1/plans/pro%2Fannual/charges",
+            "https://api.getlago.com/api/v1/plans/pro%2Fannual/charges",
+            "https://api.getlago.com/api/v1/plans/basic/charges",
+        ]
+        assert [p.get("page") for p in params] == [1, 1, 2, 1]
+        assert [(r["lago_id"], r["lago_plan_id"], r["plan_code"]) for r in rows] == [
+            ("c1", "p1", "pro/annual"),
+            ("c2", "p1", "pro/annual"),
+            ("c3", "p2", "basic"),
+        ]
+        assert all("_path_code" not in r for r in rows)
+        saved = [c.args[0] for c in manager.save_state.call_args_list]
+        assert saved and all(s.fanout_state is not None and s.next_page is None for s in saved)

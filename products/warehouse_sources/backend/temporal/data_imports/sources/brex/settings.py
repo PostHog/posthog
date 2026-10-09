@@ -135,6 +135,10 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
         name="titles",
         path="/v2/titles",
     ),
+    "cost_centers": BrexEndpointConfig(
+        name="cost_centers",
+        path="/v2/cost_centers",
+    ),
     "cards": BrexEndpointConfig(
         name="cards",
         path="/v2/cards",

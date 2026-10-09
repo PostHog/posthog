@@ -5,7 +5,6 @@ vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
     filterValidEntries: vi.fn().mockReturnValue([]),
     loadManifestFromArchive: vi.fn().mockReturnValue({ resources: [] }),
-    clearResourceCache: vi.fn(),
 }))
 
 vi.mock('@/resources', () => ({
@@ -831,6 +830,39 @@ describe('ToolExecutor', () => {
             )) as any
 
             expect(result.content[0].text.includes('NONCANONICAL')).toBe(marked)
+        })
+    })
+
+    describe('ignored input keys in tools mode', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            { label: 'an unknown top-level key', args: { name: 'a', title: 'b' }, reported: true },
+            { label: 'an unknown nested key', args: { name: 'a', query: { kind: 'x', extra: 1 } }, reported: true },
+            { label: 'only declared keys', args: { name: 'a', query: { kind: 'x' } }, reported: false },
+        ])('$label: reported is $reported', async ({ args, reported }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({ name: z.string(), query: z.object({ kind: z.string() }).optional() }),
+                    handler: async () => ({ ok: true }),
+                },
+            } as any)
+
+            const result = (await executor.handleToolCall(
+                { name: 'mock-tool', arguments: args },
+                makeToolExecutorState([{ name: 'mock-tool' }], { useSingleExec: false })
+            )) as any
+
+            expect(result.isError).toBeFalsy()
+            expect(result.content[0].text.includes('Ignored input keys')).toBe(reported)
         })
     })
 })

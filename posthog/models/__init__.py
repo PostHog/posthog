@@ -29,13 +29,14 @@ from .file_system.file_system import FileSystem
 from .file_system.file_system_home_folder import FileSystemHomeFolder
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.user_product_list import UserProductList
-from .filters import Filter, RetentionFilter
+from .filters import RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .health_issue import HealthIssue
 from .identity_provider_config import IdentityProviderConfig
+from .id_jag_identity import IdJagIdentity  # noqa: F401
 from .linked_identity_provider_config import LinkedIdentityProviderConfig  # noqa: F401
 from .instance_setting import InstanceSetting
 from .integration import Integration
@@ -51,7 +52,7 @@ from .organization_invite import OrganizationInvite, InviteExpiredException
 from .organization_provisioning import OrganizationProvisioning
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
-from .project_secret_api_key import ProjectSecretAPIKey
+from .project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
@@ -113,7 +114,6 @@ __all__ = [
     "FileSystemHomeFolder",
     "FileSystemViewLog",
     "UserProductList",
-    "Filter",
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
@@ -147,6 +147,7 @@ __all__ = [
     "PersonDistinctId",
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
+    "RevokedTeamSecretToken",
     "PersonOverride",
     "PersonOverrideMapping",
     "ProductIntent",

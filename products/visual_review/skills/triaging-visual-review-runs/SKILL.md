@@ -29,15 +29,17 @@ It may not ship a visual change on its own: `finalize-create` commits the baseli
 Gather the evidence with [Is the diff real or unrelated?](#is-the-diff-real-or-unrelated) and the [flake check](#flake-check-has-this-story-been-changing),
 then take the first row that matches each changed snapshot.
 
-| Evidence                                                                                                           | Action                                                                                                | Human yes needed                   |
-| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| PR comes from a fork (`isCrossRepository: true`)                                                                   | Report only. See [Fork PRs](#fork-prs-have-no-visual-review-run)                                      | No VR writes possible              |
-| The diff comes from your change and is intended                                                                    | `approve-create`, then ask for finalize                                                               | Yes, for each run, before finalize |
-| The diff comes from your change and is not intended                                                                | Fix the code and push. No VR write                                                                    | No                                 |
-| Story outside your change, flakiness entry `unstable`, `hard_count` ≥ 5, `last_flaked_at` in the last 7 days       | `quarantine-create`, then `recompute-create`. Report it                                               | No                                 |
-| Story outside your change, flakiness entry `broken`                                                                | Do not quarantine. Its baseline on the default branch is wrong. Report it and recommend a re-baseline | Yes                                |
-| Story outside your change, quiet history, same width and height, `change_kind: pixel`, a noise source you can name | `tolerate-create`, then `recompute-create`                                                            | No                                 |
-| Anything else: `unstable` with fewer failures, a real-looking change you did not make, unsure                      | Stop and report what you saw                                                                          | Yes                                |
+| Evidence                                                                                                           | Action                                                                                                                                                                                                      | Human yes needed                   |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| PR comes from a fork (`isCrossRepository: true`)                                                                   | Report only. See [Fork PRs](#fork-prs-have-no-visual-review-run)                                                                                                                                            | No VR writes possible              |
+| The diff comes from your change and is intended                                                                    | `approve-create`, then ask for finalize                                                                                                                                                                     | Yes, for each run, before finalize |
+| The diff comes from your change and is not intended                                                                | Fix the code and push. No VR write                                                                                                                                                                          | No                                 |
+| Your change renders a quarantined story `changed` or `new`, and the change is intended                             | `approve-create` for that identifier, then ask for finalize. If the change also fixes the flake, add `lift-on-merge-create` after the approval. See [Quarantined stories](#quarantined-stories-in-your-run) | Yes, for each run, before finalize |
+| Your change fixes a quarantined story's flake, and the story renders `unchanged`                                   | `lift-on-merge-create` for that identifier. See [Quarantined stories](#quarantined-stories-in-your-run)                                                                                                     | No                                 |
+| Story outside your change, flakiness entry `unstable`, `hard_count` ≥ 5, `last_flaked_at` in the last 7 days       | `quarantine-create`, then `recompute-create`. Report it                                                                                                                                                     | No                                 |
+| Story outside your change, flakiness entry `broken`                                                                | Do not quarantine. Its baseline on the default branch is wrong. Report it and recommend a re-baseline                                                                                                       | Yes                                |
+| Story outside your change, quiet history, same width and height, `change_kind: pixel`, a noise source you can name | `tolerate-create`, then `recompute-create`                                                                                                                                                                  | No                                 |
+| Anything else: `unstable` with fewer failures, a real-looking change you did not make, unsure                      | Stop and report what you saw                                                                                                                                                                                | Yes                                |
 
 Each theme is its own identifier.
 Judge the `--light` and `--dark` snapshots of a story separately, and quarantine only the ones that match.
@@ -46,6 +48,32 @@ Expect tolerations to be rare.
 The diff already absorbs most real render noise below the threshold, and a small diff percentage is often a real structural change.
 A toleration accepts one exact hash forever and cannot be undone through the API, so it is never a way past a gate.
 A story that renders differently from run to run and meets the quarantine row above gets a quarantine, which also protects every other developer. With less evidence, report it instead.
+
+### Quarantined stories in your run
+
+A quarantine hides a story's diff from the gate and from the PR comment, so a green check does not show that your change left a quarantined story alone.
+The story still renders and is diffed on every run that selects it. A PR run renders only the stories its diff affects.
+Check every run of a change that touches UI.
+List the changed quarantined snapshots with
+`posthog:visual-review-runs-snapshots-list { id: <run_id>, include_quarantined: true, exclude_unchanged: true }`.
+With `exclude_unchanged`, `quarantined_count` counts only the changed ones.
+The list is paginated and does not put quarantined rows first, so follow `next` until every row is read.
+
+- A quarantined story that your change renders differently needs its new picture approved by identifier, then finalized.
+  "Approve all" and `approve_all` skip quarantined snapshots.
+  Without the approval, the default branch keeps the old entry, and every run fails on the day the quarantine is lifted or expires.
+- A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it, and do not approve it.
+  Approving re-baselines the story to whatever this run rendered, which can be the flaky picture or one from before a fix, and a pending lift request for that story then fails on the baseline check.
+- A fix for the flake changes nothing VR can see in one run, so the story renders `unchanged` and the list above leaves it out.
+  Record the fix with `posthog:visual-review-runs-lift-on-merge-create { id: <run_id>, identifier: <identifier> }` for each identifier the fix should release, and name the identifiers in the PR description.
+  The quarantine lifts only after the PR merges and a default-branch run that contains the merge renders the same picture against a matching entry.
+  Until then it stays, unless its expiry date passes first, and `posthog:visual-review-runs-quarantine-lifts-list { id: <run_id> }` shows each request's `state` and `detail`.
+- A change that deletes a quarantined story leaves its baseline entry behind.
+  Only a full run classifies the story `removed`, and only finalize prunes the entry.
+  The `run-ci-frontend` label takes effect on the next push or ready-for-review, not when it is added, so push after labeling and check that the new run is full.
+  Finalize that run before the merge, or every full run reports the story `removed` once the quarantine ends.
+- Requesting a lift never approves a picture. For a `changed` or `new` quarantined snapshot, approve it by identifier first, or the request returns 400. Finalize the run too, so the baseline entry the lift checks lands with the merge.
+- One clean render does not prove a rare flake is gone, and neither does `variant_count: 0`, which counts only absorbed variants.
 
 ## When this skill applies
 
@@ -129,16 +157,19 @@ Read tools (safe to call freely):
 | `posthog:visual-review-repos-retrieve`                    | Repo metadata: baseline file paths, PR-comment configuration.                                                                                                                                                                                                                                                                     |
 | `posthog:visual-review-repos-quarantine-list`             | Active quarantines with reason, author, expiry and source run. Pass `identifier` for its full history.                                                                                                                                                                                                                            |
 | `posthog:visual-review-repos-toleration-pileups-retrieve` | Stories that keep getting tolerated: candidates for a fix in the story.                                                                                                                                                                                                                                                           |
+| `posthog:visual-review-runs-quarantine-lifts-list`        | Requests to lift a quarantine when the run's PR merges, with `state` and the latest check's `detail`. Takes `{ id: <run_id> }`.                                                                                                                                                                                                   |
 
-Triage tools (they do NOT change the baseline; the gate changes only after `recompute-create`):
+Triage tools (they do NOT change the baseline; the gate changes only after `recompute-create`, except a lift on merge, which a default-branch run applies on its own and needs no recompute):
 
-| Tool                                                   | Purpose                                                                                                                                                                 |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-approve-create`            | Mark `changed` / `new` snapshots reviewed (approved) in the DB. Does NOT commit or green the gate — ship via finalize.                                                  |
-| `posthog:visual-review-runs-tolerate-create`           | Accept one changed snapshot's current hash as an alternate in every future run. Render noise only, see [Decide first](#decide-first). Cannot be undone through the API. |
-| `posthog:visual-review-repos-quarantine-create`        | Remove one identifier of one run type from pass or fail on every PR until it expires (30 days if `expires_at` is omitted). Undo with `quarantine-expire-create`.        |
-| `posthog:visual-review-repos-quarantine-expire-create` | Lift a quarantine, so the story gates runs again.                                                                                                                       |
-| `posthog:visual-review-runs-recompute-create`          | Recount a completed, unfinalized run, post the `visual-review` status, and re-run the CI job recorded on the run, so the required check reads the new verdict.          |
+| Tool                                                        | Purpose                                                                                                                                                                                      |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:visual-review-runs-approve-create`                 | Mark `changed` / `new` snapshots reviewed (approved) in the DB. Does NOT commit or green the gate — ship via finalize.                                                                       |
+| `posthog:visual-review-runs-tolerate-create`                | Accept one changed snapshot's current hash as an alternate in every future run. Render noise only, see [Decide first](#decide-first). Cannot be undone through the API.                      |
+| `posthog:visual-review-repos-quarantine-create`             | Remove one identifier of one run type from pass or fail on every PR until it expires (30 days if `expires_at` is omitted). Undo with `quarantine-expire-create`.                             |
+| `posthog:visual-review-repos-quarantine-expire-create`      | Lift a quarantine, so the story gates runs again.                                                                                                                                            |
+| `posthog:visual-review-runs-lift-on-merge-create`           | Lift a quarantine once the run's PR merges and a default-branch run renders the snapshot's picture against a matching entry. Never approves a picture. Takes `{ id: <run_id>, identifier }`. |
+| `posthog:visual-review-runs-quarantine-lifts-cancel-create` | Withdraw a pending lift on merge. The quarantine stays. Takes `{ id: <run_id>, request_id }`.                                                                                                |
+| `posthog:visual-review-runs-recompute-create`               | Recount a completed, unfinalized run, post the `visual-review` status, and re-run the CI job recorded on the run, so the required check reads the new verdict.                               |
 
 Branch protection requires the `Visual regression tests pass` and `Playwright tests pass` job checks, not the `visual-review` status.
 So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the CI job recorded on the run.
@@ -270,7 +301,7 @@ Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, a
 `posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, and find the entry whose `identifier` and
 `run_type` match your snapshot. That entry carries the flake signal:
 
-- `flakiness_state`: `broken`, `unstable`, `at_risk`, `noisy`, or `clean`.
+- `flakiness_state`: `broken`, `unstable`, `at_risk`, or `clean`.
 - `hard_rate` and `hard_count`: the share and number of recent default-branch runs that failed the gate.
   `last_flaked_at`: the latest of them.
 - `soft_rate`: the share that a toleration absorbed.
@@ -295,7 +326,7 @@ Verdicts:
 - `flakiness_state` is `unstable` with `hard_count` ≥ 5 and a recent `last_flaked_at` → flaky story; quarantine it.
   One failure is enough for `unstable`, and a single failure is often a real change that merged, so trust the count.
 - `flakiness_state` is `broken` → the baseline is wrong, not the story. Do not quarantine; recommend a re-baseline.
-- `at_risk` and `noisy` never fail a run, so they need no action on a PR.
+- `at_risk` never fails a run, so it needs no action on a PR.
 - Recent `removed`, a large-jump dimension change, or a baseline that last moved long ago → baseline likely stale;
   recommend re-baselining on master.
 
@@ -312,6 +343,16 @@ When the user is doing housekeeping rather than asking about a specific PR:
 5. Lift stale quarantines: entries in `visual-review-repos-flakiness-retrieve` with `needs_decision: true` stopped failing
    or expire soon. Lift one with `posthog:visual-review-repos-quarantine-expire-create { id, run_type, identifier }`
    only when it had no hard failure in the window, or a merged fix removed the cause.
+   Before a lift, check that the default branch renders the story as its entry now.
+   Use the latest completed default-branch run of the quarantine's run type whose commit contains the fix, and list its
+   changed snapshots with `include_quarantined: true, exclude_unchanged: true`, following `next`.
+   Lift only when the story is not in that list on several such runs. A rare flake renders clean most of the time,
+   so one clean run is not enough, and a pending run or one of another run type proves nothing.
+   The `broken` state alone does not decide it. The state covers 7 days, so it stays `broken` for days after a fix lands.
+   When the story is still in that list, check that recent default-branch runs render the same changed picture before you re-baseline it.
+   One changed render of a flaky story is a flake, and re-baselining it only swaps which variant fails. Keep the quarantine then.
+   For the same picture on run after run, re-baseline it first (the README's quarantine section has the procedure), then lift.
+   Report a quarantine in that condition before its expiry date, because the expiry fails runs the same way.
 
 ## Output expectations
 
@@ -324,6 +365,7 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 ## What NOT to do
 
 - Do not tolerate to get past a gate, and do not quarantine a diff your own change caused or a `broken` entry.
+- Do not read a green gate as proof that your change left quarantined stories alone. See [Quarantined stories](#quarantined-stories-in-your-run).
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
 - Do not read an empty run list on a fork PR as a broken or pending run.

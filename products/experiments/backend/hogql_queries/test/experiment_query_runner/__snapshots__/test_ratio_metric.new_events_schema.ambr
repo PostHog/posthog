@@ -3,7 +3,7 @@
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -16,7 +16,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -30,7 +30,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -43,20 +43,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -89,7 +89,8 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_basic_ratio_metric_1_precomputed[new_events_schema]
@@ -116,7 +117,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -129,20 +130,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -176,14 +177,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_only_count_matured_users_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -196,7 +198,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC'))),
        numerator_events AS
@@ -211,7 +213,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC')), toIntervalSecond(604800)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -224,20 +226,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC')), toIntervalSecond(604800)), 6, 'UTC')), equals(events.event, 'purchase'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800))))
+     WHERE and(greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC')), less(numerator_events.timestamp, toDateTime64(plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800)), 6, 'UTC')))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800))))
+     WHERE and(greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC')), less(denominator_events.timestamp, toDateTime64(plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(604800)), 6, 'UTC')))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -270,14 +272,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_outlier_handling_numerator_and_denominator_independent_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -290,7 +293,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -304,7 +307,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -317,20 +320,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'pageview'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'pageview'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -376,14 +379,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_outlier_handling_numerator_only_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -396,7 +400,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -410,7 +414,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -423,20 +427,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'pageview'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'pageview'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -482,19 +486,20 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_outlier_handling_with_breakdown[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(coalesce(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+            argMin(coalesce(toString(if(notEquals(toJSONString(events.properties.^`$browser`), '{}'), toJSONString(events.properties.^`$browser`), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(events.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -503,7 +508,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -517,7 +522,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -530,20 +535,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'pageview'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'pageview'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -596,14 +601,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_action_and_event_sources_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -616,7 +622,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -630,7 +636,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -643,20 +649,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'pageview'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'pageview'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -689,14 +695,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_different_math_types_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -709,7 +716,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -723,7 +730,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -736,20 +743,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'pageview'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'pageview'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             coalesce(avg(accurateCastOrNull(numerator_events.value, 'Float64')), 0) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             accurateCastOrNull(count(DISTINCT multiIf(isNull(denominator_events.value), NULL, and(in(toTypeName(denominator_events.value), tuple('UUID', 'Nullable(UUID)')), equals(reinterpretAsUInt128(assumeNotNull(denominator_events.value)), 0)), NULL, equals(toString(denominator_events.value), ''), NULL, denominator_events.value)), 'Float64') AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -782,14 +789,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_same_event_different_properties_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -802,7 +810,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -816,7 +824,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -829,20 +837,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -875,14 +883,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_conversion_window_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -895,7 +904,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -909,7 +918,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(3600))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(3600)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -922,20 +931,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(3600))), equals(events.event, 'pageview'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(3600)), 6, 'UTC')), equals(events.event, 'pageview'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE and(greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(numerator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600))))
+     WHERE and(greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC')), less(numerator_events.timestamp, toDateTime64(plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600)), 6, 'UTC')))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE and(greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')), less(denominator_events.timestamp, plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600))))
+     WHERE and(greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC')), less(denominator_events.timestamp, toDateTime64(plus(toTimeZone(exposures.first_exposure_time, 'UTC'), toIntervalSecond(3600)), 6, 'UTC')))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -968,14 +977,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_with_parametric_aggregation_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -988,12 +998,12 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^amount)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^amount)), if(isNull(nullIf(toString(events.properties.amount), '')), NULL, if(and(in(ascii(toString(events.properties.amount)), tuple(91, 123)), in(ascii(toJSONString(events.properties.amount)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.amount), '[]'), '{}'), toString(events.properties.amount)))) AS value
+            if(notEquals(toJSONString(events.properties.^amount), '{}'), toJSONString(events.properties.^amount), if(isNull(nullIf(toString(events.properties.amount), '')), NULL, if(and(in(ascii(toString(events.properties.amount)), tuple(91, 123)), in(ascii(toJSONString(events.properties.amount)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.amount), '[]'), '{}'), toString(events.properties.amount)))) AS value
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1002,7 +1012,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1015,20 +1025,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             coalesce(quantile(0.95)(accurateCastOrNull(numerator_events.value, 'Float64')), 0) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             coalesce(accurateCastOrNull(uniqExact(denominator_events.value), 'Float64'), 0) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -1061,14 +1071,15 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestExperimentRatioMetric.test_ratio_metric_zero_denominator_0_direct[new_events_schema]
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
+            if(greater(uniqExact(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), 1), '$multiple', any(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
@@ -1081,7 +1092,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`)))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(CAST(events.properties.`$feature_flag`, 'Nullable(String)'), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(and(in(ascii(toString(events.person_properties.email)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.email)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email))))), '%@posthog.com%'), 1), in(if(notEquals(toJSONString(events.properties.^`$feature_flag_response`), '{}'), toJSONString(events.properties.^`$feature_flag_response`), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(and(in(ascii(toString(events.properties.`$feature_flag_response`)), tuple(91, 123)), in(ascii(toJSONString(events.properties.`$feature_flag_response`)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))), ['control', 'test']))
      GROUP BY entity_id),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1095,7 +1106,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'purchase'))),
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
@@ -1108,20 +1119,20 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'special_event'))),
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, toDateTime64(plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0)), 6, 'UTC')), equals(events.event, 'special_event'))),
        numerator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS value
      FROM numerator_events
      JOIN exposures ON equals(exposures.entity_id, numerator_events.entity_id)
-     WHERE greaterOrEquals(numerator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(numerator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
-     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -1154,6 +1165,7 @@
                        optimize_min_inequality_conjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1,
                        use_hive_partitioning=0,
-                       json_type_escape_dots_in_keys=1
+                       json_type_escape_dots_in_keys=1,
+                       output_format_json_escape_forward_slashes=0
   '''
 # ---

@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product cohorts
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cohorts
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Cohorts
 feature: cohorts
 url_prefix: /cohorts
@@ -15,9 +13,6 @@ ui_apps:
         type: list
         detail_tool: cohorts-retrieve
 tools:
-    cohorts-activity-retrieve:
-        operation: cohorts_activity_retrieve
-        enabled: false
     cohorts-add-persons-to-static-cohort-partial-update:
         operation: cohorts_add_persons_to_static_cohort_partial_update
         enabled: true
@@ -37,12 +32,6 @@ tools:
             ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a
             'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person
             in a single call, with no row limit.
-    cohorts-all-activity-retrieve:
-        operation: cohorts_all_activity_retrieve
-        enabled: false
-    cohorts-calculation-history-retrieve:
-        operation: cohorts_calculation_history_retrieve
-        enabled: false
     cohorts-create:
         operation: cohorts_create
         enabled: true
@@ -106,9 +95,6 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
-    cohorts-destroy:
-        operation: cohorts_destroy
-        enabled: false
     cohorts-list:
         operation: cohorts_list
         enabled: true
@@ -188,9 +174,6 @@ tools:
             id:
                 cast: string-int
         ui_app: cohort
-    cohorts-persons-retrieve:
-        operation: cohorts_persons_retrieve
-        enabled: false
     cohorts-retrieve:
         operation: cohorts_retrieve
         enabled: true
@@ -231,18 +214,3 @@ tools:
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
             person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
             succeeds silently.
-    cohorts-staff-list:
-        operation: cohorts_staff_list
-        enabled: false
-    cohorts-staff-recalculate-create:
-        operation: cohorts_staff_recalculate_create
-        enabled: false
-    cohorts-staff-stuck-retrieve:
-        operation: cohorts_staff_stuck_retrieve
-        enabled: false
-    cohorts-update:
-        operation: cohorts_update
-        enabled: false
-    cohorts-used-in-retrieve:
-        operation: cohorts_used_in_retrieve
-        enabled: false

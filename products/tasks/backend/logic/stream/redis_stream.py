@@ -741,6 +741,17 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
         return False
 
 
+def release_task_run_milestone_claims(run_id: str, use_dedicated: bool = False) -> None:
+    stream_key = get_task_run_stream_key(run_id)
+    try:
+        get_tasks_stream_redis_sync(use_dedicated).delete(
+            get_task_run_stream_first_command_key(stream_key),
+            get_task_run_stream_first_activity_key(stream_key),
+        )
+    except Exception:
+        logger.exception("task_run_milestone_claims_release_failed", run_id=run_id)
+
+
 def publish_task_run_stream_event(
     run_id: str,
     event: dict,

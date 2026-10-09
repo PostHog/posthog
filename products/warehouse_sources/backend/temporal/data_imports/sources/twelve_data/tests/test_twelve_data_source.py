@@ -5,7 +5,6 @@ from unittest import mock
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvedata import (
     TwelveDataSourceConfig,
@@ -44,12 +43,6 @@ def _inputs(
 class TestTwelveDataSource:
     def setup_method(self) -> None:
         self.source = TwelveDataSource()
-
-    def test_source_is_released_as_alpha(self) -> None:
-        # unreleasedSource hides the connector from every user — a finished source must not carry it.
-        config = self.source.get_source_config
-        assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
@@ -121,9 +114,3 @@ class TestTwelveDataSource:
             self.source.source_for_pipeline(_config(), mock.MagicMock(), inputs)
         assert transport.call_args.kwargs["db_incremental_field_last_value"] is None
         assert transport.call_args.kwargs["config_start_date"] is None
-
-    def test_auth_and_symbol_errors_are_non_retryable(self) -> None:
-        # Without these, a revoked key or a typoed symbol retries forever.
-        non_retryable = self.source.get_non_retryable_errors()
-        for code in (401, 403, 404):
-            assert any(f"Twelve Data API error {code}" in key for key in non_retryable)

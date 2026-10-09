@@ -32,11 +32,17 @@ import {
   toAcpMcpServers,
 } from "@posthog/agent-contracts";
 import { prependProductEngineerPrompt } from "@posthog/agent-contracts/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/agent-contracts/rich-output-prompt";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
-import { appendRepositoryConventionsForCodex } from "@posthog/harness/extensions/agent-instructions";
+import {
+  AgentInstructionFiles,
+  appendRepositoryConventionsForCodex,
+} from "@posthog/harness/extensions/agent-instructions";
 import {
   appendBenjaminGuidance,
   appendSte100Guidance,
@@ -176,6 +182,7 @@ const agentErrorClassificationSchema = z.enum([
   "turn_ended_without_response",
   "subscription_usage_limit",
   "task_spend_limit",
+  "upstream_request_rejected",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -232,6 +239,7 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
   interactionOrigin?: string | null,
+  projectUrl?: string | null,
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -242,6 +250,7 @@ export function buildCloudSessionSystemPrompt(
   const combinedPrompt = appendRichOutputPrompt(
     prependProductEngineerPrompt(prompt),
     interactionOrigin,
+    projectUrl,
   );
 
   return typeof userPrompt === "string"
@@ -570,6 +579,7 @@ export class AgentServer {
   private prewarmedStartupTurnPending = false;
   private storeSkillsInstalledCount = 0;
   private storeSkillsActivationResolved = false;
+  private agentInstructions: string | null = null;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -2200,6 +2210,11 @@ export class AgentServer {
       payload.task_id,
       payload.run_id,
       runState ?? null,
+    );
+    // Before the adapter starts: Claude and Codex read these files when the session opens.
+    this.agentInstructions = await new AgentInstructionFiles(this.logger).sync(
+      runState ?? null,
+      { taskId: payload.task_id, runId: payload.run_id },
     );
 
     const runStateSystemPrompt =
@@ -4376,6 +4391,7 @@ export class AgentServer {
       cloudAppend,
       userPrompt,
       this.isSlackReplyContext() ? "slack" : this.getCloudInteractionOrigin(),
+      getProjectWebUrl(this.config.apiUrl, this.config.projectId),
     );
     return this.isSlackReplyContext()
       ? appendSte100Guidance(sessionPrompt)
@@ -4518,6 +4534,17 @@ export class AgentServer {
         context.push(
           buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
         );
+      }
+      const instructions = await new AgentInstructionFiles(this.logger).sync(
+        state ?? null,
+        { taskId, runId },
+      );
+      if (instructions && instructions !== this.agentInstructions) {
+        // The session read its instruction files at prewarm, before this user was known.
+        context.push(instructions);
+      }
+      if (state) {
+        this.agentInstructions = instructions;
       }
     }
     const autoPublishUpgrade = this.resolveAutoPublishFromState(state);

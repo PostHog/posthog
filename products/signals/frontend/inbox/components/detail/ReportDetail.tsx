@@ -24,7 +24,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -56,6 +56,7 @@ import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -173,8 +174,6 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    impactArtefacts?: SignalReportArtefact[] | null
-    onImpactApproved?: () => void
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -205,8 +204,6 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
-    impactArtefacts,
-    onImpactApproved,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -237,6 +234,8 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        reportChecks,
+        reportChecksError,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -336,14 +335,12 @@ export function InboxDetailFrame({
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+    const hasMeasurements = reportChecks?.some(
+        (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
+    )
     const expectedImpact =
-        expectedImpactEnabled && !summaryPending ? (
-            <ReportExpectedImpact
-                report={report}
-                reportUrl={reportUrl}
-                artefacts={impactArtefacts}
-                onApprovalComplete={onImpactApproved}
-            />
+        expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
 
     const summaryColumn = (
@@ -466,6 +463,12 @@ export function InboxDetailFrame({
                                             >
                                                 {evidenceExpanded ? 'Show less' : 'Show more'}
                                             </LemonButton>
+                                        )}
+                                        {report.source_suggestion && (
+                                            <ReportSourceSuggestion
+                                                report={report}
+                                                suggestion={report.source_suggestion}
+                                            />
                                         )}
                                     </div>
                                 )}
@@ -630,7 +633,7 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest, loadReportArtefacts } = useActions(logic)
+    const { selectPullRequest } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -660,8 +663,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
-            impactArtefacts={reportArtefacts}
-            onImpactApproved={loadReportArtefacts}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (
