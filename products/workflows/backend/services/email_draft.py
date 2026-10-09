@@ -5,7 +5,10 @@ template otherwise, so the caller always gets something to put in front of the u
 """
 
 import html
+from collections.abc import Callable
 from uuid import UUID
+
+from django.db.models import Model
 
 import structlog
 import posthoganalytics
@@ -22,7 +25,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.facade.api import get_issue_basics
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
-from products.workflows.backend.facade.contracts import EmailDraft, EmailDraftSourceNotFound
+from products.workflows.backend.facade.contracts import EmailDraft, EmailDraftSourceForbidden, EmailDraftSourceNotFound
 from products.workflows.backend.facade.enums import EmailDraftFallbackReason, EmailDraftOrigin, EmailDraftSource
 
 logger = structlog.get_logger(__name__)
@@ -65,9 +68,15 @@ class _DraftCopy:
     paragraphs: list[str]
 
 
-def load_email_draft_context(team: Team, source: EmailDraftSource, source_id: str) -> EmailDraftContext:
-    """Reads the source entity in this team. Raises EmailDraftSourceNotFound when the team has no such entity."""
-    fields = _context_fields(team, source, source_id)
+def load_email_draft_context(
+    team: Team, source: EmailDraftSource, source_id: str, can_view: Callable[[Model], bool]
+) -> EmailDraftContext:
+    """Reads the source entity in this team.
+
+    Raises EmailDraftSourceNotFound when the team has no such entity, and EmailDraftSourceForbidden when
+    `can_view` refuses it, so a restricted entity's text never reaches the draft.
+    """
+    fields = _context_fields(team, source, source_id, can_view)
     if fields is None:
         raise EmailDraftSourceNotFound()
     return EmailDraftContext(
@@ -80,9 +89,11 @@ def load_email_draft_context(team: Team, source: EmailDraftSource, source_id: st
     )
 
 
-def write_email_draft(team: Team, source: EmailDraftSource, source_id: str) -> EmailDraft:
-    """Raises EmailDraftSourceNotFound when the team has no such entity."""
-    return _draft_email(team, load_email_draft_context(team, source, source_id))
+def write_email_draft(
+    team: Team, source: EmailDraftSource, source_id: str, *, can_view: Callable[[Model], bool]
+) -> EmailDraft:
+    """Raises EmailDraftSourceNotFound or EmailDraftSourceForbidden, as load_email_draft_context does."""
+    return _draft_email(team, load_email_draft_context(team, source, source_id, can_view))
 
 
 def _draft_email(team: Team, context: EmailDraftContext) -> EmailDraft:
@@ -153,7 +164,9 @@ def _draft_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> list[EmailDraftContextField] | None:
+def _context_fields(
+    team: Team, source: EmailDraftSource, source_id: str, can_view: Callable[[Model], bool]
+) -> list[EmailDraftContextField] | None:
     match source:
         case EmailDraftSource.ERROR_TRACKING:
             issue_id = _as_uuid(source_id)
@@ -171,6 +184,7 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             feature = EarlyAccessFeature.objects.filter(team_id=team.id, id=feature_id).first() if feature_id else None
             if feature is None:
                 return None
+            _check_view(feature, can_view)
             return [
                 EmailDraftContextField(label="Feature name", value=feature.name),
                 EmailDraftContextField(label="Feature description", value=feature.description),
@@ -181,6 +195,7 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             survey = Survey.objects.filter(team_id=team.id, id=survey_id).first() if survey_id else None
             if survey is None:
                 return None
+            _check_view(survey, can_view)
             questions = [
                 str(question.get("question", ""))
                 for question in (survey.questions or [])[:MAX_SURVEY_QUESTIONS]
@@ -199,6 +214,7 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             )
             if flag is None:
                 return None
+            _check_view(flag, can_view)
             return [
                 EmailDraftContextField(label="Feature flag key", value=flag.key),
                 EmailDraftContextField(label="Feature flag description", value=flag.name or ""),
@@ -211,10 +227,16 @@ def _context_fields(team: Team, source: EmailDraftSource, source_id: str) -> lis
             )
             if cohort is None:
                 return None
+            _check_view(cohort, can_view)
             return [
                 EmailDraftContextField(label="Cohort name", value=cohort.name or ""),
                 EmailDraftContextField(label="Cohort description", value=cohort.description),
             ]
+
+
+def _check_view(entity: Model, can_view: Callable[[Model], bool]) -> None:
+    if not can_view(entity):
+        raise EmailDraftSourceForbidden()
 
 
 def _as_uuid(value: str) -> UUID | None:

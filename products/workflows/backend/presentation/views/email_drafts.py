@@ -15,6 +15,7 @@ from products.workflows.backend.facade.email_drafts import (
     EmailDraftFallbackReason,
     EmailDraftOrigin,
     EmailDraftSource,
+    EmailDraftSourceForbidden,
     EmailDraftSourceNotFound,
     write_email_draft,
 )
@@ -77,9 +78,16 @@ class WorkflowEmailDraftViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise exceptions.PermissionDenied("You don't have access to this item.")
         started = time.monotonic()
         try:
-            draft = write_email_draft(self.team, source, request.validated_data["source_id"])
+            draft = write_email_draft(
+                self.team,
+                source,
+                request.validated_data["source_id"],
+                can_view=lambda entity: self.user_access_control.check_access_level_for_object(entity, "viewer"),
+            )
         except EmailDraftSourceNotFound:
             raise exceptions.NotFound("We couldn't find that item in this project.")
+        except EmailDraftSourceForbidden:
+            raise exceptions.PermissionDenied("You don't have access to this item.")
         report_user_action(
             cast(User, request.user),
             "workflows email draft generated",

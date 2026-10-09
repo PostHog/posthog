@@ -9,10 +9,13 @@ import httpx
 from anthropic import APITimeoutError
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.token_bucket import BucketDecision
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.error_tracking.backend.facade.testing import create_issue
@@ -51,9 +54,7 @@ class TestEmailDrafts(APIBaseTest):
                     questions=[{"type": "rating", "question": "How likely are you to recommend us?"}],
                 ).id
             ),
-            "feature_flag": str(
-                FeatureFlag.objects.create(team=self.team, key="new-checkout", created_by=self.user).id
-            ),
+            "feature_flag": str(FeatureFlag.objects.create(team=self.team, key="new-checkout").id),
             "cohort": str(Cohort.objects.create(team=self.team, name="Churned trial users").id),
         }
 
@@ -156,3 +157,32 @@ class TestEmailDrafts(APIBaseTest):
     )
     def test_unknown_source_id_is_not_found(self, source: str, source_id: str) -> None:
         assert self._draft(source, source_id).status_code == 404
+
+    @parameterized.expand(
+        [
+            ("early_access", "early_access_feature"),
+            ("survey", "survey"),
+            ("feature_flag", "feature_flag"),
+            ("cohort", "cohort"),
+        ]
+    )
+    @patch(f"{SERVICE}._draft_flag_enabled", return_value=False)
+    def test_a_source_restricted_for_this_member_is_forbidden(self, source: str, resource: str, _flag) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=self.sources[source],
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = self._draft(source)
+
+        assert response.status_code == 403, response.json()
+        assert "subject" not in response.json()
