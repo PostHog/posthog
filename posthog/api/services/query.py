@@ -670,7 +670,7 @@ def process_query_model(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
     if query_runner is not None:  # Query runner available - it will handle execution as well as caching
-        if bypass_warehouse_access_control:
+        if bypass_warehouse_access_control and query_runner.save_check_covers_execution:
             query_runner.bypass_warehouse_access_control()
         return _run_query_runner(
             query_runner,

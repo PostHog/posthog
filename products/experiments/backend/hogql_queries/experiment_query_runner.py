@@ -298,6 +298,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
     actors_query: Optional[ExperimentActorsQuery] = None
+    # to_query() raises, so a save-time check never sees the experiment query. A subscription
+    # delivery runs as its creator.
+    save_check_covers_execution = False
 
     def __init__(
         self,

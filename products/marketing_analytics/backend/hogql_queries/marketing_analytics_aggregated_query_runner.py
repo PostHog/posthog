@@ -166,7 +166,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            context=self._shared_hogql_context,
             # These group by high-cardinality campaign dimensions, so let the GROUP BY spill
             # to disk rather than hit the memory limit.
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES),
@@ -222,15 +221,13 @@ class MarketingAnalyticsAggregatedQueryRunner(
         )
 
         # user= is required: a user-less previous runner loses warehouse access (empties the cost) and runs RBAC user-less.
-        previous_runner = self._with_own_bypass(
-            MarketingAnalyticsAggregatedQueryRunner(
-                query=previous_query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                user=self.user,
-            )
+        previous_runner = MarketingAnalyticsAggregatedQueryRunner(
+            query=previous_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
         )
         previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 

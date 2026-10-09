@@ -1841,6 +1841,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    # The save-time access check compiles to_query() as the saving user. A trusted delivery may
+    # skip warehouse access control only when that check saw everything the runner executes. A
+    # runner that executes a different query, or narrows the schema to the user's tables instead
+    # of failing, sets this to False and runs the delivery as the creator.
+    save_check_covers_execution: bool = True
 
     def __init__(
         self,
