@@ -14,6 +14,7 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
+    KAFKA_REALTIME_ONLY_EVENTS_JSON,
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import {
@@ -33,6 +34,7 @@ import {
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
+    REALTIME_ONLY_EVENTS_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
@@ -56,6 +58,11 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [FLAG_EVALUATIONS_OUTPUT]: testOutput(
             FLAG_EVALUATIONS_OUTPUT,
             KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
+            kafkaProducer
+        ),
+        [REALTIME_ONLY_EVENTS_OUTPUT]: testOutput(
+            REALTIME_ONLY_EVENTS_OUTPUT,
+            KAFKA_REALTIME_ONLY_EVENTS_JSON,
             kafkaProducer
         ),
         [HEATMAPS_OUTPUT]: testOutput(HEATMAPS_OUTPUT, KAFKA_CLICKHOUSE_HEATMAP_EVENTS, kafkaProducer),

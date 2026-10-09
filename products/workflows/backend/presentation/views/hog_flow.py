@@ -72,7 +72,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
@@ -976,7 +976,7 @@ class WorkflowStatsRowSerializer(serializers.Serializer):
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
 
     def to_internal_value(self, data):
