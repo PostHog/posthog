@@ -9,6 +9,8 @@ data. ORM model classes never cross here either -- ``facade/models.py`` is their
 
 from typing import TYPE_CHECKING, Any
 
+import structlog
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -70,6 +72,8 @@ from ..logic.subject_schedules import runs_on_a_schedule
 from ..logic.subjects import resolve_metric_subjects, resolve_subject, selectable_subjects, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
 from .contracts import CheckTypeInfo, MetricSubject, OutputColumn, QuestionPreview, SelectableSubject
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "question_progress",
@@ -158,9 +162,17 @@ def preview_question(
         validate_check(team, subject_type, subject_uuid, "question", column_name, config)
     )
     subject = resolve_subject(team.id, subject_type, subject_uuid)
+    runner: QuestionPreviewRunner | None = None
     try:
-        return QuestionPreviewRunner(
-            team=team, user=user, subject=subject, config=parsed, column_name=column_name
-        ).run()
-    except Exception:
+        runner = QuestionPreviewRunner(team=team, user=user, subject=subject, config=parsed, column_name=column_name)
+        return runner.run()
+    except Exception as err:
+        # The response is sanitized and previews keep no run record, so this is the only trace of the cause.
+        # The raw message can carry source values or the question, so only the error class is logged.
+        logger.warning(
+            "data_quality_question_preview_failed",
+            team_id=team.id,
+            preview_run_id=runner.run_id if runner else None,
+            error_type=type(err).__name__,
+        )
         raise CheckConfigError("Could not complete the question preview. Check your access and try again.") from None
