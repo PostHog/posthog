@@ -132,14 +132,17 @@ export interface workflowsOnboardingWizardLogicMeta {
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
-        templates: (workflowTemplates: any, wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
-        selectedTemplate: (workflowTemplates: any, selectedTemplateId: string | null) => HogFlowTemplate | null
+        templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
+        selectedTemplate: (
+            workflowTemplates: HogFlowTemplate[],
+            selectedTemplateId: string | null
+        ) => HogFlowTemplate | null
         startsBlank: (selectedTemplateId: string | null) => boolean
         connectionsNeeded: (selectedTemplate: HogFlowTemplate | null) => WizardConnection[]
         missingConnections: (connectionsNeeded: 'slack'[], integrations: IntegrationType[] | null) => WizardConnection[]
         stepDone: (
             wizardPath: WorkflowsOnboardingPath,
-            guideSteps: any,
+            guideSteps: SetupGuideStep[] | null,
             selectedTemplate: HogFlowTemplate | null,
             missingConnections: 'slack'[],
             integrations: IntegrationType[] | null,

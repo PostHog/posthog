@@ -117,10 +117,10 @@ export interface workflowsSetupGuideLogicMeta {
         chosenPath: (teamState: TeamSetupGuideState) => WorkflowsOnboardingPath | null
         steps: (
             integrations: IntegrationType[] | null,
-            categories: any,
-            categoriesLoading: any,
-            templates: any,
-            templatesLoading: any,
+            categories: import('products/messaging/frontend/generated/api.schemas').MessageCategoryApi[],
+            categoriesLoading: boolean,
+            templates: MessageTemplate[],
+            templatesLoading: boolean,
             hasMessagingWorkflow: boolean | null
         ) => SetupGuideStep[] | null
         completedCount: (steps: SetupGuideStep[] | null) => number
