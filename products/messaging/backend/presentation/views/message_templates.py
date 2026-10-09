@@ -1,22 +1,24 @@
-from copy import deepcopy
+from collections.abc import Sequence
+from dataclasses import fields as dataclass_fields
+from types import SimpleNamespace
 from typing import Any
 
-from django.db import transaction
-
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import build_html_wrap_design
 from posthog.event_usage import report_user_action
+from posthog.models import User
 
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
@@ -25,8 +27,17 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
-from products.messaging.backend.models.message_category import MessageCategory
-from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.facade.templates import (
+    MessageCategoryNotInTeam,
+    MessageTemplateMissing,
+    MessageTemplateRow,
+    create_template,
+    edit_template_content,
+    get_template,
+    list_templates,
+    team_category_id,
+    update_template,
+)
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 
@@ -108,40 +119,62 @@ class MessageTemplateContentSerializer(serializers.Serializer):
     )
 
 
-class MessageTemplateSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+@extend_schema_field(OpenApiTypes.UUID)
+class MessageTemplateCategoryField(serializers.Field):
+    """A category id that must belong to the template's team. Errors match a primary key related field."""
+
+    default_error_messages = serializers.PrimaryKeyRelatedField.default_error_messages
+
+    def run_validation(self, data: Any = serializers.empty) -> Any:
+        # A DRF related field reads an empty string as null, and clients send "" to clear the category.
+        if data == "":
+            data = None
+        return super().run_validation(data)
+
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, bool):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+        try:
+            return team_category_id(self.context["team_id"], data)
+        except MessageCategoryNotInTeam:
+            self.fail("does_not_exist", pk_value=data)
+        except (TypeError, ValueError):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
+class MessageTemplateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(max_length=400, help_text="Human-readable template name shown in the library.")
+    description = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        style={"base_template": "textarea.html"},
+        help_text="What the template is for and when to use it.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
     content = MessageTemplateContentSerializer(
         required=False,
         help_text="Template content keyed by channel. Replaced as a whole on update, not merged.",
     )
-    message_category = TeamScopedPrimaryKeyRelatedField(
-        queryset=MessageCategory.objects.all(),
+    created_by = UserBasicSerializer(read_only=True)
+    type = serializers.CharField(
+        max_length=24,
+        allow_blank=True,
+        required=False,
+        help_text="Message channel of the template. Currently 'email'.",
+    )
+    message_category = MessageTemplateCategoryField(
         required=False,
         allow_null=True,
         help_text="Message category ID to file the template under. Must belong to the same project.",
     )
-
-    class Meta:
-        model = MessageTemplate
-        fields = [
-            "id",
-            "name",
-            "description",
-            "created_at",
-            "updated_at",
-            "content",
-            "created_by",
-            "type",
-            "message_category",
-            "deleted",
-        ]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
-        extra_kwargs = {
-            "name": {"help_text": "Human-readable template name shown in the library."},
-            "description": {"help_text": "What the template is for and when to use it."},
-            "type": {"help_text": "Message channel of the template. Currently 'email'."},
-            "deleted": {"help_text": "Soft-delete flag. Set true to remove the template from the library."},
-        }
+    deleted = serializers.BooleanField(
+        required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
+    )
 
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
@@ -177,13 +210,6 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
                 )
         return data
 
-    def create(self, validated_data: Any) -> Any:
-        request = self.context["request"]
-        team_id = self.context["team_id"]
-
-        instance = MessageTemplate.objects.create(**validated_data, team_id=team_id, created_by=request.user)
-        return instance
-
 
 class DesignPatchSerializer(serializers.Serializer):
     operations = serializers.ListField(
@@ -197,6 +223,20 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+TEMPLATE_ID_PARAMETER = OpenApiParameter(
+    name="id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="A UUID string identifying this message template.",
+)
+
+
+@extend_schema_view(
+    retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
+    update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
+    partial_update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
+    destroy=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
+)
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -209,20 +249,46 @@ class MessageTemplatesViewSet(
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
 
     serializer_class = MessageTemplateSerializer
-    queryset = MessageTemplate.objects.all()
 
-    def safely_get_queryset(self, queryset):
-        return (
-            queryset.filter(
-                team_id=self.team_id,
-                deleted=False,
+    def dangerously_get_object(self) -> MessageTemplateRow:
+        # Team scoping happens in the facade lookup, because the view has no queryset to filter.
+        # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
+        try:
+            template = get_template(self.team_id, self.kwargs["pk"])
+        except MessageTemplateMissing:
+            raise NotFound()
+        self.check_object_permissions(self.request, template)
+        return template
+
+    def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
+        creator_ids = {template.created_by_id for template in templates if template.created_by_id}
+        creators = {user.id: user for user in User.objects.filter(id__in=creator_ids)} if creator_ids else {}
+        return [
+            SimpleNamespace(
+                **{field.name: getattr(template, field.name) for field in dataclass_fields(template)},
+                created_by=creators.get(template.created_by_id) if template.created_by_id else None,
+                message_category=template.message_category_id,
             )
-            .select_related("created_by")
-            .order_by("-created_at")
-        )
+            for template in templates
+        ]
 
-    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        instance: MessageTemplate = serializer.save()
+    def _serialize(self, template: MessageTemplateRow) -> Any:
+        return self.get_serializer(self._with_creators([template])[0]).data
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        templates = list_templates(self.team_id)
+        page = self.paginate_queryset(templates)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(self._with_creators(page), many=True).data)
+        return Response(self.get_serializer(self._with_creators(list(templates)), many=True).data)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(self._serialize(self.get_object()))
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        template = create_template(self.team_id, request.user.id, serializer.validated_data)
         # report_user_action injects source and MCP-client properties from the request, so a create from the
         # visual editor and one from the agent count in the same metric. Capture must never break the request.
         try:
@@ -230,7 +296,7 @@ class MessageTemplatesViewSet(
                 self.request.user,
                 "message_template_created",
                 {
-                    "template_id": str(instance.id),
+                    "template_id": str(template.id),
                     "team_id": str(self.team_id),
                     "organization_id": str(self.organization_id),
                 },
@@ -242,12 +308,19 @@ class MessageTemplatesViewSet(
             )
         except Exception as e:
             logger.warning("Failed to capture message template usage event", error=str(e))
+        data = self._serialize(template)
+        return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
 
-    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
-        instance: MessageTemplate = serializer.save()
-        self._emit_resource_edited(instance)
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        partial = kwargs.pop("partial", False)
+        template = self.get_object()
+        serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        updated = update_template(self.team_id, template.id, serializer.validated_data)
+        self._emit_resource_edited(updated)
+        return Response(self._serialize(updated))
 
-    def _emit_resource_edited(self, instance: MessageTemplate) -> None:
+    def _emit_resource_edited(self, instance: MessageTemplateRow) -> None:
         # Realtime "edited elsewhere" signal so an open editor can refresh instead of overwriting a write
         # from another channel (UI/MCP/API). Fires for every channel; the frontend drops its own echo by
         # comparing updated_at. Transient, so no inbox notification. The write is already committed when
@@ -264,7 +337,9 @@ class MessageTemplatesViewSet(
         except Exception as e:
             logger.warning("Failed to publish message template edited event", error=str(e))
 
-    @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
+    @extend_schema(
+        request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]
+    )
     @action(detail=True, methods=["PATCH"])
     def design(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Surgical design editing: apply a small, id-addressed op list to the stored Unlayer design instead
@@ -276,13 +351,9 @@ class MessageTemplatesViewSet(
         operations = op_serializer.validated_data["operations"]
 
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
-        instance = self.get_object()
+        template = self.get_object()
 
-        with transaction.atomic():
-            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
-            locked = MessageTemplate.objects.select_for_update().get(pk=instance.pk)
-
-            content = deepcopy(locked.content or {})
+        def apply_operations(content: dict[str, Any]) -> dict[str, Any]:
             email = content.get("email") or {}
             design = email.get("design")
             if not isinstance(design, dict):
@@ -295,16 +366,20 @@ class MessageTemplatesViewSet(
 
             new_design = apply_design_operations(design, operations)
             for warning in validate_design(new_design):
-                logger.info("email_template_design_warning", warning=warning, template_id=str(locked.id))
+                logger.info("email_template_design_warning", warning=warning, template_id=str(template.id))
 
             email["design"] = new_design
             # Drop html so the serializer re-renders it from the patched design (its design->html path).
             email.pop("html", None)
             content["email"] = email
 
-            serializer = self.get_serializer(locked, data={"content": content}, partial=True)
+            serializer = self.get_serializer(
+                self._with_creators([template])[0], data={"content": content}, partial=True
+            )
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            return serializer.validated_data["content"]
+
+        locked = edit_template_content(self.team_id, template.id, apply_operations)
 
         self._emit_resource_edited(locked)
-        return Response(self.get_serializer(locked).data)
+        return Response(self._serialize(locked))
