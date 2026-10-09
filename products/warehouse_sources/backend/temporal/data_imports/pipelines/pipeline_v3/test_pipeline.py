@@ -2614,8 +2614,7 @@ class TestStalledAttempt:
 
         def items():
             progress.mark_stalled()
-            return
-            yield
+            yield from ()
 
         pipeline = _runnable_pipeline(manager, items)
         finalize = AsyncMock()
