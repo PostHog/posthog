@@ -123,4 +123,35 @@ describe('drawSankeyHover', () => {
         const composite = 1 - painted.reduce((clear, alpha) => clear * (1 - alpha), 1)
         expect(composite).toBeCloseTo(expectedOpacity)
     })
+
+    it('composites an emphasized ribbon with a translucent color to the target opacity', () => {
+        const layout = layoutOf(0)
+        layout.links[0].color = 'rgba(255, 0, 0, 0.5)'
+        const emphasis = emphasisForHit(layout, { kind: 'link', index: 0 })
+        const { ctx, strokeAlphas } = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankey(ctx, layout, { linkOpacity: 0.4, emphasis, backgroundColor: BACKGROUND })
+
+        const painted = strokeAlphas.map((alpha) => alpha * 0.5)
+        const composite = 1 - painted.reduce((clear, alpha) => clear * (1 - alpha), 1)
+        expect(composite).toBeCloseTo(0.5 * 0.85)
+    })
+
+    it('dims an inactive ribbon in proportion to hover progress', () => {
+        const layout = layoutOf()
+        const { ctx, strokes, strokeAlphas } = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankeyHover(ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
+            linkOpacity: 0.4,
+            backgroundColor: BACKGROUND,
+            progress: 0.5,
+        })
+
+        const fullDim = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankeyHover(fullDim.ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
+            linkOpacity: 0.4,
+            backgroundColor: BACKGROUND,
+            progress: 1,
+        })
+        expect(strokeAlphas[0]).toBeCloseTo(0.5)
+        expect(strokes[0]).toBe(fullDim.strokes[0])
+    })
 })

@@ -143,19 +143,23 @@ function paintEmphasis(
         const linkColor = parseableColor(ctx, link.color)
         if (linkColor) {
             const resting = mixColors(dimTarget, linkColor, options.linkOpacity)
-            // Fading the opaque dim in with progress keeps the first frame identical to the resting layer.
-            strokeLink(ctx, link, mixColors(resting, dimTarget, dim), options.progress)
+            // The dim is painted at `progress` alpha over the resting ribbon, so the color carries the full
+            // dim: the two together move the ribbon toward the target linearly, and the first frame
+            // matches the resting layer.
+            strokeLink(ctx, link, mixColors(resting, dimTarget, HOVER_DIM_AMOUNT), options.progress)
         }
     }
     // A resting opacity above the hover target must not drop when the flow is emphasized.
     const targetOpacity = Math.max(HOVER_LINK_OPACITY, options.linkOpacity)
     const activeOpacity = options.linkOpacity + (targetOpacity - options.linkOpacity) * options.progress
     // The emphasized ribbon is already on the canvas at `linkOpacity`, and canvas alpha compounds.
-    // This repaint opacity makes the composite equal `activeOpacity` instead of overshooting it.
-    const repaintOpacity =
-        options.linkOpacity < 1 ? (activeOpacity - options.linkOpacity) / (1 - options.linkOpacity) : 0
-    if (repaintOpacity > 0) {
-        for (const link of emphasis.links) {
+    // The repaint opacity makes the composite equal `activeOpacity` instead of overshooting it. A
+    // color's own alpha scales both the resting and the repaint stroke, so it enters the solution.
+    for (const link of emphasis.links) {
+        const colorAlpha = d3Color(link.color)?.opacity ?? 1
+        const restingAlpha = colorAlpha * options.linkOpacity
+        const repaintOpacity = restingAlpha < 1 ? (activeOpacity - options.linkOpacity) / (1 - restingAlpha) : 0
+        if (repaintOpacity > 0) {
             strokeLink(ctx, link, link.color, repaintOpacity)
         }
     }
@@ -170,6 +174,10 @@ function paintEmphasis(
         }
     }
     for (const node of emphasis.nodes) {
+        // A translucent node repainted over itself compounds its alpha, so it keeps its resting paint.
+        if ((d3Color(node.color)?.opacity ?? 1) < 1) {
+            continue
+        }
         const highlightBase = node === emphasis.focus ? parseableColor(ctx, node.color) : null
         const color = highlightBase
             ? mixColors(highlightBase, HOVER_HIGHLIGHT_TARGET, HOVER_HIGHLIGHT_AMOUNT * options.progress)
