@@ -144,7 +144,7 @@ export function LoginForm(): JSX.Element {
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            <span>New to PostHog?</span>{' '}
+            <span>New to PostHog? Development smoke test.</span>{' '}
             <Link
                 to={[signupUrl, { email: login.email }]}
                 data-attr="signup"
