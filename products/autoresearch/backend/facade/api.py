@@ -81,6 +81,7 @@ from .contracts import (
     PipelineNotFound,
     PipelineValidation,
     PipelineWrite,
+    PredictionCoverage,
     RealizedAucPoint,
     ResolvedTemplate,
     Run,
@@ -150,10 +151,16 @@ def _champion_lift_at_10(champion: AutoresearchModel | None) -> float | None:
     return float(lift) if isinstance(lift, int | float) else None
 
 
+def _coverage_contract(coverage: Any) -> PredictionCoverage | None:
+    """The ``metrics["coverage"]`` of a live champion run. None for a run that did not measure it."""
+    return PredictionCoverage(**coverage) if isinstance(coverage, dict) else None
+
+
 @frozen
 class _PipelineActivity:
     champion_realized_auc_trend: list[RealizedAucPoint]
     people_scored: int | None
+    coverage: PredictionCoverage | None
     training_run_count: int
     experiment_count: int
     live_training_run: LiveTrainingRun | None
@@ -203,6 +210,18 @@ def _pipeline_activity(
         .distinct("pipeline_id")
         .values_list("pipeline_id", "rows_scored")
     )
+    coverage = dict(
+        AutoresearchRun.objects.for_team(team_id)
+        .filter(
+            pipeline_id__in=pipeline_ids,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.COMPLETED,
+            metrics__has_key="coverage",
+        )
+        .order_by("pipeline_id", F("completed_at").desc(nulls_last=True), "-created_at")
+        .distinct("pipeline_id")
+        .values_list("pipeline_id", "metrics__coverage")
+    )
     live_runs = {
         run.pipeline_id: run
         for run in AutoresearchTrainingRun.objects.for_team(team_id)
@@ -232,6 +251,7 @@ def _pipeline_activity(
                 RealizedAucPoint(prediction_date=d, realized_auc=auc) for d, auc in trends.get(pipeline_id, [])
             ],
             people_scored=people_scored.get(pipeline_id),
+            coverage=_coverage_contract(coverage.get(pipeline_id)),
             training_run_count=training_run_counts.get(pipeline_id, 0),
             experiment_count=experiment_counts.get(pipeline_id, 0),
             live_training_run=(
@@ -281,6 +301,7 @@ def _pipeline_to_contract(
         champion_is_preliminary=champion.is_preliminary if champion else None,
         champion_realized_auc_trend=activity.champion_realized_auc_trend,
         people_scored=activity.people_scored,
+        coverage=activity.coverage,
         training_run_count=activity.training_run_count,
         experiment_count=activity.experiment_count,
         live_training_run=activity.live_training_run,
@@ -394,6 +415,7 @@ def _run_to_contract(row: AutoresearchRun) -> Run:
         status=row.status,
         rows_scored=row.rows_scored,
         metrics=row.metrics or {},
+        coverage=_coverage_contract((row.metrics or {}).get("coverage")),
         error=row.error,
         started_at=row.started_at,
         completed_at=row.completed_at,

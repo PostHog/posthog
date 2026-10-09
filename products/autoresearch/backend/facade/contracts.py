@@ -83,6 +83,20 @@ class LiveTrainingRun:
 
 
 @dataclass(frozen=True)
+class PredictionCoverage:
+    """How much of the inference population had a champion score when a live run scored, and how old the scores were."""
+
+    population: int
+    with_score: int
+    never_scored: int
+    age_days_avg: float | None
+    age_days_p50: float | None
+    age_days_p90: float | None
+    age_days_max: float | None
+    lookback_days: int
+
+
+@dataclass(frozen=True)
 class RealizedAucPoint:
     prediction_date: date
     realized_auc: float
@@ -123,6 +137,7 @@ class Pipeline:
     champion_is_preliminary: bool | None
     champion_realized_auc_trend: list[RealizedAucPoint]
     people_scored: int | None
+    coverage: PredictionCoverage | None
     training_run_count: int
     experiment_count: int
     live_training_run: LiveTrainingRun | None
@@ -260,6 +275,7 @@ class Run:
     status: str
     rows_scored: int | None
     metrics: dict[str, Any]
+    coverage: PredictionCoverage | None
     error: str
     started_at: datetime | None
     completed_at: datetime | None
