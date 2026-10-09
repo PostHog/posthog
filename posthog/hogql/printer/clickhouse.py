@@ -47,7 +47,7 @@ from posthog.hogql.restricted_properties import (
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -585,16 +585,24 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
+        prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
+        null_keys_sql = f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[resolved_field.name])}"
         if resolved_field.name == "properties":
-            prefix = field_sql.removesuffix(self._print_identifier("properties"))
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
+            temporary_null_keys_sql = (
+                f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[TEMPORARY_PROPERTIES_COLUMN])}"
+            )
             serialized = event_document_sql(
-                field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
+                field_sql,
+                null_keys_sql,
+                temporary_properties_sql,
+                temporary_null_keys_sql,
+                self._document_feature_flags_sql(type, field_sql),
             )
         elif resolved_field.name == "person_properties":
-            serialized = person_document_sql(field_sql)
+            serialized = person_document_sql(field_sql, null_keys_sql)
         else:
-            serialized = json_document_sql(field_sql)
+            serialized = json_document_sql(field_sql, null_keys_sql)
         return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:

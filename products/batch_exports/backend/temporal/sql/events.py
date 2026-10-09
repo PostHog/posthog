@@ -509,11 +509,19 @@ SETTINGS
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
 # which is why the native query's SETTINGS carry it.
 _PROPERTIES_DOCUMENT = (
-    event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
+    event_document_sql(
+        "properties",
+        "properties_null_keys",
+        "temporary_properties",
+        "temporary_properties_null_keys",
+        "properties.`$feature_flags`",
+    )
     .replace("{", "{{")
     .replace("}", "}}")
 )
-_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties").replace("{", "{{").replace("}", "}}")
+_PERSON_PROPERTIES_DOCUMENT = (
+    person_document_sql("person_properties", "person_properties_null_keys").replace("{", "{{").replace("}", "}}")
+)
 SERIALIZED_EVENTS_JSON_SOURCE = """(
     SELECT * REPLACE (
         toString(uuid) AS uuid,
