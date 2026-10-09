@@ -272,12 +272,14 @@ export function InboxDetailFrame({
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
-    const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
-        label: action.label,
-        icon: action.icon,
-        disabledReason: action.loading ? 'Working…' : action.disabledReason,
-        onClick: action.onClick,
-    }))
+    const overflowMenuItems: LemonMenuItem[] = reportActions
+        .filter((action) => !action.primary)
+        .map((action) => ({
+            label: action.label,
+            icon: action.icon,
+            disabledReason: action.loading ? 'Working…' : action.disabledReason,
+            onClick: action.onClick,
+        }))
 
     const generatedAt = (
         <span className="flex items-center gap-1 text-xs text-tertiary">
@@ -552,29 +554,28 @@ export function InboxDetailFrame({
                 >
                     {backLabel}
                 </LemonButton>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     {primaryAction}
                     {!summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
-                    {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
-                    <div className="hidden @4xl:flex items-center gap-2">
-                        {reportActions.map((action) => (
-                            <LemonButton
-                                key={action.key}
-                                type={action.primary ? 'primary' : 'secondary'}
-                                size="small"
-                                icon={action.icon}
-                                loading={action.loading}
-                                // A disabled action explains only why it's unavailable — not what it would do.
-                                tooltip={action.disabledReason ? undefined : action.tooltip}
-                                disabledReason={action.disabledReason}
-                                onClick={action.onClick}
-                            >
-                                {action.label}
-                            </LemonButton>
-                        ))}
-                    </div>
+                    {reportActions.map((action) => (
+                        <LemonButton
+                            key={action.key}
+                            type={action.primary ? 'primary' : 'secondary'}
+                            className={action.primary ? undefined : 'hidden @4xl:inline-flex'}
+                            data-attr={`inbox-report-${action.key}`}
+                            size="small"
+                            icon={action.icon}
+                            loading={action.loading}
+                            // A disabled action explains only why it's unavailable — not what it would do.
+                            tooltip={action.disabledReason ? undefined : action.tooltip}
+                            disabledReason={action.disabledReason}
+                            onClick={action.onClick}
+                        >
+                            {action.label}
+                        </LemonButton>
+                    ))}
                     {/* A resolved report past its refund window has no secondary actions at all. */}
                     {overflowMenuItems.length > 0 && (
                         <LemonMenu items={overflowMenuItems} placement="bottom-end">

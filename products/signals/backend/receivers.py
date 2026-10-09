@@ -36,7 +36,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.RESOLVED})
+_SNOOZE_SOURCE_STATUSES = frozenset(
+    {SignalReport.Status.READY, SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}
+)
 
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
@@ -349,7 +351,9 @@ def close_pr_when_report_dismissed(
             return
         team_id = instance.team_id
         report_id = str(instance.id)
-        if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
+        if instance.status == SignalReport.Status.RESOLVED and (
+            getattr(instance, "_status_from_pr_state", False) or prior_status == SignalReport.Status.MONITORING
+        ):
             transaction.on_commit(
                 lambda: close_report_tracker_issue.delay(
                     report_id=report_id, team_id=team_id, completed=True, actor_user_id=actor_user_id
@@ -379,33 +383,31 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
-def arm_pending_checks_when_report_resolved(
+def arm_pending_checks_when_fix_implemented(
     sender: type[SignalReport],
     instance: SignalReport,
     created: bool,
     update_fields: set[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    """Start the soak clock on the report's pending checks the moment it resolves.
-
-    A check written during research predates any fix, so it carries a soak duration rather than a
-    date. The resolve is what it waits for, and hooking the model rather than each caller makes
-    every resolve path the same clock: a merged pull request's webhook, a manual resolve in the
-    inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
-    request to date a window from, which is why the report's own transition is the event.
-    """
-    if instance.status != SignalReport.Status.RESOLVED:
-        return
+    """Start follow-up checks when implementation completes, through any report state writer."""
+    prior_status = getattr(instance, "_prior_status", None)
     if not _status_changed_on_this_save(
-        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
     ):
+        return
+    if instance.status not in SignalReport.CHECK_EXECUTION_STATUSES:
+        if prior_status in SignalReport.CHECK_EXECUTION_STATUSES:
+            from products.signals.backend.report_check_execution import park_report_checks_on_reopen
+
+            park_report_checks_on_reopen(team_id=instance.team_id, report_id=str(instance.id), now=timezone.now())
+        return
+    if prior_status == SignalReport.Status.MONITORING:
         return
     team_id = instance.team_id
     report_id = str(instance.id)
-    resolved_at = timezone.now()
-    # After commit, so a rolled-back resolve never arms a check, and best-effort: a report that
-    # resolved is the outcome that matters, and a failure here leaves the checks pending rather
-    # than losing them.
+    resolved_at = instance.monitoring_started_at or timezone.now()
+    # Rolled-back transitions must not arm checks.
     transaction.on_commit(
         partial(_arm_pending_checks_safely, team_id=team_id, report_id=report_id, resolved_at=resolved_at)
     )

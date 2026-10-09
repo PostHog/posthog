@@ -3,6 +3,7 @@ import {
     actions,
     afterMount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -17,7 +18,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -28,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportArtefactsList,
     signalsReportChecksApproveCreate,
     signalsReportChecksDestroy,
     signalsReportChecksList,
@@ -40,6 +42,8 @@ import {
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
+    signalsReportsRetrieve,
+    signalsReportsStateCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -194,6 +198,7 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 ]
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
+export const REPORT_MONITORING_POLL_INTERVAL_MS = 30000
 
 // PR CI checks refresh cadence while the detail is open — a running build's status stays current
 // without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
@@ -211,6 +216,16 @@ const PR_CHECKS_FAILURE_BACKOFF_TICKS = 20
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
     return typeof prUrl === 'string' && prUrl.length > 0 ? prUrl : null
+}
+
+function reconcileReportChecks(
+    current: SignalReportCheckApi[] | null,
+    incoming: SignalReportCheckApi[]
+): SignalReportCheckApi[] {
+    return incoming.map((check) => {
+        const existing = current?.find((row) => row.id === check.id)
+        return existing && dayjs(existing.updated_at).isAfter(dayjs(check.updated_at)) ? existing : check
+    })
 }
 
 /**
@@ -315,6 +330,11 @@ export interface inboxReportDetailLogicValues {
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
+    monitoringRefresh: boolean
+    monitoringRefreshFailures: number
+    monitoringRefreshLoading: boolean
+    monitoringUpdate: boolean
+    monitoringUpdateLoading: boolean
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
@@ -565,6 +585,21 @@ export interface inboxReportDetailLogicActions {
         sentiment: InboxReportFeedbackSentiment
         surface: InboxReportActionSurface
     }
+    refreshMonitoringReport: (_: void) => void
+    refreshMonitoringReportFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    refreshMonitoringReportSuccess: (
+        monitoringRefresh: boolean,
+        payload?: void
+    ) => {
+        monitoringRefresh: boolean
+        payload?: void
+    }
     searchAvailableReviewers: (query: string) => {
         query: string
     }
@@ -591,6 +626,21 @@ export interface inboxReportDetailLogicActions {
     }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
+    }
+    startReportMonitoring: () => any
+    startReportMonitoringFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    startReportMonitoringSuccess: (
+        monitoringUpdate: boolean,
+        payload?: any
+    ) => {
+        monitoringUpdate: boolean
+        payload?: any
     }
     submitFeedbackNote: (
         note: string,
@@ -749,7 +799,67 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions, cache }) => ({
+        monitoringRefresh: [
+            false,
+            {
+                refreshMonitoringReport: async (_: void, breakpoint): Promise<boolean> => {
+                    const context = getContext()
+                    const disposables = cache.disposables
+                    const teamId = String(teamLogic.values.currentTeamId)
+                    const report = await signalsReportsRetrieve(teamId, props.reportId)
+                    await breakpoint()
+                    const [checks, artefacts] = await Promise.all([
+                        signalsReportChecksList(teamId, props.reportId),
+                        signalsReportArtefactsList(teamId, props.reportId, { limit: ARTEFACT_FETCH_LIMIT }),
+                    ])
+                    await breakpoint()
+                    if (getContext() !== context || disposables.isDisposed) {
+                        return false
+                    }
+                    actions.loadReportChecksSuccess(reconcileReportChecks(values.reportChecks, checks.results))
+                    actions.loadReportArtefactsSuccess(artefacts.results as SignalReportArtefact[])
+                    if (!values.report || !dayjs(values.report.updated_at).isAfter(dayjs(report.updated_at))) {
+                        const statusChanged = values.report?.status !== report.status
+                        const refreshed = report as unknown as SignalReport
+                        actions.setReport(refreshed)
+                        const scene = inboxSceneLogic.findMounted()
+                        if (scene?.values.selectedReportId === props.reportId) {
+                            scene.actions.loadSelectedReportSuccess(refreshed)
+                        } else if (statusChanged) {
+                            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+                        }
+                    }
+                    return true
+                },
+            },
+        ],
+        monitoringUpdate: [
+            false,
+            {
+                startReportMonitoring: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        throw new Error('Select a project before updating this report.')
+                    }
+                    const response = await signalsReportsStateCreate(String(teamId), props.reportId, {
+                        state: 'monitoring',
+                    })
+                    // Reconcile the lists first: the user can close this detail while the request runs,
+                    // and an unmounted logic has no values to read.
+                    lemonToast.success('Fix marked as implemented. Follow-up checks will confirm its outcome.')
+                    inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+                    if (!cache.disposables.isDisposed && values.report) {
+                        actions.setReport({
+                            ...values.report,
+                            status: response.status as SignalReportStatus,
+                            monitoring_started_at: response.monitoring_started_at,
+                        })
+                    }
+                    return true
+                },
+            },
+        ],
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -782,11 +892,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         props.reportId
                     )
                     await breakpoint()
-                    return response.results.map((check) => {
-                        const current = values.reportChecks?.find((row) => row.id === check.id)
-                        // A response requested before a mutation must not undo its newer result.
-                        return current && dayjs(current.updated_at).isAfter(dayjs(check.updated_at)) ? current : check
-                    })
+                    return reconcileReportChecks(values.reportChecks, response.results)
                 },
             },
         ],
@@ -929,6 +1035,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     reducers({
+        monitoringRefreshFailures: [
+            0,
+            {
+                refreshMonitoringReportFailure: (state) => state + 1,
+                refreshMonitoringReportSuccess: () => 0,
+            },
+        ],
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         // Checks whose cancel request is in flight, so each row's Stop button disables itself
         // without blocking a second row.
@@ -1399,7 +1512,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, asyncActions, values, props, selectors }) => ({
+    listeners(({ actions, asyncActions, values, props, selectors, cache }) => ({
+        refreshMonitoringReportFailure: () => {
+            cache.monitoringRetryAt =
+                Date.now() + REPORT_MONITORING_POLL_INTERVAL_MS * Math.min(2 ** values.monitoringRefreshFailures, 10)
+        },
+        refreshMonitoringReportSuccess: () => {
+            cache.monitoringRetryAt = 0
+        },
         approveReportCheck: async ({ checkId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -1434,6 +1554,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 lemonToast.error(error?.detail || "Couldn't stop this check. Try again in a moment.")
             } finally {
                 actions.cancelReportCheckDone(checkId)
+            }
+        },
+        // The global loader handler stays quiet on a 409 and finds no `detail` in this endpoint's
+        // `{ error }` body, so the reason the server gave is surfaced here.
+        startReportMonitoringFailure: ({ errorObject }) => {
+            lemonToast.error(
+                readableErrorMessage(errorObject) ?? "Couldn't mark the fix as implemented. Refresh and try again."
+            )
+            if (errorObject?.status === 409) {
+                // The report changed underneath this view, so refresh it to offer the actions it now allows.
+                inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
             }
         },
         setDetailTab: ({ tab }) => {
@@ -1789,7 +1920,20 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadPrChecks()
             actions.loadPrComments()
         },
-        setReport: () => {
+        setReport: (_, __, ___, previousState) => {
+            // State transitions can change check schedules and verdicts; a polling refresh already
+            // fetched them after reading the report. Initial mount loads them in `afterMount`.
+            const previous = selectors.report(previousState)
+            if (
+                previous &&
+                previous.status !== values.report?.status &&
+                (previous.status === SignalReportStatus.MONITORING ||
+                    values.report?.status === SignalReportStatus.MONITORING) &&
+                !values.monitoringRefreshLoading
+            ) {
+                actions.loadReportChecks()
+                actions.loadReportArtefacts()
+            }
             // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
             // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
             // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
@@ -1825,6 +1969,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
+        cache.disposables.add(() => {
+            const context = getContext()
+            const interval = setInterval(() => {
+                if (
+                    getContext() !== context ||
+                    values.report?.status !== SignalReportStatus.MONITORING ||
+                    values.monitoringRefreshLoading ||
+                    values.reportChecksLoading ||
+                    values.reportArtefactsLoading ||
+                    Date.now() < (cache.monitoringRetryAt ?? 0)
+                ) {
+                    return
+                }
+                actions.refreshMonitoringReport()
+            }, REPORT_MONITORING_POLL_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }, 'monitoringPoll')
         // Register the artefact-log poll once for the lifetime of the mount and let each tick decide
         // whether to fetch. Re-arming it from `setReport` instead would reset the 5s cadence on every
         // report prop the shell hands down, which is the starvation the PR-checks poll below avoids.

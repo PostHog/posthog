@@ -107,6 +107,7 @@ from products.signals.backend.billing import (
     first_billable_pr_run_at_by_report,
     period_billable_credits_for_org,
     refund_ineligibility_reason,
+    refund_kept_statuses_by_report,
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
@@ -150,6 +151,7 @@ from products.signals.backend.report_claims import (
     get_active_claims,
     reports_with_active_claim,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
@@ -287,7 +289,12 @@ PR_CI_STATUS_MAX_REPORTS = 100
 _PR_CI_STATUS_UNREADABLE = "unreadable"
 # Report statuses whose pull request is no longer open, so its CI is not worth a GitHub call.
 _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.FAILED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+    {
+        SignalReport.Status.FAILED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.MONITORING,
+        SignalReport.Status.RESOLVED,
+    }
 )
 
 
@@ -686,7 +693,17 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
+        SignalReport.Status.MONITORING,
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.FAILED,
+    }
+)
+
+# The archived statuses that may enter monitoring as a new entry: the ones that can enter it directly.
+_MONITORABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
+    {
+        SignalReport.Status.READY,
+        SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.FAILED,
     }
 )
@@ -696,6 +713,7 @@ class SignalReportState(models.TextChoices):
     SUPPRESSED = "suppressed", "suppressed"
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
+    MONITORING = "monitoring", "monitoring"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -703,8 +721,10 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "
-            "asked for has been done. Resolving is allowed from ready, pending_input, or failed, "
+            "'potential' to snooze/reopen it for later review, 'monitoring' when a fix is implemented "
+            "but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. "
+            "Entering monitoring requires the signals-report-monitoring organization rollout flag. "
+            "Resolving is allowed from ready, pending_input, monitoring, or failed, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one."
@@ -766,6 +786,13 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         if attrs.get("corrected_repository") and attrs.get("dismissal_reason") != DISMISSAL_REASON_WRONG_REPO:
             raise serializers.ValidationError(
                 {"corrected_repository": "Only allowed when dismissal_reason is 'wrong_repo'."}
+            )
+        # The monitoring transition writes no dismissal artefact, so refuse feedback rather than drop it.
+        if attrs.get("state") == SignalReportState.MONITORING and (
+            attrs.get("dismissal_reason") or attrs.get("dismissal_note") or attrs.get("corrected_repository")
+        ):
+            raise serializers.ValidationError(
+                {"state": "'monitoring' records no dismissal_reason, dismissal_note, or corrected_repository."}
             )
         return attrs
 
@@ -1110,7 +1137,18 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {
+            "actionable",
+            "needs_input",
+            "needs_decision",
+            "inbox",
+            "monitoring",
+            "verifying",
+            "resolved",
+            "dismissed",
+            "not_actionable",
+            "all",
+        }
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1476,7 +1514,9 @@ class SignalReportViewSet(
             return queryset
         has_review_pr = implementation_pr_report_filter(team_id=self.team.id, active_only=True)
         is_unclaimed = (
-            ~Q(status=SignalReport.Status.RESOLVED) & ~reports_with_active_claim(team_id=self.team_id) & ~has_review_pr
+            ~Q(status__in=SignalReport.CHECK_EXECUTION_STATUSES)
+            & ~reports_with_active_claim(team_id=self.team_id)
+            & ~has_review_pr
         )
         return queryset.filter(is_unclaimed) if wants_unclaimed else queryset.exclude(is_unclaimed)
 
@@ -1656,22 +1696,24 @@ class SignalReportViewSet(
                 status=SignalReport.Status.PENDING_INPUT,
                 latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             )
-        if inbox_view == "needs_decision":
-            return queryset.filter(
-                Q(status=SignalReport.Status.FAILED)
-                | (
-                    Q(
-                        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
-                        latest_actionability__in=[
-                            ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-                            ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
-                        ],
-                    )
-                    & ~self._implementation_pr_report_filter()
+        if inbox_view in {"needs_decision", "inbox"}:
+            needs_decision = Q(status=SignalReport.Status.FAILED) | (
+                Q(
+                    status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
+                    latest_actionability__in=[
+                        ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                        ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                    ],
                 )
+                & ~self._implementation_pr_report_filter()
             )
+            if inbox_view == "inbox":
+                needs_decision |= Q(status=SignalReport.Status.MONITORING)
+            return queryset.filter(needs_decision)
         if inbox_view == "monitoring":
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+        if inbox_view == "verifying":
+            return queryset.filter(status=SignalReport.Status.MONITORING)
         if inbox_view == "resolved":
             return queryset.filter(status=SignalReport.Status.RESOLVED)
         if inbox_view == "dismissed":
@@ -1693,6 +1735,7 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
+                When(status=SignalReport.Status.MONITORING, then=Value(7)),
                 When(status=SignalReport.Status.RESOLVED, then=Value(7)),
                 When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
                 When(status=SignalReport.Status.DELETED, then=Value(9)),
@@ -1990,6 +2033,7 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
+            "refund_kept_status_map": refund_kept_statuses_by_report([report], pull_requests_map),
             "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
@@ -2252,7 +2296,8 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
+                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring (PR review), "
+                    "verifying (fix implemented), inbox, resolved, dismissed, "
                     "not_actionable, or all. Each view applies the corresponding status, actionability, and "
                     "implementation-PR filters. needs_decision also includes failed reports without a judgment."
                 ),
@@ -2346,7 +2391,7 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Filter by whether the report has no owner and no draft, open, or unknown PR. "
-                    "Resolved reports are never unclaimed."
+                    "Monitoring and resolved reports are never unclaimed."
                 ),
             ),
             OpenApiParameter(
@@ -2465,6 +2510,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "refund_kept_status_map": refund_kept_statuses_by_report(reports, pull_requests_map),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
@@ -3221,12 +3267,28 @@ class SignalReportViewSet(
             # (refund's own archive step) or in RESOLVED (a refunded merged-PR report stays resolved,
             # so the guard can't key on SUPPRESSED alone). RESOLVED is terminal and never re-promotes,
             # so resolving a refunded report is refused only out of the archive, to keep the refund's
-            # suppression — and the PR close it triggers — from being undone.
+            # suppression — and the PR close it triggers — from being undone. MONITORING is refused
+            # out of the archive for the same reason, and because it would re-arm the report's checks.
             if is_refunded and (
                 target_status == SignalReport.Status.POTENTIAL
-                or (report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.RESOLVED)
+                or (
+                    report.status == SignalReport.Status.SUPPRESSED
+                    and target_status in (SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING)
+                )
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
+
+            # Merged sources no longer own signals or work; only their survivor can resume checks.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status in {SignalReport.Status.POTENTIAL, *SignalReport.CHECK_EXECUTION_STATUSES}
+                and was_merged_away(report)
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "This report was merged into another one and can't be restored. Open the report it was "
+                    "merged into instead.",
+                )
 
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
@@ -3246,6 +3308,27 @@ class SignalReportViewSet(
                     "archived can be resolved from the archive.",
                 )
 
+            # The model lets any archived report enter monitoring, because restoring a monitoring
+            # report must not depend on the rollout flag. Only that restore is exempt here. Any other
+            # archived report enters monitoring on the direct-entry rules: a status that could enter
+            # it directly, and the rollout flag.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status == SignalReport.Status.MONITORING
+                and report.status_before_suppression != SignalReport.Status.MONITORING
+            ):
+                if report.status_before_suppression not in _MONITORABLE_STATUSES_BEFORE_SUPPRESSION:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Only a report that was ready, awaiting input, failed, or monitoring when it was "
+                        "archived can enter monitoring from the archive.",
+                    )
+                if not team_report_monitoring_enabled(self.team.id):
+                    return (
+                        SignalReportBulkStateOutcome.FAILED,
+                        "Report monitoring is not enabled for this organization.",
+                    )
+
             # "potential" on a suppressed report means "restore" (un-archive): return it to the state
             # it held before suppression when that was a researched, user-visible report, instead of
             # always dropping back to potential.
@@ -3256,18 +3339,19 @@ class SignalReportViewSet(
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
                     )
-                # A merged report has no signals of its own left: they moved to the survivor, and
-                # so did its work log. Restoring it would put an empty duplicate back in the inbox
-                # and start it collecting again alongside the report it was folded into.
-                if was_merged_away(report):
-                    return (
-                        SignalReportBulkStateOutcome.SKIPPED,
-                        "This report was merged into another one and can't be restored. Open the report it was "
-                        "merged into instead.",
-                    )
                 effective_target = report.restore_target_status()
 
             effective_snooze_for = snooze_for if target == "potential" else None
+
+            if effective_target == SignalReport.Status.MONITORING and report.status != effective_target:
+                prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id, using="default").get(
+                    str(report.id), []
+                )
+                if any(not pr.merged and pr.state not in {"closed", "merged"} for pr in prs):
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Merge or close the report's open pull requests before marking the fix as implemented.",
+                    )
 
             # A verdict the report already holds is honoured, not refused: the open detail view lags
             # the server once GitHub closes the PR (webhook suppresses the report), and that click
@@ -3275,6 +3359,7 @@ class SignalReportViewSet(
             # no second PR close is queued. A repeat restore carries no feedback, so it stays a 409.
             already_holds_verdict = target_status == report.status and target_status in (
                 SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.MONITORING,
                 SignalReport.Status.RESOLVED,
             )
 
@@ -3595,14 +3680,13 @@ class SignalReportViewSet(
 
             # Refund doubles as archive: suppress the report so it leaves the inbox, and so the
             # dismissal receiver closes the implementation PR that was paid for and then refunded.
-            # The one exception is a report resolved by a merged PR: that PR shipped, so the report
-            # stays put as a genuine terminal state and there is no open PR to close. A report
-            # resolved manually without a merged PR is NOT exempt — its PR may still be open, and
+            # Monitoring or resolved reports with a merged PR stay put: that PR shipped, and there
+            # is no open PR to close. A report resolved manually without a merged PR is NOT exempt,
             # leaving it resolved would let the caller keep the implementation work after the refund.
             # Already-suppressed reports need no transition. The dismissal artefact records the
             # rationale; the structured truth lives on the refund row.
-            resolved_via_merged_pr = report.status == SignalReport.Status.RESOLVED and pr_merged
-            if report.status != SignalReport.Status.SUPPRESSED and not resolved_via_merged_pr:
+            implemented_via_merged_pr = report.status in SignalReport.CHECK_EXECUTION_STATUSES and pr_merged
+            if report.status != SignalReport.Status.SUPPRESSED and not implemented_via_merged_pr:
                 updated_fields = report.transition_to(SignalReport.Status.SUPPRESSED)
                 report._transition_actor_user_id = attribution.user_id  # type: ignore[attr-defined]
                 report.save(update_fields=updated_fields)

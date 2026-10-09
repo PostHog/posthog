@@ -20,7 +20,11 @@ from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
-from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
+from products.signals.backend.billing import (
+    REFUND_INELIGIBILITY_REASONS,
+    refund_ineligibility_reason,
+    refund_kept_statuses_by_report,
+)
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
     SCOPE_CONFIG_KEYS,
@@ -1183,6 +1187,11 @@ class ReportRankingSerializer(serializers.Serializer):
     )
 
 
+class RefundKeptStatus(TextChoices):
+    MONITORING = SignalReport.Status.MONITORING
+    RESOLVED = SignalReport.Status.RESOLVED
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -1289,7 +1298,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         ),
     )
     work_state = serializers.SerializerMethodField(
-        help_text="Derived remediation state: unclaimed, working, in_review, or done.",
+        help_text="Derived remediation state: unclaimed, working, in_review, monitoring, or done.",
     )
     assignee = serializers.SerializerMethodField(
         help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
@@ -1325,6 +1334,32 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "place of the entries."
         ),
     )
+    monitoring_enabled = serializers.SerializerMethodField(
+        help_text="Whether this organization can mark an implemented fix as monitoring before confirming its outcome."
+    )
+    refund_kept_status = serializers.SerializerMethodField(
+        help_text="The status a refund preserves when the first billable PR merged; null when refunding archives the report."
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=RefundKeptStatus.choices, allow_null=True))
+    def get_refund_kept_status(self, obj: SignalReport) -> str | None:
+        kept = self.context.get("refund_kept_status_map")
+        if kept is None:
+            kept = refund_kept_statuses_by_report([obj], {str(obj.id): self._get_pull_requests(obj)})
+        return kept.get(str(obj.id))
+
+    monitoring_started_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this report's current monitoring period began."
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_monitoring_enabled(self, obj: SignalReport) -> bool:
+        from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+
+        key = f"report_monitoring_enabled_{obj.team_id}"
+        if key not in self.context:
+            self.context[key] = team_report_monitoring_enabled(obj.team_id, only_evaluate_locally=True)
+        return bool(self.context[key])
 
     class Meta:
         model = SignalReport
@@ -1334,6 +1369,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "summary",
             "summary_lead",
             "status",
+            "monitoring_enabled",
+            "monitoring_started_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
@@ -1365,6 +1402,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "assignee",
             "refund",
             "refund_ineligibility_reason",
+            "refund_kept_status",
             "billing_exempt_reason",
             "channel_id",
             "ranking",
@@ -1620,6 +1658,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     def get_work_state(self, obj: SignalReport) -> str:
         if obj.status == SignalReport.Status.RESOLVED:
             return "done"
+        if obj.status == SignalReport.Status.MONITORING:
+            return "monitoring"
         if any(pr.state in {"open", "draft", "unknown"} for pr in self._get_pull_requests(obj)):
             return "in_review"
         assignment = self._get_assignment(obj)

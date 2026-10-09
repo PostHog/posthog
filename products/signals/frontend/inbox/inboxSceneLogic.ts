@@ -914,6 +914,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
+        [inboxBulkActionsLogic.actionTypes.reportStateChanged]: () => {
+            if (values.selectedReportId) {
+                actions.loadSelectedReport({ id: values.selectedReportId })
+            }
+        },
         setFeatureFlags: (_, __, ___, previousState) => {
             // Routes handled before PostHog answered ran against the flag the last visit persisted,
             // and held their layout redirects (see `urlToAction`). Route the current URL again once

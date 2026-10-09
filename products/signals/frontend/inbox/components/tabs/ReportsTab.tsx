@@ -42,7 +42,7 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'verifying', 'resolved', 'dismissed'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -93,6 +93,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
 function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     return {
         monitoring: useSectionState('monitoring'),
+        verifying: useSectionState('verifying'),
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
         dismissed: useSectionState('dismissed'),

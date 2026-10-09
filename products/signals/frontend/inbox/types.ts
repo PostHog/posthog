@@ -10,6 +10,7 @@ import {
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
+    type SignalReportApi,
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
@@ -97,6 +98,8 @@ export interface SignalReport {
     signal_count: number
     created_at: string
     updated_at: string
+    monitoring_started_at?: SignalReportApi['monitoring_started_at']
+    monitoring_enabled?: SignalReportApi['monitoring_enabled']
     artefact_count: number
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
@@ -143,6 +146,7 @@ export interface SignalReport {
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    refund_kept_status?: SignalReportApi['refund_kept_status']
     /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
     ranking?: ReportRankingApi | null
 }
@@ -153,6 +157,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
@@ -294,6 +299,7 @@ export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
  */
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
+    'verifying',
     'needs-decision',
     'resolved',
     'dismissed',
@@ -309,6 +315,7 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
+    verifying: 'Monitoring',
     'needs-decision': 'Needs decision',
     resolved: 'Resolved',
     dismissed: 'Dismissed',
@@ -318,6 +325,7 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
 /** One line per state, shown as a tooltip on its state-filter option. */
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
+    verifying: 'The fix is implemented. Follow-up checks are confirming its outcome.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
     dismissed:
@@ -375,6 +383,7 @@ export const INBOX_LEGACY_TAB_SECTION: Record<InboxFlatListTabKey, InboxReportSe
 /** The inverse of `INBOX_LEGACY_TAB_SECTION`: the legacy tab that lists a section's reports. */
 export const INBOX_SECTION_LEGACY_TAB: Record<InboxReportSectionKey, InboxFlatListTabKey> = {
     monitoring: 'pulls',
+    verifying: 'reports',
     'needs-decision': 'reports',
     'not-actionable': 'not-actionable',
     resolved: 'archived',

@@ -56,13 +56,13 @@ describe('reportCheckPresentation', () => {
                 'a check waiting for the report to resolve names its soak',
                 { status: 'pending' },
                 'Waiting',
-                'Starts 7 days after this report is resolved · Error tracking runs it',
+                'Starts 7 days after the fix is implemented · Error tracking runs it',
             ],
             [
                 'a pending metric check names its minimum wait',
                 { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
                 'Waiting',
-                'At least 1 day after this report is resolved',
+                'At least 1 day after the fix is implemented',
             ],
             [
                 'a scheduled check leads with its run date and its lane',
@@ -208,7 +208,7 @@ describe('reportCheckPresentation', () => {
                 [{ dispatched_at: '2026-09-21T09:00:00Z' }, { next_run_at: '2026-09-27T09:00:00Z' }],
                 '2 · running now',
             ],
-            ['says what pending checks are waiting on', [{ status: 'pending' }], '1 · waiting for resolve'],
+            ['says what pending checks are waiting on', [{ status: 'pending' }], '1 · waiting for implementation'],
             ['says nothing is left to run', [{ status: 'passed' }, { status: 'failed' }], '2 · all done'],
         ])('%s', (_name, overrides, expected) => {
             expect(reportChecksMeta(overrides.map((o) => makeCheck(o)))).toEqual(expected)
@@ -260,8 +260,8 @@ describe('reportCheckPresentation', () => {
                         soak_minutes: soakMinutes,
                     })
                 ).toEqual({
-                    tag: { label: 'Waiting for resolve', type: 'muted' },
-                    detail: `At least ${label} after this report is resolved · Waits for a full query window`,
+                    tag: { label: 'Waiting for implementation', type: 'muted' },
+                    detail: `At least ${label} after the fix is implemented · Waits for a full query window`,
                 })
             }
         )

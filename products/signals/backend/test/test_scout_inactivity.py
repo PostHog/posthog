@@ -214,6 +214,8 @@ class TestScoutInactivitySweep(BaseTest):
             # `resolved` includes the GitHub webhook's resolve-on-merge, which is how a merged PR
             # counts as consumption even when the merge never touched the app.
             ("resolved_status", None, SignalReport.Status.RESOLVED, None),
+            # With report monitoring on, the same merge moves the report to `monitoring` instead.
+            ("monitoring_status", None, SignalReport.Status.MONITORING, None),
             # Reading is consumption: a report someone opens (or rates) is not a report nobody
             # wanted, even when they never resolve or dismiss it.
             ("view_action", None, None, SignalReportAction.ActionType.VIEW),
@@ -236,7 +238,9 @@ class TestScoutInactivitySweep(BaseTest):
             )
         if report_status is not None:
             SignalReport.objects.filter(pk=report.pk).update(
-                status=report_status, updated_at=self.now - timedelta(days=1)
+                status=report_status,
+                updated_at=self.now - timedelta(days=1),
+                monitoring_started_at=self.now - timedelta(days=1) if report_status == "monitoring" else None,
             )
         if action_type is not None:
             SignalReportAction.record(
@@ -266,14 +270,19 @@ class TestScoutInactivitySweep(BaseTest):
         assert [c.pk for c in sweep_inactive_scouts(now=self.now).warned] == [self.config.pk]
         assert self._reload().pause_reason == SignalScoutConfig.PauseReason.IGNORED
 
-    def test_a_webhook_suppressed_report_is_not_engagement(self) -> None:
+    @parameterized.expand(
+        [("suppressed", SignalReport.Status.SUPPRESSED), ("monitoring", SignalReport.Status.MONITORING)]
+    )
+    def test_an_automatic_report_update_is_not_engagement(self, _name: str, report_status: str) -> None:
         # The GitHub webhook suppresses a report whose PR closed unmerged, which a stale-bot can
         # do with no human in the loop; counting it would keep zombie scouts alive. A human
         # archive leaves a DISMISSAL artefact, covered above.
         report = self._report()
         self._emitting_runs(report)
         SignalReport.objects.filter(pk=report.pk).update(
-            status=SignalReport.Status.SUPPRESSED, updated_at=self.now - timedelta(days=1)
+            status=report_status,
+            updated_at=self.now - timedelta(days=1),
+            monitoring_started_at=self.now - INACTIVITY_WINDOW - timedelta(days=1),
         )
 
         outcome = sweep_inactive_scouts(now=self.now)

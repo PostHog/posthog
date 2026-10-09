@@ -11,14 +11,27 @@ import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { reportPullRequests, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
-import { openRefundReportDialog } from '../shell/RefundReportDialog'
+import { reportPullRequests } from '../../utils/reportPullRequests'
+import { openRefundReportDialog, RefundKeptStatus } from '../shell/RefundReportDialog'
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
 // reach the button (it's hidden for those), so only the two visible-but-ineligible reasons map.
 const REFUND_DISABLED_REASONS: Record<string, string> = {
     out_of_period: 'This PR was billed in a previous billing period and can no longer be refunded',
     no_billable_pr: "This PR isn't billable, so there's nothing to refund",
+}
+
+/**
+ * The backend selects the first billable PR; later merged PRs cannot vouch for the refunded one.
+ */
+export function refundKeptStatus(report: SignalReport): RefundKeptStatus | null {
+    if (report.refund_kept_status === SignalReportStatus.MONITORING) {
+        return SignalReportStatus.MONITORING
+    }
+    if (report.refund_kept_status === SignalReportStatus.RESOLVED) {
+        return SignalReportStatus.RESOLVED
+    }
+    return null
 }
 
 /**
@@ -68,10 +81,7 @@ export function useReportRefund({
         event.stopPropagation()
         openRefundReportDialog({
             reportTitle: report.title,
-            // A merged PR resolved the report? The refund leaves it in Resolved instead of dismissing
-            // it (the `resolved_via_merged_pr` branch in the refund endpoint), so the copy must not
-            // promise a dismissal.
-            staysResolved: report.status === SignalReportStatus.RESOLVED && hasMergedReportPullRequest(report),
+            keptStatus: refundKeptStatus(report),
             onConfirm: async ({ reason, note }) => {
                 if (isRefunding || currentTeamId == null) {
                     return

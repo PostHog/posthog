@@ -928,6 +928,8 @@ def _link(team_id: int, source: SignalReport, target: SignalReport, kind: Report
     ("link", "expect_skip_reason"),
     [
         ("duplicate_of_resolved", "duplicate_of"),
+        ("duplicate_of_monitoring", "duplicate_of"),
+        ("duplicate_chain_monitoring_midway", "duplicate_of"),
         ("duplicate_of_with_pr", "duplicate_of"),
         ("duplicate_chain_with_pr_midway", "duplicate_of"),
         ("later_duplicate_of_with_pr", "duplicate_of"),
@@ -986,9 +988,14 @@ async def test_typed_links_hold_back_autostart(link, expect_skip_reason, link_be
             row.pull_request = pr
             row.save(update_fields=["pull_request"])
 
-        if link == "duplicate_of_resolved":
-            root = _report(SignalReport.Status.RESOLVED)
+        if link in {"duplicate_of_resolved", "duplicate_of_monitoring"}:
+            root = _report(link.removeprefix("duplicate_of_"))
             _link(team.id, report, root, ReportLinkKind.DUPLICATE_OF)
+        elif link == "duplicate_chain_monitoring_midway":
+            root = _report()
+            midway = _report(SignalReport.Status.MONITORING)
+            _link(team.id, midway, root, ReportLinkKind.DUPLICATE_OF)
+            _link(team.id, report, midway, ReportLinkKind.DUPLICATE_OF)
         elif link == "duplicate_of_with_pr":
             root = _report()
             _attach_open_pr(root, 21)

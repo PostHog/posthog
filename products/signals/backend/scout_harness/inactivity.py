@@ -24,7 +24,9 @@ rated it with the thumbs — the light interactions the inbox UI records server-
 report recently reached a state only a deliberate action produces (`_ENGAGED_REPORT_STATUSES`).
 `resolved` is deliberately in that set even though the GitHub webhook sets it without an in-app
 action, because the webhook resolves on PR *merge*: a human merging the report's PR on GitHub is
-real consumption that leaves no other server-side trace. `suppressed` is deliberately NOT in the
+real consumption that leaves no other server-side trace. `monitoring` is in the set for the same
+reason, because with report monitoring on the webhook moves a merged report there instead. Its
+entry timestamp counts as engagement; later signal updates do not. `suppressed` is deliberately NOT in the
 set, because the same webhook suppresses a report when its PR closes unmerged, which a stale-bot
 can do with no human anywhere in the loop; a human archiving a report leaves a `DISMISSAL`
 artefact and is counted there instead. A view counts as consumption on purpose: reading is how
@@ -60,6 +62,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -124,11 +127,13 @@ _ENGAGEMENT_ARTEFACT_TYPES: frozenset[str] = SignalReportArtefact.LOG_ARTEFACT_T
 
 # Statuses that mean a person deliberately consumed the report. `resolved` covers both an in-app
 # resolve and the GitHub webhook's resolve-on-merge (a merged PR is consumption even when the
-# merge never touched the app). `suppressed` is excluded: the same webhook suppresses a report
-# whose PR closed unmerged, which needs no human, and a human archive leaves a `DISMISSAL`
-# artefact that the artefact half already counts.
+# merge never touched the app). `monitoring` is the same merge when report monitoring is on.
+# `suppressed` is excluded: the same webhook suppresses a report whose PR closed unmerged, which
+# needs no human, and a human archive leaves a `DISMISSAL` artefact that the artefact half
+# already counts.
 _ENGAGED_REPORT_STATUSES: frozenset[str] = frozenset(
     {
+        SignalReport.Status.MONITORING,
         SignalReport.Status.RESOLVED,
         SignalReport.Status.DELETED,
     }
@@ -402,10 +407,10 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
     engaged |= {
         str(report_id)
         for report_id in SignalReport.objects.filter(
+            Q(status=SignalReport.Status.MONITORING, monitoring_started_at__gte=window_start)
+            | Q(status__in=_ENGAGED_REPORT_STATUSES - {SignalReport.Status.MONITORING}, updated_at__gte=window_start),
             team_id=team_id,
             id__in=report_ids,
-            status__in=_ENGAGED_REPORT_STATUSES,
-            updated_at__gte=window_start,
         ).values_list("id", flat=True)
     }
     # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by

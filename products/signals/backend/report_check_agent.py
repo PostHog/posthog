@@ -277,7 +277,7 @@ def requeue_checks_waiting_on_scout(canonical_team_id: int, skill_name: str, *, 
         kind=SignalReportCheck.Kind.AGENT,
         status=SignalReportCheck.Status.ACTIVE,
         dispatched_at__isnull=True,
-        report__status=SignalReport.Status.RESOLVED,
+        report__status__in=SignalReport.CHECK_EXECUTION_STATUSES,
         next_run_at__gt=now,
         next_run_at__lte=now + CHECK_DISPATCH_DEFER_AFTER,
     ).update(next_run_at=now, updated_at=now)
@@ -364,7 +364,7 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.status != SignalReport.Status.RESOLVED:
+        if report is None or report.status not in SignalReport.CHECK_EXECUTION_STATUSES:
             return False
         claimed = (
             SignalReportCheck.objects.for_team(check.team_id)
