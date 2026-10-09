@@ -6,6 +6,8 @@ const ROUTINE_PIPELINE_ARTEFACTS = new Set([
   "repo_selection",
   "safety_judgment",
   "signal_finding",
+  // Rendered under the report's evidence instead.
+  "source_suggestion",
   "suggested_reviewers",
   "task_run",
 ]);

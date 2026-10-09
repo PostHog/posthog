@@ -105,6 +105,15 @@ the PR author's resolution criteria (canonical for unmapped authors). Design + d
 Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
+**Fix profiles** are canonical resolution-criteria skills that set how eager the fixer is.
+`review-hog-resolution-criteria` is the default.
+`review-hog-resolution-criteria-gaps` fixes reachable bugs and leaves typos, nits, wording, stale docs and style.
+`review-hog-resolution-criteria-small` fixes small, contained issues and leaves findings whose fix needs a design choice.
+Each profile is the default text plus a profile section, with the same safety rules, hard limits and human overrides.
+A profile leaves a thread as `escalate` with a reply that opens "Left for the author:", so the thread stays open.
+All three are in `CANONICAL_RESOLUTION_SKILL_NAMES` (`reviewer/skill_loader.py`), so every user sees and can select them.
+Only the default auto-seeds active; a profile is active only after the user selects it.
+
 **Resolution visibility & the busy-guard** (grilled 2026-08-13, DECISIONS.md "Resolution-stage visibility & cycle guard"; ADR `adr/0001`):
 a run opens with a `resolution_run` work-list artefact (queued thread ids + counts) written by `_prepare_run`,
 and `reviewer/progress.py::resolution_states` derives the run's state from artefacts alone —
@@ -258,7 +267,7 @@ flowchart TD
 ### Single-agent Flash (the Flash default)
 
 A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
-The **single-agent design** (`reviewhog-flash-2-0`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
+The **single-agent design** (`reviewhog-flash-2-2`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
 sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all returning `SingleAgentReview`:
 
 - **The main session** (`single_agent_review_activity`) reviews the whole PR. Its system prompt is `core.md` (the
@@ -286,36 +295,38 @@ the prompt tells the session to read those files at the head. There is no team s
 DevEx-owned prompts.
 
 Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
-and 2002) and its part. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
+and 2002) and its part. On a follow-up turn, a P2 or P3 finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+lines from any code that changed since `completed_head_sha` drops as `old_code` first (`ChangedSinceReview`). The two
+heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. P0 and P1
+findings, files whose patch GitHub left out, a first review, and a re-run at the reviewed head skip the check. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
-`run_oneshot_openai_review`): the main findings against PR comments and earlier turns, and the lens findings against
-the same plus the main findings as anchors, so a lens finding can lose to a main finding but never the reverse.
+`run_oneshot_openai_review`): the main findings against earlier turns, and the lens findings against the same plus
+the main findings as anchors, so a lens finding can lose to a main finding but never the reverse. Flash never reads
+PR comments, so it posts what it finds whatever people or other bots already said.
 Both calls send every finding to the LLM; the pipeline's positional pre-filter does not apply to Flash.
-The Flash dedup output (`FlashIssueDeduplication`) names what each duplicate repeats (`duplicate_of`: the finding kept
-in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
+The dedup output (`IssueDeduplication`, shared with the pipeline) names what each duplicate repeats (`duplicate_of`:
+the finding kept in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
 priority of the most severe duplicate removed in its favor, so a lens P1 that repeats a main P3 posts as must-fix.
 A removal holds only when what it names survives (`_resolve_duplicates`): a finding that names itself or an id its call
 was not shown stays, findings that name each other in a loop keep the first one in the compose order (priority, P level,
 main before lens, session order), and a removal whose target also drops records the survivor at the end of the chain.
 A Flash dedup call that fails non-retryably (the gateway rejects the model), or fails on the activity's last attempt,
-falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding or a PR comment
-drops as its repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
+falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding drops as its
+repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
 `dedup_fallback`, and reports `flash_dedup_fallback`, so a dedup failure never fails a turn whose sessions succeeded.
 `compose_flash_findings` then ranks the findings highest priority first, a reported P0 before a P1 of the same stored
 priority, and the main session first on ties, before anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
 times the cap, and P2 and then P3 findings fill the slots left under the cap, `flash_max_findings(parts)` (4 plus 2 per
 lens part past the first, up to 10). No validator runs, so dedup writes an
 accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as `should_fix`, P3 as `consider`, and the
-finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. Findings publish
-inline; an
-optional `suggestion_code` posts as a GitHub suggestion block only when the inline comment covers exactly the finding's
-range and the code is at most `SUGGESTION_CODE_MAX_CHARS` long. The block's fence is longer than any backtick run in the
-code, so the code cannot close it early. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
+finding's `reported_priority` keeps the reviewer's P0-P3, so P0 and P1 stay apart for analysis. One exception: a dedup survivor takes a more severe duplicate's level when both fold into the same stored priority (a P0 merged into a P1); the `dropped_finding` record keeps the duplicate's own level. Findings publish
+inline. An
+optional `suggestion_code` is stored on the finding but never posted. A PR past the lens part cap gets one line in the status comment that says the review ran in larger parts
 (`ReviewMeta.lens_chunks_capped`). The note goes there because a clean turn posts no review.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
-with its `reported_priority`, the session's pass and part, the `disposition` (`dedup_prior`, `dedup_comment`,
+with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,
 `dedup_anchor`, `dedup_sibling`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
 rank in the composed order for a cut finding, the cap, and the lens part count. A retried turn replaces its rows by
 `run_index`. Only analysis reads them: publishing, the status comment, outcome classification, `load_prior_findings`,
@@ -358,7 +369,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
 5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
-   each with **no cross-perspective context** — overlap is left to dedup (7):
+   each with **no cross-perspective context** — overlap is left to dedup (7). The prompt quotes only the PR
+   author's own inline comments (intent and replies), never other reviewers', so the review judges the code
+   before dedup matches its findings against what others already raised. The chunking prompt gets the same
+   author-only comments, because its chunk summaries reach every review prompt:
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
@@ -378,13 +392,20 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    file/lines don't overlap the PR diff. Both pure, in-process.
 7. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
    positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
-   another issue or **any prior inline comment** can be duplicates, so isolated issues survive **without** an LLM
+   another issue or an earlier turn's finding, or sitting in a file **any PR comment** is on, can be duplicates
+   (the review does not see other reviewers' comments, so it often raises their problem on other lines), so
+   isolated issues survive **without** an LLM
    call (and a zero-candidate run skips the LLM entirely). Colliding candidates go to the single LLM dedupe call
    (`IssueDeduplication`) — a **one-shot gateway call** within `DEDUP_ONESHOT_MAX_FINDINGS` (50 issues entering
    dedup; the prompt is pure text), the sandbox path above it pinned to the same Sonnet 5 @ xhigh via the
    `DEDUP_*` constants — which also drops findings any prior inline
    comment already raised — every reviewer (bot
    or human, ReviewHog's own included) treated uniformly, the author handle passed through for context.
+   Only a Full turn reads PR comments here, and it reads them again at dedup time (`_current_pr_comments`),
+   because other review bots often post while it runs; comments GitHub no longer places on a line (outdated)
+   do not count. Each duplicate names what it repeats, and the final status comment lists the findings
+   another reviewer's comment already raises (`already_raised`, ReviewHog's own comments excluded) with a link
+   to that comment, so the agreement shows instead of disappearing. A pipeline Flash turn reads no comments.
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
 8. **Validate** — the `ValidateIssuesWorkflow` child groups the survivors by chunk and fans out **one warm
@@ -429,7 +450,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     A clean flash turn shows the plain line "Nothing worth raising." and never the clean-review media; a full turn follows the `celebrate_clean_reviews` setting.
     Flash comments posted before reviewhog-flash-1-1 open with a banner line (`LEGACY_FLASH_MODE_MESSAGE_PREFIX`); the publish-idempotency scan and the outcome comment matcher still recognize it.
     The promo, the review body, and the inline comments carry no flash label, so one review shows the label once.
-    An inline comment holds the title, a plain-text severity line, the issue, and the suggested fix, then the hidden `REVIEW_HOG_FINDING_MARKER`.
+    An inline comment is one plain-text line, `**P{n} · {title}**`, then one paragraph with the issue and its fix (a pipeline finding's `suggestion` joins the body with one space), then the hidden `REVIEW_HOG_FINDING_MARKER`. No GitHub suggestion block is posted.
+    A single-agent finding shows its `reported_priority` while that level still folds into the effective priority; otherwise `must_fix` shows P1, `should_fix` P2, and `consider` P3 (`display_level`).
+    The body's Other-findings section uses the same heading, then the file and lines, then the same paragraph.
+    The outcome sweep (`find_finding_comment`) matches a finding to its comment by the whole first line, for any P level and for the older `### {title}` heading.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.
     When every publishable finding posts inline, the review body is only the hidden publish marker, because the tally repeats the comments.
     The body-only fallback always posts the full body.
@@ -456,7 +480,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Turn event IDs distinguish Full and Flash, and the single-agent design from the pipeline, while preserving the legacy Full and pipeline Flash IDs across deployments.
     Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
     After the skill sync, `record_turn_marker_activity` records the turn's version marker: a version id per review mode
-    and design (`reviewhog-flash-2-0`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
+    and design (`reviewhog-flash-2-2`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
     `REVIEWHOG_VERSIONS`, `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
     Full, Flash pipeline, and Flash single agent evolve separately, so each bumps its own version.
     The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
@@ -537,7 +561,7 @@ The cheaper arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfoo
 but run the default arm. `load_review_arm` → `resolve_review_arm` honors a persisted arm only while it stays a
 registry-supported combo — anything else falls back to the default (full-strength) pins and stamps
 `review_arm_fallback` on the run's analytics events. Chunking, dedup, and the validator stay on Claude at fixed
-pins; the resolution stage runs the validator's model (`claude-opus-5-5` @ xhigh). One per-turn override sits on top
+pins; the resolution stage runs the validator's model at lower effort (`claude-opus-5-5` @ high). One per-turn override sits on top
 of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MODE_FLASH`; the UI trigger's
 `run_mode=flash`) runs both sandbox seats — the perspective wave with its blind-spot sweep, and the validator — on
 one arm, `FLASH_ARM` (`gpt-6-luna`, Codex with `full-access`), for that turn only.

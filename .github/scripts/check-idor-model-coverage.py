@@ -205,12 +205,16 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "RemoteConfig",
         "TeamConversationsSlackConfig",
         "TeamConversationsTeamsChannelSync",
+        "TeamConversationsTicketConfig",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
         "TeamBusinessKnowledgeConfig",
         "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
+        # Staff-only OneToOne extension keyed on the team, edited in Django admin and read by the
+        # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
+        "TeamEventsRetentionConfig",
         "TeamFeatureFlagsConfig",
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
@@ -226,6 +230,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # no endpoint looks it up by a user-supplied ID.
         "TeamReplayVisionConfig",
         "TeamTracingConfig",
+        "WarehouseSuggestionTeamConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
