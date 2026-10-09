@@ -3,6 +3,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest import mock
 
 from requests import Response
@@ -176,6 +177,67 @@ class TestContactsFanOut:
         assert sorted(r["_audience_id"] for r in rows) == ["aud_1", "aud_2"]
 
 
+class TestBroadcastClickedLinksFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_each_broadcast_and_skips_missing_broadcast(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"data": [{"id": "b_1"}, {"id": "b_gone"}, {"id": "b_2"}]}),  # broadcasts
+                _response({"data": [{"id": "o0", "url": "https://example.com/a", "clicks": 3}], "has_more": True}),
+                _response({"data": [{"id": "o1", "url": "https://example.com/b", "clicks": 1}], "has_more": False}),
+                _response({"message": "not found"}, status_code=404),
+                _response({"data": [{"id": "o0", "url": "https://example.com/a", "clicks": 7}], "has_more": False}),
+            ],
+        )
+
+        rows = _rows(_source("broadcast_clicked_links"))
+
+        assert [(r["_broadcast_id"], r["url"], r["clicks"]) for r in rows] == [
+            ("b_1", "https://example.com/a", 3),
+            ("b_1", "https://example.com/b", 1),
+            ("b_2", "https://example.com/a", 7),
+        ]
+        assert all("_broadcasts_id" not in r for r in rows)
+        assert [(url, params.get("after")) for url, params in snapshots[1:]] == [
+            (f"{RESEND_BASE_URL}/broadcasts/b_1/clicked-links", None),
+            (f"{RESEND_BASE_URL}/broadcasts/b_1/clicked-links", "o0"),
+            (f"{RESEND_BASE_URL}/broadcasts/b_gone/clicked-links", None),
+            (f"{RESEND_BASE_URL}/broadcasts/b_2/clicked-links", None),
+        ]
+        assert snapshots[1][1]["limit"] == 100
+
+
+class TestEmailMetrics:
+    @time_machine.travel("2026-10-08T12:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_daily_breakdown_and_yields_one_row_per_day(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "object": "metrics",
+                        "totals": {"sent": 5},
+                        "data": [{"period": "2026-10-07", "sent": 2}, {"period": "2026-10-08", "sent": 3}],
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(_source("email_metrics"))
+
+        assert rows == [{"period": "2026-10-07", "sent": 2}, {"period": "2026-10-08", "sent": 3}]
+        assert snapshots == [
+            (
+                f"{RESEND_BASE_URL}/emails/metrics",
+                {"dimensions": "period", "granularity": "daily", "timezone": "UTC", "start_date": "2016-10-10"},
+            )
+        ]
+
+
 class TestRetryable:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_401_does_not_retry_and_raises(self, MockSession) -> None:
@@ -205,10 +267,14 @@ class TestSourceResponseShape:
 
         config = RESEND_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "month"
-        assert response.partition_keys == [config.partition_key]
+        assert response.primary_keys == config.primary_keys
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_format == "month"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
 
 
 class TestValidateCredentials:

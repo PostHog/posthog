@@ -22,6 +22,21 @@ describe('TimeSeriesComboChart', () => {
         expect(chart.yTicks().length).toBeGreaterThan(0)
     })
 
+    it('reserves the requested bottom margin for axis overlays', () => {
+        let bottomMargin: number | undefined
+        function Measure(): null {
+            const { dimensions } = useChartLayout()
+            bottomMargin = dimensions.height - dimensions.plotTop - dimensions.plotHeight
+            return null
+        }
+        renderHogChart(
+            <TimeSeriesComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} config={{ margins: { bottom: 76 } }}>
+                <Measure />
+            </TimeSeriesComboChart>
+        )
+        expect(bottomMargin).toBe(76)
+    })
+
     describe('config.xAxis', () => {
         it('hides x-axis ticks when xAxis.hide is true', () => {
             const { chart } = renderHogChart(

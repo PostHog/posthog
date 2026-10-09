@@ -198,6 +198,71 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-09 — Flash reviews independently of other PR comments (`reviewhog-flash-2-2`)
+
+- **What.** Flash dedup no longer reads the PR's comments, from people or other bots. It still drops repeats of
+  ReviewHog's own earlier findings. A per-trigger switch on the review input, `dedupe_against_pr_comments` (default
+  off), brings the old behavior back for a review that should add only what is not on the PR yet; the status comment
+  then counts the findings it skipped. No setting stores it. The `@posthog review` comment command is the planned way
+  to set it.
+- **Why.** A finding that repeated another bot's comment dropped silently, so the PR showed that bot's P1 next to
+  ReviewHog's "Nothing worth raising" although ReviewHog found the same issue. No vendor we checked dedups against
+  other bots' comments; each dedups only against its own earlier comments. On PostHog PRs, 16% of bot comments repeat
+  another bot's, almost all from bots running in parallel on the same commit, and no bot acknowledged another.
+- **Not chosen.** A reply in the other bot's thread (Greptile answers bot replies about half the time, which starts
+  a bot exchange) and a stored per-user preference (only if someone asks). Full mode keeps its comment dedup for now:
+  its chunker and dedup prompts both read PR comments, so it is a separate change.
+
+### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
+
+- **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+  lines from any code that changed since the head the last completed turn reviewed drops as `old_code` before dedup.
+  P0 and P1 findings still post. The two heads' PR diffs are compared by line content per file
+  (`ChangedSinceReview`), so lines that a base merge or a rebase only moved stay old. A first review, a re-run at the
+  reviewed head, a missing snapshot, or a file whose patch GitHub left out skips the check.
+- **Why.** Each follow-up turn re-reviews the whole PR, and a fresh review picks different issues out of the same
+  code, so findings on code from the first commit trickled in push after push. An offline study of 12 PRs found that
+  51% of later-turn findings sat on code unchanged since the first review (66% on PRs with three or more posting
+  turns). Authors acted on 34% of those, against 70% of first-turn findings and 73% of later findings on new code,
+  which are often bugs in the author's fixes. Performance and security findings on old code: 0 of 8 acted on.
+- **Not chosen yet.** Reviewing only the changes since the last head (a delta prompt) or resuming the earlier session
+  would also save review cost, but neither is tested. The prompt does not mention the rule, so the sessions have no
+  reason to raise a level to get a finding posted.
+
+### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
+
+- **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
+- **Why.** The xhigh pin came from the validator, and no one compared it against other options. A coarse offline
+  trial ran 10 bot threads from 3 merged PRs (#72074, #106886, #109785), one fresh session per thread, on API keys.
+  - Opus @ high matched the reference outcome on 9 of 10 threads. Opus @ xhigh matched on all 6 threads it ran.
+  - On the shared threads, high cost about two thirds of xhigh and took about half the wall time.
+  - Clear fixes came out the same at every effort level. xhigh only added extra tests and docs.
+  - xhigh's one extra win was declining a speculative bot ask (read from the writer DB). The cheaper arms made a
+    small, plausible fix there instead.
+- **Rejected.** Opus @ medium saves little over high. Sonnet 5.5 @ high escalated contained fixes it should make.
+  GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
+- **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
+  not one session per thread. Watch the resolution outcomes on the dashboard after the change.
+
+### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
+
+- **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
+  marker. A pipeline finding's `suggestion` joins its body with one space. The `### {title}` heading, the
+  "Should fix · category" line, the "Suggested fix" header, and the GitHub suggestion block are gone. The body's
+  "Other findings" section uses the same heading, then the file and lines, then the same paragraph, with no collapsed
+  blocks and no category.
+- **Why.** Every published finding is meant to be fixed, so a "should fix" label adds nothing, and the category does
+  not change what the author does. Coding agents read most of these comments and apply the fix from the wording, so
+  the suggestion block added length without value. `suggestion_code` stays stored on the finding for a later UI. The
+  comment stays plain text, so it reads the same in email notifications.
+- **P level.** A single-agent finding shows its own P0-P3 while that level still folds into the effective priority
+  (validator override first, as before). A validator override or a dedup survivor raised by a more severe duplicate
+  shows the mapped level instead: `must_fix` P1, `should_fix` P2, `consider` P3. Pipeline findings always map.
+- **Matching.** `find_finding_comment` accepts the whole first line as `**P{n} · {title}**` for P0-P3 or as the old
+  `### {title}`, so comments already on open PRs still match. The level is not checked, because it can change after
+  publish. The resolution stage finds ReviewHog threads by the hidden marker, and the body-only fallback copies the
+  comment text, so neither depends on the heading.
+
 ### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one short prioritized list, any PR size
 
 - **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts

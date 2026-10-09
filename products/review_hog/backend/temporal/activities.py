@@ -42,6 +42,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
     FLASH_LENSES,
+    NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     SINGLE_AGENT_CHUNK_ID,
@@ -145,6 +146,7 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
     prunable_perspectives,
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    ChangedSinceReview,
     FlashSelection,
     FlashTurnStats,
     SingleAgentPrompt,
@@ -170,6 +172,7 @@ from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCoun
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.run_config import ReasoningEffort
 
 if TYPE_CHECKING:
@@ -336,6 +339,7 @@ class SandboxStageInput:
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
     review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
+    dedupe_against_pr_comments: bool = field(default=False, kw_only=True)
 
 
 @dataclass
@@ -584,6 +588,11 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     review, its children, and every sandbox run; a failed sandbox workflow is self-describing.
     """
     return f"{activity.info().workflow_id}:{step_name}".lower()
+
+
+def _raise_if_non_retryable_unit_failure(exc: BaseException) -> None:
+    if isinstance(exc, AgentTurnFailed) and exc.category in NON_RETRYABLE_UNIT_FAILURE_CATEGORIES:
+        raise ApplicationError(str(exc), non_retryable=True, type=exc.category) from exc
 
 
 async def _refresh_status_comment(
@@ -1217,21 +1226,25 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
-        review = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=REVIEW_SYSTEM_PROMPT,
-            model_to_validate=IssuesReview,
-            step_name=step_name,
-            workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
-            runtime_adapter=arm.runtime_adapter,
-            model=arm.model,
-            reasoning_effort=arm.reasoning_effort,
-            initial_permission_mode=arm.initial_permission_mode,
-        )
+        try:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt=prompt,
+                system_prompt=REVIEW_SYSTEM_PROMPT,
+                model_to_validate=IssuesReview,
+                step_name=step_name,
+                workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+                runtime_adapter=arm.runtime_adapter,
+                model=arm.model,
+                reasoning_effort=arm.reasoning_effort,
+                initial_permission_mode=arm.initial_permission_mode,
+            )
+        except AgentTurnFailed as exc:
+            _raise_if_non_retryable_unit_failure(exc)
+            raise
     # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
     # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.
     for issue in review.issues:
@@ -1307,21 +1320,25 @@ async def _run_single_agent_session(
         input, chunk_id, for_lens
     )
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
-        review = await run_sandbox_review(
-            team_id=input.team_id,
-            user_id=input.user_id,
-            repository=input.repository,
-            branch=input.branch,
-            prompt=prompt,
-            system_prompt=system_prompt,
-            model_to_validate=SingleAgentReview,
-            step_name=step_name,
-            workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
-            runtime_adapter=arm.runtime_adapter,
-            model=arm.model,
-            reasoning_effort=arm.reasoning_effort,
-            initial_permission_mode=arm.initial_permission_mode,
-        )
+        try:
+            review = await run_sandbox_review(
+                team_id=input.team_id,
+                user_id=input.user_id,
+                repository=input.repository,
+                branch=input.branch,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model_to_validate=SingleAgentReview,
+                step_name=step_name,
+                workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+                runtime_adapter=arm.runtime_adapter,
+                model=arm.model,
+                reasoning_effort=arm.reasoning_effort,
+                initial_permission_mode=arm.initial_permission_mode,
+            )
+        except AgentTurnFailed as exc:
+            _raise_if_non_retryable_unit_failure(exc)
+            raise
     logger.info("%s returned %s finding(s); overall: %s", step_name, len(review.findings), review.overall_correctness)
     issues = issues_from_review(review, pass_number=pass_number, chunk_id=chunk_id, source=source)
     await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
@@ -1392,6 +1409,27 @@ def _combine_and_clean(
     return clean_issues(raw_issues, pr_files)
 
 
+def _changed_since_last_review(
+    team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
+) -> ChangedSinceReview | None:
+    """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head.
+
+    Only a single-agent snapshot is a baseline: a Full turn at that head fetched a different file set, so the check
+    then does not run.
+    """
+    reviewed_head = (
+        ReviewReport.objects.for_team(team_id).filter(id=report_id).values_list("completed_head_sha", flat=True).first()
+    )
+    if reviewed_head is None or reviewed_head == head_sha:
+        return None
+    reviewed = load_pr_snapshot(
+        team_id=team_id, report_id=report_id, head_sha=reviewed_head, review_design=REVIEW_DESIGN_SINGLE_AGENT
+    )
+    if reviewed is None:
+        return None
+    return ChangedSinceReview.between(reviewed.pr_files, current_files)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1433,6 +1471,9 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if single_agent:
             lens_plan = plan_lens_chunks(snapshot.pr_files)
+            changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
+                input.team_id, input.report_id, input.head_sha, snapshot.pr_files
+            )
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1445,6 +1486,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 lens_part_count=len(lens_plan.chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
+                changed_since=changed_since,
+                against_pr_comments=input.dedupe_against_pr_comments,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
@@ -1604,9 +1647,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             model_to_validate=IssueValidation,
                             label=issue.id,
                         )
-                except Exception:
+                except Exception as exc:
+                    _raise_if_non_retryable_unit_failure(exc)
                     if session is None:
-                        # Session never opened (sandbox-level) — raise so Temporal retries the chunk
+                        # Session never opened (sandbox-level) — raise so Temporal retries a retryable failure
                         # and the failure floor catches a real outage, not just one bad issue.
                         raise
                     if not final_attempt:

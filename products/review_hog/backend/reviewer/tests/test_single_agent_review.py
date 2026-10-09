@@ -20,6 +20,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
     ReportedPriority,
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    ChangedSinceReview,
     FlashSelection,
     SingleAgentPrompt,
     compose_flash_findings,
@@ -40,6 +41,19 @@ def _file(filename: str, code: str) -> PRFile:
         additions=1,
         deletions=0,
         changes=[PRFileUpdate(type="addition", new_start_line=1, new_end_line=1, code=code)],
+    )
+
+
+def _patched(filename: str, *chunks: tuple[str, int, list[str]]) -> PRFile:
+    return PRFile(
+        filename=filename,
+        status="modified",
+        additions=sum(len(lines) for kind, _, lines in chunks if kind == "addition"),
+        deletions=0,
+        changes=[
+            PRFileUpdate(type=kind, new_start_line=start, new_end_line=start + len(lines) - 1, code="\n".join(lines))
+            for kind, start, lines in chunks
+        ],
     )
 
 
@@ -232,6 +246,8 @@ class TestDedupeFlashFindings:
         *,
         prior_findings: list[ReviewIssueFinding] | None = None,
         pr_comments: list[PRComment] | None = None,
+        changed_since: ChangedSinceReview | None = None,
+        against_pr_comments: bool = False,
     ) -> FlashSelection:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
             return await dedupe_flash_findings(
@@ -244,6 +260,8 @@ class TestDedupeFlashFindings:
                 branch="feat",
                 repository="o/r",
                 lens_part_count=1,
+                changed_since=changed_since,
+                against_pr_comments=against_pr_comments,
             )
 
     @pytest.mark.asyncio
@@ -297,18 +315,20 @@ class TestDedupeFlashFindings:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "survivor_level,duplicate_level,filler_source",
+        "survivor_level,duplicate_level,filler_source,posted_level",
         [
             pytest.param(
                 ("P1", IssuePriority.MUST_FIX),
                 ("P0", IssuePriority.MUST_FIX),
                 SINGLE_AGENT_SOURCE,
+                "P0",
                 id="lens_p0_into_main_p1_behind_main_p1s",
             ),
             pytest.param(
                 ("P3", IssuePriority.CONSIDER),
                 ("P1", IssuePriority.MUST_FIX),
                 _LENS_SOURCE,
+                "P3",
                 id="lens_p1_into_main_p3_behind_lens_p1s",
             ),
         ],
@@ -319,6 +339,7 @@ class TestDedupeFlashFindings:
         survivor_level: tuple[ReportedPriority, IssuePriority],
         duplicate_level: tuple[ReportedPriority, IssuePriority],
         filler_source: str,
+        posted_level: ReportedPriority,
     ) -> None:
         # Storage folds P0 and P1 into must-fix and the order inside it reads the P level, so a survivor
         # ranked at its own level can be cut by the must-fix ceiling behind findings less severe than
@@ -336,7 +357,8 @@ class TestDedupeFlashFindings:
             pr_metadata, [*fillers, survivor, duplicate], _flash_dedup(("2002-1-99", "2000-1-99"))
         )
 
-        assert (selection.kept[0].id, selection.kept[0].reported_priority) == ("2000-1-99", survivor_level[0])
+        # Within one stored priority the survivor takes the duplicate's level, so its comment leads with P0.
+        assert (selection.kept[0].id, selection.kept[0].reported_priority) == ("2000-1-99", posted_level)
         dropped = {drop.issue.id: drop.issue.reported_priority for drop in selection.dropped}
         assert dropped["2002-1-99"] == duplicate_level[0]
 
@@ -373,13 +395,42 @@ class TestDedupeFlashFindings:
         comment = PRComment(id=77, path="a.py", line=10, body="x", diff_hunk="", user="reviewer", created_at="c")
         mock_llm = _flash_dedup(("2002-1-1", named))
 
-        selection = await self._dedupe(pr_metadata, issues, mock_llm, prior_findings=[prior], pr_comments=[comment])
+        selection = await self._dedupe(
+            pr_metadata, issues, mock_llm, prior_findings=[prior], pr_comments=[comment], against_pr_comments=True
+        )
 
         [drop] = selection.dropped
         recorded = drop.duplicate_of.id if isinstance(drop.duplicate_of, Issue) else drop.duplicate_of
         assert (drop.issue.id, drop.disposition, recorded) == ("2002-1-1", disposition, duplicate_of)
         # The dedup can only name an earlier finding it was shown with its key.
         assert all(_PRIOR_KEY in call.kwargs["prompt"] for call in mock_llm.call_args_list)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "against_pr_comments,posts",
+        [
+            pytest.param(False, True, id="independent_review_posts_what_a_comment_already_says"),
+            pytest.param(True, False, id="additional_review_skips_it"),
+        ],
+    )
+    async def test_pr_comments_count_as_earlier_findings_only_when_asked(
+        self, pr_metadata: PRMetadata, against_pr_comments: bool, posts: bool
+    ) -> None:
+        # By default a review reports what it finds, so a finding another reviewer already posted must still
+        # post. Only a review asked for additional findings skips what a PR comment already raises.
+        comment = PRComment(id=77, path="a.py", line=10, body="x", diff_hunk="", user="other-bot", created_at="c")
+        mock_llm = _flash_dedup(("2000-1-1", "77"))
+
+        selection = await self._dedupe(
+            pr_metadata,
+            [_issue("2000-1-1", IssuePriority.SHOULD_FIX)],
+            mock_llm,
+            pr_comments=[comment],
+            against_pr_comments=against_pr_comments,
+        )
+
+        assert [issue.id for issue in selection.kept] == (["2000-1-1"] if posts else [])
+        assert all(("77" in call.kwargs["prompt"]) is against_pr_comments for call in mock_llm.call_args_list)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -441,6 +492,73 @@ class TestDedupeFlashFindings:
             (drop.issue.id, drop.duplicate_of.id if isinstance(drop.duplicate_of, Issue) else drop.duplicate_of)
             for drop in drops
         ] == expected_drops
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "file,lines,priority,posts",
+        [
+            pytest.param(
+                "a.py", LineRange(start=30), IssuePriority.SHOULD_FIX, False, id="p2_on_code_the_first_review_saw"
+            ),
+            pytest.param(
+                "a.py", LineRange(start=16), IssuePriority.CONSIDER, False, id="p3_on_lines_a_base_merge_only_moved"
+            ),
+            pytest.param("a.py", LineRange(start=42), IssuePriority.SHOULD_FIX, True, id="p2_next_to_a_new_line"),
+            pytest.param("a.py", LineRange(start=30), IssuePriority.MUST_FIX, True, id="p1_on_unchanged_code"),
+            pytest.param(
+                "a.py",
+                LineRange(start=100, end=10**9),
+                IssuePriority.SHOULD_FIX,
+                False,
+                id="p2_with_a_huge_range_is_compared_not_scanned",
+            ),
+            pytest.param(
+                "b.py", LineRange(start=30), IssuePriority.SHOULD_FIX, True, id="p2_in_a_file_without_a_patch"
+            ),
+            pytest.param(
+                "c.py", LineRange(start=10), IssuePriority.SHOULD_FIX, True, id="p2_where_a_guard_was_removed"
+            ),
+            pytest.param(
+                "d.py", LineRange(start=10), IssuePriority.SHOULD_FIX, True, id="p2_on_a_copy_above_the_original"
+            ),
+            pytest.param(
+                "e.py", LineRange(start=31), IssuePriority.SHOULD_FIX, True, id="p2_on_a_statement_moved_elsewhere"
+            ),
+        ],
+    )
+    async def test_a_follow_up_drops_p2_and_p3_findings_on_unchanged_code(
+        self, pr_metadata: PRMetadata, file: str, lines: LineRange, priority: IssuePriority, posts: bool
+    ) -> None:
+        # A follow-up turn re-reviews the whole PR, so without this it trickles in findings on code the
+        # first review already covered. Moved lines stay old, while a removed guard or a repeated line in a
+        # new place is new code, and a P1 still posts.
+        earlier = [
+            _patched("a.py", ("addition", 10, ["x = 1", "y = 2", "z = 3"])),
+            _patched("c.py", ("context", 9, ["def delete(request):"]), ("addition", 10, ["    check()", "    drop()"])),
+            _patched("d.py", ("context", 99, ["def g():"]), ("addition", 100, ["    return None"])),
+            _patched("e.py", ("context", 9, ["def save():"]), ("addition", 10, ["    notify()"])),
+        ]
+        current = [
+            _patched("a.py", ("addition", 15, ["x = 1", "y = 2", "z = 3"]), ("addition", 40, ["w = 4"])),
+            PRFile(filename="b.py", status="modified", additions=5, deletions=0),
+            _patched("c.py", ("context", 9, ["def delete(request):"]), ("addition", 10, ["    drop()"])),
+            _patched(
+                "d.py",
+                ("context", 9, ["def h():"]),
+                ("addition", 10, ["    return None"]),
+                ("context", 103, ["def g():"]),
+                ("addition", 104, ["    return None"]),
+            ),
+            _patched("e.py", ("context", 30, ["def delete():"]), ("addition", 31, ["    notify()"])),
+        ]
+        issue = _issue("2000-1-1", priority).model_copy(update={"file": file, "lines": [lines]})
+
+        selection = await self._dedupe(
+            pr_metadata, [issue], _flash_dedup(), changed_since=ChangedSinceReview.between(earlier, current)
+        )
+
+        assert [kept.id for kept in selection.kept] == (["2000-1-1"] if posts else [])
+        assert [drop.disposition for drop in selection.dropped] == ([] if posts else ["old_code"])
 
 
 def test_turn_stats_count_every_candidate_once_per_session() -> None:
