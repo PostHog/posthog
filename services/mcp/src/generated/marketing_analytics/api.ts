@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -21504,6 +21504,36 @@ export const MarketingAnalyticsExplainConversionGoalRetrieveQueryParams = () => 
         .describe('conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.'),
     date_from: zod.string().nullish().describe('ISO start; defaults to 30 days ago'),
     date_to: zod.string().nullish().describe('ISO end; defaults to now'),
+})
+
+/**
+ * Rank everything wrong with a team's marketing analytics setup into concrete suggestions, each carrying the evidence behind it and — where one exists — an `apply` operation to pass straight to apply_setup_ops, plus a `readiness` block saying which capabilities (cost, ROAS, cost per customer, retention by channel) are unlocked and which suggestion is blocking each. Prefer this over `diagnose` when the question is 'what should I fix next': diagnose explains what is wrong, setup_plan says what to do about it in a form you can act on. Read-only.
+ * @summary Get the marketing analytics setup plan
+ */
+export const MarketingAnalyticsSetupPlanRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const marketingAnalyticsSetupPlanRetrieveQueryDateFromDefault = `-30d`
+
+export const marketingAnalyticsSetupPlanRetrieveQueryRefreshDefault = false
+
+export const MarketingAnalyticsSetupPlanRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .default(marketingAnalyticsSetupPlanRetrieveQueryDateFromDefault)
+        .describe(
+            "Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d"
+        ),
+    refresh: zod
+        .boolean()
+        .default(marketingAnalyticsSetupPlanRetrieveQueryRefreshDefault)
+        .describe('Re-run every check instead of serving a recent result. Use right after changing something.'),
 })
 
 /**

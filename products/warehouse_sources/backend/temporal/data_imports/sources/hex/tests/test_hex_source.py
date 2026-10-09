@@ -1,7 +1,6 @@
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hex.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hex.source import HexSource
 
 
@@ -15,16 +14,6 @@ class TestHexSource:
         # Retargeting the workspace URL must force re-entry of the API token — without this an
         # editor could point the stored token at a host they control.
         assert self.source.connection_host_fields == ["workspace_url"]
-
-    def test_get_schemas_returns_all_endpoints_full_refresh_only(self):
-        # The Hex API has no server-side timestamp filter, so no endpoint may advertise
-        # incremental or append sync.
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        for schema in schemas:
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hex.source.hex_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hex_source):

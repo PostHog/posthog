@@ -9,6 +9,8 @@ import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
 import { ProbabilityHistogram } from '../ProbabilityHistogram'
 import { EmptyTab } from './EmptyTab'
+import { PredictionActionsPanel } from './PredictionActionsPanel'
+import { PredictionSegmentCards } from './PredictionSegmentCards'
 import { ProbabilityUsersTable } from './ProbabilityUsersTable'
 import { ScoreNowButton } from './ScoreNowButton'
 
@@ -92,7 +94,9 @@ export function PredictionsTab(): JSX.Element {
                 <code>autoresearch_prediction</code> event. These views read straight from those events.
             </p>
 
-            <ScoringCoverageBanner />
+            <PredictionSegmentCards />
+
+            <PredictionActionsPanel />
 
             <LemonCollapse
                 multiple
@@ -115,6 +119,8 @@ export function PredictionsTab(): JSX.Element {
                     },
                 ]}
             />
+
+            <ScoringCoverageBanner />
         </div>
     )
 }

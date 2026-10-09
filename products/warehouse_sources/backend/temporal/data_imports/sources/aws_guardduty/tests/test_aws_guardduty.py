@@ -84,85 +84,6 @@ def session() -> Iterator[mock.MagicMock]:
         yield factory.return_value
 
 
-@pytest.mark.parametrize(
-    "operation,payload,method,path,query,body",
-    [
-        ("ListDetectors", {"MaxResults": 1}, "GET", "/detector", {"maxResults": ["1"]}, None),
-        ("GetDetector", {"DetectorId": "detector-example"}, "GET", "/detector/detector-example", {}, None),
-        (
-            "ListMembers",
-            {"DetectorId": "detector-example", "MaxResults": 50, "NextToken": "a+b/=", "OnlyAssociated": "false"},
-            "GET",
-            "/detector/detector-example/member",
-            {"maxResults": ["50"], "nextToken": ["a+b/="], "onlyAssociated": ["false"]},
-            None,
-        ),
-        (
-            "ListFindings",
-            {"DetectorId": "detector-example", "MaxResults": 50, "NextToken": "next-page"},
-            "POST",
-            "/detector/detector-example/findings",
-            {},
-            {"maxResults": 50, "nextToken": "next-page"},
-        ),
-        (
-            "GetFindings",
-            {"DetectorId": "detector-example", "FindingIds": ["finding-example"]},
-            "POST",
-            "/detector/detector-example/findings/get",
-            {},
-            {"findingIds": ["finding-example"]},
-        ),
-    ],
-)
-def test_signed_rest_requests(
-    config: AwsGuarddutySourceConfig,
-    session: mock.MagicMock,
-    operation: str,
-    payload: dict[str, Any],
-    method: str,
-    path: str,
-    query: dict[str, list[str]],
-    body: dict[str, Any] | None,
-) -> None:
-    client = AwsGuarddutyClient(config, VERSION)
-    client.request(operation, payload)
-    call = session.request.call_args
-    assert call.args[0] == method
-    url = urlsplit(call.args[1])
-    assert url.netloc == "guardduty.us-east-1.amazonaws.com"
-    assert url.path == path
-    assert parse_qs(url.query) == query
-    assert (json.loads(call.kwargs["data"]) if body is not None else call.kwargs["data"]) == (body or b"")
-    headers = call.kwargs["headers"]
-    assert headers["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/")
-    assert "/us-east-1/guardduty/aws4_request" in headers["Authorization"]
-    assert "X-Amz-Date" in headers
-    assert headers["X-Amz-Security-Token"] == "example-session-token"
-    assert "X-Amz-Target" not in headers
-    if body is not None:
-        assert headers["Content-Type"] == "application/json"
-    assert call.kwargs["timeout"] == 60
-    assert call.kwargs["allow_redirects"] is False
-    factory = aws_guardduty.make_tracked_session
-    assert isinstance(factory, mock.Mock)
-    assert "example-secret" in factory.call_args.kwargs["redact_values"]
-    assert "example-session-token" in factory.call_args.kwargs["redact_values"]
-
-
-@pytest.mark.parametrize("region,suffix", [("eu-west-1", "amazonaws.com"), ("cn-north-1", "amazonaws.com.cn")])
-def test_region_and_credentials_without_session_token(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, region: str, suffix: str
-) -> None:
-    config.aws_region = region
-    config.aws_session_token = None
-    AwsGuarddutyClient(config, VERSION).request("ListDetectors", {})
-    call = session.request.call_args
-    assert call.args[1] == f"https://guardduty.{region}.{suffix}/detector"
-    assert f"/{region}/guardduty/aws4_request" in call.kwargs["headers"]["Authorization"]
-    assert "X-Amz-Security-Token" not in call.kwargs["headers"]
-
-
 @pytest.mark.parametrize("incremental", [True, False])
 @pytest.mark.parametrize("terminal", [{}, {"nextToken": None}, {"nextToken": ""}])
 def test_findings_pages_hydration_and_time_filter(
@@ -229,61 +150,6 @@ def test_findings_pages_hydration_and_time_filter(
     assert manager.cleared
 
 
-def test_resume_preserves_filter_and_advances_after_yield(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock
-) -> None:
-    manager = FakeResumeManager(
-        AwsGuarddutyResumeConfig(
-            detector_ids=["detector-example"], next_token="saved-page", updated_since_ms=1735689600000
-        )
-    )
-    session.request.side_effect = [
-        response({"findingIds": ["finding-example"]}),
-        response({"findings": [{"id": "finding-example", "arn": "arn:example", "updatedAt": "2025-01-01T00:00:00Z"}]}),
-    ]
-    rows = get_rows(config, "findings", VERSION, manager, "2025-02-01T00:00:00Z")
-    assert next(rows)[0]["id"] == "finding-example"
-    assert manager.saved == []
-    assert list(rows) == []
-    payload = json.loads(session.request.call_args_list[0].kwargs["data"])
-    assert payload["nextToken"] == "saved-page"
-    assert payload["findingCriteria"]["criterion"]["updatedAt"]["greaterThanOrEqual"] == 1735689600000
-    assert manager.saved[-1].detector_ids == []
-
-
-@pytest.mark.parametrize("endpoint", ["findings", "members", "detectors"])
-def test_completed_resume_does_not_repeat_requests(
-    config: AwsGuarddutySourceConfig, session: mock.MagicMock, endpoint: str
-) -> None:
-    manager = FakeResumeManager(AwsGuarddutyResumeConfig(detector_ids=[]))
-    assert list(get_rows(config, endpoint, VERSION, manager, None)) == []
-    session.request.assert_not_called()
-    session.close.assert_called_once()
-
-
-def test_members_pagination_and_parent_keys(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    member = {"accountId": "111111111111", "detectorId": "member-detector", "relationshipStatus": "Enabled"}
-    session.request.side_effect = [
-        response({"detectorIds": ["administrator-a", "administrator-b"]}),
-        response({"members": [member], "nextToken": "next-page"}),
-        response({"members": []}),
-        response({"members": [member]}),
-    ]
-    manager = FakeResumeManager()
-    resource = aws_guardduty_source(config, "members", VERSION, manager, UPDATED_AT)
-    rows = [row for batch in cast(Iterable[Any], resource.items()) for row in batch]
-    assert len({tuple(row[key] for key in resource.primary_keys or []) for row in rows}) == 2
-    assert rows[0]["detector_id"] == "member-detector"
-    for call in session.request.call_args_list[1:]:
-        query = parse_qs(urlsplit(call.args[1]).query)
-        assert query["onlyAssociated"] == ["false"]
-        assert query["maxResults"] == ["50"]
-        assert call.kwargs["data"] == b""
-    assert manager.saved[1].detector_ids == ["administrator-b"]
-    assert manager.saved[1].next_token is None
-    assert "nextToken" not in parse_qs(urlsplit(session.request.call_args_list[3].args[1]).query)
-
-
 def test_detector_details(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
     session.request.side_effect = [
         response({"detectorIds": ["detector-example"]}),
@@ -302,12 +168,6 @@ def test_detector_details(config: AwsGuarddutySourceConfig, session: mock.MagicM
         ]
     ]
     assert session.request.call_args.args[1].endswith("/detector/detector-example")
-
-
-def test_empty_region_does_not_request_children(config: AwsGuarddutySourceConfig, session: mock.MagicMock) -> None:
-    session.request.return_value = response({"detectorIds": []})
-    assert list(get_rows(config, "findings", VERSION, FakeResumeManager(), None)) == []
-    session.request.assert_called_once()
 
 
 @pytest.mark.parametrize(

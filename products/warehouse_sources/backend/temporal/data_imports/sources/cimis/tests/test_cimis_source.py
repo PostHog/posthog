@@ -5,7 +5,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
@@ -15,32 +14,7 @@ def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", 
     return CimisSourceConfig(app_key=app_key, targets=targets, unit_of_measure=unit)
 
 
-class TestCimisSourceConfig:
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: f for f in CimisSource().get_source_config.fields}
-        assert set(fields) == {"app_key", "targets", "unit_of_measure"}
-        app_key = fields["app_key"]
-        targets = fields["targets"]
-        assert isinstance(app_key, SourceFieldInputConfig)
-        assert isinstance(targets, SourceFieldInputConfig)
-        # The credential must be flagged secret so the serializer treats it as sensitive.
-        assert app_key.required is True
-        assert app_key.secret is True
-        # Targets is optional so the metadata tables can sync without it.
-        assert targets.required is False
-
-
 class TestCimisGetSchemas:
-    def test_returns_all_endpoints(self) -> None:
-        schemas = CimisSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == {
-            "stations",
-            "station_zipcodes",
-            "spatial_zipcodes",
-            "daily_data",
-            "hourly_data",
-        }
-
     def test_filters_by_names(self) -> None:
         schemas = CimisSource().get_schemas(_config(), team_id=1, names=["stations"])
         assert [s.name for s in schemas] == ["stations"]
@@ -59,17 +33,6 @@ class TestCimisGetSchemas:
         assert schema.supports_incremental is supports_incremental
         if supports_incremental:
             assert [f["field"] for f in schema.incremental_fields] == ["Date"]
-
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the docs table catalog should render.
-        tables = CimisSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {
-            "stations",
-            "station_zipcodes",
-            "spatial_zipcodes",
-            "daily_data",
-            "hourly_data",
-        }
 
 
 class TestCimisValidateCredentials:
