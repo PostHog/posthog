@@ -120,7 +120,6 @@ func UpdateEnvValue(key, value string) error {
 		if strings.HasPrefix(line, prefix) {
 			lines[i] = prefix + value
 			found = true
-			break
 		}
 	}
 	if !found {

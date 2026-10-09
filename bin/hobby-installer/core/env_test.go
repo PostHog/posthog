@@ -42,6 +42,16 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 			want: []string{`CADDY_HOST="posthog.example.com, http://, https://"`},
 		},
 		{
+			name: "replaces the effective blank duplicate",
+			env:  "DOMAIN=posthog.example.com\nCADDY_HOST=custom.example.com\nCADDY_HOST=\n",
+			want: []string{`CADDY_HOST="posthog.example.com, http://, https://"`},
+		},
+		{
+			name: "keeps the effective custom duplicate",
+			env:  "DOMAIN=posthog.example.com\nCADDY_HOST=\nCADDY_HOST=custom.example.com\n",
+			want: []string{`CADDY_HOST=custom.example.com`},
+		},
+		{
 			name:    "skips caddy keys without domain or tls block",
 			env:     "TLS_BLOCK=\n",
 			notWant: []string{"CADDY_HOST=", "CADDY_TLS_BLOCK="},
@@ -58,6 +68,10 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 			if err := UpdateEnvForUpgrade(""); err != nil {
 				t.Fatal(err)
 			}
+			firstData, err := os.ReadFile(".env")
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := UpdateEnvForUpgrade(""); err != nil {
 				t.Fatal(err)
 			}
@@ -67,19 +81,21 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := string(data)
+			if got != string(firstData) {
+				t.Errorf("expected second upgrade to keep .env unchanged, got:\n%s", got)
+			}
 			for _, w := range tt.want {
 				if !strings.Contains(got, w+"\n") {
 					t.Errorf("expected .env to contain %q, got:\n%s", w, got)
+				}
+				parts := strings.SplitN(w, "=", 2)
+				if actual := ReadEnvValue(parts[0]); actual != strings.Trim(parts[1], "\"'") {
+					t.Errorf("expected effective %s value %q, got %q", parts[0], parts[1], actual)
 				}
 			}
 			for _, nw := range tt.notWant {
 				if strings.Contains(got, nw) {
 					t.Errorf("expected .env not to contain %q, got:\n%s", nw, got)
-				}
-			}
-			for _, key := range []string{"CADDY_HOST=", "CADDY_TLS_BLOCK="} {
-				if strings.Count(got, key) > 1 {
-					t.Errorf("expected at most one %s entry, got:\n%s", key, got)
 				}
 			}
 		})
