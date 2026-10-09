@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SourceExtractionNotImplementedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.progress import SOURCE_ITEM
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -77,6 +78,11 @@ class _FakeAsyncCM:
 
     def run_on_shutdown(self, callback):
         pass
+
+
+class _FakeHeartbeater(_FakeAsyncCM):
+    def __init__(self, detector, factor: int = 120) -> None:
+        self.detector = detector
 
 
 def _passthrough(fn, *, executor=None):
@@ -110,7 +116,7 @@ def _patched_activity(source_mock, model=None, schema=None):
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
-        mock.patch.object(module, "Heartbeater", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "ProgressAwareHeartbeater", new=_FakeHeartbeater),
         mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()),
         mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
         mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
@@ -958,7 +964,7 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
-        mock.patch.object(module, "Heartbeater", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "ProgressAwareHeartbeater", new=_FakeHeartbeater),
         mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()),
         mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
         mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
@@ -1713,6 +1719,44 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
 
     assert run_mock.await_args.kwargs["preemption"] == expected
+
+
+@pytest.mark.parametrize(
+    "stop_enabled,expect_heartbeat_past_the_limit",
+    [
+        pytest.param(True, False, id="setting_on_stops_the_heartbeat"),
+        pytest.param(False, True, id="off_by_default_only_reports"),
+    ],
+)
+async def test_the_no_progress_settings_reach_the_heartbeat_of_the_import(
+    stop_enabled: bool, expect_heartbeat_past_the_limit: bool, settings
+):
+    settings.DATA_WAREHOUSE_IMPORT_STOP_HEARTBEAT_ON_NO_PROGRESS_ENABLED = stop_enabled
+    # Any time since the last item is past this limit, and no test run reaches the other one.
+    settings.DATA_WAREHOUSE_IMPORT_NO_PROGRESS_LIMIT_SECONDS = -1.0
+    settings.DATA_WAREHOUSE_IMPORT_NO_PROGRESS_BEFORE_FIRST_ITEM_LIMIT_SECONDS = 10_000_000.0
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+    detectors = []
+    build_detector = module._no_progress_detector
+
+    def capture_detector(progress, logger):
+        detectors.append(build_detector(progress, logger))
+        return detectors[-1]
+
+    with (
+        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1"),
+        mock.patch.object(module, "_no_progress_detector", new=capture_detector),
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    (detector,) = detectors
+    assert detector.source_type == "MongoDB"
+    assert detector.should_heartbeat() is True
+    detector.progress.record(SOURCE_ITEM)
+    assert detector.should_heartbeat() is expect_heartbeat_past_the_limit
 
 
 @parameterized.expand(

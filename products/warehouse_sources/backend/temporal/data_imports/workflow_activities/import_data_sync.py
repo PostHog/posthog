@@ -26,7 +26,6 @@ from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.errors import NonReportableError
-from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
@@ -62,6 +61,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     trim_source_job_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.progress_heartbeat import (
+    NoProgressDetector,
+    NoProgressLimits,
+    ProgressAwareHeartbeater,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -98,6 +102,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.progress import (
+    ImportProgress,
+    ImportStalledError,
+    activate_import_progress,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -418,7 +427,30 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
 
 async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
-    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+    progress = ImportProgress()
+    with activate_import_progress(progress):
+        return await _import_data_with_progress(inputs, logger, progress)
+
+
+def _no_progress_detector(progress: ImportProgress, logger: FilteringBoundLogger) -> NoProgressDetector:
+    return NoProgressDetector(
+        progress=progress,
+        limits=NoProgressLimits(
+            seconds=settings.DATA_WAREHOUSE_IMPORT_NO_PROGRESS_LIMIT_SECONDS,
+            before_first_item_seconds=settings.DATA_WAREHOUSE_IMPORT_NO_PROGRESS_BEFORE_FIRST_ITEM_LIMIT_SECONDS,
+        ),
+        stop_heartbeats=settings.DATA_WAREHOUSE_IMPORT_STOP_HEARTBEAT_ON_NO_PROGRESS_ENABLED,
+        logger=logger,
+    )
+
+
+async def _import_data_with_progress(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, progress: ImportProgress
+) -> PipelineResult:
+    async with (
+        ProgressAwareHeartbeater(_no_progress_detector(progress, logger), factor=30) as heartbeater,
+        ShutdownMonitor() as shutdown_monitor,
+    ):
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         model = await _get_external_data_job(inputs.run_id)
@@ -457,6 +489,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
+        heartbeater.detector.source_type = str(source_type)
 
         bind_job_context(
             team_id=inputs.team_id,
@@ -707,11 +740,11 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
                         source_response = await database_sync_to_async_pool(
-                            new_source.source_for_pipeline, executor=executor
+                            progress.watched(new_source.source_for_pipeline), executor=executor
                         )(config, resumable_source_manager, source_inputs)
                     elif isinstance(new_source, SimpleSource):
                         source_response = await database_sync_to_async_pool(
-                            new_source.source_for_pipeline, executor=executor
+                            progress.watched(new_source.source_for_pipeline), executor=executor
                         )(config, source_inputs)
                     else:
                         raise TypeError(
@@ -897,6 +930,11 @@ async def _handle_import_error(
         if activity.in_activity():
             get_worker_shutdown_handoff_metric(str(job_inputs.job_type)).add(1)
         await logger.ainfo("Handing the import off to another worker because this worker is shutting down")
+        raise error
+
+    if isinstance(error, ImportStalledError):
+        # Temporal already ended this attempt and runs the next one. Nothing here failed.
+        await logger.awarning(str(error))
         raise error
 
     source_cls = SourceRegistry.get_source(job_inputs.job_type)

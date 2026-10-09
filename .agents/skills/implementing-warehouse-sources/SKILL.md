@@ -441,6 +441,10 @@ The `rest_source` framework reaches a safe point after each page and before each
 The same condition decides when a `resume_hook` runs. When `items` returns the `Resource` directly, the hook runs before the page reaches the pipeline, so a page and its cursor commit together and a hand-off repeats no rows. When a source wraps the `Resource`, the hook runs when the wrapper asks for the next page, so a hand-off reads the last page again. Return the `Resource` directly when you can: use `data_map`, `add_map` and `add_filter` for row changes. A wrapper that hands each page on unchanged and holds no rows can keep the framework behavior by returning `Resource(wrapper, name=..., hints=resource._hints)` (see the usage report in `anthropic/anthropic.py`).
 Do not call `safe_point()` or `commit()` in a `resume_hook`.
 
+The wait of `interruptible_wait` also raises `SourceAbandonedError` when the pipeline no longer reads the source, so the thread does not continue its retries on a worker that shuts down.
+
+The import activity measures progress (an item, a staged checkpoint, a safe point, a request through the tracked HTTP or gRPC transport, a written batch). An attempt with no progress for longer than `DATA_WAREHOUSE_IMPORT_NO_PROGRESS_LIMIT_SECONDS` is reported, and can lose its heartbeat, so a source that works for a long time between items through its own client must call `manager.safe_point()` or `note_progress(...)`.
+
 ### The source contract
 
 A worker that shuts down hands each running import to another worker. Every source with extraction code must make that possible:

@@ -18,6 +18,10 @@ from posthog.redis import get_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
     SourceAbandonedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.progress import (
+    CHECKPOINT_STAGED,
+    note_progress,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
@@ -183,6 +187,7 @@ class ResumableSourceManager(Generic[ResumableData]):
         """
         # No log here: a source can save on every row, and commit() logs each cursor that persists.
         self._pending[self._key] = self._dump_json(data)
+        note_progress(CHECKPOINT_STAGED)
 
     def has_staged_state(self) -> bool:
         """Whether the next `commit` will write anything."""

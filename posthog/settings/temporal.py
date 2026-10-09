@@ -288,6 +288,24 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
 )
+# The import activity stops its Temporal heartbeats when the import made no progress for longer
+# than the limits below. Temporal then ends the attempt after the heartbeat timeout and retries
+# it on another worker. Each such retry uses one retry attempt. When this is off, the activity
+# only reports the event (a log line and the `warehouse_import_no_progress_total` metric), which
+# shows how often the limits would act before they do.
+DATA_WAREHOUSE_IMPORT_STOP_HEARTBEAT_ON_NO_PROGRESS_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_STOP_HEARTBEAT_ON_NO_PROGRESS_ENABLED", False, type_cast=str_to_bool
+)
+# Progress is an item from the source, a staged checkpoint, a safe point, a completed request or
+# retry wait of the source, or a written batch.
+DATA_WAREHOUSE_IMPORT_NO_PROGRESS_LIMIT_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_NO_PROGRESS_LIMIT_SECONDS", 60.0 * 60, type_cast=float
+)
+# The limit until the source yields its first item in the attempt. One query can run for hours
+# before its first row, so keep this above the longest statement timeout of any source.
+DATA_WAREHOUSE_IMPORT_NO_PROGRESS_BEFORE_FIRST_ITEM_LIMIT_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_NO_PROGRESS_BEFORE_FIRST_ITEM_LIMIT_SECONDS", 8.0 * 60 * 60, type_cast=float
+)
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool

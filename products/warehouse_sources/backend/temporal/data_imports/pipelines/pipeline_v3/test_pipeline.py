@@ -1,4 +1,5 @@
 import json
+import time
 import asyncio
 import inspect
 import threading
@@ -51,11 +52,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.progress import (
+    SOURCE_ITEM,
+    ImportProgress,
+    ImportStalledError,
+    activate_import_progress,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.tests.test_resume_checkpoints import (
     paged_config,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
     SourceInputs,
@@ -2496,3 +2507,122 @@ class TestSourcePreemption:
         staged, resume_value = events[0][1], events[-1][1]
         next_attempt = [row["n"] for row in rows if row["n"] > resume_value]
         assert sorted(set(staged) | set(next_attempt)) == [row["n"] for row in rows]
+
+
+class TestRetryWaitAtShutdown:
+    @pytest.mark.parametrize(
+        "wait_is_safe_point,preemption_on,expected_error,expected_source_error,expected_cursors",
+        [
+            # The wait is a safe point, so the run hands off with its cursor and needs no preemption.
+            pytest.param(True, False, WorkerShuttingDownError, WorkerShuttingDownError, ["a"], id="safe_point"),
+            # The pipeline leaves the source behind, and the staged cursor with it. The wait must
+            # end, or the thread retries for hours.
+            pytest.param(False, True, SourcePreemptedError, SourceAbandonedError, [], id="preempted"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_source_in_a_retry_wait_leaves_the_worker_at_shutdown(
+        self,
+        wait_is_safe_point: bool,
+        preemption_on: bool,
+        expected_error: type[BaseException],
+        expected_source_error: type[BaseException],
+        expected_cursors: list[str],
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        source_ended = threading.Event()
+        seen: dict[str, Any] = {}
+
+        def retry_wait() -> None:
+            switch.shut_down()
+            if wait_is_safe_point:
+                # Long enough that a wait which nothing interrupts fails the test.
+                interruptible_wait(60.0, safe_point=reach_safe_point)
+            # A wait that is not a safe point ends early at the shutdown. The source retries, and its
+            # next wait ends the same way until the pipeline leaves the source.
+            while True:
+                interruptible_wait(60.0)
+                time.sleep(0.01)
+
+        def items():
+            try:
+                yield pa.table({"id": ["a"]})
+                manager.save_state(_Cursor("a"))
+                retry_wait()
+            except BaseException as error:
+                seen["source_error"] = error
+                raise
+            finally:
+                source_ended.set()
+
+        pipeline = _runnable_pipeline(manager, items)
+        switch = _with_preemption(pipeline)
+        if not preemption_on:
+            pipeline._preemption = None
+
+        await asyncio.wait_for(_run_expecting(pipeline, redis, expected_error), timeout=10)
+
+        assert await asyncio.to_thread(source_ended.wait, 5)
+        assert isinstance(seen["source_error"], expected_source_error)
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == expected_cursors
+        assert _staged_ids(pipeline) == ["a"]
+
+
+class TestStalledAttempt:
+    @pytest.mark.asyncio
+    async def test_an_attempt_that_stalled_writes_nothing_when_its_source_returns(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        progress = ImportProgress()
+        seen: dict[str, Any] = {}
+
+        def items():
+            yield pa.table({"id": ["a"]})
+            seen["progress_before_the_stall"] = progress.snapshot()
+            # What the heartbeater does when the limit passes while this call is blocked.
+            progress.mark_stalled()
+            progress.run_stall_callbacks()
+            manager.save_state(_Cursor("b"))
+            yield pa.table({"id": ["b"]})
+
+        pipeline = _runnable_pipeline(manager, items)
+        pipeline._source_resume_manager = manager
+        producer = cast(MagicMock, pipeline._pg_producer)
+
+        with activate_import_progress(progress):
+            await _run_expecting(pipeline, redis, ImportStalledError)
+
+        assert seen["progress_before_the_stall"].kind == SOURCE_ITEM
+        assert seen["progress_before_the_stall"].source_item_seen is True
+        assert _staged_ids(pipeline) == ["a"]
+        producer.release_held_batch.assert_not_called()
+        redis.set.assert_not_called()
+        with (
+            patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)),
+            pytest.raises(SourceAbandonedError),
+        ):
+            # The thread of the source can still confirm the cursor it saved after the stall.
+            manager.confirm()
+            manager.commit()
+
+    @pytest.mark.asyncio
+    async def test_an_attempt_that_stalled_does_not_finalize_when_its_source_ends(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        progress = ImportProgress()
+
+        def items():
+            progress.mark_stalled()
+            return
+            yield
+
+        pipeline = _runnable_pipeline(manager, items)
+        finalize = AsyncMock()
+        pipeline._finalize = finalize  # type: ignore[method-assign]
+
+        with activate_import_progress(progress):
+            await _run_expecting(pipeline, redis, ImportStalledError)
+
+        finalize.assert_not_called()
+        assert _staged_ids(pipeline) == []

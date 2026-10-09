@@ -33,6 +33,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.progress import (
+    SOURCE_REQUEST,
+    note_progress,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import retry_budget_seconds
 
 RequestTimeout = float | tuple[float, float] | tuple[float, None]
@@ -241,6 +245,8 @@ class TrackedHTTPAdapter(HTTPAdapter):
             exception = exc
             raise
         finally:
+            # The call returned, with a response or with an error, so the thread is not blocked.
+            note_progress(SOURCE_REQUEST)
             try:
                 record_request(
                     request,

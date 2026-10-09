@@ -174,6 +174,19 @@ def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str) -> Met
     )
 
 
+def get_import_no_progress_metric(source_type: str | None, action: str) -> MetricCounter:
+    # `action` is `heartbeats_stopped` when Temporal will retry the attempt, and `reported` when
+    # the attempt continues.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "action": action})
+        .create_counter(
+            "warehouse_import_no_progress_total",
+            "Import attempts that made no progress for longer than their limit.",
+        )
+    )
+
+
 def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     """Emit app_metrics2 rows for a data import job that just reached terminal state.
 

@@ -30,6 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.grp
     MAX_CAPTURED_RESPONSE_MESSAGES,
     is_capture_armed,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.progress import (
+    SOURCE_REQUEST,
+    note_progress,
+)
 
 
 def _safe_code(obj: Any) -> grpc.StatusCode | None:
@@ -85,6 +89,7 @@ class TrackedUnaryUnaryClientInterceptor(grpc.UnaryUnaryClientInterceptor):
     def intercept_unary_unary(self, continuation: Any, client_call_details: Any, request: Any) -> Any:
         started = time.monotonic()
         outcome = continuation(client_call_details, request)
+        note_progress(SOURCE_REQUEST)
         try:
             code, response, exception = _resolve_unary_outcome(outcome)
             record_unary(
@@ -164,6 +169,7 @@ class _TrackedStreamWrapper(Iterator[Any]):
             self._record(code=None, exception=error)
             raise
 
+        note_progress(SOURCE_REQUEST)
         self._message_count += 1
         self._response_bytes += message_byte_size(message)
         if self._armed and len(self._retained) < MAX_CAPTURED_RESPONSE_MESSAGES:
