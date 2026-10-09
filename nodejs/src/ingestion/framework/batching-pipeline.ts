@@ -2,8 +2,10 @@ import pLimit from 'p-limit'
 
 import { DetachedSpan, runInContext, startDetachedSpan } from '~/common/tracing/tracing-utils'
 
+import { BatchBudget } from './batch-budget'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
+import { batchBudgetExhaustedCounter, batchBudgetOverrunHistogram } from './metrics'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
 
@@ -13,6 +15,8 @@ export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; re
 
 export interface BatchingContext {
     messageId: number
+    /** The fed batch's time allowance, shared by every element of that batch. */
+    budget: BatchBudget
 }
 
 export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>> {
@@ -71,8 +75,23 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
     concurrentBatches: 1,
 }
 
+/**
+ * Close out a completed batch's budget: drop the deadline it no longer needs,
+ * and record how far it overran. The overrun is the tail the checkpoints cannot
+ * cut, because they only stop work from starting.
+ */
+function closeBudget(budget: BatchBudget): void {
+    budget.settle()
+    if (!budget.exhausted || budget.softAt === Infinity) {
+        return
+    }
+    batchBudgetExhaustedCounter.inc()
+    batchBudgetOverrunHistogram.observe(Math.max(0, Date.now() - budget.softAt) / 1000)
+}
+
 interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed extends object = object> {
     batchContext: CBatch & CFeed & { batchId: number }
+    budget: BatchBudget
     messageIds: number[]
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>
@@ -94,7 +113,7 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed
  *   registered and no hooks run (a zero-message batch could never complete).
  * - feed() runs beforeBatch which returns enriched elements (same count as
  *   fed — count changes throw) and side effects. Elements are tagged with
- *   messageId, then fed to the sub-pipeline.
+ *   messageId and the batch's budget, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -174,18 +193,28 @@ export class BatchingPipeline<
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    feed(elements: OkResultWithContext<TInput, CInput>[], batchContext: CFeed): Promise<FeedResult> {
+    /**
+     * Feed one batch. The budget is that batch's whole time allowance, shared
+     * by every element of it; the default leaves the batch unlimited, which is
+     * what a caller with no time policy wants.
+     */
+    feed(
+        elements: OkResultWithContext<TInput, CInput>[],
+        batchContext: CFeed,
+        budget: BatchBudget = BatchBudget.unlimited()
+    ): Promise<FeedResult> {
         // Serialize so buffer order always matches batchId order: without this,
         // the await on beforePipeline between batchId assignment and
         // subPipeline.feed() lets two concurrent feeds enter the buffer inverted.
         // With one concurrent batch the caller is already sequential, so the
         // mutex is uncontended.
-        return this.feedLimit(() => this.feedSerialized(elements, batchContext))
+        return this.feedLimit(() => this.feedSerialized(elements, batchContext, budget))
     }
 
     private async feedSerialized(
         elements: OkResultWithContext<TInput, CInput>[],
-        feedContext: CFeed
+        feedContext: CFeed,
+        budget: BatchBudget
     ): Promise<FeedResult> {
         // An empty feed has no messages that could ever complete a batch:
         // completion is only detected in pump()'s result loop, so registering a
@@ -266,6 +295,7 @@ export class BatchingPipeline<
                     ...element.context,
                     messageId,
                     traceContext: batchTrace?.parentContext,
+                    budget,
                 },
             }
         })
@@ -278,6 +308,7 @@ export class BatchingPipeline<
         // drop it.
         this.batches.set(batchId, {
             batchContext: { ...batchContext, ...feedContext },
+            budget,
             messageIds,
             inflight,
             results: new Map(),
@@ -360,6 +391,7 @@ export class BatchingPipeline<
                 batch.results.set(messageId, resultWithContext)
 
                 if (batch.inflight.size === 0) {
+                    closeBudget(batch.budget)
                     const orderedResults = batch.messageIds.map((id) => batch.results.get(id)!)
                     this.batches.delete(batchId)
                     for (const id of batch.messageIds) {

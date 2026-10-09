@@ -9,6 +9,7 @@ import {
 import { StartPipeline } from '~/ingestion/framework/start-pipeline'
 import { StepPipeline } from '~/ingestion/framework/step-pipeline'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { TimeoutBarrierPipeline } from '~/ingestion/framework/timeout-barrier-pipeline'
 
 export class StartPipelineBuilder<T, C> {
     pipe<U, R extends string = never>(
@@ -57,6 +58,16 @@ export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
         )
         const finalBuilder = callback(branchingBuilder)
         return new PipelineBuilder(finalBuilder.build())
+    }
+
+    /**
+     * Insert a timeout barrier: from here on the batch budget no longer stops
+     * an element, so everything past this point runs to completion. An element
+     * that arrives with its budget already exhausted is cut here instead.
+     * See {@link TimeoutBarrierPipeline} for where to put one.
+     */
+    timeoutBarrier(): PipelineBuilder<TInput, TOutput, C, R> {
+        return new PipelineBuilder(new TimeoutBarrierPipeline(this.pipeline))
     }
 
     /**

@@ -14,7 +14,7 @@ import {
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { FeedOrderSentinel } from './feed-order-sentinel'
-import { CompletedSubBatch, StreamIngestDriver, WorkerIngestServer } from './grpc-server'
+import { CompletedSubBatch, StreamIngestDriver, SubBatchBudget, WorkerIngestServer } from './grpc-server'
 
 class Deferred<T> {
     resolve!: (value: T) => void
@@ -66,14 +66,14 @@ class FrameSource implements AsyncIterable<IngestStreamRequest> {
 
 /** Records feeds and lets the test hand-complete batches. */
 class FakeDriver implements StreamIngestDriver {
-    feeds: { streamId: number; seq: number; offsets: number[] }[] = []
+    feeds: { streamId: number; seq: number; offsets: number[]; budget: SubBatchBudget }[] = []
     feedResult: FeedResult = { ok: true }
     private completions: CompletedSubBatch[] = []
     private nextWaiters: Deferred<CompletedSubBatch | null>[] = []
     nextError: Error | null = null
 
-    feed(streamId: number, seq: number, messages: { offset: number }[]): Promise<FeedResult> {
-        this.feeds.push({ streamId, seq, offsets: messages.map((m) => m.offset) })
+    feed(streamId: number, seq: number, messages: { offset: number }[], budget: SubBatchBudget): Promise<FeedResult> {
+        this.feeds.push({ streamId, seq, offsets: messages.map((m) => m.offset), budget })
         return Promise.resolve(this.feedResult)
     }
 
@@ -89,8 +89,11 @@ class FakeDriver implements StreamIngestDriver {
         return waiter.promise
     }
 
-    complete(batch: Omit<CompletedSubBatch, 'settled'>, settled: Promise<void> = Promise.resolve()): void {
-        const completed: CompletedSubBatch = { ...batch, settled }
+    complete(
+        batch: Omit<CompletedSubBatch, 'settled' | 'timedOut'> & Partial<Pick<CompletedSubBatch, 'timedOut'>>,
+        settled: Promise<void> = Promise.resolve()
+    ): void {
+        const completed: CompletedSubBatch = { timedOut: [], ...batch, settled }
         const waiter = this.nextWaiters.shift()
         if (waiter) {
             waiter.resolve(completed)
@@ -123,7 +126,11 @@ function hello(overrides: { consumerId?: string; streamEpoch?: bigint } = {}): I
 function subBatch(
     seq: number,
     offsets: number[],
-    overrides: { replay?: boolean; assignmentEpoch?: bigint } = {}
+    overrides: {
+        replay?: boolean
+        assignmentEpoch?: bigint
+        softBudgetMs?: bigint
+    } = {}
 ): IngestStreamRequest {
     return create(IngestStreamRequestSchema, {
         msg: {
@@ -133,6 +140,7 @@ function subBatch(
                 batchId: `batch-${seq}`,
                 replay: overrides.replay ?? false,
                 assignmentEpoch: overrides.assignmentEpoch ?? 1n,
+                softBudgetMs: overrides.softBudgetMs ?? 0n,
                 messages: offsets.map((offset) =>
                     create(KafkaMessageSchema, {
                         topic: 'events',
@@ -262,6 +270,8 @@ describe('WorkerIngestServer', () => {
             [2, SubBatchStatus.OK, 1],
             [1, SubBatchStatus.OK, 2],
         ])
+        // An OK ack claims every message, so the disposition list stays empty.
+        expect(collected.acks.every((ack) => ack.timedOut.length === 0)).toBe(true)
         expect(server.streamCount).toBe(0)
     })
 
@@ -346,6 +356,29 @@ describe('WorkerIngestServer', () => {
         expect(collected.error).toBeNull()
         expect(collected.acks[0].accepted).toBe(0)
         expect(driver.feeds).toEqual([])
+    })
+
+    it('arms the frame budget at read time, before the sub-batch waits for admission', async () => {
+        // A sub-batch parked behind a full pipeline has already spent part of
+        // its allowance, so the arming point has to be the frame read rather
+        // than the feed.
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        const before = Date.now()
+        source.push(hello())
+        source.push(subBatch(1, [10], { softBudgetMs: 300n }))
+        await until(() => driver.feeds.length === 1)
+        const after = Date.now()
+
+        const { budget } = driver.feeds[0]
+        expect(budget.softBudgetMs).toBe(300)
+        expect(budget.armedAt).toBeGreaterThanOrEqual(before)
+        expect(budget.armedAt).toBeLessThanOrEqual(after)
+
+        source.end()
+        driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+        await collected.ended
     })
 
     it('fails the stream and reports fatal when the pipeline dies mid-batch', async () => {
@@ -544,6 +577,69 @@ describe('WorkerIngestServer', () => {
         source.push(subBatch(3, [2], { assignmentEpoch: 2n }))
         await until(() => driver.feeds.length === 3)
         expect(await outOfOrderCount()).toBe(before + 1)
+    })
+
+    it('acks PARTIAL with the dispositions of a batch whose elements did not all finish', async () => {
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        source.push(subBatch(1, [10, 11, 12, 13]))
+        await until(() => driver.feeds.length === 1)
+
+        driver.complete({
+            streamId: driver.feeds[0].streamId,
+            seq: 1,
+            accepted: 3,
+            timedOut: [1],
+        })
+        await until(() => collected.acks.length === 1)
+        source.end()
+        await collected.ended
+
+        const ack = collected.acks[0]
+        expect(ack.status).toBe(SubBatchStatus.PARTIAL)
+        expect(ack.timedOut).toEqual([1])
+        // The invariant the consumer validates fail-closed: a non-empty
+        // timed-out list, and every message accounted for exactly once.
+        expect(ack.timedOut.length).toBeGreaterThan(0)
+        expect(ack.accepted + ack.timedOut.length).toBe(4)
+    })
+
+    it('acks a parked sub-batch PARTIAL when its soft budget runs out before a slot frees', async () => {
+        // Nothing entered the pipeline, so there is no worker state to reconcile:
+        // every message goes back to the consumer for redelivery.
+        const budgeted = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { driver, feedOrderSentinel: sentinel, onFatal }
+        )
+        await budgeted.start()
+        try {
+            const source = new FrameSource()
+            const collected = collect(budgeted, source)
+
+            source.push(hello())
+            source.push(subBatch(1, [10]))
+            await until(() => driver.feeds.length === 1)
+            // The one slot is held by sub-batch 1, so sub-batch 2 parks.
+            source.push(subBatch(2, [11, 12], { softBudgetMs: 20n }))
+            await until(() => collected.acks.length === 1)
+
+            const ack = collected.acks[0]
+            expect(ack.seq).toBe(2n)
+            expect(ack.status).toBe(SubBatchStatus.PARTIAL)
+            expect(ack.accepted).toBe(0)
+            expect(ack.timedOut).toEqual([0, 1])
+            expect(driver.feeds.map((feed) => feed.seq)).toEqual([1])
+
+            // The stream stays usable: the reader moved on to the next frame.
+            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+            source.end()
+            await collected.ended
+            expect(collected.error).toBeNull()
+        } finally {
+            await budgeted.stop()
+        }
     })
 
     it('refuses a stream past the total concurrency ceiling with ResourceExhausted', async () => {

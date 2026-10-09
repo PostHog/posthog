@@ -4,6 +4,7 @@ import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
 import { TeamIdContext } from './builders/chunk-pipeline-builders'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
+import { isTimeoutResult } from './results'
 
 export class IngestionWarningHandlingChunkPipeline<
     TInput,
@@ -29,6 +30,17 @@ export class IngestionWarningHandlingChunkPipeline<
         }
 
         return results.map((resultWithContext) => {
+            if (isTimeoutResult(resultWithContext.result) && resultWithContext.context.warnings?.length) {
+                // Abandoned, not emitted: a timed-out element is unacked, so its
+                // redelivery reprocesses from the top and emits these again.
+                return {
+                    result: resultWithContext.result,
+                    context: {
+                        ...resultWithContext.context,
+                        warnings: [],
+                    },
+                }
+            }
             if (resultWithContext.context.warnings && resultWithContext.context.warnings.length > 0) {
                 const warningPromises = resultWithContext.context.warnings.map((warning) =>
                     emitIngestionWarning(this.outputs, resultWithContext.context.team.id, warning)
