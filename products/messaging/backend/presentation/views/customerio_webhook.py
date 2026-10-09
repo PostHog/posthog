@@ -19,6 +19,7 @@ from products.messaging.backend.facade.customerio import (
 class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
     """Customer.io HMAC-SHA256 webhook verification."""
 
+    _team_id: int | None = None
     _integration_id: int | None = None
 
     def get_signature_header(self) -> str:
@@ -37,13 +38,14 @@ class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
         found = webhook_signing_secret(team_id)
         if found is None:
             return None
+        self._team_id = team_id
         self._integration_id = found.integration_id
         return found.secret
 
     def get_auth_context(self, request: Request) -> Any:
         if self._integration_id is None:
             return None
-        return Integration.objects.filter(pk=self._integration_id).first()
+        return Integration.objects.filter(team_id=self._team_id, pk=self._integration_id).first()
 
 
 class CustomerIOWebhookView(APIView):

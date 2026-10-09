@@ -1,5 +1,6 @@
 """Customer.io sync setup: the App API import, the inbound webhook, the outbound Track API, and the CSV import."""
 
+from dataclasses import field
 from typing import IO, Any
 
 from posthog.dataclasses import frozen
@@ -101,7 +102,7 @@ def import_preferences_csv(team_id: int, csv_file: IO[bytes], created_by_id: int
 
 @frozen
 class WebhookSigningSecret:
-    secret: str | None
+    secret: str | None = field(repr=False)
     integration_id: int
 
 
