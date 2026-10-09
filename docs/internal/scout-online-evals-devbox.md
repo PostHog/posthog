@@ -51,7 +51,7 @@ History shows 30 trials per page, with previous and next controls for older resu
 
 Trial scouts have a 30-minute runtime limit. Regular scouts keep their 15-minute limit. Timed-out scouts cannot be scored; start a new trial to try again.
 
-Trial scout and judge deadlines include five minutes for startup and log reads, plus time to collect and save the final result.
+Trial scout deadlines include five minutes for startup and log reads, plus time to collect and save the final result.
 
 Trial plans and evaluation documents keep one complete adopted reference each and exclude suggestion-generation history. The judge reads that same adopted reference from its evidence attachment.
 
@@ -69,8 +69,10 @@ Judges use ordinary Tasks permissions and logging rather than the scout runs' pr
 
 Scout sandboxes keep private gateway capture and exclude shared context-layer inputs. Tasks no longer calls Signals to interpret trial documents or judge credentials. Shared dispatch preparation, file attachments and budget-stop handling remain unchanged.
 
-The judge has no live project tools, external MCP connections or repository credentials. Its run disables live context, so the Tasks worker neither mounts the current wiki nor adds Store skill descriptions. Internal Tasks also exclude project and personal instructions. A retry to correct its JSON response uses the same sandbox and keeps these inputs disabled. Deploy the Tasks worker's support for this run setting before starting new judges.
+The judge has no live project tools, external MCP connections or repository credentials. Its run disables live context, so the Tasks worker neither mounts the current wiki nor adds Store skill descriptions. Internal Tasks also exclude project and personal instructions. Deploy the Tasks worker's support for this run setting before starting new judges.
 
-It returns one verdict per rubric check, with quotes checked against the original saved files. Missing evidence gives an unknown verdict. A judge failure is shown separately from a failed rubric check, and incomplete results cannot win. Judging has a 30-minute runtime limit per run; saved results never rerun the judge when viewed.
+The judge saves one JSON verdict per rubric check through Tasks' existing structured-output support. Signals checks that same Task until it finishes, then validates its quotes against the original saved files. New evaluations use saved scout identifiers to recheck current permissions on every status poll without downloading the full starting context again; preparation and report finalization still validate that context. Worker restarts resume result collection without starting another judge. If result collection remains unavailable, the evaluation fails without freezing an incomplete report; resuming the same evaluation reuses its Tasks and saved judgments.
+
+Missing evidence gives an unknown verdict. A judge failure is shown separately from a failed rubric check, and incomplete results cannot win. Each judge has a 30-minute deadline measured from its original Task run creation; retries do not reset it. Up to three collectors run at once, but judge Tasks can briefly overlap beyond that after a delayed start or collection failure. Saved results never rerun the judge when viewed.
 
 Before dispatch, the full batch must fit the project's existing daily scout budget. Resuming counts only runs that have not already started. This is a capacity check, not a reservation: simultaneous submissions can still race, and the budget remains shared with ordinary scouts.
