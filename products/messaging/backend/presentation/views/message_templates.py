@@ -125,6 +125,12 @@ class MessageTemplateCategoryField(serializers.Field):
 
     default_error_messages = serializers.PrimaryKeyRelatedField.default_error_messages
 
+    def run_validation(self, data: Any = serializers.empty) -> Any:
+        # A DRF related field reads an empty string as null, and clients send "" to clear the category.
+        if data == "":
+            data = None
+        return super().run_validation(data)
+
     def to_internal_value(self, data: Any) -> Any:
         if isinstance(data, bool):
             self.fail("incorrect_type", data_type=type(data).__name__)
@@ -244,13 +250,15 @@ class MessageTemplatesViewSet(
 
     serializer_class = MessageTemplateSerializer
 
-    def _template(self) -> MessageTemplateRow:
-        # Templates map to no access-control resource, so object-level checks never applied to them.
-        # The hog_flow resource check runs before any action; a team-scoped lookup is the rest.
+    def dangerously_get_object(self) -> MessageTemplateRow:
+        # Team scoping happens in the facade lookup, because the view has no queryset to filter.
+        # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
-            return get_template(self.team_id, self.kwargs["pk"])
+            template = get_template(self.team_id, self.kwargs["pk"])
         except MessageTemplateMissing:
             raise NotFound()
+        self.check_object_permissions(self.request, template)
+        return template
 
     def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
@@ -275,7 +283,7 @@ class MessageTemplatesViewSet(
         return Response(self.get_serializer(self._with_creators(list(templates)), many=True).data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(self._serialize(self._template()))
+        return Response(self._serialize(self.get_object()))
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
@@ -305,7 +313,7 @@ class MessageTemplatesViewSet(
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
-        template = self._template()
+        template = self.get_object()
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         updated = update_template(self.team_id, template.id, serializer.validated_data)
@@ -343,7 +351,7 @@ class MessageTemplatesViewSet(
         operations = op_serializer.validated_data["operations"]
 
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
-        template = self._template()
+        template = self.get_object()
 
         def apply_operations(content: dict[str, Any]) -> dict[str, Any]:
             email = content.get("email") or {}
