@@ -28,6 +28,7 @@ import {
     calculateFreeTier,
     canHaveBillingLimit,
     createGaugeItems,
+    getHeldCompanions,
     isAddonVisible,
     isProductVariantPrimary,
 } from './billing-utils'
@@ -35,11 +36,15 @@ import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
 import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
+import { billingProductRowDisplayName } from './billingProductDisplayName'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
+
+// Rounds a dollar amount to the cent, as the card shows it.
+const roundToCents = (amount: number): number => Math.round(amount * 100) / 100
 
 type UnsubscribeReason = {
     reason: string
@@ -143,6 +148,12 @@ export interface billingProductLogicValues {
     freeTier: number
     hasCustomLimitSet: boolean
     hedgehogSatisfied: boolean
+    heldCompanionAmounts: {
+        companion: BillingProductV2Type
+        currentAmount: number
+        projectedAmount: number
+    }[]
+    heldCompanions: BillingProductV2Type[]
     isAddonProduct: boolean
     isBillingLimitInputSubmitting: boolean
     isBillingLimitInputValid: boolean
@@ -168,6 +179,10 @@ export interface billingProductLogicValues {
     surveyResponse: {
         $survey_response: string
         $survey_response_2: string[]
+    }
+    totalsIncludingCompanions: {
+        currentTotal: number
+        projectedTotal: number
     }
     trialCancelReasonQuestions: string
     trialLoading: boolean
@@ -496,6 +511,43 @@ export interface billingProductLogicMeta {
             rawCurrentTotal: string
             rawProjectedTotal: string
         }) => BillingGaugeItemType[]
+        heldCompanions: (
+            billing: BillingType | null,
+            product: BillingProductV2AddonType | BillingProductV2Type
+        ) => BillingProductV2Type[]
+        heldCompanionAmounts: (
+            heldCompanions: BillingProductV2Type[],
+            combinedMonetaryData: {
+                billingLimit: number | null
+                currentTotal: number
+                discountPercent: number
+                projectedTotal: number
+                rawCurrentTotal: string
+                rawProjectedTotal: string
+            }
+        ) => {
+            companion: BillingProductV2Type
+            currentAmount: number
+            projectedAmount: number
+        }[]
+        totalsIncludingCompanions: (
+            combinedMonetaryData: {
+                billingLimit: number | null
+                currentTotal: number
+                discountPercent: number
+                projectedTotal: number
+                rawCurrentTotal: string
+                rawProjectedTotal: string
+            },
+            heldCompanionAmounts: {
+                companion: BillingProductV2Type
+                currentAmount: number
+                projectedAmount: number
+            }[]
+        ) => {
+            currentTotal: number
+            projectedTotal: number
+        }
         currentAmountTotalActual: (
             isProductWithVariants: boolean,
             product: BillingProductV2AddonType | BillingProductV2Type,
@@ -1012,15 +1064,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return null
                 }
 
-                const displayNameOverrides: Record<string, string> = {
-                    session_replay: 'Web session replay',
-                    data_warehouse: 'Synced rows',
-                    data_warehouse_historical: 'Free historical synced rows',
-                    logs: 'Logs ingestion (14-day retention)',
-                    logs_retention_30d: '30-day retention',
-                    logs_retention_custom: 'Custom retention',
-                }
-
                 const mainProduct = product as BillingProductV2Type
                 const variants: Array<{
                     key: string
@@ -1030,7 +1073,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     {
                         key: mainProduct.type,
                         product: mainProduct as BillingProductV2Type | BillingProductV2AddonType,
-                        displayName: displayNameOverrides[mainProduct.type] || mainProduct.name,
+                        displayName: billingProductRowDisplayName(mainProduct),
                     },
                 ]
 
@@ -1043,7 +1086,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     variants.push({
                         key: addon.type,
                         product: addon as BillingProductV2Type | BillingProductV2AddonType,
-                        displayName: displayNameOverrides[addon.type] || addon.name,
+                        displayName: billingProductRowDisplayName(addon),
                     })
                 })
 
@@ -1097,6 +1140,47 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                 ].filter(Boolean) as BillingGaugeItemType[]
             },
+        ],
+        heldCompanions: [
+            (s, p) => [s.billing, p.product],
+            (
+                billing: BillingType | null,
+                product: BillingProductV2Type | BillingProductV2AddonType
+            ): BillingProductV2Type[] => getHeldCompanions(billing?.products, product.type),
+        ],
+        heldCompanionAmounts: [
+            (s) => [s.heldCompanions, s.combinedMonetaryData],
+            (
+                heldCompanions: BillingProductV2Type[],
+                monetaryData: { discountPercent: number }
+            ): { companion: BillingProductV2Type; currentAmount: number; projectedAmount: number }[] => {
+                const discountMultiplier = 1 - monetaryData.discountPercent / 100
+                return heldCompanions.map((companion) => ({
+                    companion,
+                    currentAmount: roundToCents(parseFloat(companion.current_amount_usd || '0') * discountMultiplier),
+                    projectedAmount: roundToCents(
+                        parseFloat(companion.projected_amount_usd || '0') * discountMultiplier
+                    ),
+                }))
+            },
+        ],
+        totalsIncludingCompanions: [
+            (s) => [s.combinedMonetaryData, s.heldCompanionAmounts],
+            (
+                monetaryData: { currentTotal: number; projectedTotal: number },
+                heldCompanionAmounts: { currentAmount: number; projectedAmount: number }[]
+            ): { currentTotal: number; projectedTotal: number } =>
+                // Sum the amounts as the card shows them, in cents, so the total matches the figures above it.
+                heldCompanionAmounts.reduce(
+                    (totals, amounts) => ({
+                        currentTotal: totals.currentTotal + amounts.currentAmount,
+                        projectedTotal: totals.projectedTotal + amounts.projectedAmount,
+                    }),
+                    {
+                        currentTotal: roundToCents(monetaryData.currentTotal),
+                        projectedTotal: roundToCents(monetaryData.projectedTotal),
+                    }
+                ),
         ],
         currentAmountTotalActual: [
             (s, p) => [s.isProductWithVariants, p.product, s.visibleAddons],
