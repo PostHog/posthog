@@ -418,6 +418,16 @@ where
         .unwrap_or_else(|e| panic!("Invalid PERSONHOG_ROUTER_URL: {e}"))
         .with_client_name("feature-flags")
     });
+    if personhog_client.is_none()
+        && !matches!(
+            config.personhog_hash_key_override_read_team_ids,
+            TeamIdCollection::None
+        )
+    {
+        tracing::warn!(
+            "PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS is set but PERSONHOG_ROUTER_URL is empty; hash key overrides are read from the persons DB"
+        );
+    }
 
     let state = State {
         redis_client,

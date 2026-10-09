@@ -450,8 +450,10 @@ pub struct Config {
     pub personhog_router_url: String,
 
     // gRPC timeout on each personhog call. PERSONS_DB_DEADLINE_MS still bounds the whole
-    // persons budget of the request.
-    #[envconfig(from = "PERSONHOG_ROUTER_TIMEOUT_MS", default = "3000")]
+    // persons budget of the request. Keep this below that deadline. A call that the deadline
+    // drops first is missing from the personhog client metrics, and the request reports
+    // persons_db_deadline instead of personhog_timeout.
+    #[envconfig(from = "PERSONHOG_ROUTER_TIMEOUT_MS", default = "1000")]
     pub personhog_router_timeout_ms: u64,
 
     // One channel is one connection to one router pod. More channels spread /flags load
@@ -1182,7 +1184,7 @@ impl Config {
             realtime_cohort_lookup_timeout_ms: 1000,
             persons_db_deadline_ms: 30_000,
             personhog_router_url: String::new(),
-            personhog_router_timeout_ms: 3000,
+            personhog_router_timeout_ms: 1000,
             personhog_router_channels: 4,
             personhog_hash_key_override_read_team_ids: TeamIdCollection::None,
             max_concurrency: 1000,

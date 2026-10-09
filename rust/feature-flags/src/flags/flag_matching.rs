@@ -6,7 +6,7 @@ use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
-use crate::database::{pool_names, PostgresRouter};
+use crate::database::PostgresRouter;
 use crate::flags::config_v2::{Config, NonV1Config};
 use crate::flags::evaluate_v2::{
     Evaluation, EvaluationContext, EvaluationDetail, Evaluator, PersonProperties,
@@ -20,6 +20,7 @@ use crate::flags::flag_matching_utils::{
     fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
     match_flag_value_to_flag_filter, populate_missing_initial_properties, populate_os_aliases,
     set_feature_flag_hash_key_overrides, should_write_hash_key_override, track_unretried_db_error,
+    HashKeyOverrideRead,
 };
 use crate::flags::flag_models::{
     default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
@@ -935,25 +936,13 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let (database_for_reading, pool_name) = if writing_hash_key_override {
-            (
-                self.router.get_persons_writer().clone(),
-                pool_names::PERSONS_WRITER,
-            )
-        } else {
-            (
-                self.router.get_persons_reader().clone(),
-                pool_names::PERSONS_READER,
-            )
-        };
-
         match before_persons_db_deadline(
             self.persons_db_deadline,
             db_operations::GET_HASH_KEY_OVERRIDES,
             get_feature_flag_hash_key_overrides(
-                database_for_reading,
-                pool_name,
+                self.router.get_persons_reader().clone(),
                 self.router.get_persons_writer().clone(),
+                HashKeyOverrideRead::after_write(writing_hash_key_override),
                 self.personhog_hash_key_reader.as_ref(),
                 self.team_id,
                 target_distinct_ids,
@@ -3169,8 +3158,8 @@ impl FeatureFlagMatcher {
                             db_operations::GET_HASH_KEY_OVERRIDES,
                             get_feature_flag_hash_key_overrides(
                                 self.router.get_persons_reader().clone(),
-                                pool_names::PERSONS_READER,
                                 self.router.get_persons_writer().clone(),
+                                HashKeyOverrideRead::WithoutWrite,
                                 self.personhog_hash_key_reader.as_ref(),
                                 self.team_id,
                                 vec![self.distinct_id.clone()],
