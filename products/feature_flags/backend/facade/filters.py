@@ -326,11 +326,10 @@ def _leads_with_unconditional_rollout(current_filters: dict) -> bool:
     first = groups[0]
     if first.get("properties") or first.get("variant"):
         return False
-    rollout_percentage = first.get("rollout_percentage")
-    if rollout_percentage is not None and rollout_percentage != 100:
+    if condition_rollout_percentage(first) != 100:
         return False
     flag_aggregation = current_filters.get("aggregation_group_type_index")
-    return first.get("aggregation_group_type_index", flag_aggregation) == flag_aggregation
+    return condition_aggregation(first, flag_aggregation) == flag_aggregation
 
 
 def roll_out_to_everyone(current_filters: dict, *, variant_key: str | None = None) -> dict:
