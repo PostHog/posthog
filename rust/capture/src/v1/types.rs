@@ -24,13 +24,10 @@ pub enum Destination {
 }
 
 impl Destination {
-    /// Whether analytics-scoped restrictions and overflow routing apply.
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
 
-    /// The restriction pipeline whose restrictions apply, or `None` when no
-    /// restriction applies. Matches v0's `DataType::pipeline`.
     pub fn pipeline(&self) -> Option<Pipeline> {
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => {
@@ -38,22 +35,19 @@ impl Destination {
             }
             Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
-            // Their consumers share no restriction config with another pipeline.
-            Self::HeatmapMain | Self::ClientIngestionWarning => None,
-            // Already the outcome of a restriction, or never published.
-            Self::Dlq | Self::Custom(_) | Self::Drop => None,
+            Self::HeatmapMain
+            | Self::ClientIngestionWarning
+            | Self::Dlq
+            | Self::Custom(_)
+            | Self::Drop => None,
         }
     }
 
-    /// Whether this lane exists to absorb hot keys, and so may publish without
-    /// a partition key to spread load across partitions.
+    /// Whether this destination accepts events without a partition key.
     pub fn absorbs_hot_keys(&self) -> bool {
-        // No wildcard: a new destination has to state which side it is on
-        // instead of inheriting "keeps its key".
         match self {
             Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
-            // These keep their key even when person processing is off, because
-            // their consumers rely on per-distinct-id ordering.
+            // Their consumers rely on per-distinct-id ordering.
             Self::AnalyticsHistorical
             | Self::Dlq
             | Self::Custom(_)
@@ -65,12 +59,7 @@ impl Destination {
         }
     }
 
-    /// Whether this lane's consumer writes persons. On such a lane a spread
-    /// decision takes effect only once person processing is off, because
-    /// spreading one distinct id across partitions turns a hot key into
-    /// contended person-row updates.
     pub fn writes_persons(&self) -> bool {
-        // No wildcard, for the same reason as in `absorbs_hot_keys`.
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical | Self::Overflow => true,
             // Replayed into analytics ingestion.
@@ -84,8 +73,6 @@ impl Destination {
         }
     }
 
-    /// The output address this destination publishes to, or `None` when it is
-    /// never published.
     pub fn address(&self) -> Option<Address> {
         let lane = |pipeline, lane| Some(Address::Lane { pipeline, lane });
         match self {
@@ -125,31 +112,19 @@ impl Destination {
 /// What [`crate::v1::prepare::serialize_batch`] reads from a request event to
 /// build its [`PreparedEvent`](crate::outputs::PreparedEvent).
 pub trait Publishable: Send + Sync {
-    /// Matches the event's serialize failure or publish result back to it.
     fn uuid(&self) -> Uuid;
 
-    /// `false` skips the event: it gets no prepared record and no result.
     fn should_publish(&self) -> bool;
 
     fn destination(&self) -> &Destination;
 
-    /// `ctx` supplies the batch-scoped headers: token, now and
-    /// historical_migration.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
 
     /// [`Publishable::ordering`] decides whether the record carries this key.
-    /// The person-processing header never does, because it instructs
-    /// ingestion to skip identity resolution and is not a partitioning signal.
     fn partition_key(&self, ctx: &RequestContext) -> String;
 
-    /// The ordering guarantee this event's destination must preserve. The Kafka sink
-    /// realizes [`OrderingGuarantee::None`] by publishing without a partition
-    /// key so the broker round-robins; every other guarantee uses
-    /// [`Publishable::partition_key`], which supplies the value that preserves it.
     fn ordering(&self) -> OrderingGuarantee;
 
-    /// `Bytes` so binary payloads such as replay fit, and so a failover output
-    /// can hold the payload without re-encoding it.
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes>;
 }
 
