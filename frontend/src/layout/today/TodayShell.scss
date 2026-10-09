@@ -261,3 +261,35 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 .TodayPaneSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
     background: transparent;
 }
+
+// The breadcrumb grows from zero width, so the scene title slides right instead of jumping.
+.TodaySidebarBreadcrumb {
+    display: inline-grid;
+    flex-shrink: 0;
+    grid-template-columns: 1fr;
+    animation: TodaySidebarBreadcrumb__in 280ms var(--today-ease, ease-out) both;
+}
+
+// The padding keeps the focus ring inside the clip, and the negative margin removes the padding from the layout.
+// The button sits at the end, so it slides in from behind the left edge while the clip grows.
+.TodaySidebarBreadcrumb__clip {
+    display: flex;
+    justify-content: flex-end;
+    min-width: 0;
+    padding: 4px;
+    margin: -4px;
+    overflow: hidden;
+}
+
+@keyframes TodaySidebarBreadcrumb__in {
+    from {
+        grid-template-columns: 0fr;
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodaySidebarBreadcrumb {
+        animation: none;
+    }
+}

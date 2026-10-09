@@ -115,6 +115,18 @@ describe('todayShellLogic', () => {
         logic.actions.setSidebarOpen(false)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
     })
+
+    it('hides the docked sidebar after a row opens a page, and a rail pick shows it again', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.setSidebarOpen(true)
+        logic.actions.collapseSidebarAfterPick()
+        expect(logic.values.sidebarVisible).toBe(false)
+
+        logic.actions.pickPane('products')
+        expect(logic.values.sidebarVisible).toBe(true)
+    })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })

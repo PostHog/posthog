@@ -1,5 +1,7 @@
 import { IconApps, IconChat, IconGridMasonry, IconHome } from '@posthog/icons'
 
+import { isMac } from 'lib/utils/dom'
+
 import { TodayRailPane } from './todayShellLogic'
 
 export interface TodayRailItem {
@@ -14,3 +16,15 @@ export const TODAY_RAIL_ITEMS: TodayRailItem[] = [
     { pane: 'views', label: 'Views', icon: <IconGridMasonry /> },
     { pane: 'products', label: 'Products', icon: <IconApps /> },
 ]
+
+/** The title on top of each pane. The scene header shows the same title while the sidebar is hidden. */
+export const TODAY_PANE_TITLES: Record<TodayRailPane, string> = {
+    home: 'Today',
+    spaces: 'Chats',
+    views: 'Views',
+    products: 'Products',
+}
+
+export function todaySidebarShortcutLabel(): string {
+    return isMac() ? '⌘B' : 'Ctrl+B'
+}

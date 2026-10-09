@@ -9,10 +9,9 @@ import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { isMac } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { TODAY_RAIL_ITEMS } from './todayRailItems'
+import { TODAY_RAIL_ITEMS, todaySidebarShortcutLabel } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
@@ -47,7 +46,7 @@ const RailUtility = forwardRef<
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
-    const { pickPane, toggleSidebar } = useActions(todayShellLogic)
+    const { pickPane, toggleSidebarFrom } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
@@ -101,9 +100,9 @@ export function TodayRail(): JSX.Element {
                 </RailUtility>
                 <RailUtility
                     label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    shortcut={isMac() ? '⌘B' : 'Ctrl+B'}
+                    shortcut={todaySidebarShortcutLabel()}
                     data-attr="today-rail-toggle-sidebar"
-                    onClick={toggleSidebar}
+                    onClick={() => toggleSidebarFrom('rail')}
                 >
                     {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </RailUtility>
