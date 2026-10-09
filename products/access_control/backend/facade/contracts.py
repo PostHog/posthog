@@ -138,7 +138,8 @@ class ObjectAccessControlRule:
 @frozen
 class TerraformLock:
     """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
-    wrote access rules to the project at least once. The lock can be enabled only then."""
+    wrote access rules to the project at least once. An enabled lock with no account refuses all
+    writes until that first write."""
 
     managed: bool
     managed_at: datetime | None

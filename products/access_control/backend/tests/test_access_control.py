@@ -3203,10 +3203,16 @@ class TestAccessControlTerraformLockAPI(BaseAccessControlTest):
         assert self._managed_by_user() == self.terraform_user
         assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
 
-    def test_turning_it_on_without_a_terraform_account_is_refused(self):
+    def test_enabling_before_the_first_terraform_write_locks_everyone_out_until_it(self):
         response = self.client.put(self.url, {"managed": True}, format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert self._managed_by_user() is None
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert response.json()["has_terraform_account"] is False
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+        self.client.logout()
+        assert self._terraform_write(self.terraform_key).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
 
     def test_a_terraform_write_turns_it_back_on(self):
         self.client.logout()

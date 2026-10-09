@@ -95,13 +95,13 @@ export const OrganizationsProjectsAccessControlDefaultRulesUpdateBody = /* @__PU
     )
 
 /**
- * Turn the Terraform lock off or on. Off hands this project's access rules back to the UI. On locks them to the account behind Terraform's API key again. A Terraform write of an access rule turns it on in any case. Project admins and organization admins may call it.
+ * Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can call this.
  */
 export const OrganizationsProjectsAccessControlManagementUpdateBody = /* @__PURE__ */ zod.object({
     managed: zod
         .boolean()
         .describe(
-            "False hands this project's access rules back to the UI. True locks them to the account behind Terraform's API key again, which needs Terraform to have written access rules to this project before."
+            "False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out."
         ),
 })
 

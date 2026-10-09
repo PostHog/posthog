@@ -710,12 +710,12 @@ export namespace Schemas {
          * @nullable
          */
       managed_at: string | null;
-      /** Whether Terraform has written access rules to this project, so that the lock can be turned on. */
+      /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
       has_terraform_account: boolean;
     }
 
     export interface AccessControlManagementRequest {
-      /** False hands this project's access rules back to the UI. True locks them to the account behind Terraform's API key again, which needs Terraform to have written access rules to this project before. */
+      /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
       managed: boolean;
     }
 

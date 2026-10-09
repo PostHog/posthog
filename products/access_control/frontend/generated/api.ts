@@ -184,7 +184,7 @@ export const getOrganizationsProjectsAccessControlManagementUpdateUrl = (organiz
 }
 
 /**
- * Turn the Terraform lock off or on. Off hands this project's access rules back to the UI. On locks them to the account behind Terraform's API key again. A Terraform write of an access rule turns it on in any case. Project admins and organization admins may call it.
+ * Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can call this.
  */
 export const organizationsProjectsAccessControlManagementUpdate = async (
     organizationId: string,

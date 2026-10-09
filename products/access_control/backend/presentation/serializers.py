@@ -296,8 +296,8 @@ class AccessControlPropertyRulesResponseSerializer(serializers.Serializer):
 
 class AccessControlManagementRequestSerializer(serializers.Serializer):
     managed = serializers.BooleanField(
-        help_text="False hands this project's access rules back to the UI. True locks them to the account behind "
-        "Terraform's API key again, which needs Terraform to have written access rules to this project before."
+        help_text="False: the UI manages this project's access rules. True: only the account behind Terraform's "
+        "API key can change them. Before the first Terraform write, true locks everyone out."
     )
 
 
@@ -310,7 +310,8 @@ class AccessControlManagementSerializer(serializers.Serializer):
         allow_null=True, help_text="When Terraform's account started managing the project, or null."
     )
     has_terraform_account = serializers.BooleanField(
-        help_text="Whether Terraform has written access rules to this project, so that the lock can be turned on."
+        help_text="Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock "
+        "refuses all writes."
     )
 
 

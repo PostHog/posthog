@@ -278,9 +278,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     )
     @extend_schema(
         methods=["PUT"],
-        description="Turn the Terraform lock off or on. Off hands this project's access rules back to the UI. On "
-        "locks them to the account behind Terraform's API key again. A Terraform write of an access rule turns it "
-        "on in any case. Project admins and organization admins may call it.",
+        description="Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. "
+        "Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the "
+        "first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can "
+        "call this.",
         request=AccessControlManagementRequestSerializer,
         responses={200: AccessControlManagementSerializer},
         extensions=_SCHEMA_EXTENSIONS,
@@ -296,14 +297,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 )
             serializer = AccessControlManagementRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            try:
-                state = access_control_api.set_terraform_lock(
-                    team_id=team.id, enabled=serializer.validated_data["managed"]
-                )
-            except access_control_api.NoTerraformAccountError:
-                raise exceptions.ValidationError(
-                    {"managed": "Terraform hasn't applied access rules to this project yet."}
-                )
+            state = access_control_api.set_terraform_lock(team_id=team.id, enabled=serializer.validated_data["managed"])
         else:
             state = access_control_api.get_terraform_lock(team_id=team.id)
         return Response(AccessControlManagementSerializer(state).data)
