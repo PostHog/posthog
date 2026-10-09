@@ -458,8 +458,11 @@ class ReviewRepositoryViewSet(
             return conflict_response(error)
         except RepositorySettingsError as error:
             return bad_request_response(error)
-        repository = self.get_serializer(result.repository).data if result.repository is not None else None
-        return Response({"repository": repository, "taken_from_project": project_ref_data(result.taken_from)})
+        response = ReviewRepositoryWriteResponseSerializer(
+            {"repository": result.repository, "taken_from_project": project_ref_data(result.taken_from)},
+            context=self.get_serializer_context(),
+        )
+        return Response(response.data)
 
     @extend_schema(
         request=ReviewRepositoryPersonRequestSerializer,
@@ -658,9 +661,7 @@ class ReviewRepositoryChoiceViewSet(
             choice, decision = RepositoryChoices(self.effective_team, cast(User, request.user)).save(ref, data["mode"])
         except RepositorySettingsError as error:
             return bad_request_response(error)
-        return Response(
-            {
-                "choice": ReviewRepositoryChoiceSerializer(choice).data if choice is not None else None,
-                "my_result": decision_data(decision),
-            }
+        response = ReviewRepositoryChoiceWriteResponseSerializer(
+            {"choice": choice, "my_result": decision_data(decision)}
         )
+        return Response(response.data)
