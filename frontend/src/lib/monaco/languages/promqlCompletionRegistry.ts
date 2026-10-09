@@ -15,21 +15,23 @@ export interface PromQLCompletionItem {
 export type PromQLCompletionProvider = (
     text: string,
     offset: number
-) => Promise<{ from: number; items: PromQLCompletionItem[] } | null>
+) => Promise<{ from: number; items: PromQLCompletionItem[]; incomplete: boolean } | null>
 
-// The editor that owns the data (a product, with its own API) sets this; the language stays generic.
-let completionProvider: PromQLCompletionProvider | null = null
+// Each mounted editor that owns the data (a product, with its own API) adds one; the language stays
+// generic. The newest one answers, and removing it gives the next editor its suggestions back.
+const completionProviders: PromQLCompletionProvider[] = []
 
-/** Sets where PromQL suggestions come from. Returns a function that removes it again. */
+/** Adds a source of PromQL suggestions. Returns a function that removes it again. */
 export function setPromQLCompletionProvider(provider: PromQLCompletionProvider): () => void {
-    completionProvider = provider
+    completionProviders.push(provider)
     return () => {
-        if (completionProvider === provider) {
-            completionProvider = null
+        const index = completionProviders.lastIndexOf(provider)
+        if (index !== -1) {
+            completionProviders.splice(index, 1)
         }
     }
 }
 
 export function getPromQLCompletionProvider(): PromQLCompletionProvider | null {
-    return completionProvider
+    return completionProviders[completionProviders.length - 1] ?? null
 }

@@ -137,8 +137,11 @@ export function canonicalSql(text: string): string {
         .toLowerCase()
 }
 
-const sourceText = (query: MetricsQuery, language: MetricsQueryLanguage): string =>
-    language === 'promql' ? (query.promql ?? '') : language === 'sql' ? (query.sql ?? '') : ''
+/** The PromQL or SQL text of a query, or '' for a builder query. */
+export const metricsQueryText = (query: MetricsQuery): string => {
+    const language = queryLanguage(query)
+    return language === 'promql' ? (query.promql ?? '') : language === 'sql' ? (query.sql ?? '') : ''
+}
 
 /** Whether the text in `language` comes back unchanged from the builder form. */
 function textSurvives(text: string, builder: BuilderQuery, language: 'promql' | 'sql'): boolean {
@@ -181,7 +184,7 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
         if (limits.length) {
             issues.push(`The builder cannot edit this query: ${limits.join('; ')}.`)
         }
-        if (from !== 'builder' && builder && !issues.length && !textSurvives(sourceText(query, from), builder, from)) {
+        if (from !== 'builder' && builder && !issues.length && !textSurvives(metricsQueryText(query), builder, from)) {
             issues.push(GENERIC_LOSS_ISSUE)
         }
         return {
@@ -197,7 +200,7 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
         const survives =
             from === 'builder'
                 ? builderSurvives(builder, text, to)
-                : textSurvives(sourceText(query, from), builder, from) && builderSurvives(builder, text, to)
+                : textSurvives(metricsQueryText(query), builder, from) && builderSurvives(builder, text, to)
         if (!survives) {
             issues.push(GENERIC_LOSS_ISSUE)
         }

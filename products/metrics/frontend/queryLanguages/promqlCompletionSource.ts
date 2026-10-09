@@ -39,12 +39,16 @@ export function createMetricsPromQLCompletionSource(projectId: string): PromQLCo
     const baseMetricName = (metricName: string | undefined): string | undefined =>
         metricName?.endsWith(BUCKET_SUFFIX) ? metricName.slice(0, -BUCKET_SUFFIX.length) : metricName
 
+    let namesSearchedOnServer = false
+
     return {
+        metricNamesSearchedOnServer: () => namesSearchedOnServer,
         metricNames: async (search) => {
             // Like Grafana, load the names once and filter here, so typing does not wait on the network.
             // A team with more names than one page gets a server-side search instead.
             const all = await cached('names', () => fetchNames(''))
-            if (all.length < NAMES_PAGE) {
+            namesSearchedOnServer = all.length >= NAMES_PAGE
+            if (!namesSearchedOnServer) {
                 const needle = search.toLowerCase()
                 return all.filter((metric) => metric.name.toLowerCase().includes(needle))
             }

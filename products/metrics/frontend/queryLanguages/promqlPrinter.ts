@@ -93,7 +93,7 @@ export function printPromQL(expr: PromExpr): string {
         case 'subquery':
             return `${printOperand(expr.expr, Infinity, false, '')}[${expr.range}:${expr.step ?? ''}]${
                 expr.offset ? ` offset ${expr.offset}` : ''
-            }`
+            }${expr.at ? ` @ ${expr.at}` : ''}`
         case 'call':
             return `${expr.func}(${expr.args.map(printPromQL).join(', ')})`
         case 'aggregate': {

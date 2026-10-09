@@ -47,12 +47,16 @@ export interface PromQLCompletionSource {
     metricNames: (search: string) => Promise<PromQLMetricName[]>
     labelNames: (metricName: string | undefined, search: string) => Promise<string[]>
     labelValues: (labelName: string, metricName: string | undefined, search: string) => Promise<string[]>
+    /** Whether the last metric names came from a search on the server, so typing more must ask again. */
+    metricNamesSearchedOnServer?: () => boolean
 }
 
 export interface PromQLCompletionResult {
     /** Offset where the text the suggestions replace starts; the end is the cursor. */
     from: number
     items: PromQLCompletion[]
+    /** The list was searched on the server for the typed word, so typing more must ask again. */
+    incomplete: boolean
 }
 
 // --- Function and aggregation catalog -------------------------------------------------------
@@ -611,7 +615,11 @@ export async function getPromQLCompletions(
         case 'AT_ROOT':
         case 'IN_FUNCTION': {
             const metrics = await settle(source.metricNames(typed), [])
-            return { from, items: [...metricItems(metrics), ...catalogItems()] }
+            return {
+                from,
+                items: [...metricItems(metrics), ...catalogItems()],
+                incomplete: source.metricNamesSearchedOnServer?.() ?? true,
+            }
         }
         case 'IN_QUOTED_METRIC_NAME': {
             const metrics = await settle(source.metricNames(typed), [])
@@ -623,6 +631,7 @@ export async function getPromQLCompletions(
                     kind: 'metric',
                     detail: metric.type ? (METRIC_TYPE_LABELS[metric.type] ?? metric.type) : undefined,
                 })),
+                incomplete: source.metricNamesSearchedOnServer?.() ?? true,
             }
         }
         case 'IN_DURATION':
@@ -635,6 +644,7 @@ export async function getPromQLCompletions(
                     detail,
                     sortText: String(index).padStart(2, '0'),
                 })),
+                incomplete: false,
             }
         case 'IN_GROUPING': {
             const labels = await settle(source.labelNames(situation.metricName, typed), [])
@@ -643,6 +653,7 @@ export async function getPromQLCompletions(
                 items: labels
                     .filter((label) => !situation.usedLabels.includes(label))
                     .map((label) => ({ label, insertText: printLabelName(label), kind: 'label' })),
+                incomplete: true,
             }
         }
         case 'IN_LABEL_SELECTOR_NO_LABEL_NAME': {
@@ -658,6 +669,7 @@ export async function getPromQLCompletions(
                         kind: 'label',
                         retrigger: true,
                     })),
+                incomplete: true,
             }
         }
         case 'IN_LABEL_SELECTOR_WITH_LABEL_NAME': {
@@ -673,6 +685,7 @@ export async function getPromQLCompletions(
                         kind: 'value',
                     }
                 }),
+                incomplete: true,
             }
         }
     }

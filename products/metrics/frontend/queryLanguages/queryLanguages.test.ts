@@ -608,13 +608,14 @@ describe('metrics query languages', () => {
             'label_replace(x, "clause", "a", "", "") or y',
             'x @ 1700000000',
             'rate(x[5m:30s])',
+            'max_over_time(x[1h:5m] @ end())',
             'count_values("version", build_info)',
         ])('prints %s so that it parses back to the same tree', (text) => {
             const parsed = parsePromQL(text)
             expect(parsePromQL(printPromQL(parsed))).toEqual(parsed)
         })
 
-        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', ''])(
+        it.each(['sum(', 'x{a=b}', 'x{a="b}', 'sum by (a (x)', '}', 'x[5m', '', 'sum(x) @ end()'])(
             'rejects %j with a position',
             (text) => {
                 expect(() => parsePromQL(text)).toThrow(PromQLParseError)
@@ -631,7 +632,7 @@ describe('metrics query languages', () => {
     })
 
     describe('regex anchoring', () => {
-        it.each(['^(?:a|b)$', 'users', '^/api', 'health$', '^$', 'a|b', '^foo.*bar$', '(?:a|b)$'])(
+        it.each(['^(?:a|b)$', 'users', '^/api', 'health$', '^$', 'a|b', '^foo.*bar$', '(?:a|b)$', '^foo|bar$', '^a|b'])(
             'keeps %j through PromQL',
             (pattern) => {
                 expect(promRegexToBuilderRegex(builderRegexToPromRegex(pattern))).toEqual(pattern)
@@ -643,7 +644,16 @@ describe('metrics query languages', () => {
             ['^(?:a|b)$', 'a|b'],
             ['a|b', '.*(?:a|b).*'],
             ['^/api', '/api.*'],
+            ['^foo|bar$', '.*(?:^foo|bar$).*'],
         ])('anchors builder regex %j as PromQL %j', (builder, prom) => {
+            expect(builderRegexToPromRegex(builder)).toEqual(prom)
+        })
+
+        it.each([
+            ['a|b', '^(?:a|b)$'],
+            ['.*a|b.*', '^(?:.*a|b.*)$'],
+        ])('reads PromQL regex %j as builder regex %j', (prom, builder) => {
+            expect(promRegexToBuilderRegex(prom)).toEqual(builder)
             expect(builderRegexToPromRegex(builder)).toEqual(prom)
         })
     })

@@ -41,8 +41,7 @@ const completionItemProvider = (monaco: Monaco): languages.CompletionItemProvide
             endColumn: position.column,
         }
         return {
-            // The lists are searched on the server, so typing more must ask again.
-            incomplete: true,
+            incomplete: result.incomplete,
             suggestions: result.items.map((item) => ({
                 label: item.label,
                 kind: itemKind(monaco, item.kind),

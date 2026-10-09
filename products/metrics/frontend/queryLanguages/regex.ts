@@ -60,6 +60,10 @@ const endsWithUnescaped = (pattern: string, suffix: string): boolean => {
 }
 
 export function builderRegexToPromRegex(pattern: string): string {
+    // In `^a|b$` each anchor belongs to one branch, so the pattern is searched as a whole.
+    if (hasTopLevelAlternation(pattern)) {
+        return `.*(?:${pattern}).*`
+    }
     const anchoredStart = pattern.startsWith('^')
     const anchoredEnd = endsWithUnescaped(pattern, '$') && pattern.length > (anchoredStart ? 1 : 0)
     const core = pattern.slice(anchoredStart ? 1 : 0, anchoredEnd ? -1 : undefined)
@@ -70,15 +74,16 @@ export function builderRegexToPromRegex(pattern: string): string {
 }
 
 export function promRegexToBuilderRegex(pattern: string): string {
+    // In `.*a|b.*` each `.*` belongs to one branch, so the whole pattern must match the value.
+    if (hasTopLevelAlternation(pattern)) {
+        return `^(?:${pattern})$`
+    }
     const openStart = pattern.startsWith('.*')
     const rest = openStart ? pattern.slice(2) : pattern
     const openEnd = rest.length >= 2 && endsWithUnescaped(rest, '.*')
-    let core = openEnd ? rest.slice(0, -2) : rest
+    const core = openEnd ? rest.slice(0, -2) : rest
     if (openStart && openEnd) {
         return unwrapGroup(core)
     }
-    if (hasTopLevelAlternation(core)) {
-        core = `(?:${core})`
-    }
-    return `${openStart ? '' : '^'}${core}${openEnd ? '' : '$'}`
+    return `${openStart ? '' : '^'}${group(core)}${openEnd ? '' : '$'}`
 }

@@ -36,7 +36,7 @@ export type PromExpr =
           offset?: string
           at?: string
       }
-    | { type: 'subquery'; expr: PromExpr; range: string; step?: string; offset?: string }
+    | { type: 'subquery'; expr: PromExpr; range: string; step?: string; offset?: string; at?: string }
     | { type: 'call'; func: string; args: PromExpr[] }
     | {
           type: 'aggregate'
@@ -430,7 +430,10 @@ class Parser {
                 continue
             }
             if (this.isOp('@')) {
-                this.next()
+                const atToken = this.next()
+                if (expr.type !== 'selector' && expr.type !== 'subquery') {
+                    throw new PromQLParseError('The @ modifier can only follow a selector or a subquery', atToken.pos)
+                }
                 const token = this.next()
                 let at = token.value
                 if (token.kind === 'ident') {
@@ -438,9 +441,7 @@ class Parser {
                     this.expectOp(')')
                     at += '()'
                 }
-                if (expr.type === 'selector') {
-                    expr = { ...expr, at }
-                }
+                expr = { ...expr, at }
                 continue
             }
             return expr

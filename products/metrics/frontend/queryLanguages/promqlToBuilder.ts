@@ -130,6 +130,9 @@ class ClauseReader {
                 return this.read(expr.expr)
             case 'subquery':
                 this.note(`The subquery [${expr.range}:${expr.step ?? ''}] is dropped.`)
+                if (expr.at) {
+                    this.note(`The @ ${expr.at} modifier is dropped.`)
+                }
                 return this.read(expr.expr)
             case 'aggregate':
                 return this.readAggregate(expr)

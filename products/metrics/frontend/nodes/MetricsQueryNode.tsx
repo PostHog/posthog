@@ -15,7 +15,7 @@ import { MetricsQueryEditor, MetricsQueryLanguagePicker } from '../components/Me
 import { switchMetricsQueryLanguage } from '../components/metricsQueryLanguageSwitch'
 import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
 import { MetricsPanel } from '../panels/MetricsPanel'
-import { queryLanguage } from '../queryLanguages/convert'
+import { metricsQueryText, queryLanguage } from '../queryLanguages/convert'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
@@ -39,20 +39,19 @@ const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
     sql: 'Run a query to see results.',
 }
 
-const queryText = (query: MetricsQuery): string =>
-    (query.language === 'promql' ? query.promql : query.language === 'sql' ? query.sql : '') ?? ''
-
 export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
     const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // A language switch replaces the query, so the editor remounts to seed its logic from the new one.
     const [editorKey, setEditorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
+    const [dataKey] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
     const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
-    const hasQuery = language === 'builder' ? props.query.clauses.length > 0 : queryText(props.query).trim() !== ''
+    const hasQuery =
+        language === 'builder' ? props.query.clauses.length > 0 : metricsQueryText(props.query).trim() !== ''
     const results = hasQuery ? (
-        <MetricsQueryResults {...props} />
+        <MetricsQueryResults {...props} dataKey={dataKey} />
     ) : (
         <div className="flex-1 flex items-center justify-center min-h-[200px] text-secondary text-sm">
             {EMPTY_QUERY_MESSAGE[language]}
@@ -81,6 +80,7 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
                     query={props.query}
                     setQuery={setQuery}
                     onSwitchLanguage={onSwitchLanguage}
+                    onRerun={() => dataNodeLogic.findMounted({ key: dataKey })?.actions.loadData('force_blocking')}
                 />
             ) : (
                 <div className="flex flex-col items-start gap-2">
@@ -102,9 +102,8 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
     )
 }
 
-function MetricsQueryResults(props: MetricsQueryNodeProps): JSX.Element {
+function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps & { dataKey: string }): JSX.Element {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
     // `dataNodeLogic` deep-compares its query to decide whether to refetch. Its
     // `ignoreVisualizationOnlyChanges` option doesn't help here — that only reaches
     // `cleanInsightQuery`, which bails unless both sides are insight query nodes, and a

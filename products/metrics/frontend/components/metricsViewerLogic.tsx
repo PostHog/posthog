@@ -61,6 +61,7 @@ import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames, metricsFilterGroup } from '../metricsLinks'
 import { METRICS_PANELS, resolveReducer } from '../panels/registry'
+import { metricsQueryText } from '../queryLanguages/convert'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -364,9 +365,6 @@ export interface MetricsViewerLogicProps {
     /** Seeds the state once, when the logic mounts. Later changes are not read. */
     initialQuery?: MetricsQuery
 }
-
-const initialQueryText = (query: MetricsQuery | undefined): string =>
-    (query?.language === 'promql' ? query.promql : query?.language === 'sql' ? query.sql : '') ?? ''
 
 const FILTER_OP_TO_OPERATOR: Record<MetricsQueryFilter['op'], PropertyOperator> = {
     eq: PropertyOperator.Exact,
@@ -1016,9 +1014,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         ],
         // A language switch remounts the editor with the converted query, so nothing sets this.
         language: [(props.initialQuery?.language ?? 'builder') as MetricsQueryLanguage, {}],
-        queryText: [initialQueryText(props.initialQuery), { setQueryText: (_, { queryText }) => queryText }],
+        queryText: [
+            props.initialQuery ? metricsQueryText(props.initialQuery) : '',
+            { setQueryText: (_, { queryText }) => queryText },
+        ],
         queryDraft: [
-            initialQueryText(props.initialQuery),
+            props.initialQuery ? metricsQueryText(props.initialQuery) : '',
             {
                 setQueryDraft: (_, { queryDraft }) => queryDraft,
                 setQueryText: (_, { queryText }) => queryText,
