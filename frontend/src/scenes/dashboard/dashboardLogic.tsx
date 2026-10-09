@@ -44,6 +44,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import {
@@ -4505,6 +4506,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
                 const urlVariables = settingsToRefresh.variables
+                const requestConcurrency = new ConcurrencyController(4)
+                let requestPriority = 0
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile, index) => async () => {
                     const insight = tile.insight
@@ -4519,8 +4522,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesAbortedCount++
                             return
                         }
-                        actions.setRefreshStatus(insight.short_id, true, true)
-                        const insightRefreshStartTime = performance.now()
+                        let insightRefreshStartTime: number | undefined
                         const refreshedInsight = await getInsightWithRetry(
                             currentTeamId,
                             insight,
@@ -4529,6 +4531,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             {
                                 signal: tileController.signal,
+                                runRequest: (request) =>
+                                    requestConcurrency.run({
+                                        fn: () => {
+                                            if (insightRefreshStartTime === undefined) {
+                                                insightRefreshStartTime = performance.now()
+                                                actions.setRefreshStatus(insight.short_id, true, true)
+                                            }
+                                            return request()
+                                        },
+                                        priority: requestPriority++,
+                                        abortController: tileController,
+                                    }),
                                 onCapacityWaitChange: (waiting) => {
                                     if (
                                         !disposables.isDisposed &&
@@ -4565,7 +4579,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     tile,
                                     urlFilters,
                                     urlVariables,
-                                    Math.floor(performance.now() - insightRefreshStartTime),
+                                    Math.floor(performance.now() - (insightRefreshStartTime ?? queryStartTime)),
                                     false
                                 )
                             }
@@ -4593,8 +4607,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 })
 
-                // Execute the fetches with concurrency limit of 4
-                await runWithLimit(fetchSyncInsightFunctions, 4)
+                // Cooldowns release request slots so later tiles can still load cached results.
+                await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed

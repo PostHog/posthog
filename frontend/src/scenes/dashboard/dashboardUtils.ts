@@ -339,7 +339,10 @@ export async function getInsightWithRetry(
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
-    options?: ApiMethodOptions & { onCapacityWaitChange?: (waiting: boolean) => void },
+    options?: ApiMethodOptions & {
+        onCapacityWaitChange?: (waiting: boolean) => void
+        runRequest?: <T>(request: () => Promise<T>) => Promise<T>
+    },
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
     tileFiltersOverride?: TileFilters,
@@ -347,7 +350,11 @@ export async function getInsightWithRetry(
     initialDelay: number = 1200,
     maxRetryTimeMs: number = 90_000
 ): Promise<InsightModel | null> {
-    const { onCapacityWaitChange, ...methodOptions } = options ?? {}
+    const {
+        onCapacityWaitChange,
+        runRequest = <T>(request: () => Promise<T>): Promise<T> => request(),
+        ...methodOptions
+    } = options ?? {}
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -360,7 +367,22 @@ export async function getInsightWithRetry(
 
     let attempt = 0
     let rateLimitedAttempts = 0
-    const retryDeadline = performance.now() + maxRetryTimeMs
+    let retryDeadline = Infinity
+    let lastResult: InsightModel | null = null
+    let lastError: unknown
+
+    const insightUrl = (
+        requestRefresh: 'blocking' | 'force_blocking' | 'async' | 'force_async' | 'force_cache'
+    ): string =>
+        `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
+            refresh: requestRefresh,
+            from_dashboard: dashboardId,
+            client_query_id: queryId,
+            session_id: currentSessionId(),
+            ...(filtersOverride ? { filters_override: filtersOverride } : {}),
+            ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
+        })}`
 
     const waitForRetry = async (retryAfterSeconds?: number, atCapacity = false): Promise<boolean> => {
         if (methodOptions?.signal?.aborted) {
@@ -402,19 +424,23 @@ export async function getInsightWithRetry(
             if (methodOptions?.signal?.aborted) {
                 throw new DOMException('Aborted', 'AbortError')
             }
-            const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                refresh,
-                from_dashboard: dashboardId, // needed to load insight in correct context
-                client_query_id: queryId,
-                session_id: currentSessionId(),
-                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-            })}`
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-            const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
-            const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            const result = await runRequest(async () => {
+                if (attempt === 0) {
+                    // Initial queueing must not consume the tile's retry budget.
+                    retryDeadline = performance.now() + maxRetryTimeMs
+                } else if (performance.now() >= retryDeadline) {
+                    if (lastError !== undefined) {
+                        throw lastError
+                    }
+                    return lastResult
+                }
+                // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                const insightResponse = await api.getResponse(insightUrl(refresh), methodOptions)
+                const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
+                return legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
+            })
+            lastResult = result
+            lastError = undefined
 
             if (
                 result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
@@ -430,31 +456,11 @@ export async function getInsightWithRetry(
 
                 if (attempt >= maxAttempts) {
                     try {
-                        const asyncApiUrl = (asyncRefresh: 'force_async' | 'async'): string =>
-                            `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                                refresh: asyncRefresh,
-                                from_dashboard: dashboardId,
-                                client_query_id: queryId,
-                                session_id: currentSessionId(),
-                                ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                                ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                            })}`
                         const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
                             if (finalStatus.complete && !finalStatus.error) {
-                                const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
-                                    refresh: 'force_cache',
-                                    from_dashboard: dashboardId,
-                                    client_query_id: queryId,
-                                    session_id: currentSessionId(),
-                                    ...(filtersOverride ? { filters_override: filtersOverride } : {}),
-                                    ...(variablesOverride ? { variables_override: variablesOverride } : {}),
-                                    ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
-                                })}`
-                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                                const refreshedInsightResponse: Response = await api.getResponse(
-                                    cacheUrl,
-                                    methodOptions
+                                const refreshedInsightResponse = await runRequest(() =>
+                                    // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                                    api.getResponse(insightUrl('force_cache'), methodOptions)
                                 )
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
@@ -469,8 +475,13 @@ export async function getInsightWithRetry(
                             }
                             return null
                         }
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        const insightResponse = await api.get(asyncApiUrl('force_async'), methodOptions)
+                        const insightResponse = await runRequest(async () => {
+                            if (performance.now() >= retryDeadline) {
+                                return null
+                            }
+                            // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                            return api.get(insightUrl('force_async'), methodOptions)
+                        })
 
                         if (insightResponse?.query_status?.id) {
                             let finalStatus: QueryStatus
@@ -485,8 +496,10 @@ export async function getInsightWithRetry(
                                     throw e
                                 }
                                 const rerun = await captureTileRerunAfterStatusExpired(async () => {
-                                    // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
-                                    const rerunResponse = await api.get(asyncApiUrl('async'), methodOptions)
+                                    const rerunResponse = await runRequest(() =>
+                                        // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
+                                        api.get(insightUrl('async'), methodOptions)
+                                    )
                                     if (rerunResponse?.result != null && !rerunResponse.query_status?.error) {
                                         return getQueryBasedInsightModel(rerunResponse)
                                     }
@@ -553,6 +566,7 @@ export async function getInsightWithRetry(
                 throw e // A 4xx won't change on retry, so surface it immediately
             }
 
+            lastError = e
             attempt++
             const atCapacity = e instanceof ApiError && (e.status === 429 || e.status === 503)
             const retryAfterSeconds = e instanceof ApiError ? (e.retryAfterSeconds ?? undefined) : undefined

@@ -487,6 +487,69 @@ describe('getInsightWithRetry', () => {
         expect(get).not.toHaveBeenCalled()
     })
 
+    it('starts the retry budget when the first queued request actually begins', async () => {
+        const getResponse = jest
+            .spyOn(api, 'getResponse')
+            .mockRejectedValueOnce(new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' })))
+            .mockResolvedValueOnce(insightResponse({ ...insight, result: [] }))
+        let requests = 0
+        const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking', {
+            runRequest: async (send) => {
+                if (requests++ === 0) {
+                    jest.advanceTimersByTime(120_000)
+                }
+                return send()
+            },
+        })
+
+        await jest.runAllTimersAsync()
+        expect((await request)?.result).toEqual([])
+        expect(getResponse).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['http', 'insight', 'async fallback'] as const)(
+        'does not send a %s capacity retry if its budget expires in the request queue',
+        async (path) => {
+            jest.spyOn(lemonToast, 'error').mockImplementation()
+            const error = new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
+            const failedInsight = { ...insight, result: null, query_status: { ...capacityStatus, retry_after: 30 } }
+            const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async () => {
+                if (path === 'http') {
+                    throw error
+                }
+                return insightResponse(failedInsight)
+            })
+            const get = jest.spyOn(api, 'get')
+            const getStatus = jest.spyOn(api.queryStatus, 'get')
+            let requests = 0
+            const request = getInsightWithRetry(
+                1,
+                insight,
+                60,
+                'q',
+                'blocking',
+                {
+                    runRequest: async (send) => {
+                        if (requests++ > 0) {
+                            jest.advanceTimersByTime(120_000)
+                        }
+                        return send()
+                    },
+                },
+                undefined,
+                undefined,
+                undefined,
+                path === 'async fallback' ? 1 : 5
+            ).catch((error: unknown) => error)
+
+            await jest.runAllTimersAsync()
+            expect(await request).toMatchObject(path === 'http' ? error : failedInsight)
+            expect(getResponse).toHaveBeenCalledTimes(1)
+            expect(get).not.toHaveBeenCalled()
+            expect(getStatus).not.toHaveBeenCalled()
+        }
+    )
+
     it.each(['before first request', 'during backoff', 'before async fallback'] as const)(
         'cancels %s without sending another request',
         async (stage) => {

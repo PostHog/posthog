@@ -50,6 +50,8 @@ import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardC
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
+jest.unmock('lib/utils/concurrencyController')
+
 const TEXT_TILE: DashboardTile = {
     id: 4,
     text: { body: 'I AM A TEXT', last_modified_at: '2021-01-01T00:00:00Z' },
@@ -2867,6 +2869,84 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it.each(['http', 'insight'] as const)(
+                'lets later tiles load during %s capacity cooldowns while limiting requests to four',
+                async (rejection) => {
+                    await expectLogic(logic).toFinishAllListeners()
+                    const template = logic.values.insightTiles[0].insight!
+                    const tiles = Array.from({ length: 5 }, (_, index) =>
+                        tileFromInsight(
+                            { ...template, id: 9000 + index, short_id: `capacity-${index}` as InsightShortId },
+                            9000 + index
+                        )
+                    )
+                    dashboardsModel.actions.updateDashboardSuccess(dashboardResult(5, tiles))
+
+                    let releaseRequests!: () => void
+                    const responsesReady = new Promise<void>((resolve) => {
+                        releaseRequests = resolve
+                    })
+                    let activeRequests = 0
+                    let peakRequests = 0
+                    const getResponse = jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                        const tile = tiles.find((item) => String(url).includes(`/insights/${item.insight!.id}/`))!
+                        activeRequests++
+                        peakRequests = Math.max(peakRequests, activeRequests)
+                        try {
+                            if (tile !== tiles[4]) {
+                                await responsesReady
+                                if (rejection === 'http') {
+                                    throw new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
+                                }
+                                return new Response(
+                                    JSON.stringify({
+                                        ...tile.insight,
+                                        result: null,
+                                        query_status: {
+                                            error: true,
+                                            error_code: 'rate_limited',
+                                            retry_after: 30,
+                                        },
+                                    })
+                                )
+                            }
+                            return new Response(
+                                JSON.stringify({ ...tile.insight, result: [{ count: 42 }], is_cached: true })
+                            )
+                        } finally {
+                            activeRequests--
+                        }
+                    })
+                    getResponse.mockClear()
+                    jest.useFakeTimers()
+                    try {
+                        logic.actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh })
+                        await jest.advanceTimersByTimeAsync(1)
+                        expect(getResponse).toHaveBeenCalledTimes(4)
+                        expect(activeRequests).toBe(4)
+
+                        releaseRequests()
+                        await jest.advanceTimersByTimeAsync(1)
+                        expect(getResponse).toHaveBeenCalledTimes(5)
+                        expect(peakRequests).toBe(4)
+                        expect(logic.values.capacityRetryQueryIds).toHaveProperty(tiles[0].insight!.short_id)
+                        expect(
+                            logic.values.insightTiles.find((tile) => tile.id === tiles[4].id)?.insight?.result
+                        ).toEqual([{ count: 42 }])
+
+                        logic.actions.cancelDashboardRefresh()
+                        await jest.advanceTimersByTimeAsync(60_000)
+                        expect(getResponse).toHaveBeenCalledTimes(5)
+                    } finally {
+                        logic.actions.cancelDashboardRefresh()
+                        releaseRequests()
+                        await jest.advanceTimersByTimeAsync(0)
+                        getResponse.mockRestore()
+                        jest.useRealTimers()
+                    }
+                }
+            )
+
             it.each([false, true])('clears a cooldown replaced by a batch (old request batch: %s)', async (batch) => {
                 await expectLogic(logic).toFinishAllListeners()
                 const tile = logic.values.insightTiles[0]
@@ -3322,19 +3402,16 @@ describe('dashboardLogic', () => {
                     gates[shortId] = { barrier, release }
                 }
 
-                const realGetInsightWithRetry =
-                    jest.requireActual<typeof dashboardUtils>('./dashboardUtils').getInsightWithRetry
-
-                const getInsightWithRetrySpy = jest
-                    .spyOn(dashboardUtils, 'getInsightWithRetry')
-                    .mockImplementation(
-                        async (
-                            ...args: Parameters<typeof realGetInsightWithRetry>
-                        ): ReturnType<typeof realGetInsightWithRetry> => {
-                            await gates[args[1].short_id].barrier
-                            return realGetInsightWithRetry(...args)
-                        }
-                    )
+                const originalGetResponse = api.getResponse.bind(api)
+                const started = new Set<string>()
+                const getResponseSpy = jest.spyOn(api, 'getResponse').mockImplementation(async (url, options) => {
+                    const insight = [insight1, insight2].find((item) => String(url).includes(`/insights/${item.id}/`))
+                    if (insight) {
+                        started.add(insight.short_id)
+                        await gates[insight.short_id].barrier
+                    }
+                    return originalGetResponse(url, options)
+                })
                 const cancelQuerySpy = jest.spyOn(api.insights, 'cancelQuery').mockResolvedValue(undefined as any)
 
                 const poll = async (cond: () => boolean, message: string): Promise<void> => {
@@ -3354,10 +3431,7 @@ describe('dashboardLogic', () => {
                     }).toFinishAllListeners()
 
                     // Both tiles enrolled up front and in flight: Y is the fixed batch size, X is 0.
-                    await poll(
-                        () => getInsightWithRetrySpy.mock.calls.length >= 2,
-                        'Timed out waiting for insight fetches to start'
-                    )
+                    await poll(() => started.size === 2, 'Timed out waiting for insight fetches to start')
                     expect(logic.values.refreshMetrics).toEqual({ completed: 0, total: 2 })
 
                     // One tile's query aborts mid-cycle (e.g. a 504). Y must stay pinned at 2 — the pre-fix
@@ -3374,7 +3448,7 @@ describe('dashboardLogic', () => {
                     await refreshDone
                 } finally {
                     Object.values(gates).forEach(({ release }) => release())
-                    getInsightWithRetrySpy.mockRestore()
+                    getResponseSpy.mockRestore()
                     cancelQuerySpy.mockRestore()
                 }
             })
