@@ -37,6 +37,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -501,9 +502,12 @@ def _embed_chunk_has_more(batch: dict[str, int], *, chunk_size: int) -> bool:
     return scanned >= chunk_size and batch["documents_embedded"] > 0
 
 
-def _add_counts(totals: dict[str, int], counts: dict[str, int]) -> None:
-    for key, value in counts.items():
-        totals[key] = totals.get(key, 0) + value
+@frozen
+class _IndexDrainTotals:
+    classified: int
+    unsafe: int
+    documents_embedded: int
+    chunks_emitted: int
 
 
 async def _take_index_chunk(
@@ -530,11 +534,13 @@ async def _take_index_chunk(
     )
 
 
-async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
+async def _drain_index_queues() -> _IndexDrainTotals:
     # Alternate the two chunks so a doc classified in this iteration can be
     # embedded before the rest of the backlog is classified.
-    classified_totals: dict[str, int] = {}
-    embedded_totals: dict[str, int] = {}
+    classified_count = 0
+    unsafe_count = 0
+    embedded_count = 0
+    chunks_emitted = 0
     classify_more = True
     embed_more = True
     embed_blocked = False
@@ -551,10 +557,8 @@ async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
                 retry=classify_retry,
                 arg=tried_ids,
             )
-            _add_counts(
-                classified_totals,
-                {"classified": int(classified["classified"]), "unsafe": int(classified["unsafe"])},
-            )
+            classified_count += int(classified["classified"])
+            unsafe_count += int(classified["unsafe"])
             classify_scanned = int(classified["scanned"])
             classify_more = classify_scanned >= _CLASSIFY_CHUNK_SIZE
             tried_ids.extend(str(document_id) for document_id in classified["tried_ids"])
@@ -569,13 +573,8 @@ async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
                 "chunks_emitted": int(embedded["chunks_emitted"]),
                 "scanned": int(embedded["scanned"]),
             }
-            _add_counts(
-                embedded_totals,
-                {
-                    "documents_embedded": embedded_counts["documents_embedded"],
-                    "chunks_emitted": embedded_counts["chunks_emitted"],
-                },
-            )
+            embedded_count += embedded_counts["documents_embedded"]
+            chunks_emitted += embedded_counts["chunks_emitted"]
             if embedded_counts["scanned"] >= _EMBED_CHUNK_SIZE and embedded_counts["documents_embedded"] == 0:
                 embed_blocked = True
                 embed_more = False
@@ -583,7 +582,12 @@ async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
                 embed_more = _embed_chunk_has_more(embedded_counts, chunk_size=_EMBED_CHUNK_SIZE)
         if not classify_more and not embed_more:
             break
-    return classified_totals, embedded_totals
+    return _IndexDrainTotals(
+        classified=classified_count,
+        unsafe=unsafe_count,
+        documents_embedded=embedded_count,
+        chunks_emitted=chunks_emitted,
+    )
 
 
 async def _run_refresh_coordinator(*, drain_index_queues: bool) -> dict[str, Any]:
@@ -634,7 +638,12 @@ async def _run_refresh_coordinator(*, drain_index_queues: bool) -> dict[str, Any
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
-        classified, embedded = await _drain_index_queues()
+        drained = await _drain_index_queues()
+        classified = {"classified": drained.classified, "unsafe": drained.unsafe}
+        embedded = {
+            "documents_embedded": drained.documents_embedded,
+            "chunks_emitted": drained.chunks_emitted,
+        }
     else:
         classified = await workflow.execute_activity(
             classify_pending_documents_activity,

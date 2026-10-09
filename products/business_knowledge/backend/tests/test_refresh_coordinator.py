@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from typing import TypedDict
 
 import pytest
 
@@ -15,13 +16,20 @@ from products.business_knowledge.backend.temporal.coordinator import (
 )
 
 
+class _ClassifyStub(TypedDict):
+    classified: int
+    unsafe: int
+    scanned: int
+    tried_ids: list[str]
+
+
 @pytest.mark.asyncio
 async def test_coordinator_keeps_taking_index_chunks_until_the_queue_is_short() -> None:
     # A wedged workflow task retries forever at INFO. Fail the run instead.
     logging.getLogger("temporalio.activity").setLevel(logging.INFO)
     logging.getLogger("temporalio.workflow").setLevel(logging.INFO)
 
-    classify_script = [
+    classify_script: list[_ClassifyStub] = [
         {
             "classified": _CLASSIFY_CHUNK_SIZE,
             "unsafe": 1,
@@ -56,7 +64,7 @@ async def test_coordinator_keeps_taking_index_chunks_until_the_queue_is_short() 
         return []
 
     @activity.defn(name="classify_pending_documents_activity")
-    async def classify(exclude_ids: list[str]) -> dict[str, int | list[str]]:
+    async def classify(exclude_ids: list[str]) -> _ClassifyStub:
         calls.append("classify")
         classify_excludes.append(exclude_ids)
         if classify_script:
@@ -118,7 +126,7 @@ async def test_index_drain_stops_at_the_chunk_ceiling() -> None:
         return []
 
     @activity.defn(name="classify_pending_documents_activity")
-    async def classify(_exclude_ids: list[str]) -> dict[str, int | list[str]]:
+    async def classify(_exclude_ids: list[str]) -> _ClassifyStub:
         nonlocal classify_calls
         classify_calls += 1
         return {
