@@ -756,8 +756,6 @@ ignore_imports = [
     "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.message_preferences",
     "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.optout_sync_config",
     "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.optout_sync_config",
-    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.services.customerio_import_service",
     # Lane C: preferences and the recipient preferences page
     "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_category",
     "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_preferences",
