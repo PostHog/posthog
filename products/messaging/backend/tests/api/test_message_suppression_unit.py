@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from products.messaging.backend.api.message_suppression import MessageSuppressionViewSet
+from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
 
 
 class TestMessageSuppressionViewSetScope(SimpleTestCase):
