@@ -27739,6 +27739,50 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `starting` - Starting
+     * * `matching` - Matching
+     * * `building` - Building
+     */
+    export type DashboardImportPhaseEnum = typeof DashboardImportPhaseEnum[keyof typeof DashboardImportPhaseEnum];
+
+
+    export const DashboardImportPhaseEnum = {
+      Starting: 'starting',
+      Matching: 'matching',
+      Building: 'building',
+    } as const;
+
+    /**
+     * * `waiting` - Waiting
+     * * `working` - Working
+     * * `done` - Done
+     * * `skipped` - Skipped
+     */
+    export type PanelProgressStateEnum = typeof PanelProgressStateEnum[keyof typeof PanelProgressStateEnum];
+
+
+    export const PanelProgressStateEnum = {
+      Waiting: 'waiting',
+      Working: 'working',
+      Done: 'done',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface DashboardImportPanelProgress {
+      /** Panel key in the import. */
+      key: string;
+      /** Panel title. */
+      title: string;
+      /** 'waiting' before the agent checked the panel, 'working' while its checks fail, 'done' once a check passed, 'skipped' when PostHog has no equivalent.
+       *
+       * * `waiting` - Waiting
+       * * `working` - Working
+       * * `done` - Done
+       * * `skipped` - Skipped */
+      state: PanelProgressStateEnum;
+    }
+
     export interface DashboardImportSummary {
       /** Number of panels in the input. */
       total: number;
@@ -27803,11 +27847,14 @@ export namespace Schemas {
       status: DashboardImportStatusEnum;
       /** Name of the new dashboard. */
       dashboard_name: string;
-      /**
-         * Latest progress message of the import agent, while the import runs.
-         * @nullable
-         */
-      progress: string | null;
+      /** The step of an import that runs: 'starting' the agent, 'matching' panels, 'building' the dashboard.
+       *
+       * * `starting` - Starting
+       * * `matching` - Matching
+       * * `building` - Building */
+      phase: DashboardImportPhaseEnum | null;
+      /** Where each panel is, while the import runs. */
+      panel_progress: DashboardImportPanelProgress[];
       /**
          * Id of the new dashboard, when it exists.
          * @nullable
@@ -76663,6 +76710,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       key: string;
+      /**
+         * Panel title, shown in the import progress.
+         * @maxLength 200
+         */
+      title?: string;
       /** 'promql' or 'builder' for metrics, 'histogram' for a latency heatmap, 'hogql' for logs and traces.
        *
        * * `promql` - Promql
@@ -76696,6 +76748,11 @@ export namespace Schemas {
          * @maxItems 20
          */
       panels: PanelQueryCheck[];
+      /**
+         * The import that these panels belong to, from the import instructions. The import progress shows which panels pass.
+         * @nullable
+         */
+      import_id?: string | null;
     }
 
     export interface PanelQueryCheckResult {

@@ -53,9 +53,12 @@ export function MetricsDashboardImportModal(): JSX.Element {
                 </AIConsentPopoverWrapper>
             </>
         ) : step === 'progress' ? (
-            <LemonButton type="secondary" onClick={closeImportModal} data-attr="metrics-dashboard-import-hide">
-                Close
-            </LemonButton>
+            <div className="flex flex-1 items-center justify-between gap-2">
+                <span className="text-xs text-secondary">You can close this window. The import keeps running.</span>
+                <LemonButton type="secondary" onClick={closeImportModal} data-attr="metrics-dashboard-import-hide">
+                    Close
+                </LemonButton>
+            </div>
         ) : currentImport?.dashboard_id ? (
             <>
                 <LemonButton type="secondary" onClick={resetImport} data-attr="metrics-dashboard-import-another">
@@ -85,7 +88,8 @@ export function MetricsDashboardImportModal(): JSX.Element {
             isOpen={isModalOpen}
             onClose={closeImportModal}
             closable={!starting}
-            title={TITLES[currentImport?.source ?? source]}
+            title={currentImport ? currentImport.dashboard_name : TITLES[source]}
+            description={currentImport ? TITLES[currentImport.source] : undefined}
             width={640}
             footer={footer}
         >

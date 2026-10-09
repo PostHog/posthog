@@ -1,6 +1,6 @@
 Check up to 20 dashboard panel queries before they go on a dashboard, the way a dashboard import checks them.
 
-Each panel has a `key` and a `language`:
+Each panel has a `key`, a `title` and a `language`. When your instructions name an import, also set `import_id`, so the user sees which panels pass.
 
 - `promql`: a PromQL expression for metrics. The check confirms that every metric exists and that the expression runs over the last 15 minutes.
 - `builder`: builder clauses for metrics, the same shape as `query-metrics`. The check confirms that every metric exists and that the clauses and the formula are valid.

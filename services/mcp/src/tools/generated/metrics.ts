@@ -131,6 +131,9 @@ const metricsDashboardPanelsValidate = (): ToolBase<
         if (params.panels !== undefined) {
             body['panels'] = params.panels
         }
+        if (params.import_id !== undefined) {
+            body['import_id'] = params.import_id
+        }
         const result = await context.api.request<Schemas.PanelQueryCheckResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/metrics/dashboard_imports/validate/`,
