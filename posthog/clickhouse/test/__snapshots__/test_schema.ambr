@@ -2129,6 +2129,7 @@
       distinct_id,
       created_at,
       person_id,
+      -- The Kafka engine rejects DEFAULT, so an omitted person_properties arrives as ''.
       if(empty(person_properties), '{}', person_properties) AS person_properties,
       person_created_at,
       -- inserted_at is the time this view processes the row, as in the native-JSON

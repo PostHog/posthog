@@ -13,15 +13,12 @@ from posthog.models.flag_evaluations.sql import (
 # Adds person_properties, person_created_at and person_mode to the flag_evaluations family.
 # posthog/models/flag_evaluations/sql.py carries the rationale.
 #
-# The sharded table and both Distributed tables take an ALTER, which only changes metadata. They
-# change while the old MV keeps consuming. Its inserts omit the new columns, so each table fills
-# their defaults. The sharded table changes before writable_flag_evaluations. A replica that has not
-# yet applied the sharded ALTER from its replication queue rejects a block that carries the columns,
-# so a few inserts can fail and retry until it catches up. A Kafka engine table cannot ALTER its
-# columns, so it is dropped and recreated with its MV after the ALTERs succeed. If an ALTER fails,
-# the old MV keeps ingesting. The recreated Kafka table keeps its consumer group, so consumption
-# resumes from the committed offsets. The recreate also applies the consumer settings that sql.py
-# declares to any environment whose live table predates them.
+# The ALTERs run before the Kafka table and MV are dropped, so a failed ALTER leaves the old MV
+# ingesting. Its inserts omit the new columns, so each table fills their defaults. A shard replica
+# that has not yet applied the sharded ALTER rejects a block from writable_flag_evaluations that
+# carries the new columns, so a few inserts can fail and retry until it catches up. The recreate
+# also applies the consumer settings that sql.py declares to any environment whose live table
+# predates them.
 
 
 def _add_person_columns(table: str) -> str:

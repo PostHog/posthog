@@ -12,8 +12,8 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
 # table). The column set is the events table's, narrowed to what a flag evaluation
-# actually carries: no elements_chain, no person_mode, and no group property
-# blobs, because group filters join the groups table instead. It keeps the full
+# actually carries: no elements_chain and no group property blobs, because group
+# filters join the groups table instead. It keeps the full
 # properties JSON as the source of truth, so queries and integrations built on
 # event properties survive the routing switch. It stores person_properties,
 # person_created_at and person_mode the way the events table does, because
@@ -71,18 +71,17 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 # renders every column without one.
 # Both Distributed tables MUST carry the DEFAULTs: an INSERT through a Distributed
 # table fills omitted columns from the Distributed table's own schema before
-# forwarding to the shard, so without it a direct insert via
-# writable_flag_evaluations would store epoch instead of the sharded table's
-# DEFAULT.
+# forwarding to the shard, so without them a direct insert via
+# writable_flag_evaluations would store epoch or '' instead of the sharded table's
+# DEFAULTs.
 #
-# person_properties defaults to '{}', as on the events table, because the
-# property-removal UDF JSONDropKeysPool fails on an empty string. The Kafka
-# variant has no DEFAULT, so the MV maps an omitted key to '{}' instead.
+# person_properties defaults to '{}' because the property-removal UDF
+# JSONDropKeysPool fails on an empty string.
 #
 # No column carries a CODEC, including the JSON blobs the events table wraps in
 # ZSTD(3); the general rule is in posthog/clickhouse/migrations/AGENTS.md. Nothing
 # here earns an exception: this ORDER BY only buckets timestamp to a day before
-# sorting on a distinct_id hash, so the three DateTime64 columns land on disk in
+# sorting on a distinct_id hash, so the four DateTime64 columns land on disk in
 # effectively random order, which is where the delta family loses. Revisit only
 # with measurements.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
@@ -297,6 +296,7 @@ FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
     distinct_id,
     created_at,
     person_id,
+    -- The Kafka engine rejects DEFAULT, so an omitted person_properties arrives as ''.
     if(empty(person_properties), '{{}}', person_properties) AS person_properties,
     person_created_at,
     -- inserted_at is the time this view processes the row, as in the native-JSON
