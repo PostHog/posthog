@@ -1511,9 +1511,13 @@ class EnterpriseExperimentsViewSet(
         if not warehouse_native_metrics_enabled(self.team):
             raise ValidationError("Warehouse-native metrics are not enabled for this project.")
         data = request.validated_data
-        if not has_direct_connection(self.team, data["connection_id"]):
+        # The caller's identity carries the source's access control into the lookup and the query.
+        user = request.user if isinstance(request.user, User) else None
+        if not has_direct_connection(self.team, data["connection_id"], user):
             raise ValidationError("The selected connection does not exist or cannot be queried directly.")
-        result = check_warehouse_native_query(self.team, data["connection_id"], data["query"], data["variant_keys"])
+        result = check_warehouse_native_query(
+            self.team, user, data["connection_id"], data["query"], data["variant_keys"]
+        )
         return Response(WarehouseNativeMetricCheckResponseSerializer(result).data)
 
     @validated_request(

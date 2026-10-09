@@ -9751,3 +9751,5 @@ class TestWarehouseNativeMetricCheck(APILicensedTest):
         self.assertNotIn(";", sample_sql)
         self.assertIn("LIMIT 20", sample_sql)
         self.assertEqual(executor_class.call_args_list[0].kwargs["connection_id"], str(source.id))
+        # The query runs as the caller so the source's access control applies.
+        self.assertEqual(executor_class.call_args_list[0].kwargs["user"], self.user)

@@ -3,6 +3,7 @@ from typing import Any
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import get_direct_connection_source
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -12,7 +13,7 @@ from products.experiments.backend.metric_utils import collect_metric_warehouse_t
 
 def enforce_warehouse_metric_access(metrics: list[dict[str, Any]], *, team: Team, user: Any) -> None:
     """Raise PermissionDenied if a metric uses an ExperimentDataWarehouseNode whose warehouse table
-    or view the user can't access.
+    or view the user can't access, or a warehouse-native connection the user can't read.
 
     Background recomputes bypass warehouse access control (they run without a request user), so access
     must be enforced when the metric is created or updated — otherwise an inaccessible table would be
@@ -25,6 +26,13 @@ def enforce_warehouse_metric_access(metrics: list[dict[str, Any]], *, team: Team
     # access control at query time, so there's nothing to enforce against here.
     if not isinstance(user, User):
         return
+
+    for metric in metrics:
+        if metric.get("metric_type") != "warehouse_native":
+            continue
+        connection_id = str(metric.get("connection_id") or "")
+        if get_direct_connection_source(team, connection_id, user=user, require_pure_direct=True) is None:
+            raise PermissionDenied("You don't have access to the warehouse connection this metric queries.")
 
     table_names = collect_metric_warehouse_tables(metrics)
     if not table_names:

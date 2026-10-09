@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.models import Team
 
@@ -124,6 +124,30 @@ class TestExperimentSavedMetricService(APIBaseTest):
             else:
                 saved_metric = self._service().create_saved_metric(name="Warehouse metric", query=metric)
                 assert saved_metric.query["metric_type"] == "warehouse_native"
+
+    def test_warehouse_native_metric_rejects_a_connection_the_user_cannot_read(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="pg",
+            job_inputs={},
+        )
+        metric = {**_WAREHOUSE_NATIVE_METRIC, "connection_id": str(source.id)}
+
+        with (
+            patch("products.experiments.backend.metric_validation.warehouse_native_metrics_enabled", return_value=True),
+            # The source exists for the team but access control denies this user.
+            patch(
+                "products.experiments.backend.warehouse_access_control.get_direct_connection_source",
+                return_value=None,
+            ),
+        ):
+            with self.assertRaises(PermissionDenied):
+                self._service().create_saved_metric(name="Warehouse metric", query=metric)
 
     @parameterized.expand([("without_uuid", {}), ("with_client_uuid", {"uuid": "inline-metric-uuid"})])
     def test_create_saved_metric_with_minimum_fields(self, _name: str, client_uuid: dict) -> None:

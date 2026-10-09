@@ -6,17 +6,16 @@ warehouse at analysis time. This module owns the rollout flag and the pre-save q
 
 from typing import TYPE_CHECKING, Any
 
-from posthog.hogql.direct_sql.capability import is_direct_capable
+from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
-
 if TYPE_CHECKING:
     from posthog.models.team import Team
+    from posthog.models.user import User
 
 WAREHOUSE_NATIVE_METRICS_FLAG = "warehouse-native-metrics"
 REQUIRED_COLUMNS: tuple[str, ...] = ("variant", "entity_id", "value")
@@ -36,13 +35,11 @@ def warehouse_native_metrics_enabled(team: "Team") -> bool:
     )
 
 
-def has_direct_connection(team: "Team", connection_id: str) -> bool:
-    """Whether the team has a source with this id that can be queried live."""
-    try:
-        source = ExternalDataSource.objects.get(team=team, id=connection_id)
-    except (ExternalDataSource.DoesNotExist, ValueError):
-        return False
-    return is_direct_capable(source)
+def has_direct_connection(team: "Team", connection_id: str, user: "User | None") -> bool:
+    """Whether a pure-direct source with this id exists for the team and, when a user is given,
+    whether that user may read it. Raw SQL only runs on pure-direct sources, so the same rule
+    applies here."""
+    return get_direct_connection_source(team, connection_id, user=user, require_pure_direct=True) is not None
 
 
 def _strip_trailing_semicolon(sql: str) -> str:
@@ -62,7 +59,7 @@ class WarehouseNativeQueryCheck:
 
 
 def check_warehouse_native_query(
-    team: "Team", connection_id: str, query: str, variant_keys: list[str]
+    team: "Team", user: "User | None", connection_id: str, query: str, variant_keys: list[str]
 ) -> WarehouseNativeQueryCheck:
     """Run the customer's query with a row cap and report its shape.
 
@@ -76,6 +73,7 @@ def check_warehouse_native_query(
         sample = HogQLQueryExecutor(
             query=f"SELECT * FROM ({inner}) AS metric_rows LIMIT {SAMPLE_ROW_LIMIT}",
             team=team,
+            user=user,
             connection_id=connection_id,
             send_raw_query=True,
         ).execute()
@@ -105,6 +103,7 @@ def check_warehouse_native_query(
         counts = HogQLQueryExecutor(
             query=f"SELECT variant, COUNT(*) AS row_count FROM ({inner}) AS metric_rows GROUP BY variant",
             team=team,
+            user=user,
             connection_id=connection_id,
             send_raw_query=True,
         ).execute()

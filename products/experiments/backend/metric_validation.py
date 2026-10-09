@@ -159,7 +159,7 @@ def _warehouse_native_error(metric: ExperimentWarehouseNativeMetric, team: "Team
         return "warehouse-native metrics are not enabled for this project."
     if not metric.query.strip():
         return "warehouse-native metrics require a query."
-    if not has_direct_connection(team, metric.connection_id):
+    if not has_direct_connection(team, metric.connection_id, user=None):
         return "the selected connection does not exist or cannot be queried directly."
     return None
 
