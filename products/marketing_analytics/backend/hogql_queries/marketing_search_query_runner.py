@@ -88,6 +88,18 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             )
         return result
 
+    def _google_keywords(self, keyword_table: str) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
+                any(ad_group_criterion_keyword_text) AS keyword,
+                any(ad_group_criterion_keyword_match_type) AS match_type
+            FROM {keywords}
+            GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
+            """,
+            placeholders={"keywords": ast.Field(chain=[*keyword_table.split(".")])},
+        )
+
     def _source_query(
         self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
     ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -185,7 +197,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         if source.sourceType == "GoogleAds":
             if not source.keywordTable:
                 raise ValueError("Google Ads requires a synced keyword table")
-            placeholders["keywords"] = ast.Field(chain=[*source.keywordTable.split(".")])
+            placeholders["keywords"] = self._google_keywords(source.keywordTable)
             return parse_select(
                 """
                 SELECT {period} AS period, nullIf(lower(trim(k.keyword)), '') AS keyword, NULL AS page, 'GoogleAds' AS platform,
@@ -198,13 +210,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     NULL AS top_impressions, 0 AS top_eligible_impressions,
                     NULL AS absolute_top_impressions, 0 AS absolute_top_eligible_impressions
                 FROM {stats} AS s
-                LEFT JOIN (
-                    SELECT customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id,
-                        any(ad_group_criterion_keyword_text) AS keyword,
-                        any(ad_group_criterion_keyword_match_type) AS match_type
-                    FROM {keywords}
-                    GROUP BY customer_id, campaign_id, ad_group_id, ad_group_criterion_criterion_id
-                ) AS k ON s.customer_id = k.customer_id AND s.campaign_id = k.campaign_id
+                LEFT JOIN {keywords} AS k ON s.customer_id = k.customer_id AND s.campaign_id = k.campaign_id
                     AND s.ad_group_id = k.ad_group_id
                     AND s.ad_group_criterion_criterion_id = k.ad_group_criterion_criterion_id
                 WHERE toDate(s.segments_date) >= toDate({date_from})
@@ -234,30 +240,35 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
     def _google_placement_query(
         self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        if not source.placementTable:
-            raise ValueError("Google Ads placement requires a synced keyword placement table")
+        if not source.placementTable or not source.keywordTable:
+            raise ValueError("Google Ads placement requires synced keyword and keyword placement tables")
+        # Name keywords from the keyword table, as traffic does, so a criterion it lacks does not split into two rows.
         return parse_select(
             """
             SELECT {period} AS period,
-                nullIf(lower(trim(ad_group_criterion_keyword_text)), '') AS keyword,
+                nullIf(lower(trim(k.keyword)), '') AS keyword,
                 NULL AS page, 'GoogleAds' AS platform,
-                nullIf(lower(ad_group_criterion_keyword_match_type), '') AS matchType,
-                nullIf(upper(customer_currency_code), '') AS currency,
+                nullIf(lower(k.match_type), '') AS matchType,
+                nullIf(upper(p.customer_currency_code), '') AS currency,
                 0 AS click_count, 0 AS impression_count, 0 AS total_cost,
                 0 AS conversion_count, 0 AS position_total,
-                sum(toFloat(metrics_top_impression_percentage) * toFloat(metrics_impressions)) AS top_impressions,
-                sumIf(toFloat(metrics_impressions), metrics_top_impression_percentage IS NOT NULL) AS top_eligible_impressions,
-                sum(toFloat(metrics_absolute_top_impression_percentage) * toFloat(metrics_impressions)) AS absolute_top_impressions,
-                sumIf(toFloat(metrics_impressions), metrics_absolute_top_impression_percentage IS NOT NULL) AS absolute_top_eligible_impressions
-            FROM {placement}
-            WHERE toDate(segments_date) >= toDate({date_from})
-                AND toDate(segments_date) <= toDate({date_to})
-                AND segments_ad_network_type = 'SEARCH'
+                sum(toFloat(p.metrics_top_impression_percentage) * toFloat(p.metrics_impressions)) AS top_impressions,
+                sumIf(toFloat(p.metrics_impressions), p.metrics_top_impression_percentage IS NOT NULL) AS top_eligible_impressions,
+                sum(toFloat(p.metrics_absolute_top_impression_percentage) * toFloat(p.metrics_impressions)) AS absolute_top_impressions,
+                sumIf(toFloat(p.metrics_impressions), p.metrics_absolute_top_impression_percentage IS NOT NULL) AS absolute_top_eligible_impressions
+            FROM {placement} AS p
+            LEFT JOIN {keywords} AS k ON p.customer_id = k.customer_id AND p.campaign_id = k.campaign_id
+                AND p.ad_group_id = k.ad_group_id
+                AND p.ad_group_criterion_criterion_id = k.ad_group_criterion_criterion_id
+            WHERE toDate(p.segments_date) >= toDate({date_from})
+                AND toDate(p.segments_date) <= toDate({date_to})
+                AND p.segments_ad_network_type = 'SEARCH'
             GROUP BY keyword, matchType, currency
             """,
             placeholders={
                 "period": ast.Constant(value=period),
                 "placement": ast.Field(chain=[*source.placementTable.split(".")]),
+                "keywords": self._google_keywords(source.keywordTable),
                 "date_from": ast.Constant(value=date_range.date_from()),
                 "date_to": ast.Constant(value=date_range.date_to()),
             },

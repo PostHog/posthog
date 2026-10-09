@@ -77,13 +77,18 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "1,10,100,7,USD,900,9000,90000000,9,2023-01-10,CONTENT,0.99,0.99\n"
             "1,10,100,7,USD,20,200,30000000,1.25,2022-12-15,SEARCH,0.6,0.2\n"
             "1,10,100,7,USD,8,80,16000000,2,2022-01-10,SEARCH,0.6,0.2\n"
-            "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH,0.6,0.2\n",
+            "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH,0.6,0.2\n"
+            "1,10,100,8,USD,7,70,14000000,1,2023-01-10,SEARCH,0.5,0.5\n",
         )
         placement = None
         if with_placement:
             placement = self._table(
                 "search_google_placement",
                 {
+                    "customer_id": "Int64",
+                    "campaign_id": "Int64",
+                    "ad_group_id": "Int64",
+                    "ad_group_criterion_criterion_id": "Int64",
                     "ad_group_criterion_keyword_text": "String",
                     "ad_group_criterion_keyword_match_type": "String",
                     "customer_currency_code": "String",
@@ -93,15 +98,16 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                     "metrics_top_impression_percentage": "Float64",
                     "metrics_absolute_top_impression_percentage": "Float64",
                 },
-                "ad_group_criterion_keyword_text,ad_group_criterion_keyword_match_type,customer_currency_code,segments_date,segments_ad_network_type,metrics_impressions,metrics_top_impression_percentage,metrics_absolute_top_impression_percentage\n"
-                "Hedgehog,EXACT,USD,2023-01-10,SEARCH,40,0.8,0.4\n"
-                "Hedgehog,EXACT,USD,2023-01-11,SEARCH,60,0.3,0.1\n"
-                "Hedgehog,EXACT,USD,2023-01-11,SEARCH_PARTNERS,900,0.99,0.99\n"
-                "Hedgehog,EXACT,EUR,2023-01-10,SEARCH,100,0.6,0.2\n"
-                "Hedgehog,EXACT,USD,2023-01-10,CONTENT,9000,0.99,0.99\n"
-                "Hedgehog,EXACT,USD,2022-12-15,SEARCH,200,0.6,0.2\n"
-                "Hedgehog,EXACT,USD,2022-01-10,SEARCH,80,0.6,0.2\n"
-                "Other keyword,PHRASE,USD,2023-01-10,SEARCH,100,0.6,0.2\n",
+                "customer_id,campaign_id,ad_group_id,ad_group_criterion_criterion_id,ad_group_criterion_keyword_text,ad_group_criterion_keyword_match_type,customer_currency_code,segments_date,segments_ad_network_type,metrics_impressions,metrics_top_impression_percentage,metrics_absolute_top_impression_percentage\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-10,SEARCH,40,0.8,0.4\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-11,SEARCH,60,0.3,0.1\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-11,SEARCH_PARTNERS,900,0.99,0.99\n"
+                "1,10,100,7,Hedgehog,EXACT,EUR,2023-01-10,SEARCH,100,0.6,0.2\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-10,CONTENT,9000,0.99,0.99\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2022-12-15,SEARCH,200,0.6,0.2\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2022-01-10,SEARCH,80,0.6,0.2\n"
+                "2,20,200,7,Other keyword,PHRASE,USD,2023-01-10,SEARCH,100,0.6,0.2\n"
+                "1,10,100,8,Unsynced keyword,BROAD,USD,2023-01-10,SEARCH,70,0.5,0.5\n",
             )
         bing_stats = self._table(
             "search_bing_stats",
@@ -134,7 +140,10 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             ],
         )
         rows = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
-        assert len(rows) == 6
+        assert len(rows) == 7
+        unsynced = next(row for row in rows if row.platform == "GoogleAds" and row.keyword is None)
+        assert unsynced.clicks == 7 and unsynced.impressions == 70
+        assert unsynced.topImpressionRate == (pytest.approx(0.5) if with_placement else None)
         google = next(
             row for row in rows if row.platform == "GoogleAds" and row.currency == "USD" and row.keyword == "hedgehog"
         )
@@ -175,7 +184,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         query.search = None
         query.compareFilter = CompareFilter(compare=True)
         compared = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
-        assert len(compared) == 7
+        assert len(compared) == 8
         google_compared = next(
             row
             for row in compared
