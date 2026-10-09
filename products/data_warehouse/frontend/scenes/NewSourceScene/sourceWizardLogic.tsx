@@ -2380,11 +2380,25 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(true)
 
+            const sourceType = values.selectedConnector.name
+            const startedAt = performance.now()
+            const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
+                posthog.capture('source wizard schemas loaded', {
+                    sourceType,
+                    success,
+                    schema_count: schemaCount,
+                    duration_ms: Math.round(performance.now() - startedAt),
+                })
+            }
+
             try {
-                const schemas = await api.externalDataSources.database_schema(
-                    values.selectedConnector.name,
-                    getDatabaseSchemaPayload(values.source)
-                )
+                const schemas = await api.externalDataSources
+                    .database_schema(sourceType, getDatabaseSchemaPayload(values.source))
+                    .catch((e) => {
+                        captureSchemasLoaded(false, null)
+                        throw e
+                    })
+                captureSchemasLoaded(true, schemas.length)
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
