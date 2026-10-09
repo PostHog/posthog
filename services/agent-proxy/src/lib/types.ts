@@ -174,6 +174,7 @@ export type IngestLine = IngestEventLine | IngestCompleteLine
 export type SideEffectKind =
     | 'heartbeat'
     | 'awaiting_input'
+    | 'permission_requested'
     | 'turn_failed'
     | 'command_dispatched'
     | 'agent_activity'
