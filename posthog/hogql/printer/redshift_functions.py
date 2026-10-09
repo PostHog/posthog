@@ -91,12 +91,18 @@ def _handle_avg(args: list[str]) -> str:
     return f"avg(CAST({args[0]} AS DOUBLE PRECISION))"
 
 
+def _handle_round(args: list[str]) -> str:
+    # Redshift's ROUND accepts FLOAT8 directly, and a bare NUMERIC cast there has scale 0.
+    return f"round({', '.join(args)})"
+
+
 # Functions whose inherited Postgres rendering Redshift would reject or silently reinterpret;
 # rewritten to a Redshift-native equivalent that keeps HogQL semantics.
 _REDSHIFT_ONLY_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "concat": _handle_concat,
     "position": _handle_position,
     "avg": _handle_avg,
+    "round": _handle_round,
 }
 
 REDSHIFT_FUNCTION_RENAMES_LOWER: dict[str, str] = {

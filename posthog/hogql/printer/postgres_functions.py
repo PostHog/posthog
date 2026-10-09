@@ -214,6 +214,13 @@ def _handle_log2(args: list[str]) -> str:
     return f"log(2, {args[0]})"
 
 
+def _handle_round(args: list[str]) -> str:
+    # Postgres has round(numeric, integer) but no round(double precision, integer).
+    if len(args) == 1:
+        return f"round({args[0]})"
+    return f"round(({args[0]})::numeric, {', '.join(args[1:])})"
+
+
 # Complex handlers: ClickHouse function name → callable(list[rendered_arg_strings]) → SQL string
 #
 # NOTE: toStartOf* functions are NOT here — they are handled by
@@ -322,6 +329,7 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Math
     "e": _handle_e,
     "log2": _handle_log2,
+    "round": _handle_round,
     # Aggregate *If combinators
     "countIf": _handle_count_if,
     "sumIf": _make_if_combinator_handler("sum"),
@@ -358,7 +366,6 @@ POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         "abs",
         "floor",
         "ceil",
-        "round",
         "sqrt",
         "pow",
         "power",
