@@ -1057,6 +1057,7 @@ class TestEnrichedAnalytics(BaseTest):
             )
             for tile in f1.usage_dashboard.tiles.select_related("insight")
             if tile.insight
+            and tile.insight.query
             and tile.insight.name
             in (FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME, FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME)
         }
