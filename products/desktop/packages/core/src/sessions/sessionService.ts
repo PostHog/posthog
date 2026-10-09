@@ -150,7 +150,8 @@ import { selectSessionsToEvict } from "./sessionEviction";
 import { createBaseSession } from "./sessionFactory";
 import { type ParsedSessionLogs, parseSessionLogContent } from "./sessionLogs";
 import {
-  classifySessionStartError,
+  describeSessionStartError,
+  isModelSwitchStartupError,
   readSessionStartupPhase,
   type SessionStartupPhase,
 } from "./sessionStartup";
@@ -2133,7 +2134,7 @@ export class SessionService {
       this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
         task_id: taskId,
         error_type: "connect_failed",
-        ...classifySessionStartError(message),
+        ...describeSessionStartError(message, model),
       });
 
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
@@ -2197,7 +2198,7 @@ export class SessionService {
           delayMs: AUTO_RETRY_DELAY_MS,
         });
         try {
-          await this.clearSessionError(taskId, repoPath);
+          await this.clearSessionError(taskId, repoPath, lastRetryMessage);
           return;
         } catch (retryError) {
           lastRetryMessage =
@@ -2289,19 +2290,16 @@ export class SessionService {
     this.updatePromptStateFromEvents(taskRunId, session.events);
     this.subscribeToChannel(taskRunId);
 
+    // Resumed SDK sessions don't remember the model — without this the
+    // session silently falls back to the default model on every reconnect.
+    const modelOpt = getConfigOptionByCategory(persistedConfigOptions, "model");
+    const persistedModel =
+      modelOpt?.type === "select" ? modelOpt.currentValue : undefined;
+
     try {
       const modeOpt = getConfigOptionByCategory(persistedConfigOptions, "mode");
       const persistedMode =
         modeOpt?.type === "select" ? modeOpt.currentValue : undefined;
-
-      // Resumed SDK sessions don't remember the model — without this the
-      // session silently falls back to the default model on every reconnect.
-      const modelOpt = getConfigOptionByCategory(
-        persistedConfigOptions,
-        "model",
-      );
-      const persistedModel =
-        modelOpt?.type === "select" ? modelOpt.currentValue : undefined;
 
       // Same for effort, context window and fast mode: the session's own
       // persisted config is authoritative on resume.
@@ -2469,7 +2467,7 @@ export class SessionService {
       this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
         task_id: taskId,
         error_type: "reconnect_failed",
-        ...classifySessionStartError(errorMessage),
+        ...describeSessionStartError(errorMessage, persistedModel),
       });
       this.setErrorSession(
         taskId,
@@ -6398,9 +6396,27 @@ export class SessionService {
    * conversation in memory or in the run log), creates a fresh session
    * and re-sends the prompt instead of reconnecting to an empty session.
    */
-  async clearSessionError(taskId: string, repoPath: string): Promise<void> {
+  async clearSessionError(
+    taskId: string,
+    repoPath: string,
+    failureMessage?: string,
+  ): Promise<void> {
     this.localRepoPaths.set(taskId, repoPath);
     const session = this.d.store.getSessionByTaskId(taskId);
+    // A retry with the same model fails the same way, so fall back to the
+    // default model after the agent rejects the model at startup.
+    const useDefaultModel = isModelSwitchStartupError(
+      failureMessage ?? session?.errorMessage,
+    );
+    if (useDefaultModel && session) {
+      this.d.log.warn(
+        "Retrying with the default model after a model switch failure",
+        {
+          taskId,
+          model: session.model,
+        },
+      );
+    }
     if (
       session?.initialPrompt?.length &&
       !(await this.runHasConversationHistory(session))
@@ -6436,7 +6452,7 @@ export class SessionService {
           initialPrompt,
           executionMode,
           adapter,
-          model,
+          useDefaultModel ? undefined : model,
           reasoningLevel,
           undefined,
           contextWindow,
@@ -6448,6 +6464,7 @@ export class SessionService {
           this.d.store.getSessionByTaskId(taskId) ?? session;
         this.d.store.setSession({
           ...recoverySession,
+          ...(useDefaultModel ? { model: undefined } : {}),
           status: "error",
           errorTitle: "Failed to connect",
           errorMessage: error instanceof Error ? error.message : String(error),
@@ -6456,6 +6473,15 @@ export class SessionService {
         throw error;
       }
       return;
+    }
+    if (useDefaultModel && session) {
+      const persisted = this.d.getPersistedConfigOptions(session.taskRunId);
+      if (persisted) {
+        this.d.setPersistedConfigOptions(
+          session.taskRunId,
+          persisted.filter((option) => option.category !== "model"),
+        );
+      }
     }
     if (!(await this.reconnectInPlace(taskId, repoPath))) {
       throw new Error("Failed to reconnect to session. Please try again.");
