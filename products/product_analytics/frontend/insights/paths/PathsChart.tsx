@@ -15,6 +15,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { PathsLink } from '~/queries/schema/schema-general'
 import { shouldQueryBeAsync } from '~/queries/utils'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
 import { FALLBACK_CANVAS_WIDTH } from './constants'
 import { PathNodeCards } from './PathNodeCards'
 import { buildPathsGraph, maxPathLayer, pathsChartWidth } from './pathsChartData'
@@ -27,6 +29,7 @@ import { pathsInteractionLogic } from './pathsInteractionLogic'
 const DEFAULT_PATHS_ID = 'default_paths'
 const FALLBACK_COLOR = '#000000'
 const NO_MARGINS = { top: 0, right: 0, bottom: 0, left: 0 }
+const handleChartError = makeChartErrorHandler('paths-sankey-chart')
 
 // The cards carry every label and number, so the chart draws bare nodes and ribbons. Node order
 // follows the result, as the SVG renderer did, so the two renderers agree on where a step sits.
@@ -143,6 +146,7 @@ export function PathsChart(): JSX.Element {
                         config={CHART_CONFIG}
                         highlight={highlight}
                         onHoverChange={onHoverChange}
+                        onError={handleChartError}
                         className="h-full"
                         dataAttr="paths-sankey-chart"
                     >
