@@ -220,14 +220,24 @@ one you pick:
 ```bash
 URL='https://<region>.i.posthog.com/flags/?v=2'
 
+# Every arm has to come back 200, and you have to check. The whole comparison below reads
+# a flag key being *absent* as the finding — and a request that failed returns no flags at
+# all, so an unchecked 4xx, 5xx or transport error reads as a confirmed diagnosis. `-sS`
+# drops the progress meter but keeps errors, and `--fail-with-body` turns a non-2xx into a
+# non-zero exit while still printing the body.
+flags() { curl -sS --fail-with-body -X POST "$URL" -H 'Content-Type: application/json' --data-binary @"$BODY" "$@"; }
+
 # A — no verdict: `-A ''` sends no user agent, like an older SDK build, a hand-rolled
 #     caller, or a header-stripping proxy.
-curl -s -X POST "$URL" -A '' -H 'Content-Type: application/json' --data-binary @"$BODY"
+flags -A ''
 # B — client: posthog-js classifies as client-side (so does a browser Mozilla/… string).
-curl -s -X POST "$URL" -H 'User-Agent: posthog-js/<version>' -H 'Content-Type: application/json' --data-binary @"$BODY"
+flags -H 'User-Agent: posthog-js/<version>'
 # C — server: posthog-node classifies as server-side.
-curl -s -X POST "$URL" -H 'User-Agent: posthog-node/<version>' -H 'Content-Type: application/json' --data-binary @"$BODY"
+flags -H 'User-Agent: posthog-node/<version>'
 ```
+
+**A non-zero exit from any arm invalidates the comparison** — fix the request before you read
+anything into a missing flag key.
 
 **Compare A against the arm matching the flag's own `evaluation_runtime`** — B for a `client` flag, C
 for a `server` one. A request with no verdict is held to `all` flags, so a runtime-scoped flag is
