@@ -1,31 +1,30 @@
 import logging
-from collections.abc import Mapping
 from typing import Literal
 
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
-from posthog.models.organization import OrganizationMembership
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_review_rules import AutomaticReviewReason, decide_automatic_review
-from products.review_hog.backend.ownership import (
-    OwnedRepositoryPrefilter,
-    RepositoryOwner,
-    RepositoryOwnership,
-    RepositoryRef,
-)
+from products.review_hog.backend.internal_features import has_internal_features
+from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
+from products.review_hog.backend.pr_owner import is_active_member
+from products.review_hog.backend.review_request_rules import full_review_published
 
 logger = logging.getLogger(__name__)
 _otel = OtelInstrumentFactory("review_hog")
 
 AuthoredPRReviewOutcome = Literal[
     "repository_not_added",
+    "internal_features_off",
     "installation_mismatch",
     "bot_skipped",
     "bot_no_connector",
     "not_opted_in",
+    "full_review_published",
     "started",
 ]
 
@@ -43,27 +42,6 @@ AUTHORED_PR_REVIEW_TOTAL = Counter(
 def _observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
     AUTHORED_PR_REVIEW_TOTAL.labels(outcome=outcome).inc()
     _otel.record_counter_twin(AUTHORED_PR_REVIEW_TOTAL, 1, {"outcome": outcome})
-
-
-def _mapping(value: object) -> Mapping[str, object]:
-    return value if isinstance(value, Mapping) else {}
-
-
-def _repository_name(value: object) -> str | None:
-    full_name = _mapping(value).get("full_name")
-    return full_name if isinstance(full_name, str) and full_name.strip() else None
-
-
-def _positive_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        return None
-    return value
-
-
-def is_active_member(*, team_id: int, user_id: int) -> bool:
-    return OrganizationMembership.objects.filter(
-        organization__team__id=team_id, user_id=user_id, user__is_active=True
-    ).exists()
 
 
 def connector_user_id(*, team_id: int, installation_id: str) -> int | None:
@@ -97,6 +75,8 @@ def plan_automatic_review(
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
     team_id = owner.team_id
+    if not has_internal_features(team_id):
+        return AutomaticDispatch(outcome="internal_features_off", team_id=team_id)
     has_integration = Integration.objects.filter(
         team_id=team_id, kind="github", integration_id=owner.installation_id
     ).exists()
@@ -165,44 +145,6 @@ class AuthoredPRReview:
     head_sha: str
     github_repo_id: int | None = None
 
-    @classmethod
-    def from_payload(cls, payload: Mapping[str, object]) -> "AuthoredPRReview | None":
-        if payload.get("action") not in ("opened", "synchronize"):
-            return None
-        pull_request = _mapping(payload.get("pull_request"))
-        if pull_request.get("state") != "open" or pull_request.get("merged"):
-            return None
-        head = _mapping(pull_request.get("head"))
-        base = _mapping(pull_request.get("base"))
-        # The PR must come from a branch of the same repository, because a fork's head cannot be
-        # trusted.
-        names = [_repository_name(repo) for repo in (payload.get("repository"), head.get("repo"), base.get("repo"))]
-        repository = names[0]
-        if repository is None or any(name is None or name.lower() != repository.lower() for name in names):
-            return None
-
-        installation_id = _positive_int(_mapping(payload.get("installation")).get("id"))
-        author_login = _mapping(pull_request.get("user")).get("login")
-        pr_number = _positive_int(pull_request.get("number"))
-        head_sha = head.get("sha")
-        if (
-            installation_id is None
-            or pr_number is None
-            or not isinstance(author_login, str)
-            or not author_login.strip()
-            or not isinstance(head_sha, str)
-            or not head_sha.strip()
-        ):
-            return None
-        return cls(
-            installation_id=str(installation_id),
-            repository=repository,
-            author_login=author_login.strip().lower(),
-            pr_number=pr_number,
-            head_sha=head_sha,
-            github_repo_id=_positive_int(_mapping(payload.get("repository")).get("id")),
-        )
-
     @property
     def ref(self) -> RepositoryRef:
         return RepositoryRef(
@@ -223,6 +165,14 @@ class AuthoredPRReview:
             # stay quiet.
             _observe_dispatch(dispatch.outcome)
             return
+        report = (
+            ReviewReport.objects.for_team(dispatch.team_id)
+            .filter(repository__iexact=self.repository, pr_number=self.pr_number)
+            .first()
+        )
+        if full_review_published(report):
+            _observe_dispatch("full_review_published")
+            return
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=dispatch.team_id,
@@ -238,21 +188,3 @@ class AuthoredPRReview:
         )
         # After the start, so a retried task cannot count a dispatch it never made.
         _observe_dispatch("started")
-
-
-def enqueue_authored_pr_review(payload: Mapping[str, object]) -> None:
-    review = AuthoredPRReview.from_payload(payload)
-    if review is None or not OwnedRepositoryPrefilter.may_be_owned(review.ref):
-        return
-    from products.review_hog.backend.tasks import (  # noqa: PLC0415 - keeps Celery off the registry import path
-        process_authored_pr_event,
-    )
-
-    process_authored_pr_event.delay(
-        installation_id=review.installation_id,
-        repository=review.repository,
-        author_login=review.author_login,
-        pr_number=review.pr_number,
-        head_sha=review.head_sha,
-        github_repo_id=review.github_repo_id,
-    )

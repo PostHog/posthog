@@ -9,12 +9,10 @@ from products.review_hog.backend.api.repositories import (
 from products.review_hog.backend.api.resolution import ReviewResolutionConfigViewSet
 from products.review_hog.backend.api.reviews import ReviewRecentReviewsViewSet
 from products.review_hog.backend.api.settings import ReviewUserSettingsViewSet
-from products.review_hog.backend.api.trigger import ReviewHogTriggerViewSet
 from products.review_hog.backend.api.validators import ReviewValidatorConfigViewSet
 
 __all__ = [
     "ReviewBlindSpotsConfigViewSet",
-    "ReviewHogTriggerViewSet",
     "ReviewInstallationClaimViewSet",
     "ReviewPerspectiveConfigViewSet",
     "ReviewProjectSettingsViewSet",

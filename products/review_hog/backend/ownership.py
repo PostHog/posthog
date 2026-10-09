@@ -23,6 +23,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from posthog.dataclasses import frozen
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.integration import Integration
 from posthog.utils import safe_cache_delete
 
@@ -158,6 +159,7 @@ class OwnedRepositoryPrefilter:
     """
 
     TTL_SECONDS = 5 * 60
+    STATEMENT_TIMEOUT_MS = 500
 
     @staticmethod
     def cache_key(installation_id: str) -> str:
@@ -178,13 +180,19 @@ class OwnedRepositoryPrefilter:
         }
 
     @classmethod
+    def load_bounded(cls, installation_id: str) -> dict[str, Any]:
+        # The webhook handler reads inside the request, so a slow read must not hold the delivery.
+        with bounded_statement_timeout(cls.STATEMENT_TIMEOUT_MS, models=[ReviewInstallationClaim, ReviewRepository]):
+            return cls.load(installation_id)
+
+    @classmethod
     def may_be_owned(cls, ref: RepositoryRef) -> bool:
         try:
             summary = cache.get_or_set(
-                cls.cache_key(ref.installation_id), lambda: cls.load(ref.installation_id), cls.TTL_SECONDS
+                cls.cache_key(ref.installation_id), lambda: cls.load_bounded(ref.installation_id), cls.TTL_SECONDS
             )
             if not isinstance(summary, dict):
-                summary = cls.load(ref.installation_id)
+                summary = cls.load_bounded(ref.installation_id)
         except Exception:
             # Fail open: the task checks ownership again, and a Redis blip must not stop reviews.
             logger.warning("Could not read the owned ReviewHog repositories; queueing the event", exc_info=True)
