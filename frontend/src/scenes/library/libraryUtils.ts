@@ -123,7 +123,7 @@ export function libraryTypeForPath(path: string): string | null {
 
 /** The last segment of a file system path, with escaped slashes restored. */
 export function libraryObjectName(entry: Pick<FileSystemEntry, 'path'>): string {
-    return splitPath(entry.path).pop() ?? unescapePath(entry.path)
+    return unescapePath(splitPath(entry.path).pop() ?? entry.path)
 }
 
 /** The type's name in lower case, for a label beside an object: "feature flag", but "SQL insight" keeps its acronym. */
