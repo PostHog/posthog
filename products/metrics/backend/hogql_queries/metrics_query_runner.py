@@ -46,11 +46,29 @@ from products.metrics.backend.facade.enums import (
 )
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Team, User
 
 # Metrics dashboards are usually about "what is happening now", so the
 # node defaults to a tighter window than the analytics-wide -7d.
 DEFAULT_DATE_FROM = "-24h"
+
+
+def metrics_query_date_range(team: "Team", date_range: DateRange | None) -> QueryDateRange:
+    # The facade picks and aligns the bucket interval, so this passes interval=None.
+    # With interval=None, QueryDateRange falls back to day. exact_timerange stops it truncating a
+    # relative date_from to midnight (so "-30M" would read the whole day), and explicitDate stops it
+    # rounding an explicit date_to up to the end of the day.
+    return QueryDateRange(
+        date_range=DateRange(
+            date_from=(date_range.date_from if date_range else None) or DEFAULT_DATE_FROM,
+            date_to=date_range.date_to if date_range else None,
+            explicitDate=True,
+        ),
+        team=team,
+        interval=None,
+        now=datetime.now(),
+        exact_timerange=True,
+    )
 
 
 class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
@@ -102,18 +120,8 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         payload["query"].pop("display", None)
         return payload
 
-    def _query_date_range(self) -> QueryDateRange:
-        # explicitDate keeps second-granular windows intact; without it,
-        # QueryDateRange rounds date_to up to end of day.
-        date_range = DateRange(
-            date_from=(self.query.dateRange.date_from if self.query.dateRange else None) or DEFAULT_DATE_FROM,
-            date_to=self.query.dateRange.date_to if self.query.dateRange else None,
-            explicitDate=True,
-        )
-        return QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime.now())
-
     def _to_request(self) -> MetricQueryRequest:
-        date_range = self._query_date_range()
+        date_range = metrics_query_date_range(self.team, self.query.dateRange)
         clauses = tuple(
             MetricQueryClause(
                 name=clause.name,
