@@ -4,8 +4,8 @@ import {
     type ChartTheme,
     type Series,
     type TimeInterval,
-    TimeSeriesBarChart,
-    type TimeSeriesBarChartConfig,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
@@ -45,14 +45,14 @@ export function ShareOverTimeChart({
                 label: s.label,
                 color: colorOf(s.label, index),
                 data: s.data,
+                fill: { opacity: 0.85 },
             })),
         [series, colorOf]
     )
-    const config = useChartConfig<TimeSeriesBarChartConfig>(
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
-            barLayout: 'percent',
+            percentStackView: true,
             legend: { show: true },
-            barCornerRadius: 4,
             showAxisLines: true,
             showTickMarks: true,
             showCrosshair: true,
@@ -75,7 +75,7 @@ export function ShareOverTimeChart({
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[300px] flex-1 flex-col">
-                    <TimeSeriesBarChart series={chartSeries} labels={labels} config={config} theme={theme} />
+                    <TimeSeriesLineChart series={chartSeries} labels={labels} config={config} theme={theme} />
                 </div>
             </CardState>
         </Card>
