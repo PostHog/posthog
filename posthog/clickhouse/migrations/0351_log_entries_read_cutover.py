@@ -1,6 +1,7 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.log_entries import LOG_ENTRIES_AUX_READER_SQL
+from posthog.clickhouse.log_entries_aux_readers import LOG_ENTRIES_AUX_JOIN_READERS_SQL
 from posthog.run_mode import run_mode
 
 # Codifies the log_entries read cutover: `log_entries` becomes the aux-cluster
@@ -12,7 +13,11 @@ from posthog.run_mode import run_mode
 # is performed operationally per region with an atomic EXCHANGE, so only
 # non-deployed environments run it here — that lands fresh environments in the
 # same end state the cloud regions reach operationally.
+#
+# A JOIN against `log_entries` runs on the aux nodes, so the aux nodes also get
+# Distributed readers for the joined tables. The cloud regions already have them.
 operations = [
+    *[run_sql_with_exceptions(sql, node_roles=[NodeRole.AUX]) for sql in LOG_ENTRIES_AUX_JOIN_READERS_SQL()],
     run_sql_with_exceptions(LOG_ENTRIES_AUX_READER_SQL(), node_roles=[NodeRole.AUX]),
 ]
 
