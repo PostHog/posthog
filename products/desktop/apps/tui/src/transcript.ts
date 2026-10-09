@@ -92,6 +92,16 @@ const configOptions = z.object({
   configOptions: z.array(z.unknown()),
 });
 
+// Only an entry that carries config options is parsed: a zod miss builds an error object, and a long log
+// has tens of thousands of entries without any, which once cost most of a transcript rebuild.
+const configHolder = (value: unknown): unknown[] | undefined => {
+  const options = (value as { configOptions?: unknown } | null | undefined)
+    ?.configOptions;
+  return Array.isArray(options)
+    ? configOptions.safeParse(value).data?.configOptions
+    : undefined;
+};
+
 function modesOf(entries: StoredLogEntry[]): Transcript["modes"] {
   let modes: Transcript["modes"] = null;
   for (const entry of entries) {
@@ -99,9 +109,9 @@ function modesOf(entries: StoredLogEntry[]): Transcript["modes"] {
       | { result?: unknown; params?: { update?: unknown } }
       | undefined;
     const holder =
-      configOptions.safeParse(notification?.result).data ??
-      configOptions.safeParse(notification?.params?.update).data;
-    for (const candidate of holder?.configOptions ?? []) {
+      configHolder(notification?.result) ??
+      configHolder(notification?.params?.update);
+    for (const candidate of holder ?? []) {
       const option = modeOption.safeParse(candidate).data;
       if (option)
         modes = {
