@@ -76,11 +76,53 @@ class TestJiraIntegrationModel:
         [
             (
                 "plain_text_stays_one_paragraph",
+                "Details\nNo links here",
+                [{"type": "paragraph", "content": [{"type": "text", "text": "Details\nNo links here"}]}],
+            ),
+            (
+                "url_becomes_link",
                 "Details\nPostHog issue: https://example.com/issue/1",
                 [
                     {
                         "type": "paragraph",
-                        "content": [{"type": "text", "text": "Details\nPostHog issue: https://example.com/issue/1"}],
+                        "content": [
+                            {"type": "text", "text": "Details\nPostHog issue: "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/issue/1",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/issue/1"}}],
+                            },
+                        ],
+                    }
+                ],
+            ),
+            (
+                "trailing_punctuation_stays_outside_link",
+                "See https://example.com/a. Also (https://example.com/b), then https://example.com/c_(x)!",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "See "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/a",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/a"}}],
+                            },
+                            {"type": "text", "text": ". Also ("},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/b",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/b"}}],
+                            },
+                            {"type": "text", "text": "), then "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/c_(x)",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/c_(x)"}}],
+                            },
+                            {"type": "text", "text": "!"},
+                        ],
                     }
                 ],
             ),
@@ -95,7 +137,14 @@ class TestJiraIntegrationModel:
                     },
                     {
                         "type": "paragraph",
-                        "content": [{"type": "text", "text": "PostHog issue: https://example.com/issue/1"}],
+                        "content": [
+                            {"type": "text", "text": "PostHog issue: "},
+                            {
+                                "type": "text",
+                                "text": "https://example.com/issue/1",
+                                "marks": [{"type": "link", "attrs": {"href": "https://example.com/issue/1"}}],
+                            },
+                        ],
                     },
                 ],
             ),
