@@ -16,7 +16,7 @@ attempts' jobs have synced — returning an empty breakdown rather than stale jo
 """
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.hogql import ast
@@ -205,6 +205,8 @@ def _parse_timestamp(raw: Any) -> datetime | None:
     if not isinstance(raw, str) or not raw:
         return None
     try:
-        return datetime.fromisoformat(raw)
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
+    # A step duration subtracts two of these, and Python raises TypeError when only one of them has an offset.
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
