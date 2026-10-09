@@ -90,15 +90,8 @@ class LabelReview:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
 
     def _refuse_bot_label(self, integration: Integration) -> None:
+        # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
-        github_api_request(
-            "POST",
-            f"/repos/{self.repository}/issues/{self.pr_number}/comments",
-            token=token,
-            installation_id=self.installation_id,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json={"body": BOT_LABEL_COMMENT},
-        )
         try:
             github_api_request(
                 "DELETE",
@@ -110,6 +103,14 @@ class LabelReview:
         except GitHubAPIError as error:
             if error.status != 404:
                 raise
+        github_api_request(
+            "POST",
+            f"/repos/{self.repository}/issues/{self.pr_number}/comments",
+            token=token,
+            installation_id=self.installation_id,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json={"body": BOT_LABEL_COMMENT},
+        )
 
     def start(self) -> None:
         # The temporal package registers the activities, which pull in the sandbox runtime.
