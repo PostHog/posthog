@@ -829,7 +829,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             ("remove_opt_out", PreferenceStatus.OPTED_IN),
         ]
     )
-    @patch("products.messaging.backend.tasks.sync_preferences_to_customerio")
+    @patch("products.messaging.backend.tasks.tasks.sync_preferences_to_customerio")
     def test_opt_out_writes_are_synced_to_customerio(self, endpoint, expected_status, mock_sync):
         # Exercises the whole dispatch chain: the view enqueues the task on commit, and the
         # task (eager in tests) reads the row back and calls the sync service.
