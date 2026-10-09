@@ -242,11 +242,14 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconRefresh />}
-                            loading={props.evaluationState.loading}
+                            loading={props.evaluationState.loading || props.refreshing}
                             disabledReason={
                                 props.evaluationState.scoring ? 'Wait for judging to be submitted.' : undefined
                             }
-                            onClick={() => props.loadEvaluation(props.selectedComparison!.id)}
+                            onClick={() => {
+                                props.loadEvaluation(props.selectedComparison!.id)
+                                props.refreshResults(true)
+                            }}
                         >
                             Refresh status
                         </LemonButton>

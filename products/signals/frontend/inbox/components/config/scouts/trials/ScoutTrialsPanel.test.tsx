@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -10,6 +11,7 @@ import {
     signalsScoutConfigList,
     signalsScoutConfigTrialComparisonHistory,
     signalsScoutConfigTrialComparisonRetrieve,
+    signalsScoutConfigTrialEvaluationRetrieve,
     signalsScoutConfigTrialHistory,
     signalsScoutConfigTrialResult,
     signalsScoutConfigTrialSetup,
@@ -33,6 +35,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigTrialComparisonHistory: jest.fn(),
     signalsScoutConfigTrialComparisonRetrieve: jest.fn(),
+    signalsScoutConfigTrialEvaluationRetrieve: jest.fn(),
     signalsScoutConfigTrialHistory: jest.fn(),
     signalsScoutConfigTrialResult: jest.fn(),
     signalsScoutConfigTrialSetup: jest.fn(),
@@ -148,6 +151,30 @@ describe('ScoutTrialsPanel', () => {
             expect(screen.getByText('Download report').closest('button')?.getAttribute('aria-disabled')).toBe('false')
         }
     )
+
+    it('reloads unconfirmed run results from refresh in a new judging attempt', async () => {
+        jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+            results: [trialFixtureServerComparison],
+            has_more: false,
+        })
+        jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue(trialFixtureServerComparison)
+        jest.mocked(signalsScoutConfigTrialEvaluationRetrieve).mockRejectedValue(new ApiError('Not found', 404))
+        jest.mocked(signalsScoutConfigTrialResult).mockResolvedValue({ ...trialFixtureResult, status: 'unknown' })
+
+        render(<ScoutTrialsPanel teamId={2} userId={42} />)
+
+        await userEvent.click(
+            await screen.findByText(`Trial ${trialFixtureServerComparison.comparison_id.slice(0, 8)}`)
+        )
+        await userEvent.click(await screen.findByText('Judge these runs again'))
+        await userEvent.click(screen.getByText('Prepare another judging attempt'))
+        const judge = (): HTMLElement | null => screen.getByText('Judge saved runs').closest('button')
+        await waitFor(() => expect(judge()?.getAttribute('aria-disabled')).toBe('true'))
+
+        jest.mocked(signalsScoutConfigTrialResult).mockResolvedValue(trialFixtureResult)
+        await userEvent.click(screen.getByText('Refresh status'))
+        await waitFor(() => expect(judge()?.getAttribute('aria-disabled')).toBe('false'))
+    })
 
     it('keeps the stop action available when a failed scout still has a task waiting to start', async () => {
         const comparison = {
