@@ -74,6 +74,7 @@ from products.web_analytics.backend.api.heatmaps_utils import (
     MAX_TARGET_WIDTHS,
     PREWARM_PREVIEW_WIDTH,
     PREWARM_TTL,
+    capture_image_within_limits,
     heatmaps_flag_enabled,
 )
 from products.web_analytics.backend.heatmap_preflight import BlockedBy, Framing, preflight_page
@@ -86,9 +87,6 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
-MAX_CAPTURE_IMAGE_WIDTH = 4000
-MAX_CAPTURE_IMAGE_HEIGHT = 30000
-MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
 MAX_CAPTURE_TOTAL_BYTES = 60 * 1024 * 1024
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
@@ -157,11 +155,7 @@ def _reject_oversized_capture_image(image_bytes: bytes) -> None:
             width, height = im.size
     except Exception:
         raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
-    if (
-        width > MAX_CAPTURE_IMAGE_WIDTH
-        or height > MAX_CAPTURE_IMAGE_HEIGHT
-        or width * height > MAX_CAPTURE_IMAGE_PIXELS
-    ):
+    if not capture_image_within_limits(width, height):
         raise ValidationError(code="image_too_large", detail="Screenshot dimensions are too large to process")
 
 
