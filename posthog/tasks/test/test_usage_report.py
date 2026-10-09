@@ -2,6 +2,7 @@ import gzip
 import json
 import base64
 import dataclasses
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -2377,6 +2378,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("logs_bytes", "logs_bytes_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
             ("posthog_code_credits", "posthog_code_credits_used_in_period"),
+            ("cloud_agents_credits", "cloud_agents_credits_used_in_period"),
         ]
     )
     def test_has_non_zero_usage(self, _name: str, non_zero_field: str | None) -> None:
@@ -5058,7 +5060,10 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_credits_only_counts_posthog_code_events(self, mock_region: MagicMock) -> None:
         """The posthog_code query only counts generations tagged ai_product='posthog_code'."""
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+        from posthog.tasks.usage_report import (
+            get_teams_with_cloud_agents_token_credits_used_in_period,
+            get_teams_with_posthog_code_credits_used_in_period,
+        )
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -5116,12 +5121,29 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             },
         )
 
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_cloud_agents",
+            timestamp=period.start + relativedelta(hours=4),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_cloud_agents",
+                "$ai_total_cost_usd": 3.0,
+                "$ai_billable": True,
+                "ai_product": "cloud_agents",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
         flush_persons_and_events()
 
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
+        cloud_agents_result = get_teams_with_cloud_agents_token_credits_used_in_period(period.start, period.end)
 
         # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
         self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 200)])
+        self.assertEqual(cloud_agents_result, [(self.org_1_team_1.id, 300)])
 
     @parameterized.expand(
         [
@@ -5182,8 +5204,10 @@ class TestTaskSandboxUsageReport(APIBaseTest):
         TaskRun = apps.get_model("tasks", "TaskRun")
         SandboxSession = apps.get_model("tasks", "SandboxSession")
 
-        task = Task.objects.create(team=self.team, title="t", description="", origin_product="user_created")
-        run = TaskRun.objects.create(task=task, team=self.team)
+        run = overrides.pop("task_run", None)
+        if run is None:
+            task = Task.objects.create(team=self.team, title="t", description="", origin_product="user_created")
+            run = TaskRun.objects.create(task=task, team=self.team)
         defaults: dict = {
             "team": self.team,
             "task_run": run,
@@ -5217,6 +5241,67 @@ class TestTaskSandboxUsageReport(APIBaseTest):
         self.assertEqual(usage.seconds, [(self.team.id, 7 * 3600)])
         self.assertEqual(usage.cpu_core_seconds, [(self.team.id, 7 * 3600 * 4)])
         self.assertEqual(usage.memory_gib_seconds, [(self.team.id, 7 * 3600 * 16)])
+
+    def test_cloud_agents_and_desktop_compute_do_not_move_each_other(self) -> None:
+        from posthog.tasks.usage_report import (
+            get_teams_with_billable_sandbox_compute_usage_in_period,
+            get_teams_with_cloud_agents_compute_usage_in_period,
+        )
+
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        begin, end = datetime(2026, 10, 2, tzinfo=UTC), datetime(2026, 10, 3, tzinfo=UTC)
+        hour = {
+            "created_at": begin + timedelta(hours=1),
+            "user_attributed_at": begin + timedelta(hours=1),
+            "ended_at": begin + timedelta(hours=2),
+        }
+        desktop_before = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
+        self._session(origin_product="user_created", client_provenance="posthog_desktop", **hour)
+        desktop_only = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
+        cloud_agents_before = get_teams_with_cloud_agents_compute_usage_in_period(begin, end)
+
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="",
+            origin_product="cloud_agents",
+            client_provenance="cloud_agents",
+            internal=True,
+        )
+        self._session(
+            task_run=TaskRun.objects.create(task=task, team=self.team),
+            origin_product="cloud_agents",
+            client_provenance="cloud_agents",
+            **hour,
+        )
+
+        assert desktop_before.credits == [] and cloud_agents_before.credits == []
+        # One hour of 4 vCPU and 16 GiB: 154 credits at the Desktop card, 37 at the Cloud Agents card.
+        assert desktop_only.credits == [(self.team.id, 154)]
+        assert get_teams_with_billable_sandbox_compute_usage_in_period(begin, end) == desktop_only
+        assert get_teams_with_cloud_agents_compute_usage_in_period(begin, end).credits == [(self.team.id, 37)]
+
+    def test_team_report_keeps_cloud_agents_and_desktop_credits_apart(self) -> None:
+        from posthog.tasks.usage_report import _get_team_report
+
+        all_data: dict[str, dict[int, int]] = defaultdict(dict)
+        all_data["teams_with_posthog_code_credits_used_in_period"] = {self.team.id: 200}
+        all_data["teams_with_sandbox_compute_credits_used_in_period"] = {self.team.id: 154}
+        without_cloud_agents = _get_team_report(all_data, self.team)
+        all_data["teams_with_cloud_agents_token_credits_used_in_period"] = {self.team.id: 300}
+        all_data["teams_with_cloud_agents_compute_credits_used_in_period"] = {self.team.id: 37}
+
+        report = _get_team_report(all_data, self.team)
+
+        assert report.cloud_agents_credits_used_in_period == 337
+        assert report.cloud_agents_token_credits_used_in_period == 300
+        assert report.cloud_agents_compute_credits_used_in_period == 37
+        assert report.posthog_code_credits_used_in_period == 354
+        assert report.posthog_code_token_credits_used_in_period == 200
+        assert report.sandbox_compute_credits_used_in_period == 154
+        assert without_cloud_agents.posthog_code_credits_used_in_period == 354
+        assert without_cloud_agents.cloud_agents_credits_used_in_period == 0
 
     def test_has_non_zero_usage_counts_task_sandbox_seconds(self) -> None:
         import dataclasses

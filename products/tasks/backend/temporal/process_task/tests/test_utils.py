@@ -10,6 +10,7 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
 )
+from products.tasks.backend.logic.model_access import inference_billing_for_state
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
@@ -69,11 +70,36 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
 class TestRunStateModelAccess(SimpleTestCase):
     @parameterized.expand(
         [
-            ({}, "posthog-gateway", None),
+            ({}, "posthog-gateway", None, None, "posthog"),
+            ({"claude_subscription_source": "server"}, "posthog-gateway", None, None, "posthog"),
             (
                 {"claude_model_access": "own-subscription", "claude_subscription_user_id": 12},
                 "own-subscription",
                 "claude",
+                None,
+                "own_subscription",
+            ),
+            (
+                {
+                    "claude_model_access": "own-subscription",
+                    "claude_subscription_source": "server",
+                    "claude_subscription_user_id": 12,
+                },
+                "own-subscription",
+                "claude",
+                "claude_subscription",
+                "own_subscription",
+            ),
+            (
+                {
+                    "claude_model_access": "own-subscription",
+                    "claude_subscription_source": "unknown",
+                    "claude_subscription_user_id": 12,
+                },
+                "own-subscription",
+                "claude",
+                None,
+                "own_subscription",
             ),
             (
                 {
@@ -83,14 +109,24 @@ class TestRunStateModelAccess(SimpleTestCase):
                 },
                 "own-subscription",
                 "codex",
+                "codex",
+                "own_subscription",
             ),
         ]
     )
-    def test_decodes_legacy_fields(self, state: dict, kind: str, adapter: str | None) -> None:
+    def test_decodes_model_access(
+        self, state: dict, kind: str, adapter: str | None, credential_kind: str | None, billing: str
+    ) -> None:
         access = RunState.model_validate(state).model_access
         assert access.kind == kind
         assert access.adapter == adapter
         assert access.owner_id == (12 if adapter else None)
+        assert access.credential_kind == credential_kind
+        assert access.uses_stored_claude_subscription is (credential_kind == "claude_subscription")
+        assert access.billing == billing
+        assert inference_billing_for_state(state) == billing
+        for candidate in ("claude", "codex"):
+            assert access.access_for(candidate) == (kind if candidate == adapter else "posthog-gateway")
 
     @parameterized.expand(
         [

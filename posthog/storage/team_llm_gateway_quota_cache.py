@@ -33,7 +33,12 @@ logger = structlog.get_logger(__name__)
 # Strings so this module does not import the billing package at load time; a test pins them to QuotaResource.
 AI_CREDITS_BUCKET = "ai_credits"
 POSTHOG_CODE_CREDITS_BUCKET = "posthog_code_credits"
-AI_GATEWAY_QUOTA_BUCKETS: tuple[str, ...] = (AI_CREDITS_BUCKET, POSTHOG_CODE_CREDITS_BUCKET)
+CLOUD_AGENTS_CREDITS_BUCKET = "cloud_agents_credits"
+AI_GATEWAY_QUOTA_BUCKETS: tuple[str, ...] = (
+    AI_CREDITS_BUCKET,
+    POSTHOG_CODE_CREDITS_BUCKET,
+    CLOUD_AGENTS_CREDITS_BUCKET,
+)
 
 LLM_GATEWAY_QUOTA_VERSION = 1
 

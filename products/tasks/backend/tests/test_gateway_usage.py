@@ -10,15 +10,17 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from products.tasks.backend.facade.billing import TaskRunCost, get_task_cost, get_task_run_cost
+from products.tasks.backend.constants import COMPUTE_WAIVED_REASON_STATE_KEY
+from products.tasks.backend.facade.billing import TaskRunCost, get_task_cost, get_task_run_billing, get_task_run_cost
 from products.tasks.backend.logic.services.gateway_usage import (
     process_pending_gateway_usage,
     record_gateway_routing,
     record_generation_request,
     refresh_task_run_cost,
 )
-from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
-from products.tasks.backend.models import SandboxSession, Task, TaskRun
+from products.tasks.backend.logic.services.sandbox_pricing import CLOUD_AGENTS_RATE_CARD, COMPUTE_RATE_CARDS
+from products.tasks.backend.logic.services.sandbox_usage import waive_run_sandbox_sessions
+from products.tasks.backend.models import SandboxSession, Task, TaskClientProvenance, TaskRun
 
 
 @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example.com/v1", SANDBOX_AI_GATEWAY_MINT_KEY="phs_test")
@@ -255,6 +257,139 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["compute_cost"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_cost", "compute_cost"}
+
+    def _cloud_agents_task(self, *, billed: bool = True) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Cloud agent",
+            description="",
+            origin_product=Task.OriginProduct.CLOUD_AGENTS,
+            client_provenance=TaskClientProvenance.CLOUD_AGENTS if billed else None,
+            internal=True,
+        )
+
+    def _hour_session(
+        self, run: TaskRun, sandbox_id: str, *, closed: bool = True, **overrides: object
+    ) -> SandboxSession:
+        # One hour of a 4 vCPU and 16 GiB box is $0.368 at the Cloud Agents price.
+        start = timezone.now() - timedelta(hours=3)
+        return SandboxSession.objects.for_team(self.team.id).create(
+            **{
+                "team": self.team,
+                "task_run": run,
+                "sandbox_id": sandbox_id,
+                "origin_product": run.task.origin_product,
+                "client_provenance": run.task.client_provenance,
+                "cpu_cores": 4,
+                "memory_gb": 16,
+                "ttl_seconds": 6 * 3600,
+                "created_at": start,
+                "ttl_expires_at": start + timedelta(hours=6),
+                "user_attributed_at": start,
+                "ended_at": start + timedelta(hours=1) if closed else None,
+                **overrides,
+            }
+        )
+
+    def test_cloud_agents_task_cost_sums_every_run_at_the_box_size(self) -> None:
+        task = self._cloud_agents_task()
+        first = self._run(task=task, status=TaskRun.Status.COMPLETED)
+        resumed = self._run(task=task, status=TaskRun.Status.COMPLETED)
+        # A burstable floor is recorded on the first session and must not lower its price.
+        self._hour_session(first, "first", burstable=True, cpu_request_cores=0.5, memory_request_mb=1024)
+        self._hour_session(resumed, "resumed")
+
+        assert get_task_run_cost(run_id=first.id, team_id=self.team.id).compute_cost == 37
+        assert refresh_task_run_cost(run_id=resumed.id, team_id=self.team.id).compute_cost == 37
+        assert get_task_cost(team_id=self.team.id, task_id=task.id).compute_cost == 74
+
+        billing = get_task_run_billing(team_id=self.team.id, task_id=task.id)
+        assert billing.compute_cost_cents == 74
+        assert billing.inference_cost_cents == 0
+        assert (billing.vcpu_seconds, billing.gib_seconds) == (Decimal(28_800), Decimal(115_200))
+        assert (billing.billable, billing.waived, billing.settled) == (True, False, True)
+        assert billing.inference_billing == "posthog"
+        assert billing.rate_card_version == CLOUD_AGENTS_RATE_CARD.version
+        assert [(s.cpu_cores, s.memory_gb, s.seconds, s.cost_cents, s.waived) for s in billing.sessions] == [
+            (4, 16, 3600, 37, False)
+        ] * 2
+
+    def test_waived_cloud_agents_run_costs_nothing(self) -> None:
+        task = self._cloud_agents_task()
+        failed = self._run(task=task, status=TaskRun.Status.FAILED)
+        resumed = self._run(task=task, status=TaskRun.Status.COMPLETED)
+        self._hour_session(failed, "failed")
+        self._hour_session(resumed, "resumed")
+        waive_run_sandbox_sessions(failed.id, self.team.id, "SandboxProvisionError")
+
+        assert get_task_run_cost(run_id=failed.id, team_id=self.team.id).compute_cost == 0
+        assert refresh_task_run_cost(run_id=failed.id, team_id=self.team.id).compute_cost == 0
+        assert get_task_cost(team_id=self.team.id, task_id=task.id).compute_cost == 37
+        billing = get_task_run_billing(team_id=self.team.id, task_id=task.id)
+        assert billing.compute_cost_cents == 37
+        assert billing.waived is True
+        assert (billing.vcpu_seconds, billing.gib_seconds) == (Decimal(14_400), Decimal(57_600))
+        assert [(s.cost_cents, s.waived) for s in billing.sessions] == [(0, True), (37, False)]
+
+    def test_waiver_never_changes_the_cost_of_another_product(self) -> None:
+        run = self._run(status=TaskRun.Status.FAILED)
+        self._hour_session(run, "desktop")
+        before = get_task_run_cost(run_id=run.id, team_id=self.team.id)
+        assert waive_run_sandbox_sessions(run.id, self.team.id, "SandboxProvisionError") is False
+        TaskRun.update_state_atomic(run.id, updates={COMPUTE_WAIVED_REASON_STATE_KEY: "SandboxProvisionError"})
+
+        assert before.compute_cost
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id) == before
+        assert get_task_run_billing(team_id=self.team.id, task_id=run.task_id).waived is False
+
+    @parameterized.expand(
+        [
+            ("open_session", False, [], TaskRun.Status.COMPLETED, False),
+            ("pending_gateway_usage", True, ["request-1"], TaskRun.Status.COMPLETED, False),
+            ("active_run", True, [], TaskRun.Status.IN_PROGRESS, False),
+            ("all_closed", True, [], TaskRun.Status.COMPLETED, True),
+        ]
+    )
+    def test_billing_is_settled_only_when_nothing_can_change(
+        self, _name: str, closed: bool, pending: list[str], status: str, settled: bool
+    ) -> None:
+        run = self._run(task=self._cloud_agents_task(), status=status)
+        self._hour_session(run, "sandbox", closed=closed)
+        self._report(run, pending)
+
+        billing = get_task_run_billing(team_id=self.team.id, task_id=run.task_id)
+
+        assert billing.settled is settled
+        assert (billing.inference_cost_cents is None) is bool(pending)
+
+    def test_unbilled_internal_cloud_agents_run_reports_its_compute_at_the_cloud_agents_price(self) -> None:
+        run = self._run(task=self._cloud_agents_task(billed=False), status=TaskRun.Status.COMPLETED)
+        self._hour_session(run, "internal")
+
+        billing = get_task_run_billing(team_id=self.team.id, task_id=run.task_id)
+
+        assert billing.billable is False
+        assert billing.compute_cost_cents == 37
+        assert billing.rate_card_version == CLOUD_AGENTS_RATE_CARD.version
+
+    @parameterized.expand(
+        [
+            ("claude_subscription", {"claude_model_access": "own-subscription"}),
+            ("chatgpt_subscription", {"runtime_adapter": "codex", "codex_model_access": "own-subscription"}),
+        ]
+    )
+    def test_inference_on_the_owners_subscription_has_no_inference_cost(
+        self, _name: str, state: dict[str, str]
+    ) -> None:
+        run = self._run(task=self._cloud_agents_task(), status=TaskRun.Status.COMPLETED)
+        TaskRun.update_state_atomic(run.id, updates=state)
+        self._hour_session(run, "own")
+
+        billing = get_task_run_billing(team_id=self.team.id, task_id=run.task_id)
+
+        assert billing.inference_billing == "own_subscription"
+        assert billing.inference_cost_cents is None
+        assert billing.compute_cost_cents == 37
 
     @patch("aiohttp.ClientSession._request")
     def test_accounting_after_completion_has_no_completion_side_effects(self, get: Mock) -> None:

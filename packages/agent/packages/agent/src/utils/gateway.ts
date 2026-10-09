@@ -3,6 +3,7 @@ import { getCloudTaskGatewayUrl } from "@posthog/agent-contracts";
 export type GatewayProduct =
   | "posthog_code"
   | "background_agents"
+  | "cloud_agents"
   | "signals"
   | "slack_app"
   | "workflows"
@@ -14,10 +15,19 @@ export type GatewayProduct =
 export function resolveGatewayProduct({
   isInternal,
   originProduct,
+  clientProvenance,
 }: {
   isInternal?: boolean;
   originProduct?: string | null;
+  clientProvenance?: string | null;
 } = {}): GatewayProduct {
+  // Every Cloud Agents task is internal, so `isInternal` cannot separate a billed run. The
+  // provenance stamp does: a run without it is PostHog's own work and stays unbilled.
+  if (originProduct === "cloud_agents") {
+    return clientProvenance === "cloud_agents"
+      ? "cloud_agents"
+      : "background_agents";
+  }
   // Every signals origin belongs here: their tokens are minted under the Signals OAuth
   // application, and no other product authorizes it — an unmapped origin falls through to
   // posthog_code and the gateway rejects the token.
@@ -52,11 +62,13 @@ export function resolveGatewayProduct({
 
 // The legacy gateway's review_hog product is API-key-only, so sandbox OAuth
 // tokens 403 on that slug; the legacy leg, including the mint-failure
-// fallback, uses background_agents.
+// fallback, uses background_agents. The legacy gateway has no cloud_agents
+// product, so that leg uses background_agents too.
 const LEGACY_PRODUCT_OVERRIDES: Partial<
   Record<GatewayProduct, GatewayProduct>
 > = {
   review_hog: "background_agents",
+  cloud_agents: "background_agents",
 };
 
 function legacyProduct(product: GatewayProduct): GatewayProduct {

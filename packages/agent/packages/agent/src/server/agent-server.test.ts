@@ -3768,6 +3768,103 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
+    it.each([
+      ["a stored Claude subscription", "sk-ant-oat01-fake-stored-token"],
+      ["a missing stored Claude subscription", null],
+    ] as const)(
+      "starts a Claude session on %s with the run token, without the relay or the gateway",
+      async (_name, secret) => {
+        const credential = "claude_subscription";
+        const credentialRequests: { body: unknown; runToken: string | null }[] =
+          [];
+        mswServer.use(
+          http.post(
+            "http://localhost:8000/api/projects/1/tasks/test-task-id/runs/test-run-id/subscription_token/",
+            async ({ request }) => {
+              credentialRequests.push({
+                body: await request.json(),
+                runToken: request.headers.get("X-Task-Run-Token"),
+              });
+              return secret === null
+                ? HttpResponse.json(
+                    { code: "credential_missing", error: "none" },
+                    { status: 404 },
+                  )
+                : HttpResponse.json({ credential, secret });
+            },
+          ),
+        );
+        mockedClaudeSdk.query.mockClear();
+        const s = createServer({
+          claudeModelAccess: "own-subscription",
+          claudeSubscriptionSource: "server",
+          codexRunToken: "run-token",
+        });
+        const { app } = s as unknown as {
+          app: { fetch(request: Request): Promise<Response> | Response };
+        };
+        const response = await app.fetch(
+          new Request("http://localhost/events", {
+            headers: { Authorization: `Bearer ${createToken()}` },
+          }),
+        );
+        if (!response.body) throw new Error("Expected an event stream");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let received = "";
+        try {
+          if (secret === null) {
+            await vi.waitFor(async () => {
+              const failed = await app.fetch(
+                new Request("http://localhost/health"),
+              );
+              expect((await failed.json()).failureCode).toBe(
+                "claude_credential_unavailable",
+              );
+            });
+            expect(mockedClaudeSdk.query).not.toHaveBeenCalled();
+          } else {
+            while (!received.includes('"type":"connected"')) {
+              const chunk = await reader.read();
+              if (chunk.done)
+                throw new Error("Event stream ended before initialization");
+              received += decoder.decode(chunk.value, { stream: true });
+            }
+            const sdkRequest = mockedClaudeSdk.query.mock
+              .lastCall?.[0] as unknown as {
+              options: {
+                env: Record<string, string>;
+                settings: { env: Record<string, string> };
+              };
+            };
+            expect(sdkRequest.options.settings.env).toMatchObject({
+              ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+              CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+            });
+            expect(sdkRequest.options.env.ANTHROPIC_BASE_URL).toBeUndefined();
+            expect(
+              sdkRequest.options.env.ANTHROPIC_CUSTOM_HEADERS,
+            ).toBeUndefined();
+            expect(
+              JSON.stringify([
+                sdkRequest.options.env,
+                sdkRequest.options.settings,
+              ]),
+            ).not.toMatch(/x-posthog|sk-ant-/i);
+            expect(JSON.stringify(appendLogCalls)).not.toContain(secret);
+          }
+          expect(received).not.toContain("credential_request");
+          expect(received).not.toContain("sk-ant-");
+          expect(credentialRequests).toEqual([
+            { body: { credential }, runToken: "run-token" },
+          ]);
+        } finally {
+          await reader.cancel().catch(() => undefined);
+        }
+      },
+      20000,
+    );
+
     it("returns 401 without authorization", async () => {
       await createServer().start();
 

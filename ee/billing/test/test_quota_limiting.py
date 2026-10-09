@@ -2363,6 +2363,9 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
         replay_vision_credits=0,
+        cloud_agents_credits=0,
+        cloud_agents_token_credits=0,
+        cloud_agents_compute_credits=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]
     return base
@@ -2610,6 +2613,9 @@ class TestPatchTodaysUsage(BaseTest):
 
     def test_patches_desktop_components_without_changing_units_or_double_counting(self) -> None:
         self.organization.usage = {
+            "cloud_agents_credits": {"usage": 50, "limit": 1_000, "todays_usage": 0},
+            "cloud_agents_token_credits": {"usage": 30, "limit": None, "todays_usage": 0},
+            "cloud_agents_compute_credits": {"usage": 20, "limit": None, "todays_usage": 0},
             "posthog_code_credits": {"usage": 100, "limit": 2_000, "todays_usage": 0},
             "posthog_code_token_credits": {"usage": 80, "limit": None, "todays_usage": 0},
             "sandbox_compute_credits": {"usage": 20, "limit": None, "todays_usage": 0},
@@ -2632,12 +2638,18 @@ class TestPatchTodaysUsage(BaseTest):
             sandbox_compute_credits=3,
             sandbox_compute_cpu_millicore_seconds=9_876_543_210,
             sandbox_compute_memory_mib_seconds=7_654_321_098,
+            cloud_agents_credits=9,
+            cloud_agents_token_credits=5,
+            cloud_agents_compute_credits=4,
         )
 
         assert _patch_todays_usage(self.organization, todays_usage) is True
         assert _patch_todays_usage(self.organization, todays_usage) is False
 
         self.organization.refresh_from_db()
+        assert self.organization.usage["cloud_agents_credits"]["todays_usage"] == 9
+        assert self.organization.usage["cloud_agents_token_credits"]["todays_usage"] == 5
+        assert self.organization.usage["cloud_agents_compute_credits"]["todays_usage"] == 4
         assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
         assert self.organization.usage["posthog_code_token_credits"]["todays_usage"] == 12
         assert self.organization.usage["sandbox_compute_credits"]["todays_usage"] == 3

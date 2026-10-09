@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+
 /**
  * How many projects a breakdown by project shows individually before the rest are folded
  * into one "all other projects" series. Shared by the usage and spend dashboards so the two
@@ -53,6 +55,7 @@ export const SPEND_TYPES = [
     { label: 'Self-driving inbox credits', value: 'signals_credits_used_in_period' },
     { label: 'PostHog Desktop credits', value: 'posthog_code_credits_used_in_period' },
     { label: 'Replay vision credits', value: 'replay_vision_credits_used_in_period' },
+    { label: 'Cloud agents credits', value: 'cloud_agents_credits_used_in_period' },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
@@ -65,6 +68,8 @@ export const USAGE_ONLY_TYPES = [
     { label: 'Cloud compute spend (USD)', value: 'sandbox_compute_credits_used_in_period' },
     { label: 'Cloud compute CPU (core-seconds)', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
     { label: 'Cloud compute memory (GiB-seconds)', value: 'sandbox_compute_memory_mib_seconds_in_period' },
+    { label: 'Cloud agents token spend (USD)', value: 'cloud_agents_token_credits_used_in_period' },
+    { label: 'Cloud agents compute spend (USD)', value: 'cloud_agents_compute_credits_used_in_period' },
 ] as const
 
 export const USAGE_TYPES = [...SPEND_TYPES, ...USAGE_ONLY_TYPES] as const
@@ -73,6 +78,13 @@ export type UsageTypeOption = (typeof USAGE_TYPES)[number]
 export type UsageTypeValue = UsageTypeOption['value']
 
 export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.value)
+
+// The usage types of a product that is behind a feature flag. The filters offer one only when its flag is on.
+export const FLAG_GATED_USAGE_TYPES: Partial<Record<UsageTypeValue, FeatureFlagKey>> = {
+    cloud_agents_credits_used_in_period: FEATURE_FLAGS.CLOUD_AGENTS,
+    cloud_agents_token_credits_used_in_period: FEATURE_FLAGS.CLOUD_AGENTS,
+    cloud_agents_compute_credits_used_in_period: FEATURE_FLAGS.CLOUD_AGENTS,
+}
 
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
 // in sync with billing_end_date of data_pipelines in billing plans config

@@ -9228,6 +9228,54 @@ snapshots:
         hash: v1.k794b7964.6dfdfa963cd528d998f0fec6cad0e97b3d999d584c03513cb02aaebfac0df7b1.p1pRi00v4RXJ6t8fXTtzfgLTTMnU0-efeu_N-yFdeL8
     scenes-app-businessknowledge-knowledgesourcenamecell--user-text--light:
         hash: v1.k794b7964.fba04716b8f344e21fa3bb2ec69e627bd9836ff2161986538ac2b562973b0edc.Xl-YJ8Poqz1nofU4nIyAfnM4GbZZ1YYtbM37mIzZ4w4
+    scenes-app-cloud-agents--new-run-modal--dark:
+        hash: v1.k794b7964.56e624d3cca352c08d2579adcefa66ead893d42c4f5ff1cf7a0d1ca9e11c2ecd.sEG1QDjhJ0RWj0uCmtvUgX5P27smRSAAOmYQAaOKEiw
+    scenes-app-cloud-agents--new-run-modal--light:
+        hash: v1.k794b7964.b888b1b2a12eb45f68602541f317aaefeb4a33ba1dae4bede2feca5be006600f.m8FuMkJ_rlhTO9U5kv5k_bNZRABQ32BnajTVcmILTOQ
+    scenes-app-cloud-agents--preset-edit--dark:
+        hash: v1.k794b7964.0814f5cd9f8043cf4a21abc3059f479cb7e23d6922bd8f78002987f75674bb5b.PEaDeM9nB1H2i5t1wutGkUFDbUgeEIA-mw3C0S6Z7NQ
+    scenes-app-cloud-agents--preset-edit--light:
+        hash: v1.k794b7964.b3cd652924936a6506fe528ce1f83e37f006781958cfdbbeadf9441f6d5b2fae.R_AQ8_gRGzBrTSQrXyrdOTLnAa9TkvUquvv5GNU2j8w
+    scenes-app-cloud-agents--presets--dark:
+        hash: v1.k794b7964.f13505adc2cdc406c15f1b49b51f4bee8858a539c0b9bc1d57555e9ea4e20daf.R7tQDLlX6zmmgi4MTA6_pwjiOAaSC6C1ufYHkDa3QoQ
+    scenes-app-cloud-agents--presets--light:
+        hash: v1.k794b7964.0d311e610bdc676bae2af245e578ba0857c810c0d73e387a936590e5e2193052.JAcTM8QHPGu-MNZOMpXZlSSOhQJfh5VE-xnqkaRqcHw
+    scenes-app-cloud-agents--run-completed-with-pr--dark:
+        hash: v1.k794b7964.4a8df0caeebceac9e3d53d2af2a0b4fa72ad89c0518c0fec048478ef7646ca28.BVEWgjOMWKtG0ZlhvUCLweyBbL_bHdTE4c73wDRcZvw
+    scenes-app-cloud-agents--run-completed-with-pr--light:
+        hash: v1.k794b7964.91a625b2a7208e375c98c589c4baf99abb5afbef60a8ae9e01622778e93d418a.C8YOizFjaxdvwDACLiOKSwrJ55E5mkzHetxVU_C9DFM
+    scenes-app-cloud-agents--run-done-merged--dark:
+        hash: v1.k794b7964.2384b83aee590915219fe49ed85194b992bd77b0f8a134998d8f0d846d044e77.K4fCPpN0pu8PDssqzpq0REqkfCiyvZf5BzAnCq4Pc9U
+    scenes-app-cloud-agents--run-done-merged--light:
+        hash: v1.k794b7964.23142440a64a691402188a3bdd0d147bf97f8b1a1edf78d2718830bcfced2034.2C_ZWw_ZJ4LuWjswumkHPgBVdOOocTiU_XPXG46rqKc
+    scenes-app-cloud-agents--run-failed--dark:
+        hash: v1.k794b7964.fb721e40e7ca34f5b4cdf56e1db8f38453d4e6276af077ee80ffaa62e024219e.43bJHL189WRAbI4sOu3WAuxnq-94SYBVjhKYm0pYPIw
+    scenes-app-cloud-agents--run-failed--light:
+        hash: v1.k794b7964.0aedd0464122899b657fd22f86cd52ae87c2c9131ee2d03256dff1e73f4ee974.lyE5ZtF4IN-CeitVCaSQF75N2Ger5UObLUeTeqB_ymM
+    scenes-app-cloud-agents--run-on-own-subscription--dark:
+        hash: v1.k794b7964.0e862d8e13c339b4da39f53def3a63a2bd4b2e33ef9e85ba7a5eee8f185ae3ea.NnQmHN3c3nqZISwdbC2zORHcsfZbW62HTnz6xxj5J3I
+    scenes-app-cloud-agents--run-on-own-subscription--light:
+        hash: v1.k794b7964.6bccf470f76841048eb7c9a35300359b0adbd6fe12927f98261ec6489c22533a.IpeQPCFf_ZUZu0QUfRSCL-p6uyFMkXv0TgIl8nIeqNc
+    scenes-app-cloud-agents--run-running--dark:
+        hash: v1.k794b7964.689584ab7e9deaf92d93f9f7879cca36883a12294a8e18549d1fc12612f11c82.yGD9IMFlzErtzBP4bpOJE3oea1VSwZCjBcCxM14rVvE
+    scenes-app-cloud-agents--run-running--light:
+        hash: v1.k794b7964.aef00ca12acbe85952b02a28921d9f500e46399ccee00bac3ade9eeb49e47735.ybabS31KW4lcoVGDjGk-JcWkzOPHVwN67LAWL5fevJM
+    scenes-app-cloud-agents--runs-empty--dark:
+        hash: v1.k794b7964.0bad1bc38a5b28ec6066e27a9594a8d2a32e775f99854005af5740e1fbcd979f.r9raCsrYjYl1iL44G1zGNpLGn2vERv2N8yohLesV9VA
+    scenes-app-cloud-agents--runs-empty--light:
+        hash: v1.k794b7964.b25f0a4976a02ac9a63b1e79a3d4ddd367ff583fdd07e5bf389df2b12ea6c4da.VjXm1QQNT1WIlUneumiTMFmgCM7I8QsRZInFlOdajcg
+    scenes-app-cloud-agents--runs-list--dark:
+        hash: v1.k794b7964.b7ebb74f091304d89176757c1fe68507a7a1ea691905a9e010fb9c30c69570b2.6UG0rK9SNjfaGPYnBbJaCarM3dzA0JQbhNvTUh3NwRc
+    scenes-app-cloud-agents--runs-list--light:
+        hash: v1.k794b7964.e7454b7846b3aebd1bfac1c8bc6970e1b48011605d6cc4b6bca99707272da569.CT0qzRKH_04RoL7h3uDYMefi-2KkKXBJLAQwzIkZAnk
+    scenes-app-cloud-agents--settings--dark:
+        hash: v1.k794b7964.67afeeb063561d576778b8f50afba3033abf67108a45ee9232ef58a30717a30b.jaGE6DBI4Yr0ZEq2nu1x48PzvU_-oWjEf5golqJzvHs
+    scenes-app-cloud-agents--settings--light:
+        hash: v1.k794b7964.d59c5c9bde423d6d731ca92e0cd45471d21b46d456fe38387ab9a79f43f52d62.O99l25o-s4wC3X2WZ7OVKo46xMnCZ2YgLs0tI0cciHI
+    scenes-app-cloud-agents--usage--dark:
+        hash: v1.k794b7964.83d500803dc2694a88d55e476e6a474000c344a65d424b7b5e34501f7717e148.VpeGq4gGvyUACbq-K694Qx7k0KG5J5ITszLnGBVcIAM
+    scenes-app-cloud-agents--usage--light:
+        hash: v1.k794b7964.a0c50a28c6d94dfe8946eab90bbdfdc6e9e09af0105da8dc8b400237e18b836f.PoMVvoLvcvrdADAyslzFyRf0PUYe8vGHWC6ykKHjzS4
     scenes-app-customer-analytics-account-detail--churned-and-ignored--dark:
         hash: v1.k794b7964.9c6436aba85f3a114d4a5d7cec25c188131dfb1963f637f43fa6da973d34ae6c.ofneyf9YQP_TSCsA6KbPXDKXjqEC2xyeHfljSG957Bc
     scenes-app-customer-analytics-account-detail--churned-and-ignored--light:

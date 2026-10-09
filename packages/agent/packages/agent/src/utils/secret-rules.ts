@@ -23,6 +23,16 @@ export const TOKEN_RULES: TokenRule[] = [
     body: URL_SAFE_BODY,
   },
   {
+    label: "openai project api key",
+    prefix: "sk-proj-",
+    body: URL_SAFE_BODY,
+  },
+  {
+    label: "openai service account api key",
+    prefix: "sk-svcacct-",
+    body: URL_SAFE_BODY,
+  },
+  {
     label: "github installation token",
     prefix: "ghs_",
     body: URL_SAFE_BODY,

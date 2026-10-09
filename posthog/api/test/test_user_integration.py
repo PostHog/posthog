@@ -1830,3 +1830,217 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             == status.HTTP_403_FORBIDDEN
         )
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+
+
+CLAUDE_SUBSCRIPTION_URL = "/api/users/@me/integrations/claude_subscription/"
+FAKE_CLAUDE_TOKEN = "sk-ant-oat01-not-a-real-token-0003"
+FAKE_ANTHROPIC_KEY = "sk-ant-api03-not-a-real-key-0001"
+CLOUD_AGENTS_FLAG = "cloud-agents"
+CLAUDE_SUBSCRIPTION_STORAGE_FLAG = "cloud-agents-claude-subscription-storage"
+NOT_CONNECTED = {"status": "not_connected", "token_suffix": None, "connected_at": None, "last_used_at": None}
+
+
+class TestUserIntegrationClaudeSubscriptionEndpoints(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.flags: dict[str, bool] = {CLOUD_AGENTS_FLAG: True, CLAUDE_SUBSCRIPTION_STORAGE_FLAG: True}
+        flag = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *_args, **_kwargs: self.flags.get(key, False),
+        )
+        flag.start()
+        self.addCleanup(flag.stop)
+        cache.clear()
+
+    def _set_flags(self, cloud_agents: bool, storage: bool) -> None:
+        self.flags[CLOUD_AGENTS_FLAG] = cloud_agents
+        self.flags[CLAUDE_SUBSCRIPTION_STORAGE_FLAG] = storage
+
+    def _sandbox_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_sandbox_{uuid.uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="user:read user:write",
+            sandbox_task_id=uuid.uuid4(),
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        return client
+
+    def _connect(self, token: str = FAKE_CLAUDE_TOKEN, *, client: APIClient | None = None) -> Any:
+        return (client or self.client).post(CLAUDE_SUBSCRIPTION_URL, {"token": token}, format="json")
+
+    def _stored_token(self, user: User | None = None) -> str | None:
+        row = UserIntegration.objects.filter(user=user or self.user, kind="claude_subscription").first()
+        return row.sensitive_config["secret"] if row is not None else None
+
+    def test_connect_then_get_shows_the_suffix_and_never_the_token(self) -> None:
+        assert self.client.get(CLAUDE_SUBSCRIPTION_URL).json() == NOT_CONNECTED
+
+        response = self._connect()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert set(body) == {"status", "token_suffix", "connected_at", "last_used_at"}
+        assert (body["status"], body["token_suffix"], body["last_used_at"]) == ("connected", "0003", None)
+        assert body["connected_at"] is not None
+
+        fetched = self.client.get(CLAUDE_SUBSCRIPTION_URL)
+
+        assert fetched.status_code == status.HTTP_200_OK
+        assert fetched.json() == body
+        integration_id = UserIntegration.objects.get(user=self.user, kind="claude_subscription").integration_id
+        for content in (response.content.decode(), fetched.content.decode()):
+            assert FAKE_CLAUDE_TOKEN not in content
+            assert integration_id not in content
+        assert self._stored_token() == FAKE_CLAUDE_TOKEN
+
+    @parameterized.expand(
+        [
+            ("both_flags_on", True, True, status.HTTP_200_OK),
+            ("storage_flag_off", True, False, status.HTTP_404_NOT_FOUND),
+            ("cloud_agents_flag_off", False, True, status.HTTP_404_NOT_FOUND),
+            ("both_flags_off", False, False, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_connect_needs_both_feature_flags(
+        self, _name: str, cloud_agents: bool, storage: bool, expected_status: int
+    ) -> None:
+        self._set_flags(cloud_agents, storage)
+
+        response = self._connect()
+
+        assert response.status_code == expected_status, response.content
+        assert FAKE_CLAUDE_TOKEN not in response.content.decode()
+        stored = FAKE_CLAUDE_TOKEN if expected_status == status.HTTP_200_OK else None
+        assert self._stored_token() == stored
+
+    def test_get_and_delete_work_with_both_flags_off(self) -> None:
+        self._connect()
+        self._set_flags(False, False)
+
+        fetched = self.client.get(CLAUDE_SUBSCRIPTION_URL)
+
+        assert fetched.status_code == status.HTTP_200_OK
+        assert (fetched.json()["status"], fetched.json()["token_suffix"]) == ("connected", "0003")
+        assert self.client.delete(CLAUDE_SUBSCRIPTION_URL).status_code == status.HTTP_204_NO_CONTENT
+        assert self._stored_token() is None
+        assert self.client.get(CLAUDE_SUBSCRIPTION_URL).json() == NOT_CONNECTED
+
+    def test_connect_twice_keeps_one_row_with_the_new_token(self) -> None:
+        self._connect("sk-ant-oat01-not-a-real-token-first")
+
+        response = self._connect()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert UserIntegration.objects.filter(user=self.user, kind="claude_subscription").count() == 1
+        assert self._stored_token() == FAKE_CLAUDE_TOKEN
+        assert self.client.get(CLAUDE_SUBSCRIPTION_URL).json()["token_suffix"] == "0003"
+
+    @parameterized.expand(
+        [
+            ("anthropic_api_key", {"token": FAKE_ANTHROPIC_KEY}),
+            ("other_provider_key", {"token": "sk-proj-not-a-real-key-000000002"}),
+            ("too_short", {"token": "sk-ant-oat01"}),
+            ("too_long", {"token": "sk-ant-oat" + "a" * 1015}),
+            ("inner_whitespace", {"token": "sk-ant-oat01-not-a-real token-0005"}),
+            ("empty", {"token": ""}),
+            ("not_a_string", {"token": None}),
+            ("missing", {}),
+        ]
+    )
+    def test_connect_rejects_a_token_of_the_wrong_format(self, _name: str, payload: dict[str, Any]) -> None:
+        response = self.client.post(CLAUDE_SUBSCRIPTION_URL, payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "token"
+        if payload.get("token"):
+            assert payload["token"] not in response.content.decode()
+        assert not UserIntegration.objects.filter(user=self.user).exists()
+
+    def test_an_invalid_token_keeps_the_stored_token(self) -> None:
+        self._connect()
+
+        assert self._connect(FAKE_ANTHROPIC_KEY).status_code == status.HTTP_400_BAD_REQUEST
+        assert self._stored_token() == FAKE_CLAUDE_TOKEN
+
+    def test_delete_is_idempotent(self) -> None:
+        self._connect()
+
+        for _ in range(2):
+            assert self.client.delete(CLAUDE_SUBSCRIPTION_URL).status_code == status.HTTP_204_NO_CONTENT
+
+        assert self._stored_token() is None
+
+    @parameterized.expand([("get", "get"), ("connect", "post"), ("delete", "delete")])
+    def test_sandbox_token_cannot_read_or_change_the_subscription(self, _name: str, method: str) -> None:
+        self._connect()
+
+        response = getattr(self._sandbox_client(), method)(
+            CLAUDE_SUBSCRIPTION_URL, {"token": "sk-ant-oat01-not-a-real-token-attacker"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "token_suffix" not in response.content.decode()
+        assert self._stored_token() == FAKE_CLAUDE_TOKEN
+
+    @parameterized.expand([("member", False), ("staff", True)])
+    def test_another_user_cannot_read_replace_or_delete_the_subscription(self, _name: str, is_staff: bool) -> None:
+        self._connect()
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        other.is_staff = is_staff
+        other.save()
+        self.client.force_login(other)
+        owner_url = f"/api/users/{self.user.uuid}/integrations/claude_subscription/"
+
+        assert self.client.get(CLAUDE_SUBSCRIPTION_URL).json() == NOT_CONNECTED
+        assert self.client.get(owner_url).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.delete(owner_url).status_code == status.HTTP_403_FORBIDDEN
+        replaced = self.client.post(owner_url, {"token": "sk-ant-oat01-not-a-real-token-attacker"}, format="json")
+        assert replaced.status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.delete(CLAUDE_SUBSCRIPTION_URL).status_code == status.HTTP_204_NO_CONTENT
+        assert self._stored_token() == FAKE_CLAUDE_TOKEN
+        assert self._stored_token(other) is None
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["user:write"], status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_204_NO_CONTENT),
+            ("read_scope", ["user:read"], status.HTTP_403_FORBIDDEN, status.HTTP_200_OK, status.HTTP_403_FORBIDDEN),
+            (
+                "unrelated_scope",
+                ["insight:read"],
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_personal_api_key_needs_the_user_scope(
+        self, _name: str, scopes: list[str], connect_status: int, get_status: int, delete_status: int
+    ) -> None:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
+
+        assert self._connect(client=client).status_code == connect_status
+        assert client.get(CLAUDE_SUBSCRIPTION_URL).status_code == get_status
+        assert client.delete(CLAUDE_SUBSCRIPTION_URL).status_code == delete_status
+
+    def test_connect_is_throttled_per_user(self) -> None:
+        for _ in range(30):
+            assert self._connect().status_code == status.HTTP_200_OK
+
+        assert self._connect("sk-ant-oat01-not-a-real-token-0031").status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert self._stored_token() == FAKE_CLAUDE_TOKEN
+        assert self.client.delete(CLAUDE_SUBSCRIPTION_URL).status_code == status.HTTP_204_NO_CONTENT

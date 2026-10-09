@@ -20,7 +20,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
@@ -49,6 +49,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
+    SandboxResources,
 )
 
 if TYPE_CHECKING:
@@ -194,15 +195,6 @@ class ExecutionStream(Protocol):
     def iter_stdout(self) -> Iterable[str]: ...
 
     def wait(self) -> ExecutionResult: ...
-
-
-@dataclass(frozen=True)
-class SandboxResources:
-    """Optional compute overrides for a task's sandbox. Unset fields keep the
-    `SandboxConfig` defaults — callers pass only what they want to change."""
-
-    cpu_cores: float | None = None
-    memory_gb: float | None = None
 
 
 class SandboxConfig(BaseModel):
@@ -680,6 +672,7 @@ class SandboxBase(ABC):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token: str | None = None,
+        claude_subscription_source: str | None = None,
         sandbox_runtime: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
@@ -876,11 +869,36 @@ CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE = (
 SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
 
 
-def build_subscription_flags(claude_model_access: str | None, codex_model_access: str | None) -> str:
+# The agent-server option for a Claude plan run whose token the server holds. The launcher greps
+# the binary for the option name, as it does for the two above.
+CLAUDE_SUBSCRIPTION_SOURCE_CLI_FLAG = "--claudeSubscriptionSource"
+
+
+def required_model_access_flags(
+    claude_model_access: str | None,
+    codex_model_access: str | None,
+    claude_subscription_source: str | None = None,
+) -> list[str]:
+    """The agent-server option names that a run's model access needs the binary to support."""
     access = {"claude": claude_model_access, "codex": codex_model_access}
-    return "".join(
+    flags = [flag for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"]
+    if claude_model_access == "own-subscription" and claude_subscription_source == "server":
+        flags.append(CLAUDE_SUBSCRIPTION_SOURCE_CLI_FLAG)
+    return flags
+
+
+def build_subscription_flags(
+    claude_model_access: str | None,
+    codex_model_access: str | None,
+    claude_subscription_source: str | None = None,
+) -> str:
+    access = {"claude": claude_model_access, "codex": codex_model_access}
+    flags = "".join(
         f" {flag}" for adapter, flag in SUBSCRIPTION_CLI_FLAGS.items() if access[adapter] == "own-subscription"
     )
+    if claude_model_access == "own-subscription" and claude_subscription_source == "server":
+        flags += f" {CLAUDE_SUBSCRIPTION_SOURCE_CLI_FLAG} server"
+    return flags
 
 
 def wait_for_health_check(
@@ -1143,6 +1161,7 @@ __all__ = [
     "AgentServerResult",
     "Sandbox",
     "SandboxConfig",
+    "SandboxResources",
     "SandboxStatus",
     "SandboxTemplate",
     "ExecutionResult",

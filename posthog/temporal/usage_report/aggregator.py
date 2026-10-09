@@ -70,6 +70,23 @@ def add_pre_sandbox_compute_patch_defaults(
             all_data[key] = {}
 
 
+# A run that started before the Cloud Agents queries existed has no result for them.
+_CLOUD_AGENTS_QUERY_DESTINATION_KEYS: dict[str, tuple[str, ...]] = {
+    "teams_with_cloud_agents_token_credits_used_in_period": ("teams_with_cloud_agents_token_credits_used_in_period",),
+    "cloud_agents_compute_usage": ("teams_with_cloud_agents_compute_credits_used_in_period",),
+}
+
+
+def add_pre_cloud_agents_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    ran = {result.query_name for result in query_results}
+    for query_name, destination_keys in _CLOUD_AGENTS_QUERY_DESTINATION_KEYS.items():
+        if query_name not in ran:
+            for key in destination_keys:
+                all_data[key] = {}
+
+
 def iter_chunk_lines(
     org_reports: Iterable[OrgReport],
     instance_metadata: InstanceMetadata,

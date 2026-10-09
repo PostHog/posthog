@@ -4,10 +4,18 @@ from types import SimpleNamespace
 
 import pytest
 
+from products.tasks.backend.facade.pricing import (
+    cloud_agents_hourly_price_usd,
+    estimate_cloud_agents_compute_usd,
+    get_cloud_agents_rate_card,
+)
 from products.tasks.backend.logic.services.sandbox_pricing import (
+    CLOUD_AGENTS_RATE_CARD,
+    COMPUTE_RATE_CARDS,
     ComputeRateCard,
     ComputeRateCardConfigurationError,
     calculate_sandbox_compute_cost,
+    compute_pricing,
     validate_compute_rate_cards,
     validate_reporting_window,
 )
@@ -302,3 +310,69 @@ def test_invalid_reporting_windows_are_rejected(start, end, message):
 
 def test_reporting_window_accepts_different_aware_offsets():
     validate_reporting_window(EFFECTIVE_AT, EFFECTIVE_AT.astimezone(timezone(timedelta(hours=1))) + timedelta(1))
+
+
+CLOUD_AGENTS_START = CLOUD_AGENTS_RATE_CARD.effective_at + timedelta(days=1)
+
+
+def _cloud_agents_cost(seconds: float, **session_overrides):
+    pricing = compute_pricing("cloud_agents")
+    session = _session(
+        created_at=CLOUD_AGENTS_START,
+        user_attributed_at=CLOUD_AGENTS_START,
+        ended_at=CLOUD_AGENTS_START + timedelta(seconds=seconds),
+        ttl_expires_at=CLOUD_AGENTS_START + timedelta(days=2),
+        **session_overrides,
+    )
+    return calculate_sandbox_compute_cost(
+        session,
+        CLOUD_AGENTS_START,
+        CLOUD_AGENTS_START + timedelta(days=2),
+        calculated_at=CLOUD_AGENTS_START + timedelta(days=2),
+        rate_cards=pricing.rate_cards,
+        resource_policy=pricing.resource_policy,
+    )
+
+
+@pytest.mark.parametrize(
+    "vcpu,memory_gib,seconds,expected_usd",
+    [
+        (4, 16, 3600, "0.368"),
+        (1, 2, 3600, "0.066"),
+        (16, 64, 3600, "1.472"),
+        (1, 2, 90, "0.00165"),
+        (4, 16, 7200, "0.736"),
+    ],
+)
+def test_cloud_agents_price_is_exact_for_the_box_size(vcpu, memory_gib, seconds, expected_usd):
+    cost = _cloud_agents_cost(seconds, cpu_cores=float(vcpu), memory_gb=float(memory_gib))
+
+    assert cost.total_cost_usd == Decimal(expected_usd)
+    assert estimate_cloud_agents_compute_usd(vcpu, memory_gib, seconds) == Decimal(expected_usd)
+
+
+def test_cloud_agents_run_bills_a_started_second_in_full():
+    assert _cloud_agents_cost(89.2, cpu_cores=1.0, memory_gb=2.0).billable_seconds == 90
+    assert _cloud_agents_cost(89.2, cpu_cores=1.0, memory_gb=2.0).total_cost_usd == Decimal("0.00165")
+
+
+def test_burstable_floor_does_not_reduce_a_cloud_agents_price():
+    floors = {"burstable": True, "cpu_request_cores": 0.5, "memory_request_mb": 1024}
+
+    cloud_agents = _cloud_agents_cost(3600, cpu_cores=4.0, memory_gb=16.0, **floors)
+    desktop = _calculate(_session(ended_at=EFFECTIVE_AT + timedelta(hours=1), **floors))
+
+    assert cloud_agents.total_cost_usd == Decimal("0.368")
+    assert (cloud_agents.cpu_core_seconds, cloud_agents.memory_gib_seconds) == (14400, 57600)
+    assert (desktop.cpu_core_seconds, desktop.memory_gib_seconds) == (1800, 3600)
+
+
+def test_cloud_agents_public_rate_card_matches_the_calculator_card():
+    card = get_cloud_agents_rate_card()
+
+    assert (card.vcpu_hour_usd, card.memory_gib_hour_usd) == (Decimal("0.040"), Decimal("0.013"))
+    assert cloud_agents_hourly_price_usd(4, 16) == Decimal("0.368")
+    assert [c.version for c in compute_pricing("cloud_agents").rate_cards] == [card.version]
+    assert validate_compute_rate_cards(compute_pricing("cloud_agents").rate_cards)
+    assert compute_pricing("posthog_code").rate_cards == COMPUTE_RATE_CARDS
+    assert compute_pricing("posthog_code").resource_policy == "request_floor"

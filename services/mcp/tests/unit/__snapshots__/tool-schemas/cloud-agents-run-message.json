@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "The follow-up message for the agent, in plain language.",
+            "maxLength": 64000,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the run to send the message to (a UUID).",
+            "type": "string"
+        }
+    },
+    "required": ["id", "content"],
+    "type": "object"
+}

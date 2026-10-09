@@ -16,8 +16,9 @@ their data results.
 """
 
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -824,6 +825,21 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class CloudAgentTaskDTO:
+    """Outcome of creating a Cloud Agents task.
+
+    ``created`` is False when the request replayed an already-used ``origin_key`` and the ids
+    belong to the task that the first request created. ``run`` is then that task's latest run.
+    It is ``None`` only for a replayed task whose runs were all deleted.
+    """
+
+    task_id: UUID
+    team_id: int
+    run: TaskRunDTO | None
+    created: bool
+
+
+@dataclass(frozen=True)
 class WorkflowLastRunDTO:
     """The newest task a workflow created, as its last run.
 
@@ -1055,3 +1071,140 @@ class LivingArtifactVersionContent:
 class LivingArtifactVersionDownload:
     url: str | None
     error: Literal["not_found", "not_stored", "unavailable"] | None
+
+
+InferenceBilling = Literal["posthog", "own_subscription"]
+
+
+@dataclass(frozen=True, kw_only=True)
+class SandboxSessionUsageDTO:
+    """One sandbox of a task and its compute charge. A waived session has a zero charge."""
+
+    cpu_cores: float
+    memory_gb: float
+    started_at: datetime
+    ended_at: datetime | None
+    seconds: int
+    cost_cents: int
+    waived: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskRunBillingDTO:
+    """Compute and inference charges for all runs of one task, in integer USD cents.
+
+    A cost is None while its source is unavailable or incomplete. ``inference_cost_cents`` is
+    also None when the task owner pays the model provider directly. ``vcpu_seconds`` and
+    ``gib_seconds`` exclude waived sessions. ``waived`` is True when at least one session was
+    waived. ``settled`` is True when no later change to the figures is expected.
+    """
+
+    compute_cost_cents: int | None
+    inference_cost_cents: int | None
+    vcpu_seconds: Decimal
+    gib_seconds: Decimal
+    billable: bool
+    inference_billing: InferenceBilling
+    rate_card_version: str | None
+    waived: bool
+    settled: bool
+    sessions: tuple[SandboxSessionUsageDTO, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentsRateCardDTO:
+    """The public Cloud Agents compute price, per vCPU-hour and per GiB-hour of the box size."""
+
+    version: str
+    effective_at: datetime
+    vcpu_hour_usd: Decimal
+    memory_gib_hour_usd: Decimal
+
+
+TaskRunEnd = Literal["done", "cancelled", "error", "timeout", "usage_limit"]
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentSessionDTO:
+    """One run of a Cloud Agents task. ``index`` starts at 1. ``status`` is the status of the run.
+
+    ``started_at`` is None while the run waits for its sandbox. ``ended_at`` is None while the
+    run is active.
+    """
+
+    index: int
+    task_run_id: UUID
+    status: str
+    started_at: datetime | None
+    ended_at: datetime | None
+
+
+PullRequestState = Literal["open", "draft", "merged", "closed"]
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentPullRequestDTO:
+    """One pull request of a Cloud Agents task. ``state`` is None while GitHub has not reported it."""
+
+    url: str
+    state: PullRequestState | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentTaskStateDTO:
+    """Where a Cloud Agents task stands, read from its runs. The latest run decides the status.
+
+    ``run_end`` and ``completed_at`` are None while the latest run is active. ``cancel_source``
+    is the source that a cancel request named, when the latest run has one. ``compute_waived``
+    is True when the latest run failed on PostHog infrastructure, so its sandbox time is not
+    billed. ``pr_urls``, ``pull_requests`` and ``summary`` cover all runs of the task.
+    ``structured_output`` is the newest result that the agent returned for the output schema
+    of the task, and None when there is none. A task with no run reads as ``queued``.
+    """
+
+    task_id: UUID
+    status: str
+    run_end: TaskRunEnd | None
+    cancel_source: str | None
+    compute_waived: bool
+    current_task_run_id: UUID | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime | None
+    pr_url: str | None
+    pr_urls: tuple[str, ...]
+    pull_requests: tuple[CloudAgentPullRequestDTO, ...]
+    summary: str | None
+    structured_output: dict[str, Any] | None
+    sessions: tuple[CloudAgentSessionDTO, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentActiveRunDTO:
+    task_id: UUID
+    task_run_id: UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentTaskUsageDTO:
+    """The charges of one Cloud Agents task, with the same meaning as in ``TaskRunBillingDTO``."""
+
+    task_id: UUID
+    created_at: datetime
+    compute_cost_cents: int | None
+    inference_cost_cents: int | None
+    vcpu_seconds: Decimal
+    gib_seconds: Decimal
+    inference_billing: InferenceBilling
+
+
+@dataclass(frozen=True, kw_only=True)
+class CloudAgentUsageDTO:
+    """Usage of the Cloud Agents tasks that a team created in a period, newest first.
+
+    ``truncated`` is True when the period has more tasks than the limit of the request, so the
+    rows cover only the newest tasks.
+    """
+
+    rows: tuple[CloudAgentTaskUsageDTO, ...]
+    truncated: bool

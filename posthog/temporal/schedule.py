@@ -86,6 +86,7 @@ from products.business_knowledge.backend.temporal.schedule import (
     create_business_knowledge_learning_coordinator_schedule,
     create_business_knowledge_refresh_coordinator_schedule,
 )
+from products.cloud_agents.backend.facade.temporal import create_stop_cloud_agent_runs_over_quota_schedule
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
@@ -992,6 +993,7 @@ schedules = [
     create_reconcile_metric_schedules_schedule,
     create_warehouse_suggestions_schedule,
     create_sync_access_rules_schedule,
+    create_stop_cloud_agent_runs_over_quota_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

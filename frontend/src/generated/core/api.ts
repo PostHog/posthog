@@ -112,6 +112,8 @@ import type {
     UploadedMediaUploadStartedApi,
     UserApi,
     UserAuthSessionApi,
+    UserClaudeSubscriptionApi,
+    UserClaudeSubscriptionConnectRequestApi,
     UserCodexConnectRequestApi,
     UserCodexIntegrationApi,
     UserGitHubLinkStartRequestApi,
@@ -3057,6 +3059,63 @@ export const usersIntegrationsList = async (
     return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsClaudeSubscriptionRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/claude_subscription/`
+}
+
+/**
+ * Shows the last 4 characters of the stored token. No response carries the token.
+ * @summary Show the Claude subscription stored for cloud agent runs
+ */
+export const usersIntegrationsClaudeSubscriptionRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<UserClaudeSubscriptionApi> => {
+    return apiMutator<UserClaudeSubscriptionApi>(getUsersIntegrationsClaudeSubscriptionRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersIntegrationsClaudeSubscriptionCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/claude_subscription/`
+}
+
+/**
+ * Submit the token that `claude setup-token` prints on the user's machine. PostHog stores it encrypted and uses it for the user's cloud agent runs on the Claude runtime. It replaces any stored token. Only the owning user can connect. No response carries the token.
+ * @summary Store a Claude subscription for cloud agent runs
+ */
+export const usersIntegrationsClaudeSubscriptionCreate = async (
+    uuid: string,
+    userClaudeSubscriptionConnectRequestApi: UserClaudeSubscriptionConnectRequestApi,
+    options?: RequestInit
+): Promise<UserClaudeSubscriptionApi> => {
+    return apiMutator<UserClaudeSubscriptionApi>(getUsersIntegrationsClaudeSubscriptionCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userClaudeSubscriptionConnectRequestApi),
+    })
+}
+
+export const getUsersIntegrationsClaudeSubscriptionDestroyUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/claude_subscription/`
+}
+
+/**
+ * Deletes the stored token. Idempotent.
+ * @summary Delete the Claude subscription stored for cloud agent runs
+ */
+export const usersIntegrationsClaudeSubscriptionDestroy = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsClaudeSubscriptionDestroyUrl(uuid), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

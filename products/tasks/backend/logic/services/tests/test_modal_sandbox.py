@@ -1,3 +1,4 @@
+import re
 import json
 import shlex
 import asyncio
@@ -898,15 +899,24 @@ class TestModalSandboxAgentServer:
         assert expected_env in command
 
     @pytest.mark.parametrize(
-        "claude_model_access, subscription_flag",
+        "model_access, expected_flags",
         [
-            ("own-subscription", True),
-            ("posthog-gateway", False),
-            (None, False),
+            ({"claude_model_access": "own-subscription"}, [" --claudeSubscription"]),
+            (
+                {"claude_model_access": "own-subscription", "claude_subscription_source": "relay"},
+                [" --claudeSubscription"],
+            ),
+            (
+                {"claude_model_access": "own-subscription", "claude_subscription_source": "server"},
+                [" --claudeSubscription", " --claudeSubscriptionSource server"],
+            ),
+            ({"codex_model_access": "own-subscription"}, [" --codexSubscription"]),
+            ({"claude_model_access": "posthog-gateway", "claude_subscription_source": "server"}, []),
+            ({"claude_model_access": None}, []),
         ],
     )
-    def test_start_agent_server_claude_subscription_flag(
-        self, mock_sandbox: Any, claude_model_access, subscription_flag
+    def test_start_agent_server_emits_only_the_flags_of_the_runs_model_access(
+        self, mock_sandbox: Any, model_access, expected_flags
     ):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
@@ -917,11 +927,14 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
-            claude_model_access=claude_model_access,
+            **model_access,
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        assert (" --claudeSubscription" in command) is subscription_flag
+        emitted = re.findall(
+            r" --(?:claudeSubscriptionSource \w+|claudeSubscription|codexSubscription)(?![A-Za-z])", command
+        )
+        assert emitted == expected_flags
 
     @pytest.mark.parametrize(
         "keep_stream_open, debug, expected_env_value",

@@ -59,6 +59,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `billing` - billing
  * * `business_knowledge` - business_knowledge
  * * `canvas` - canvas
+ * * `cloud_agent` - cloud_agent
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
@@ -179,6 +180,7 @@ export const ScopeObjectEnumApi = {
     Billing: 'billing',
     BusinessKnowledge: 'business_knowledge',
     Canvas: 'canvas',
+    CloudAgent: 'cloud_agent',
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
@@ -322,6 +324,7 @@ export interface ProjectAccessSourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `cloud_agent` - cloud_agent
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -485,6 +488,7 @@ export interface AccessControlObjectRuleApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `cloud_agent` - cloud_agent
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -873,6 +877,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `cloud_agent` - cloud_agent
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1139,6 +1144,7 @@ export interface ResolvedAccessApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `cloud_agent` - cloud_agent
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation

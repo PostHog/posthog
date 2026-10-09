@@ -106,7 +106,12 @@ import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import { configurePersistentAgentState } from "../persistent-agent-state";
-import { CodexSubscriptionTokenError, PostHogAPIClient } from "../posthog-api";
+import {
+  CodexSubscriptionTokenError,
+  PostHogAPIClient,
+  RunCredentialError,
+  type StoredRunCredentialKind,
+} from "../posthog-api";
 import {
   findPrUrls,
   type OwnedBranch,
@@ -163,6 +168,10 @@ import {
   type ExistingPrCheckoutResult,
 } from "./pr-checkout";
 import { createRtkSavingsNotification } from "./rtk-savings";
+import {
+  RunCredentialClient,
+  runCredentialFailureMessage,
+} from "./run-credential";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import {
   type CredentialResponseParams,
@@ -638,6 +647,7 @@ export class AgentServer {
   private pendingProcessKills: ProcessKilledParams[] = [];
   private readonly cliProcesses = new CliProcessRegistry(process.env);
   private codexTokenClient: CodexSubscriptionTokenClient | null = null;
+  private runCredentialClient: RunCredentialClient | null = null;
   private readonly credentialRelay = new CredentialRelay({
     emitEvent: (event) => this.broadcastEvent(event),
   });
@@ -1256,10 +1266,12 @@ export class AgentServer {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
     const errorMessage = redactSecrets(
-      error instanceof CredentialRelayError ||
-        error instanceof CodexSubscriptionTokenError
-        ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
-        : describeFatalError(error),
+      error instanceof RunCredentialError
+        ? runCredentialFailureMessage(error.credential, error)
+        : error instanceof CredentialRelayError ||
+            error instanceof CodexSubscriptionTokenError
+          ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
+          : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
@@ -1352,11 +1364,62 @@ export class AgentServer {
     return this.codexTokenClient;
   }
 
+  private runCredentials(): RunCredentialClient {
+    if (!this.runCredentialClient) {
+      if (!this.config.codexRunToken) {
+        throw new Error("This run has no run token for its stored credential.");
+      }
+      this.runCredentialClient = new RunCredentialClient({
+        posthogAPI: this.posthogAPI,
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        runToken: this.config.codexRunToken,
+        logger: this.logger.child("RunCredential"),
+      });
+    }
+    return this.runCredentialClient;
+  }
+
+  /**
+   * The Claude plan token PostHog stores for the run owner. A failure ends
+   * the run here: it must not continue on the PostHog gateway, because the
+   * owner did not select PostHog credits.
+   */
+  private async fetchStoredRunCredential(
+    credential: StoredRunCredentialKind,
+  ): Promise<string> {
+    try {
+      return await this.runCredentials().get(credential);
+    } catch (error) {
+      if (this.shutdownController.signal.aborted) throw error;
+      const reason =
+        error instanceof RunCredentialError ? error.code : "request_failed";
+      this.logger.warn("Stored run credential request failed", {
+        credential,
+        reason,
+      });
+      await this.reportSubscriptionTokenMissing("claude", reason, {
+        phase: "stored_credential",
+        message: runCredentialFailureMessage(credential, error),
+      });
+      throw error instanceof RunCredentialError
+        ? error
+        : new RunCredentialError(
+            credential,
+            "request_failed",
+            0,
+            "This run could not get its stored credential.",
+          );
+    }
+  }
+
   private async reportSubscriptionTokenMissing(
     adapter: "claude" | "codex",
     reason: string,
+    failure: { phase: string; message: string } = SUBSCRIPTION_TOKEN_FAILURE[
+      adapter
+    ],
   ): Promise<void> {
-    const failure = SUBSCRIPTION_TOKEN_FAILURE[adapter];
     this.initializationFailureCode = `${adapter}_credential_unavailable`;
     this.logger.warn(this.initializationFailureCode);
     try {
@@ -1982,7 +2045,8 @@ export class AgentServer {
       this.bootTracker.markFailed();
       if (
         error instanceof CredentialRelayError ||
-        error instanceof CodexSubscriptionTokenError
+        error instanceof CodexSubscriptionTokenError ||
+        error instanceof RunCredentialError
       ) {
         this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
       }
@@ -2261,6 +2325,14 @@ export class AgentServer {
 
     let claudeSubscriptionToken: string | null = null;
     if (
+      this.config.claudeModelAccess === "own-subscription" &&
+      this.config.claudeSubscriptionSource === "server" &&
+      runtimeAdapter === "claude"
+    ) {
+      claudeSubscriptionToken = await this.fetchStoredRunCredential(
+        "claude_subscription",
+      );
+    } else if (
       this.config.claudeModelAccess === "own-subscription" &&
       runtimeAdapter === "claude"
     ) {

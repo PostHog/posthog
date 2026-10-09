@@ -179,14 +179,17 @@ describe("getLlmGatewayUrl", () => {
     );
   });
 
-  it("maps review_hog to the background_agents legacy slug everywhere", () => {
-    expect(getLlmGatewayUrl("http://localhost:8000", "review_hog")).toBe(
-      "http://localhost:3308/background_agents",
-    );
-    expect(getGatewayUsageUrl("http://localhost:8000", "review_hog")).toBe(
-      "http://localhost:3308/v1/usage/background_agents",
-    );
-  });
+  it.each(["review_hog", "cloud_agents"] as const)(
+    "maps %s to the background_agents legacy slug everywhere",
+    (product) => {
+      expect(getLlmGatewayUrl("http://localhost:8000", product)).toBe(
+        "http://localhost:3308/background_agents",
+      );
+      expect(getGatewayUsageUrl("http://localhost:8000", product)).toBe(
+        "http://localhost:3308/v1/usage/background_agents",
+      );
+    },
+  );
 });
 
 describe("resolveLlmGatewayUrl (slugless)", () => {
@@ -630,10 +633,11 @@ describe("resolveAiProduct", () => {
 describe("shared routing contract", () => {
   it.each(routingCases.resolve_ai_product)(
     "resolves $origin_product/$ai_stage -> $expected",
-    ({ origin_product, ai_stage, internal, expected }) => {
+    ({ origin_product, ai_stage, internal, client_provenance, expected }) => {
       const product = resolveGatewayProduct({
         isInternal: internal,
         originProduct: origin_product,
+        clientProvenance: client_provenance,
       });
       expect(resolveAiProduct({ product, aiStage: ai_stage })).toBe(expected);
     },
@@ -641,11 +645,19 @@ describe("shared routing contract", () => {
 
   it.each(routingCases.routed)(
     "routes $origin_product/$ai_stage under [$allowlist] -> $expected",
-    ({ origin_product, ai_stage, internal, allowlist, expected }) => {
+    ({
+      origin_product,
+      ai_stage,
+      internal,
+      client_provenance,
+      allowlist,
+      expected,
+    }) => {
       const target = resolveGatewayTarget({
         product: resolveGatewayProduct({
           isInternal: internal,
           originProduct: origin_product,
+          clientProvenance: client_provenance,
         }),
         aiStage: ai_stage,
         posthogHost: "https://us.posthog.com",

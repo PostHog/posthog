@@ -11,6 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -28,6 +29,7 @@ import type { BillingChartType } from './types'
 
 export function BillingUsage(): JSX.Element {
     const { minimumUsageSpendReadAccessLevel } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: minimumUsageSpendReadAccessLevel,
         scope: RestrictionScope.Organization,
@@ -96,7 +98,7 @@ export function BillingUsage(): JSX.Element {
                             value={filters.usage_types || []}
                             onChange={(value) => setFilters({ usage_types: value })}
                             placeholder="All products"
-                            options={getUsageTypeOptions()}
+                            options={getUsageTypeOptions(featureFlags)}
                             allowCustomValues={false}
                         />
                     </div>

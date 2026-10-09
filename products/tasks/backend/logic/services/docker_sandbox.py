@@ -983,6 +983,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
         sandbox_runtime: str | None = None,
+        claude_subscription_source: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -1009,7 +1010,9 @@ class DockerSandbox(AgentServerLaunchMixin):
             benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
-        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
+        subscription_flag = build_subscription_flags(
+            claude_model_access, codex_model_access, claude_subscription_source
+        )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.

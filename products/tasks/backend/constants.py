@@ -58,6 +58,9 @@ PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 # TaskRun.state marker for runs completed by the inactivity timeout; kept out of
 # error_message so a normal completion never reads as a failure.
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
+# TaskRun.state marker for a run whose sandbox time is not billed. The value is the reason, for
+# example the type of the infrastructure error that failed the run.
+COMPUTE_WAIVED_REASON_STATE_KEY = "compute_waived_reason"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
 AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"

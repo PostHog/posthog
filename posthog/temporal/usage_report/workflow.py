@@ -53,6 +53,18 @@ def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
     return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
 
 
+CLOUD_AGENTS_QUERY_PATCH_ID = "usage-report-cloud-agents-queries-2026-10"
+CLOUD_AGENTS_QUERY_NAMES = frozenset(
+    {"teams_with_cloud_agents_token_credits_used_in_period", "cloud_agents_compute_usage"}
+)
+
+
+def _queries_for_cloud_agents_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name not in CLOUD_AGENTS_QUERY_NAMES]
+
+
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
     """Compute the period and S3 layout context. Pure function so it's safe
     to call from the workflow body (no real-time access).
@@ -99,6 +111,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_cloud_agents_patch(queries, workflow.patched(CLOUD_AGENTS_QUERY_PATCH_ID))
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={

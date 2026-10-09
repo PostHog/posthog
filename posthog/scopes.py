@@ -35,6 +35,7 @@ APIScopeObject = Literal[
     "business_knowledge",
     "canvas",
     "clickhouse_test_cluster_perf",
+    "cloud_agent",
     "cohort",
     "comment",
     "conversation",

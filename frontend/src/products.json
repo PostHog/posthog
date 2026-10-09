@@ -78,6 +78,13 @@
             "intents": ["site_apps"]
         },
         {
+            "path": "Cloud agents",
+            "category": "Unreleased",
+            "iconType": "cloud_agent",
+            "type": "cloud_agent",
+            "intents": ["cloud_agents"]
+        },
+        {
             "path": "Support",
             "category": "Monitoring",
             "iconType": "conversations",

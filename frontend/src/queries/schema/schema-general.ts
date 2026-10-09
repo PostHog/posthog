@@ -5498,6 +5498,7 @@ export type FileSystemIconType =
     | 'toolbar'
     | 'visual_review'
     | 'code_review'
+    | 'cloud_agent'
     | 'stamphog'
     | 'settings'
     | 'health'
@@ -9238,6 +9239,7 @@ export enum ProductKey {
     ANNOTATIONS = 'annotations',
     AUTORESEARCH = 'autoresearch',
     BUSINESS_KNOWLEDGE = 'business_knowledge',
+    CLOUD_AGENTS = 'cloud_agents',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',

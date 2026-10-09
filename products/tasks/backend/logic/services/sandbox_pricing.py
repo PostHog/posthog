@@ -1,10 +1,14 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_UP, Decimal
+from typing import Literal
 
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
+
+from products.tasks.backend.constants import COMPUTE_WAIVED_REASON_STATE_KEY
 from products.tasks.backend.models import SandboxSession
 
 
@@ -19,6 +23,34 @@ class ComputeRateCard:
     expires_at: datetime | None
     cpu_core_second_usd: Decimal
     memory_gib_second_usd: Decimal
+    # Set on a card published per hour. The calculator multiplies by the hourly price and divides
+    # last, because the per-second rate of such a card has no exact decimal value.
+    cpu_core_hour_usd: Decimal | None = None
+    memory_gib_hour_usd: Decimal | None = None
+
+
+_SECONDS_PER_HOUR = Decimal(3600)
+
+
+@frozen
+class HourlyComputeRateCard:
+    """A rate card in the terms the customer sees: a price per vCPU-hour and per GiB-hour."""
+
+    version: str
+    effective_at: datetime
+    vcpu_hour_usd: Decimal
+    memory_gib_hour_usd: Decimal
+
+    def as_per_second(self) -> ComputeRateCard:
+        return ComputeRateCard(
+            version=self.version,
+            effective_at=self.effective_at,
+            expires_at=None,
+            cpu_core_second_usd=self.vcpu_hour_usd / _SECONDS_PER_HOUR,
+            memory_gib_second_usd=self.memory_gib_hour_usd / _SECONDS_PER_HOUR,
+            cpu_core_hour_usd=self.vcpu_hour_usd,
+            memory_gib_hour_usd=self.memory_gib_hour_usd,
+        )
 
 
 @dataclass(frozen=True)
@@ -60,6 +92,39 @@ COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = (
 )
 
 
+CLOUD_AGENTS_RATE_CARD = HourlyComputeRateCard(
+    version="cloud-agents-v1",
+    effective_at=datetime(2026, 10, 1, tzinfo=UTC),
+    vcpu_hour_usd=Decimal("0.040"),
+    memory_gib_hour_usd=Decimal("0.013"),
+)
+CLOUD_AGENTS_COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = (CLOUD_AGENTS_RATE_CARD.as_per_second(),)
+
+# `request_floor` prices the reserved floor of a burstable box and falls back to the limit.
+# `limit` prices the size the customer selected.
+ComputeResourcePolicy = Literal["request_floor", "limit"]
+ComputePricingProduct = Literal["posthog_code", "cloud_agents"]
+
+
+@frozen
+class ComputePricing:
+    rate_cards: tuple[ComputeRateCard, ...]
+    resource_policy: ComputeResourcePolicy
+
+
+@frozen
+class BillableResources:
+    cpu_cores: Decimal
+    memory_gb: Decimal
+
+
+def compute_pricing(product: ComputePricingProduct) -> ComputePricing:
+    # Read at call time so a change to a card tuple applies to every caller.
+    if product == "cloud_agents":
+        return ComputePricing(rate_cards=CLOUD_AGENTS_COMPUTE_RATE_CARDS, resource_policy="limit")
+    return ComputePricing(rate_cards=COMPUTE_RATE_CARDS, resource_policy="request_floor")
+
+
 @dataclass(frozen=True)
 class ComputeRateCardCatalog:
     current: ComputeRateCard | None
@@ -85,6 +150,11 @@ def get_compute_rate_card_catalog(
     )
     history = tuple(card for card in reversed(published_cards) if card != current)
     return ComputeRateCardCatalog(current=current, history=history)
+
+
+def compute_waived(product: ComputePricingProduct, run_state: Mapping[str, object] | None) -> bool:
+    """Whether the sandbox time of a run is waived. Only a Cloud Agents run can have a waiver."""
+    return product == "cloud_agents" and bool((run_state or {}).get(COMPUTE_WAIVED_REASON_STATE_KEY))
 
 
 def validate_reporting_window(reporting_start: datetime, reporting_end: datetime) -> None:
@@ -132,6 +202,7 @@ def calculate_sandbox_compute_cost(
     *,
     calculated_at: datetime | None = None,
     rate_cards: Sequence[ComputeRateCard] = COMPUTE_RATE_CARDS,
+    resource_policy: ComputeResourcePolicy = "request_floor",
 ) -> SandboxComputeCost:
     cards = validate_compute_rate_cards(rate_cards)
     validate_reporting_window(reporting_start, reporting_end)
@@ -174,8 +245,10 @@ def calculate_sandbox_compute_cost(
     if sum((seconds for _, seconds in segments), Decimal(0)) != scaled_elapsed(stop) - scaled_elapsed(start):
         raise ComputeRateCardConfigurationError("compute rate cards do not cover the billable window")
 
-    cpu_cores, memory_gib = _billable_resources(session)
-    line_items = tuple(_price_line_item(card, seconds, cpu_cores, memory_gib) for card, seconds in segments)
+    resources = _billable_resources(session, resource_policy)
+    line_items = tuple(
+        _price_line_item(card, seconds, resources.cpu_cores, resources.memory_gb) for card, seconds in segments
+    )
     return SandboxComputeCost(
         billable_seconds=sum((item.billable_seconds for item in line_items), Decimal(0)),
         cpu_core_seconds=sum((item.cpu_core_seconds for item in line_items), Decimal(0)),
@@ -190,14 +263,16 @@ def _decimal_seconds(duration) -> Decimal:
     return Decimal(duration.days * 86400 + duration.seconds) + Decimal(duration.microseconds) / Decimal(1_000_000)
 
 
-def _billable_resources(session: SandboxSession) -> tuple[Decimal, Decimal]:
+def _billable_resources(session: SandboxSession, resource_policy: ComputeResourcePolicy) -> BillableResources:
+    if resource_policy == "limit":
+        return BillableResources(cpu_cores=Decimal(str(session.cpu_cores)), memory_gb=Decimal(str(session.memory_gb)))
     cpu_cores = session.cpu_request_cores if session.cpu_request_cores is not None else session.cpu_cores
     memory_gib = (
         Decimal(session.memory_request_mb) / Decimal(1024)
         if session.memory_request_mb is not None
         else Decimal(str(session.memory_gb))
     )
-    return Decimal(str(cpu_cores)), memory_gib
+    return BillableResources(cpu_cores=Decimal(str(cpu_cores)), memory_gb=memory_gib)
 
 
 def _price_line_item(
@@ -210,8 +285,12 @@ def _price_line_item(
         billable_seconds=seconds,
         cpu_core_seconds=cpu_core_seconds,
         memory_gib_seconds=memory_gib_seconds,
-        cpu_cost_usd=cpu_core_seconds * card.cpu_core_second_usd,
-        memory_cost_usd=memory_gib_seconds * card.memory_gib_second_usd,
+        cpu_cost_usd=cpu_core_seconds * card.cpu_core_hour_usd / _SECONDS_PER_HOUR
+        if card.cpu_core_hour_usd is not None
+        else cpu_core_seconds * card.cpu_core_second_usd,
+        memory_cost_usd=memory_gib_seconds * card.memory_gib_hour_usd / _SECONDS_PER_HOUR
+        if card.memory_gib_hour_usd is not None
+        else memory_gib_seconds * card.memory_gib_second_usd,
     )
 
 

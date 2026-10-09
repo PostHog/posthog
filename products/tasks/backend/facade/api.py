@@ -58,7 +58,7 @@ from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, PosthogMcpScopes
 from posthog.utils import absolute_uri
 
 from products.cdp.backend.facade import api as cdp_facade
@@ -76,6 +76,7 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    COMPUTE_WAIVED_REASON_STATE_KEY,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
     GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
@@ -105,7 +106,7 @@ from products.tasks.backend.feature_flags import (
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
-from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.model_access import INFERENCE_STATE_KEYS, InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
@@ -113,11 +114,16 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.services.inference_resolution import (
+    ClaudeSubscriptionGrant,
+    issue_run_claude_subscription,
+)
 from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_config import SANDBOX_SIZE_STATE_KEY
 from products.tasks.backend.logic.services.space_setup import (
     SPACE_SETUP_FEED_EVENT,
     SPACE_SETUP_MODEL,
@@ -509,6 +515,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "auto_publish",
         "benjamin_enabled",
         "claude_model_access",
+        "claude_subscription_source",
         "claude_subscription_user_id",
         "codex_model_access",
         "codex_subscription_user_id",
@@ -2666,6 +2673,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "token_cost",
         "token_cost_incomplete",
         "compute_cost",
+        # The marker makes the sandbox time of a run free, so only the status activity writes it.
+        COMPUTE_WAIVED_REASON_STATE_KEY,
         "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
@@ -2690,6 +2699,11 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         DEV_STACK_PREVIEW_STATE_KEY,
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
+        # The selected size keeps a run off a backend that ignores resource overrides, and the
+        # burstable switch decides whether the usage record states the full shape. A PATCHable
+        # value would let a task controller change what a sized run is billed for.
+        SANDBOX_SIZE_STATE_KEY,
+        "burstable_sandbox_resources_enabled",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "systemPrompt",
@@ -2789,6 +2803,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # The OpenAI queue the run's Codex turns join; `priority` costs more than standard.
         "service_tier",
         "claude_model_access",
+        "claude_subscription_source",
         "claude_subscription_user_id",
         "codex_model_access",
         "codex_subscription_user_id",
@@ -3916,29 +3931,13 @@ def issue_codex_subscription_access_grant(
     Raises ``CodexReauthRequired`` when the owner must reconnect, ``CodexAuthError`` when
     OpenAI could not refresh the token.
     """
-    from jwt import InvalidTokenError  # noqa: PLC0415
-
-    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
-        validate_codex_subscription_run_token,
-    )
     from products.tasks.backend.temporal.metrics import increment_credential_refresh  # noqa: PLC0415
 
-    try:
-        claims = validate_codex_subscription_run_token(run_token)
-    except (InvalidTokenError, ValueError):
+    state = _run_state_for_credential_run_token(run_id, task_id, team_id, run_token=run_token)
+    if state is None:
         return None
-    if claims.run_id != str(run_id) or claims.task_id != str(task_id) or claims.team_id != team_id:
-        return None
-    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "state").first()
-    if run is None:
-        return None
-    state = run.state or {}
     owner_id = state.get("codex_subscription_user_id")
-    if (
-        state.get("sandbox_id") != claims.sandbox_id
-        or state.get("codex_model_access") != "own-subscription"
-        or not isinstance(owner_id, int)
-    ):
+    if state.get("codex_model_access") != "own-subscription" or not isinstance(owner_id, int):
         return None
     try:
         grant = CodexUserIntegration.issue_access_grant(
@@ -3952,6 +3951,51 @@ def issue_codex_subscription_access_grant(
         raise
     increment_credential_refresh("codex", "refreshed" if grant.refreshed else "skipped")
     return grant
+
+
+def issue_run_claude_subscription_grant(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    run_token: str,
+) -> ClaudeSubscriptionGrant | None:
+    """The run owner's stored Claude plan token, for a run that selected it.
+
+    None when the run token does not authorize this run, or when the run state does not select
+    the stored token: a run on PostHog credits and a run on another credential get nothing.
+    Raises ``ClaudeSubscriptionMissing`` when the run selected it and the owner has no usable one.
+    """
+    state = _run_state_for_credential_run_token(run_id, task_id, team_id, run_token=run_token)
+    if state is None:
+        return None
+    return issue_run_claude_subscription(state, team_id=team_id)
+
+
+def _run_state_for_credential_run_token(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, run_token: str
+) -> dict[str, Any] | None:
+    """The state of the run that ``run_token`` is bound to. None for another run and for a sandbox
+    that is no longer the active sandbox of the run."""
+    from jwt import InvalidTokenError  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        validate_codex_subscription_run_token,
+    )
+
+    try:
+        claims = validate_codex_subscription_run_token(run_token)
+    except (InvalidTokenError, ValueError):
+        return None
+    if claims.run_id != str(run_id) or claims.task_id != str(task_id) or claims.team_id != team_id:
+        return None
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "state", "status").first()
+    if run is None or run.status in _TERMINAL_TASK_RUN_STATUSES:
+        return None
+    state = run.state or {}
+    if state.get("sandbox_id") != claims.sandbox_id:
+        return None
+    return state
 
 
 def sync_task_run_session(
@@ -6093,6 +6137,8 @@ def _trigger_task_processing_workflow(
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
+    create_pr: bool = True,
+    posthog_mcp_scopes: PosthogMcpScopes | None = None,
 ) -> str | None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         WorkflowDispatchOptions,
@@ -6107,7 +6153,8 @@ def _trigger_task_processing_workflow(
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
     run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes = mcp_scopes_for_run_source(run_source)
+    if posthog_mcp_scopes is None:
+        posthog_mcp_scopes = mcp_scopes_for_run_source(run_source)
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         message = None
@@ -6122,6 +6169,7 @@ def _trigger_task_processing_workflow(
             run,
             options=WorkflowDispatchOptions(
                 user_id=user_id,
+                create_pr=create_pr,
                 posthog_mcp_scopes=posthog_mcp_scopes,
                 initial_message=message,
             ),
@@ -8816,6 +8864,42 @@ def run_task(
     ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
     fresh run and stamps the protected implementation stage from the verified report-task link.
     """
+    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
+    if task is None:
+        return None
+    return _run_resolved_task(
+        task,
+        team_id,
+        user_id,
+        validated_data=validated_data,
+        warm_retry_token=warm_retry_token,
+        pipeline_rerun=pipeline_rerun,
+        free_trial_enabled=free_trial_enabled,
+    )
+
+
+def _run_resolved_task(
+    task: Task,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    warm_retry_token: str | None = None,
+    pipeline_rerun: bool = False,
+    free_trial_enabled: bool | None = None,
+    server_run_state: Mapping[str, object] | None = None,
+    create_pr: bool = True,
+    posthog_mcp_scopes: PosthogMcpScopes | None = None,
+) -> contracts.TaskRunResult | None:
+    """``run_task`` for a task the caller already resolved and authorized.
+
+    For tasks-internal callers only: it takes an ORM ``Task`` and does no visibility check.
+    ``server_run_state`` is merged last into the new run's state, so it can carry protected
+    keys that ``validated_data`` cannot. A run that names a sandbox size there is never handed
+    a warm sandbox, because a warm sandbox was provisioned with the default burstable shape.
+    ``create_pr`` and ``posthog_mcp_scopes`` go to the workflow start. A missing scope value
+    keeps the scopes that the run source implies.
+    """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
         is_report_implementation_task,
@@ -8837,9 +8921,6 @@ def run_task(
         parse_run_state,
     )
 
-    task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
-        return None
     # Another product may need to finish something before this task runs, for example a chat that
     # is copied into the task a few seconds behind each turn.
     refusal = task_run_start_refusal(str(task.id), team_id, user_id)
@@ -8945,6 +9026,9 @@ def run_task(
     access_state = {
         **(previous_state.model_dump() if previous_state is not None else {}),
         **{key: value for key, value in validated_data.items() if value is not None},
+        # A server-owned caller selects the inference mode in `server_run_state`, which is merged
+        # into the run state last. The checks below must see that mode.
+        **{key: value for key, value in (server_run_state or {}).items() if key in INFERENCE_STATE_KEYS},
     }
     try:
         model_access = resolve_model_access(access_state)
@@ -8953,7 +9037,14 @@ def run_task(
     claude_model_access = model_access.access_for("claude") if "claude_model_access" in access_state else None
     codex_model_access = model_access.access_for("codex") if "codex_model_access" in access_state else None
 
-    if scheduled_at is not None and model_access.kind == "own-subscription":
+    # A scheduled run starts with no client attached. The relayed Claude token needs a client to
+    # answer the credential request, and the ChatGPT plan keeps its refusal. A Claude token that
+    # the server stores for the owner needs no client.
+    if (
+        scheduled_at is not None
+        and model_access.kind == "own-subscription"
+        and not model_access.uses_stored_claude_subscription
+    ):
         return contracts.TaskRunResult(
             error=contracts.TaskValidationError(
                 kind="validation_error",
@@ -8968,6 +9059,7 @@ def run_task(
         or scheduled_at is not None
         or run_source == RunSource.AGENT
         or validated_data.get("client_platform") == "mobile"
+        or SANDBOX_SIZE_STATE_KEY in (server_run_state or {})
         else _idling_warm_run_for_task(task)
     )
     # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
@@ -9327,6 +9419,8 @@ def run_task(
             "create_pr": True,
             "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
         }
+    if server_run_state:
+        extra_state.update(server_run_state)
     try:
         with transaction.atomic():
             task_run = task.create_run(
@@ -9392,7 +9486,14 @@ def run_task(
             raise_on_error=False,
         )
     else:
-        run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        run_error = _trigger_task_processing_workflow(
+            task,
+            task_run,
+            user_id,
+            raise_on_error=False,
+            create_pr=create_pr,
+            posthog_mcp_scopes=posthog_mcp_scopes,
+        )
 
     try:
         if run_error is None:
