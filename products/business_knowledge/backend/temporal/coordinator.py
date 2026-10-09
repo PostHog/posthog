@@ -6,7 +6,8 @@ One global hourly Temporal schedule drives this single coordinator workflow
 
   1. sweeps tombstoned documents past their grace period,
   2. refreshes every URL source whose auto-refresh interval is due,
-  3. classifies any documents still awaiting a safety verdict.
+  3. classifies documents still awaiting a safety verdict, then emits embeddings,
+     repeating in memory-sized chunks until each queue is empty.
 
 Refresh runs *before* classification so that documents whose content changed
 during the refresh (reset to ``unknown``) get classified in the same pass —
@@ -41,7 +42,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from .. import llm_telemetry, logic, safety
-from ..constants import BK_EMBEDDING_DOCUMENT_TYPE, BK_EMBEDDING_MODEL, BK_EMBEDDING_PRODUCT, BK_EMBEDDING_RENDERING
+from ..constants import (
+    BK_EMBEDDING_DOCUMENT_TYPE,
+    BK_EMBEDDING_MODEL,
+    BK_EMBEDDING_PRODUCT,
+    BK_EMBEDDING_RENDERING,
+    MAX_URLS_PER_SOURCE,
+    PENDING_EMBEDDING_SCAN_CAP,
+)
 from ..models import SafetyVerdict
 
 logger = structlog.get_logger(__name__)
@@ -49,6 +57,19 @@ logger = structlog.get_logger(__name__)
 # How many source refreshes to run concurrently within one coordinator pass.
 # Bounded so a large backlog can't flood the shared worker queue.
 MAX_CONCURRENT_REFRESHES = 25
+
+# One activity holds at most one scan cap of documents. Classification keeps
+# the document text in memory (up to ~1 MB each), so the cap stays the chunk
+# size. A full chunk that made progress means more documents are still queued.
+_CLASSIFY_CHUNK_SIZE = logic.PENDING_CLASSIFICATION_SCAN_CAP
+_EMBED_CHUNK_SIZE = PENDING_EMBEDDING_SCAN_CAP
+_CLASSIFY_DRAIN_MAX_CHUNKS = max(1, MAX_URLS_PER_SOURCE // _CLASSIFY_CHUNK_SIZE)
+_EMBED_DRAIN_MAX_CHUNKS = max(1, MAX_URLS_PER_SOURCE // _EMBED_CHUNK_SIZE)
+
+# A second workflow name, not a patched body. An in-flight run keeps the activity
+# sequence already in its history. A mismatched replay fails the workflow task,
+# and this schedule's stable workflow id plus SKIP overlap then blocks later hours.
+REFRESH_COORDINATOR_WORKFLOW_V2 = "business-knowledge-refresh-coordinator-v2"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -74,7 +95,7 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
     """Classify documents whose safety verdict is still unknown."""
     docs = await database_sync_to_async(logic.list_documents_pending_classification, thread_sensitive=False)()
     if not docs:
-        return {"classified": 0, "unsafe": 0}
+        return {"classified": 0, "unsafe": 0, "scanned": 0}
     async with Heartbeater():
         results = await safety.classify_documents(docs)
         for result in results:
@@ -86,7 +107,7 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
                 content_hash=result.content_hash,
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
-    return {"classified": len(results), "unsafe": unsafe}
+    return {"classified": len(results), "unsafe": unsafe, "scanned": len(docs)}
 
 
 def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
@@ -168,9 +189,10 @@ async def emit_pending_embeddings_activity() -> dict[str, Any]:
     """
     Produce embeddings for SAFE documents that haven't been embedded yet.
 
-    Bounded by ``PENDING_EMBEDDING_SCAN_CAP``; the hourly coordinator drains the
-    backlog (and the initial cross-team backfill) over many passes. Per-doc
-    failures are logged and skipped without stamping, so they retry next pass.
+    One chunk, bounded by ``PENDING_EMBEDDING_SCAN_CAP``. The coordinator calls
+    this again while the chunk comes back full and at least one doc was stamped.
+    Per-doc failures are logged and skipped without stamping, so they stay
+    queued. A chunk that stamps nothing is not retried in this run.
     """
     docs = await database_sync_to_async(logic.list_documents_pending_embedding, thread_sensitive=False)()
     documents_embedded = 0
@@ -187,7 +209,11 @@ async def emit_pending_embeddings_activity() -> dict[str, Any]:
             continue
         documents_embedded += 1
         chunks_emitted += written
-    return {"documents_embedded": documents_embedded, "chunks_emitted": chunks_emitted}
+    return {
+        "documents_embedded": documents_embedded,
+        "chunks_emitted": chunks_emitted,
+        "scanned": len(docs),
+    }
 
 
 @activity.defn
@@ -460,49 +486,123 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
         return RefreshSourceInputs(**loaded)
 
 
-@workflow.defn(name="business-knowledge-refresh-coordinator")
-class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
-    @workflow.run
-    async def run(self) -> dict[str, Any]:
-        swept = await workflow.execute_activity(
-            sweep_tombstoned_documents_activity,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+def _index_chunk_has_more(batch: dict[str, Any], *, chunk_size: int, progress_key: str) -> bool:
+    # A full chunk that made no progress would select the same documents again.
+    scanned = int(batch.get("scanned", 0))
+    progressed = int(batch.get(progress_key, 0))
+    return scanned >= chunk_size and progressed > 0
 
-        # Refresh *before* classify: refreshed docs whose content changed are
-        # reset to `unknown`, so running classification second picks them up in
-        # the same pass instead of leaving them searchable until the next run.
-        due: list[tuple[int, str, str]] = await workflow.execute_activity(
-            list_due_refresh_sources_activity,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
 
-        refreshed = skipped = failed = 0
-        start_to_close, heartbeat = _crawl_activity_timeouts()
-        for batch in _host_serialized_batches(due, MAX_CONCURRENT_REFRESHES):
-            results = await asyncio.gather(
-                *(
-                    workflow.execute_activity(
-                        refresh_knowledge_source_activity,
-                        inputs,
-                        start_to_close_timeout=start_to_close,
-                        heartbeat_timeout=heartbeat,
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-                    for inputs in batch
-                ),
-                return_exceptions=True,
+def _add_index_chunk(totals: dict[str, int], batch: dict[str, Any], keys: tuple[str, ...]) -> None:
+    for key in keys:
+        if key not in batch:
+            continue
+        totals[key] = totals.get(key, 0) + int(batch[key])
+
+
+async def _take_index_chunk(
+    activity_fn: Any,
+    *,
+    start_to_close: timedelta,
+    retry: RetryPolicy,
+    heartbeat: timedelta | None = None,
+) -> dict[str, Any]:
+    return await workflow.execute_activity(
+        activity_fn,
+        start_to_close_timeout=start_to_close,
+        heartbeat_timeout=heartbeat,
+        retry_policy=retry,
+    )
+
+
+async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
+    # Alternate the two chunks so a doc classified in this iteration can be
+    # embedded before the rest of the backlog is classified.
+    classified_totals: dict[str, int] = {}
+    embedded_totals: dict[str, int] = {}
+    classify_more = True
+    embed_more = True
+    classify_retry = RetryPolicy(maximum_attempts=2)
+    embed_retry = RetryPolicy(maximum_attempts=2)
+    for _ in range(max(_CLASSIFY_DRAIN_MAX_CHUNKS, _EMBED_DRAIN_MAX_CHUNKS)):
+        classify_scanned = 0
+        if classify_more:
+            classified = await _take_index_chunk(
+                classify_pending_documents_activity,
+                start_to_close=timedelta(minutes=30),
+                heartbeat=timedelta(minutes=5),
+                retry=classify_retry,
             )
-            for result in results:
-                if isinstance(result, BaseException):
-                    failed += 1
-                elif result.get("status") == "ok":
-                    refreshed += 1
-                else:
-                    skipped += 1
+            _add_index_chunk(classified_totals, classified, ("classified", "unsafe"))
+            classify_more = _index_chunk_has_more(
+                classified, chunk_size=_CLASSIFY_CHUNK_SIZE, progress_key="classified"
+            )
+            classify_scanned = int(classified.get("scanned", 0))
+        if embed_more or classify_scanned > 0:
+            embedded = await _take_index_chunk(
+                emit_pending_embeddings_activity,
+                start_to_close=timedelta(minutes=10),
+                retry=embed_retry,
+            )
+            _add_index_chunk(embedded_totals, embedded, ("documents_embedded", "chunks_emitted"))
+            embed_more = _index_chunk_has_more(
+                embedded, chunk_size=_EMBED_CHUNK_SIZE, progress_key="documents_embedded"
+            )
+        if not classify_more and not embed_more:
+            break
+    return classified_totals, embedded_totals
 
+
+async def _run_refresh_coordinator(*, drain_index_queues: bool) -> dict[str, Any]:
+    swept = await workflow.execute_activity(
+        sweep_tombstoned_documents_activity,
+        start_to_close_timeout=timedelta(minutes=5),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    # Refresh *before* classify: refreshed docs whose content changed are
+    # reset to `unknown`, so running classification second picks them up in
+    # the same pass instead of leaving them searchable until the next run.
+    due: list[tuple[int, str, str]] = await workflow.execute_activity(
+        list_due_refresh_sources_activity,
+        start_to_close_timeout=timedelta(minutes=2),
+        retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+    refreshed = skipped = failed = 0
+    start_to_close, heartbeat = _crawl_activity_timeouts()
+    for batch in _host_serialized_batches(due, MAX_CONCURRENT_REFRESHES):
+        results = await asyncio.gather(
+            *(
+                workflow.execute_activity(
+                    refresh_knowledge_source_activity,
+                    inputs,
+                    start_to_close_timeout=start_to_close,
+                    heartbeat_timeout=heartbeat,
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+                for inputs in batch
+            ),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                failed += 1
+            elif result.get("status") == "ok":
+                refreshed += 1
+            else:
+                skipped += 1
+
+    if drain_index_queues:
+        # Un-stamp lost vectors before the first emit chunk, so that chunk can
+        # re-produce them. Classify and embed then alternate inside the drain.
+        reconciled = await workflow.execute_activity(
+            reconcile_embeddings_activity,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        classified, embedded = await _drain_index_queues()
+    else:
         classified = await workflow.execute_activity(
             classify_pending_documents_activity,
             start_to_close_timeout=timedelta(minutes=30),
@@ -525,33 +625,55 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-        # Keep long-lived vectors alive past the 3-month CH TTL by re-emitting
-        # aging SAFE docs. Runs last (lowest urgency) and re-stamps with now()
-        # so a refreshed doc won't be touched again for a full window.
-        ttl_refreshed = await workflow.execute_activity(
-            refresh_aging_embeddings_activity,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+    # Keep long-lived vectors alive past the 3-month CH TTL by re-emitting
+    # aging SAFE docs. Runs last (lowest urgency) and re-stamps with now()
+    # so a refreshed doc won't be touched again for a full window.
+    ttl_refreshed = await workflow.execute_activity(
+        refresh_aging_embeddings_activity,
+        start_to_close_timeout=timedelta(minutes=10),
+        retry_policy=RetryPolicy(maximum_attempts=2),
+    )
 
-        return {
-            "tombstoned_deleted": swept,
-            "sources_due": len(due),
-            "sources_refreshed": refreshed,
-            "sources_skipped": skipped,
-            "sources_failed": failed,
-            "documents_classified": classified.get("classified", 0),
-            "documents_unsafe": classified.get("unsafe", 0),
-            "embeddings_reconciled": reconciled.get("reconciled", 0),
-            "embeddings_re_nulled": reconciled.get("re_nulled", 0),
-            "documents_embedded": embedded.get("documents_embedded", 0),
-            "chunks_emitted": embedded.get("chunks_emitted", 0),
-            "embeddings_ttl_refreshed": ttl_refreshed.get("documents_refreshed", 0),
-            "chunks_reemitted": ttl_refreshed.get("chunks_reemitted", 0),
-        }
+    return {
+        "tombstoned_deleted": swept,
+        "sources_due": len(due),
+        "sources_refreshed": refreshed,
+        "sources_skipped": skipped,
+        "sources_failed": failed,
+        "documents_classified": classified.get("classified", 0),
+        "documents_unsafe": classified.get("unsafe", 0),
+        "embeddings_reconciled": reconciled.get("reconciled", 0),
+        "embeddings_re_nulled": reconciled.get("re_nulled", 0),
+        "documents_embedded": embedded.get("documents_embedded", 0),
+        "chunks_emitted": embedded.get("chunks_emitted", 0),
+        "embeddings_ttl_refreshed": ttl_refreshed.get("documents_refreshed", 0),
+        "chunks_reemitted": ttl_refreshed.get("chunks_reemitted", 0),
+    }
+
+
+def _parse_coordinator_inputs(inputs: list[str]) -> None:
+    # The coordinator takes no inputs; tolerate any payload from manual triggers.
+    _ = json.loads(inputs[0]) if inputs else None
+    return None
+
+
+@workflow.defn(name="business-knowledge-refresh-coordinator")
+class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
+    @workflow.run
+    async def run(self) -> dict[str, Any]:
+        return await _run_refresh_coordinator(drain_index_queues=False)
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> None:
-        # The coordinator takes no inputs; tolerate any payload from manual triggers.
-        _ = json.loads(inputs[0]) if inputs else None
-        return None
+        return _parse_coordinator_inputs(inputs)
+
+
+@workflow.defn(name=REFRESH_COORDINATOR_WORKFLOW_V2)
+class BusinessKnowledgeRefreshCoordinatorWorkflowV2(PostHogWorkflow):
+    @workflow.run
+    async def run(self) -> dict[str, Any]:
+        return await _run_refresh_coordinator(drain_index_queues=True)
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> None:
+        return _parse_coordinator_inputs(inputs)

@@ -2945,6 +2945,9 @@ def list_documents_pending_classification(
             team__organization__is_ai_data_processing_approved=True,
         )
         .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
+        # A chunk that leaves a doc unknown bumps its attempt count. Lowest
+        # count first, or the next chunk selects that same doc again.
+        .order_by("classification_attempts", "id")
         .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")[:limit]
     )
     return [
@@ -3134,6 +3137,9 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
+        # Stable id order so a doc stamped by this chunk is not selected again,
+        # and the next chunk continues past it.
+        .order_by("id")
         .values_list("team_id", "id", "source_id", "source__source_type", "created_at")[:limit]
     )
     chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
