@@ -60,7 +60,7 @@ export interface ComponentProps {
 export function Component({ data }: ComponentProps): ReactElement {
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
-    const { queryKind, querySourceKind, display, funnelVizType } = insightQueryProperties(
+    const { queryKind, querySourceKind, display, displayIsDefault, funnelVizType } = insightQueryProperties(
         payload?.insight?.query ?? payload?.query
     )
 
@@ -69,10 +69,11 @@ export function Component({ data }: ComponentProps): ReactElement {
             queryKind,
             querySourceKind,
             display,
+            displayIsDefault,
             funnelVizType,
             isSupported: visualizationType !== null,
         })
-    }, [data, visualizationType, queryKind, querySourceKind, display, funnelVizType])
+    }, [data, visualizationType, queryKind, querySourceKind, display, displayIsDefault, funnelVizType])
 
     if (!visualizationType) {
         return (

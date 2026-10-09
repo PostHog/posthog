@@ -193,6 +193,7 @@ export function captureInsightViewed(params: {
     queryKind?: string | undefined
     querySourceKind?: string | undefined
     display?: string | undefined
+    displayIsDefault?: boolean | undefined
     funnelVizType?: string | undefined
     isSupported: boolean
 }): void {
@@ -200,6 +201,7 @@ export function captureInsightViewed(params: {
         query_kind: params.queryKind,
         query_source_kind: params.querySourceKind,
         display: params.display,
+        display_is_default: params.displayIsDefault,
         funnel_viz_type: params.funnelVizType,
         is_supported: params.isSupported,
     })

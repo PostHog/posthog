@@ -285,7 +285,7 @@ describe('insight visualizations', () => {
                 [
                     'bare trends without a display',
                     { kind: 'TrendsQuery' },
-                    { queryKind: 'TrendsQuery', display: 'ActionsLineGraph' },
+                    { queryKind: 'TrendsQuery', display: 'ActionsLineGraph', displayIsDefault: true },
                 ],
                 [
                     'trends wrapped in InsightVizNode',
@@ -293,7 +293,22 @@ describe('insight visualizations', () => {
                         kind: 'InsightVizNode',
                         source: { kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } },
                     },
-                    { queryKind: 'InsightVizNode', querySourceKind: 'TrendsQuery', display: 'BoldNumber' },
+                    {
+                        queryKind: 'InsightVizNode',
+                        querySourceKind: 'TrendsQuery',
+                        display: 'BoldNumber',
+                        displayIsDefault: false,
+                    },
+                ],
+                [
+                    'SQL insight with its display on the wrapper node',
+                    { kind: 'DataVisualizationNode', display: 'ActionsBar', source: { kind: 'HogQLQuery' } },
+                    {
+                        queryKind: 'DataVisualizationNode',
+                        querySourceKind: 'HogQLQuery',
+                        display: 'ActionsBar',
+                        displayIsDefault: false,
+                    },
                 ],
             ])('%s', (_, query, expected) => {
                 expect(insightQueryProperties(query)).toEqual(expected)
