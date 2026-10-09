@@ -52,8 +52,9 @@ class TestDeletionCoverage(ClickhouseTestMixin, BaseTest):
     def test_every_personal_data_target_is_squashed_or_exempt(self):
         # A merge moves a distinct_id to another person, and a later deletion names only the
         # survivor, so a target the squash skips keeps its rows on the absorbed person until the
-        # TTL drops them (#93035). The test above cannot catch that: it keys on person_properties,
-        # which flag_evaluations does not declare, which is how flag_evaluations slipped through.
+        # TTL drops them (#93035). The test above cannot catch that, because it checks only that the
+        # deletion sweep reaches a table, and only for a table that declares person_properties. This
+        # test reads the registered targets instead, because a target need not declare that column.
         skipped = {target.data_table for target in PERSONAL_DATA_TARGETS if not target.accepts_person_id_rewrite}
         unaccounted = sorted(skipped - PERSON_ID_REWRITE_EXEMPT)
 
