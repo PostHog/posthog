@@ -59,3 +59,13 @@ class TestPlatformLogsAlertBackfill(APIBaseTest):
 
         backfill_platform_alert_configurations(team_id=self.team.id)
         assert {view.enabled for view in self._copies(self.team).values()} == {True}
+
+    def test_named_alerts_are_the_only_ones_copied_and_the_only_ones_switched_off(self) -> None:
+        kept, rotated = self._alert(self.team).id, self._alert(self.team, name="Slow requests").id
+        self._alert(self.team, name="Not named")
+
+        backfill_platform_alert_configurations(alert_ids=[kept, rotated])
+        assert set(self._copies(self.team)) == {kept, rotated}
+
+        assert disable_platform_alert_configurations(alert_ids=[rotated]) == 1
+        assert {key: view.enabled for key, view in self._copies(self.team).items()} == {kept: True, rotated: False}

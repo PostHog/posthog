@@ -85,6 +85,14 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         backfill_platform_insight_alert_configurations(team_id=self.team.id, sample_percent=60)
         assert set(self._copies()) == {inside.id, outside.id}
 
+    def test_named_alerts_are_the_only_ones_copied(self) -> None:
+        named = self._alert()
+        self._alert()
+
+        backfill_platform_insight_alert_configurations(alert_ids=[named.id])
+
+        assert set(self._copies()) == {named.id}
+
     def test_disabling_stops_every_copy_and_a_rerun_turns_them_back_on(self) -> None:
         self._alert()
         self._alert()
