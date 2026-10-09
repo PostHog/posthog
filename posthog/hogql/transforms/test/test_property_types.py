@@ -295,7 +295,7 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
                 ("mapFilter((key, value) -> not(has(", "'\"$active_feature_flags\":'"),
-                ("JSONMergePatch(",),
+                ("'{\"$feature_flags\":'",),
             ),
             (
                 "stored_document_restricted",
@@ -622,7 +622,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 SELECT 1 AS team_id, 'synthetic' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
                     CAST(%(document)s, %(person_type)s) AS person_properties,
-                    CAST('{}', %(temporary_type)s) AS temporary_properties
+                    CAST('{}', %(temporary_type)s) AS temporary_properties,
+                    CAST([], 'Array(String)') AS properties_null_keys,
+                    CAST([], 'Array(String)') AS temporary_properties_null_keys,
+                    CAST([], 'Array(String)') AS person_properties_null_keys
             ) """
             + printed,
             {
