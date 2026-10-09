@@ -118,6 +118,13 @@ class TestTeamWorkflowsConfig(APIBaseTest):
     @parameterized.expand(
         [
             ["count with no saved window", None, {"marketing_frequency_cap_max_messages": 3}, 400, (None, None)],
+            [
+                "window longer than 30 days",
+                None,
+                {"marketing_frequency_cap_max_messages": 3, "marketing_frequency_cap_window_days": 31},
+                400,
+                (None, None),
+            ],
             ["count change on a saved cap", (2, 7), {"marketing_frequency_cap_max_messages": 3}, 200, (3, 7)],
             ["one field cleared on a saved cap", (2, 7), {"marketing_frequency_cap_window_days": None}, 400, (2, 7)],
             [

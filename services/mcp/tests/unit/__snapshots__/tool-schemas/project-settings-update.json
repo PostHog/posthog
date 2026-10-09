@@ -4305,7 +4305,7 @@
                 "marketing_frequency_cap_window_days": {
                     "anyOf": [
                         {
-                            "maximum": 365,
+                            "maximum": 30,
                             "minimum": 1,
                             "type": "number"
                         },

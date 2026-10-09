@@ -1007,7 +1007,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         required=False,
         allow_null=True,
         min_value=1,
-        max_value=365,
+        max_value=30,
         help_text=(
             "Length of the rolling frequency cap window in days. "
             "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
