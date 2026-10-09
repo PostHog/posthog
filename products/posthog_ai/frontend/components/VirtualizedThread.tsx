@@ -45,6 +45,17 @@ const AT_BOTTOM_EPSILON = 1
 const UNPIN_SLACK = 1.5
 
 /**
+ * True when the offset moved after the last scroll event `onScroll` handled or the last software write
+ * (`lastSeenTop`), which is a reader scroll whose event has not reached `onScroll` yet. Timers, commits, and
+ * the layout effects in the virtualizer's synchronous scroll re-render all run before `onScroll` does. A
+ * software write there erases the reader's scroll, and `onScroll` then takes the late event for the write's
+ * echo. The virtualizer core's own writes do not check this. A hidden scroller reads 0 and fires no event.
+ */
+function hasUnseenScroll(el: HTMLElement, lastSeenTop: number): boolean {
+    return el.clientHeight > 0 && Math.abs(el.scrollTop - lastSeenTop) > UNPIN_SLACK
+}
+
+/**
  * How long a recorded programmatic scroll write explains the scroll event it causes. Events land on the
  * next frame; the window only needs to survive frame jank, and staying short keeps a coincidental user
  * scroll to the same offset from being swallowed for long.
@@ -257,6 +268,8 @@ function Root<T>({
     const lastUserScrollAtRef = useRef(0)
     // The previous scroll event's offset — how the listener recognizes a shrink clamp (see `onScroll`).
     const lastScrollEventTopRef = useRef<number | null>(null)
+    // The offset as of the last scroll event or software scroll write (see `hasUnseenScroll`).
+    const lastSeenTopRef = useRef(0)
     // Keeps following for a beat after the turn reports done, so the trailing usage/cost row lands in
     // view (see `FOLLOW_GRACE_MS`).
     const [followGrace, setFollowGrace] = useState(false)
@@ -270,6 +283,15 @@ function Root<T>({
     itemsLengthRef.current = items.length
     // `undefined` means "thread not yet populated" — the anchor-change effect adopts the first real key.
     const prevAnchorKeyRef = useRef<string | null | undefined>(undefined)
+
+    const recordScrollWrite = useCallback((applied: number): void => {
+        lastSeenTopRef.current = applied
+        const writes = programmaticScrollsRef.current
+        writes.push({ value: applied, at: performance.now() })
+        if (writes.length > 12) {
+            writes.splice(0, writes.length - 12)
+        }
+    }, [])
 
     const renderRow = useCallback(
         (index: number): ReactNode => {
@@ -357,17 +379,12 @@ function Root<T>({
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
         // The default `elementScroll`, wrapped so every scroll write the core performs is recorded for
-        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollsRef`). Recorded
-        // *after* the write, from the element — `scrollTo` applies synchronously, so this is the value
-        // the write actually produced, clamping included.
+        // the scroll listener's programmatic-vs-reader test (see `programmaticScrollsRef`) and for
+        // `hasUnseenScroll` (see `lastSeenTopRef`). Recorded *after* the write, from the element — `scrollTo`
+        // applies synchronously, so this is the value the write actually produced, clamping included.
         scrollToFn: (offset, options, instance) => {
             elementScroll(offset, options, instance)
-            const applied = instance.scrollElement?.scrollTop ?? offset + (options.adjustments ?? 0)
-            const writes = programmaticScrollsRef.current
-            writes.push({ value: applied, at: performance.now() })
-            if (writes.length > 12) {
-                writes.splice(0, writes.length - 12)
-            }
+            recordScrollWrite(instance.scrollElement?.scrollTop ?? offset + (options.adjustments ?? 0))
         },
         // No `gap` — inter-row spacing is baked into the measured row height via `paddingBottom` (see `Row`).
         ...(stickToBottom
@@ -487,12 +504,8 @@ function Root<T>({
     const noteProgrammaticScroll = useCallback((): void => {
         const top = scrollRef.current?.scrollTop ?? 0
         peakTopRef.current = top
-        const writes = programmaticScrollsRef.current
-        writes.push({ value: top, at: performance.now() })
-        if (writes.length > 12) {
-            writes.splice(0, writes.length - 12)
-        }
-    }, [])
+        recordScrollWrite(top)
+    }, [recordScrollWrite])
 
     // Hold an unpinned anchor landing steady while the thread's measurements settle (see the settle
     // constants). Re-asserts via `scrollToIndex` so the corrective write re-computes the offset from the
@@ -508,7 +521,11 @@ function Root<T>({
                     return
                 }
                 const target = virtualizer.getOffsetForIndex(anchorIndex, 'start')?.[0]
-                if (target !== undefined && Math.abs(el.scrollTop - target) > ANCHOR_SETTLE_TOLERANCE_PX) {
+                if (
+                    target !== undefined &&
+                    !hasUnseenScroll(el, lastSeenTopRef.current) &&
+                    Math.abs(el.scrollTop - target) > ANCHOR_SETTLE_TOLERANCE_PX
+                ) {
                     virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
                     noteProgrammaticScroll()
                 }
@@ -552,16 +569,13 @@ function Root<T>({
                 if (viewport > 0 && contentBelow >= viewport) {
                     return
                 }
-                if (itemsLengthRef.current !== itemsAtOpen) {
-                    commitBottomOpen(el)
-                    return
-                }
                 remaining -= 1
-                if (remaining > 0) {
+                const verdictDue = itemsLengthRef.current !== itemsAtOpen || remaining === 0
+                if (verdictDue && !hasUnseenScroll(el, lastSeenTopRef.current)) {
+                    commitBottomOpen(el)
+                } else if (remaining > 0) {
                     setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
-                    return
                 }
-                commitBottomOpen(el)
             }
             setTimeout(tick, ANCHOR_SETTLE_INTERVAL_MS)
         },
@@ -767,6 +781,7 @@ function Root<T>({
         }
         const onScroll = (): void => {
             const top = el.scrollTop
+            lastSeenTopRef.current = top
             const maxTop = Math.max(0, el.scrollHeight - el.clientHeight)
             // Content shrinking under the reader — a tool card's accordion collapsing the moment the tool
             // completes, which on this surface is every finished tool — lowers the scroll range, and the
@@ -779,7 +794,8 @@ function Root<T>({
             // An event that lands where software recently wrote is a write echoing back, not the reader
             // (see `programmaticScrollsRef`) — adopt the position and decide nothing from it. A reader
             // gesture racing this window still lands on a different offset (or came in as a wheel/touch
-            // event, which unpins before any scroll event fires).
+            // event, which unpins before any scroll event fires), because this component's writes skip
+            // their turn while a reader scroll is pending (see `hasUnseenScroll`).
             const now = performance.now()
             const writes = programmaticScrollsRef.current
             while (writes.length > 0 && now - writes[0].at >= PROGRAMMATIC_SCROLL_MATCH_MS) {
@@ -858,7 +874,11 @@ function Root<T>({
             return
         }
         const el = scrollRef.current
-        if (el && el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_EPSILON) {
+        if (
+            el &&
+            !hasUnseenScroll(el, lastSeenTopRef.current) &&
+            el.scrollHeight - el.scrollTop - el.clientHeight > AT_BOTTOM_EPSILON
+        ) {
             el.scrollTop = el.scrollHeight
             noteProgrammaticScroll()
         }
