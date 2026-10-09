@@ -1,12 +1,28 @@
+from typing import Any
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.messaging.backend.facade.categories import (
+    MESSAGE_CATEGORY_TYPE_CHOICES,
+    MessageCategoryMissing,
+    MessageCategoryRow,
+    category_key_in_use,
+    create_category,
+    get_category,
+    list_categories,
+    update_category,
+)
 from products.messaging.backend.facade.customerio import (
     CustomerIOConfigConflict,
     CustomerIOConfigIncomplete,
@@ -22,45 +38,31 @@ from products.messaging.backend.facade.customerio import (
     save_track_config,
     save_webhook_config,
 )
-from products.messaging.backend.models.message_category import MessageCategory
 
 
-class MessageCategorySerializer(serializers.ModelSerializer):
+class MessageCategorySerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    key = serializers.CharField(max_length=64)
+    name = serializers.CharField(max_length=128)
+    description = serializers.CharField(allow_blank=True, required=False, style={"base_template": "textarea.html"})
+    public_description = serializers.CharField(
+        allow_blank=True, required=False, style={"base_template": "textarea.html"}
+    )
+    category_type = serializers.ChoiceField(choices=MESSAGE_CATEGORY_TYPE_CHOICES, required=False)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(source="created_by_id", read_only=True, allow_null=True)
+    deleted = serializers.BooleanField(required=False)
+
     def validate(self, data):
         if self.instance is None:
             # Ensure key is unique per team for new instances
-            if MessageCategory.objects.filter(team_id=self.context["team_id"], key=data["key"], deleted=False).exists():
+            if category_key_in_use(self.context["team_id"], data["key"]):
                 raise serializers.ValidationError({"key": "A message category with this key already exists."})
         else:
             if "key" in data and hasattr(self.instance, "key") and data["key"] != self.instance.key:
                 raise serializers.ValidationError({"key": "The key field cannot be updated after creation."})
         return data
-
-    class Meta:
-        model = MessageCategory
-        fields = (
-            "id",
-            "key",
-            "name",
-            "description",
-            "public_description",
-            "category_type",
-            "created_at",
-            "updated_at",
-            "created_by",
-            "deleted",
-        )
-        read_only_fields = (
-            "id",
-            "created_at",
-            "updated_at",
-            "created_by",
-        )
-
-    def create(self, validated_data):
-        validated_data["team_id"] = self.context["team_id"]
-        validated_data["created_by"] = self.context["request"].user
-        return super().create(validated_data)
 
 
 class CustomerIOImportSerializer(serializers.Serializer):
@@ -84,6 +86,20 @@ class TrackConfigStateSerializer(DataclassSerializer):
         dataclass = TrackConfigState
 
 
+CATEGORY_ID_PARAMETER = OpenApiParameter(
+    name="id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    description="A UUID string identifying this message category.",
+)
+
+
+@extend_schema_view(
+    retrieve=extend_schema(parameters=[CATEGORY_ID_PARAMETER]),
+    update=extend_schema(parameters=[CATEGORY_ID_PARAMETER]),
+    partial_update=extend_schema(parameters=[CATEGORY_ID_PARAMETER]),
+    destroy=extend_schema(parameters=[CATEGORY_ID_PARAMETER]),
+)
 class MessageCategoryViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -92,12 +108,39 @@ class MessageCategoryViewSet(
     scope_object = "INTERNAL"
 
     serializer_class = MessageCategorySerializer
-    queryset = MessageCategory.objects.all()
 
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(
-            deleted=False,
-        )
+    def _category(self) -> MessageCategoryRow:
+        # INTERNAL scope has no object-level access rules, so a team-scoped lookup is the whole check.
+        try:
+            return get_category(self.team_id, self.kwargs["pk"])
+        except MessageCategoryMissing:
+            raise NotFound()
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        categories = list_categories(self.team_id)
+        # The paginator only needs len() and slicing, which the facade's sequence provides.
+        page = self.paginate_queryset(categories)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(categories, many=True).data)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(self.get_serializer(self._category()).data)
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        category = create_category(self.team_id, request.user.id, serializer.validated_data)
+        data = self.get_serializer(category).data
+        return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        partial = kwargs.pop("partial", False)
+        category = self._category()
+        serializer = self.get_serializer(category, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        updated = update_category(self.team_id, category.id, serializer.validated_data)
+        return Response(self.get_serializer(updated).data)
 
     @action(detail=False, methods=["post"])
     def import_from_customerio(self, request, **kwargs):

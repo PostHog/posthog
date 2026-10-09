@@ -752,7 +752,6 @@ ignore_imports = [
     # Lane A: suppression
     "products.messaging.backend.presentation.views.message_suppression -> products.messaging.backend.models.message_suppression",
     # Lane B: categories, Customer.io config and the Customer.io webhook
-    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.message_category",
     # Lane C: preferences and the recipient preferences page
     "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_category",
     "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_preferences",
