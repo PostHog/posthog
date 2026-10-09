@@ -37,6 +37,7 @@ from posthog.api.llm_prompt_serializers import (
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.llm_prompt import (
+    LLMPromptArchivedVersionsOverlapError,
     LLMPromptDuplicateNameConflictError,
     LLMPromptEditError,
     LLMPromptLabelConflictError,
@@ -642,7 +643,9 @@ class LLMPromptViewSet(
         request=None,
         responses={
             200: LLMPromptSerializer,
-            409: OpenApiResponse(description="An active prompt with this name already exists."),
+            409: OpenApiResponse(
+                description="An active prompt with this name already exists, or the archived versions overlap."
+            ),
         },
     )
     @action(
@@ -664,6 +667,13 @@ class LLMPromptViewSet(
         except LLMPromptDuplicateNameConflictError:
             return Response(
                 {"detail": "An active prompt with this name already exists. Rename or archive it first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except LLMPromptArchivedVersionsOverlapError:
+            return Response(
+                {
+                    "detail": "This name was archived more than once and its versions overlap, so it can't be restored. Create a new prompt instead."
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 

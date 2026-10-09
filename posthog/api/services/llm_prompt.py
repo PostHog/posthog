@@ -306,6 +306,10 @@ class LLMPromptDuplicateNameConflictError(Exception):
     pass
 
 
+class LLMPromptArchivedVersionsOverlapError(Exception):
+    pass
+
+
 def duplicate_prompt(
     team: Team,
     *,
@@ -453,15 +457,28 @@ def unarchive_prompt(team: Team, prompt_name: str, *, user: User | None = None) 
         if LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False).exists():
             raise LLMPromptDuplicateNameConflictError()
 
+        # A name archived, recreated and archived again holds two generations of
+        # rows that share version numbers. Restoring both would violate the
+        # active-row version constraint, and keeping only one would drop history.
+        restored_versions = [row.version for row in archived_rows]
+        if len(set(restored_versions)) != len(restored_versions):
+            raise LLMPromptArchivedVersionsOverlapError()
+
         latest_row = archived_rows[-1]
         # Active prompts may only reference active targets (the publish and label
         # paths enforce the same invariant), so a restore cannot reintroduce a
         # reference to a still-archived prompt.
         validate_reference_targets(team.id, prompt_name=prompt_name, prompt_payload=latest_row.prompt)
 
-        restored_versions = [row.version for row in archived_rows]
-        LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=True).update(deleted=False)
-        LLMPrompt.objects.filter(id=latest_row.id).update(is_latest=True)
+        try:
+            LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=True).update(deleted=False)
+            LLMPrompt.objects.filter(id=latest_row.id).update(is_latest=True)
+        except IntegrityError as err:
+            # The archived rows are locked but a concurrent create of the same
+            # name is not, so the active-row check above can go stale.
+            if "unique_llm_prompt_latest_per_team" in str(err) or "unique_llm_prompt_version_per_team" in str(err):
+                raise LLMPromptDuplicateNameConflictError() from err
+            raise
 
         log_llm_prompt_activity(
             team=team,

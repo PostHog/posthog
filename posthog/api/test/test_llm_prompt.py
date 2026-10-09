@@ -819,6 +819,43 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert LLMPrompt.objects.filter(team=self.team, name="reused-name", deleted=False).count() == 1
 
+    def test_unarchive_endpoint_conflicts_when_name_was_archived_twice(self):
+        self.create_prompt_version(name="twice-archived", version=1, is_latest=False, prompt="gen1-v1")
+        self.create_prompt_version(name="twice-archived", version=2, is_latest=True, prompt="gen1-v2")
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/twice-archived/archive/")
+        recreate = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "twice-archived", "prompt": "gen2-v1"},
+            format="json",
+        )
+        assert recreate.status_code == status.HTTP_201_CREATED
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/twice-archived/archive/")
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/twice-archived/unarchive/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "archived more than once" in response.json()["detail"]
+        assert LLMPrompt.objects.filter(team=self.team, name="twice-archived", deleted=False).count() == 0
+        assert LLMPrompt.objects.filter(team=self.team, name="twice-archived", deleted=True).count() == 3
+
+    def test_unarchive_endpoint_conflicts_when_create_races_the_active_name_check(self):
+        self.create_prompt_version(name="raced-name", version=1, is_latest=True, prompt="old")
+        self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/raced-name/archive/")
+
+        def create_active_row_concurrently(*args: Any, **kwargs: Any) -> None:
+            self.create_prompt_version(name="raced-name", version=1, is_latest=True, prompt="fresh")
+
+        # Reference validation runs after the active-name check and before the
+        # restore write, so a row inserted there lands like a concurrent create.
+        with patch(
+            "posthog.api.services.llm_prompt.validate_reference_targets",
+            side_effect=create_active_row_concurrently,
+        ):
+            response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/raced-name/unarchive/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert LLMPrompt.objects.filter(team=self.team, name="raced-name", deleted=True, prompt="old").count() == 1
+
     def test_unarchive_endpoint_rejects_restore_whose_references_are_archived(self):
         self.create_prompt_version(name="ref-child", version=1, is_latest=True, prompt="child")
         parent_create = self.client.post(
