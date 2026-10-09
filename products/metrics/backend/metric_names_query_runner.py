@@ -167,11 +167,13 @@ class MetricNamesQueryRunner:
                     names.metric_name AS name,
                     details.metric_type AS metric_type,
                     details.unit AS unit,
-                    if(details.series_metric_name = '', NULL, details.last_seen_at) AS last_seen_at
+                    if(details.matched = 1, details.last_seen_at, NULL) AS last_seen_at
                 FROM {names} AS names
                 LEFT JOIN (
                     SELECT
                         metric_name AS series_metric_name,
+                        -- An unmatched row reads 0 here, even for a metric named ''.
+                        1 AS matched,
                         any(metric_type) AS metric_type,
                         any(unit) AS unit,
                         max(last_seen) AS last_seen_at
@@ -195,6 +197,8 @@ class MetricNamesQueryRunner:
             details.where = ast.And(exprs=[details.where, self._services_expr()])
         # A join does not keep the page order, so the outer query sorts by the same keys.
         query.order_by = [clone_expr(order) for order in names_query.order_by or []]
+        # Without its own LIMIT, the outer query gets the HogQL default and cuts a larger page.
+        query.limit = clone_expr(names_query.limit) if names_query.limit else None
         return query
 
     def run_picker(self) -> list[dict[str, str]]:
@@ -273,6 +277,9 @@ class MetricNamesQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+        # One row per name and bucket. Without an explicit LIMIT, the HogQL default cuts the batch after a few names.
+        # The extra bucket covers a point on the window's end.
+        query.limit = ast.Constant(value=len(names) * (SPARKLINE_MAX_POINTS + 1))
 
         response = execute_hogql_query(
             query_type="MetricNamesSparklineQuery",

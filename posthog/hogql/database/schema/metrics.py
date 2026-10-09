@@ -209,7 +209,7 @@ class MetricSamplesTable(Table):
 
 
 class MetricNamesTable(Table):
-    description: str = "One row per metric name, service, metric type and UTC hour with labeled data points. Use it to find the metric names of a time range."
+    description: str = "One row per metric name, service and UTC hour with labeled data points. Use it to find the metric names of a time range."
     workload: Workload | None = Workload.LOGS
 
     fields: dict[str, FieldOrTable] = {
@@ -227,10 +227,15 @@ class MetricNamesTable(Table):
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the metric."
         ),
+        "metric_types": StringArrayDatabaseField(
+            name="metric_types",
+            nullable=False,
+            description="Every OTel metric type (gauge, sum, histogram, summary, exponential_histogram) the service sent the name as in that hour. Empty on rows written before types were recorded.",
+        ),
         "metric_type": StringDatabaseField(
             name="metric_type",
             nullable=False,
-            description="OTel metric type (gauge, sum, histogram, summary, exponential_histogram). Empty on rows written before the type was recorded.",
+            description="The first entry of `metric_types`, or empty. A name sent as more than one type in the hour has only one of them here, so filter on `metric_types` to find every type.",
         ),
     }
 

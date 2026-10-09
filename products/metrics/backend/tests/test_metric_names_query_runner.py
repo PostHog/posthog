@@ -451,6 +451,26 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(sparkline), 1)
         self.assertLess(sparkline[0], sparkline[-1])
 
+    def test_catalog_page_is_not_cut_at_the_default_query_limit(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for i in range(101):
+            _seed_point(team_id=self.team.id, metric_name=f"m{i:03d}", value=1.0, timestamp=anchor)
+
+        rows = MetricNamesQueryRunner(team=self.team, limit=150, include_sparklines=False).run()
+
+        self.assertEqual(len(rows), 101)
+
+    def test_every_name_in_a_batch_gets_a_sparkline(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(hours=6)
+        names = [f"busy.{i:02d}" for i in range(MAX_SPARKLINE_BATCH_SIZE)]
+        for name in names:
+            points = [(anchor + dt.timedelta(minutes=15 * i + 1), float(i)) for i in range(24)]
+            seed_metric_event(team_id=self.team.id, metric_name=name, points=points, metric_type="gauge")
+
+        rows = MetricNamesQueryRunner(team=self.team, names=names).run()
+
+        self.assertEqual({row["name"]: len(row["sparkline"]) > 1 for row in rows}, dict.fromkeys(names, True))
+
     def test_sparkline_is_bounded(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=120)
         points = [(anchor + dt.timedelta(minutes=i), float(i % 7)) for i in range(120)]
