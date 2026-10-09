@@ -687,6 +687,7 @@ class TestSyncAlertEvents:
             produced = self._finalize(team, job, ExternalDataJobStatus.FAILED)
 
         job.refresh_from_db()
+        assert job.finished_at is not None
         source_url = f"https://app.example.com/project/{team.pk}/data-management/sources/managed-{source.id}/syncs"
         assert produced == [
             {
