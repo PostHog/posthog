@@ -172,6 +172,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
@@ -218,6 +219,7 @@ if TYPE_CHECKING:
     )
 
 tracer = trace.get_tracer(__name__)
+_OTEL_DATABASE = OtelInstrumentFactory("hogql.database")
 
 
 @dataclasses.dataclass
@@ -1734,6 +1736,8 @@ class Database(BaseModel):
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
         """
+        build_started = time.perf_counter()
+
         if timings is None:
             timings = HogQLTimings()
 
@@ -1754,7 +1758,7 @@ class Database(BaseModel):
                 SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
 
         def fetch_fresh() -> HogQLDatabaseSources:
-            with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+            with _OTEL_DATABASE.timed_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "fetch_sources"}):
                 return Database._fetch_sources(
                     team_id,
                     team=team,
@@ -1792,10 +1796,17 @@ class Database(BaseModel):
                 is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
             )
 
-        with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
-            return Database._build_from_sources(
+        with _OTEL_DATABASE.timed_histogram_twin(
+            HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "build_from_sources"}
+        ):
+            database = Database._build_from_sources(
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
+
+        total_seconds = time.perf_counter() - build_started
+        HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total").observe(total_seconds)
+        _OTEL_DATABASE.record_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, total_seconds, {"phase": "total"})
+        return database
 
     @staticmethod
     def _sources_cache_key(
