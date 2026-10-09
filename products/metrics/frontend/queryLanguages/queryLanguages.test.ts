@@ -12,13 +12,16 @@ import { printPromQL } from './promqlPrinter'
 import { promqlToBuilder } from './promqlToBuilder'
 import { builderRegexToPromRegex, promRegexToBuilderRegex } from './regex'
 import { sqlToBuilder } from './sqlToBuilder'
-import type { BuilderClause, BuilderQuery } from './types'
+import { type BuilderClause, type BuilderQuery, PROMQL_DIVISION_ISSUE, VALUE_ONLY_ISSUES } from './types'
 
 const clause = (fields: Partial<BuilderClause> & Pick<BuilderClause, 'metricName'>): BuilderClause => ({
     name: 'a',
     aggregation: 'sum',
     ...fields,
 })
+
+/** The issues about a change to the query, without the ones about values a language computes differently. */
+const queryIssues = (issues: string[]): string[] => issues.filter((issue) => !VALUE_ONLY_ISSUES.has(issue))
 
 // Builder queries that every language can hold exactly. Each one must survive builder → PromQL → builder
 // and builder → SQL → builder without a reported issue.
@@ -204,6 +207,24 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
             clause({ name: 'b', metricName: 'http.server.request.count', aggregation: 'rate' }),
             clause({ name: 'c', metricName: 'up', aggregation: 'count', groupBy: [{ key: 'service_name' }] }),
         ],
+    },
+    // The backend seeds these metrics so that a series stops reporting, a service is missing, or a value is 0.
+    'series that stops reporting': {
+        clauses: [clause({ name: 'a', metricName: 'sparse_queue_depth', groupBy: [{ key: 'service_name' }] })],
+    },
+    'formula over different label sets': {
+        clauses: [
+            clause({ name: 'a', metricName: 'queue_depth', groupBy: [{ key: 'service_name' }] }),
+            clause({ name: 'b', metricName: 'api_queue_depth', groupBy: [{ key: 'service_name' }] }),
+        ],
+        formula: 'a - b',
+    },
+    'formula with a zero denominator': {
+        clauses: [
+            clause({ name: 'a', metricName: 'queue_depth' }),
+            clause({ name: 'b', metricName: 'idle_queue_depth' }),
+        ],
+        formula: 'a / b',
     },
 }
 
@@ -606,6 +627,10 @@ const PROMQL_CASES: [string, BuilderQuery | null, 'lossless' | 'lossy'][] = [
     ['sum(x{a="unterminated})', null, 'lossy'],
 ]
 
+// A comma join: the reader once looped on it without end.
+const COMMA_JOIN_SQL =
+    "SELECT toStartOfInterval(m.timestamp, {interval}) AS time, sum(m.value) AS value FROM posthog.metrics m, posthog.metric_series s WHERE m.metric_name = 'x' GROUP BY time"
+
 const metricsQuery = (fields: Partial<MetricsQuery>): MetricsQuery => ({
     kind: NodeKind.MetricsQuery,
     clauses: [],
@@ -691,7 +716,7 @@ describe('metrics query languages', () => {
             expect(result.value).not.toBeNull()
             expect(canonicalBuilder(result.value!)).toEqual(canonicalBuilder(expected))
             if (kind === 'lossless') {
-                expect(result.issues).toEqual([])
+                expect(queryIssues(result.issues)).toEqual([])
             } else {
                 expect(result.issues.length).toBeGreaterThan(0)
             }
@@ -706,9 +731,9 @@ describe('metrics query languages', () => {
             )
         )('switching %s to the builder and back is lossless', (text) => {
             const conversion = convertMetricsQuery(metricsQuery({ language: 'promql', promql: text }), 'builder')
-            expect(conversion.issues).toEqual([])
+            expect(queryIssues(conversion.issues)).toEqual([])
             const back = convertMetricsQuery(conversion.query, 'promql')
-            expect(back.issues).toEqual([])
+            expect(queryIssues(back.issues)).toEqual([])
             expect(canonicalPromQL(back.query.promql!)).toEqual(canonicalPromQL(text))
         })
     })
@@ -729,13 +754,15 @@ describe('metrics query languages', () => {
             [
                 'error ratio formula',
                 'sum(rate({"http.server.request.count", "http.response.status_code"=~"5.*"})) / sum(rate({"http.server.request.count"})) * 100',
+                [PROMQL_DIVISION_ISSUE],
             ],
+            ['parenthesized formula', '(sum(queue_depth) + sum(retry_queue_depth)) / 2'],
             [
                 'two series without formula',
                 'label_replace(sum(queue_depth), "clause", "a", "", "") or label_replace(avg({"process.cpu.utilization"}), "clause", "b", "", "")',
             ],
-        ])('writes %s as %s', (name, expected) => {
-            expect(builderToPromql(LOSSLESS_BUILDER_FIXTURES[name])).toEqual({ value: expected, issues: [] })
+        ])('writes %s as %s', (name, expected, issues = []) => {
+            expect(builderToPromql(LOSSLESS_BUILDER_FIXTURES[name])).toEqual({ value: expected, issues })
         })
 
         it('spreads an ungrouped series over a grouped one with on() group_left', () => {
@@ -748,7 +775,7 @@ describe('metrics query languages', () => {
             })
             expect(result).toEqual({
                 value: 'sum by (job) (rate(errors)) / on() group_left sum(rate(requests))',
-                issues: [],
+                issues: [PROMQL_DIVISION_ISSUE],
             })
         })
     })
@@ -757,9 +784,9 @@ describe('metrics query languages', () => {
         it.each(Object.keys(LOSSLESS_BUILDER_FIXTURES))('%s: builder → PromQL → builder', (name) => {
             const builder = LOSSLESS_BUILDER_FIXTURES[name]
             const promql = builderToPromql(builder)
-            expect(promql.issues).toEqual([])
+            expect(queryIssues(promql.issues)).toEqual([])
             const back = promqlToBuilder(promql.value!)
-            expect(back.issues).toEqual([])
+            expect(queryIssues(back.issues)).toEqual([])
             expect(canonicalBuilder(back.value!)).toEqual(canonicalBuilder(builder))
         })
 
@@ -775,9 +802,9 @@ describe('metrics query languages', () => {
         it.each(Object.keys(LOSSLESS_BUILDER_FIXTURES))('%s: PromQL → SQL → PromQL', (name) => {
             const promql = builderToPromql(LOSSLESS_BUILDER_FIXTURES[name]).value!
             const toSql = convertMetricsQuery(metricsQuery({ language: 'promql', promql }), 'sql')
-            expect(toSql.issues).toEqual([])
+            expect(queryIssues(toSql.issues)).toEqual([])
             const back = convertMetricsQuery(toSql.query, 'promql')
-            expect(back.issues).toEqual([])
+            expect(queryIssues(back.issues)).toEqual([])
             expect(back.query.promql).toEqual(promql)
         })
 
@@ -861,6 +888,28 @@ describe('metrics query languages', () => {
                 'builder',
             ],
             ['PromQL that cannot be read', metricsQuery({ language: 'promql', promql: 'sum(' }), 'sql'],
+            ['SQL that joins tables with a comma', metricsQuery({ language: 'sql', sql: COMMA_JOIN_SQL }), 'builder'],
+            [
+                'a division by a series, to PromQL',
+                metricsQuery({
+                    clauses: LOSSLESS_BUILDER_FIXTURES['formula with a zero denominator'].clauses,
+                    formula: 'a / b',
+                }),
+                'promql',
+            ],
+            [
+                'a PromQL division by a series',
+                metricsQuery({ language: 'promql', promql: 'sum(rate(errors_total)) / sum(rate(requests_total))' }),
+                'builder',
+            ],
+            [
+                'a formula that is not 0 where no series has data, to SQL',
+                metricsQuery({
+                    clauses: LOSSLESS_BUILDER_FIXTURES['formula with a zero denominator'].clauses,
+                    formula: 'a + 1',
+                }),
+                'sql',
+            ],
         ])('warns about %s', (_name, query, to) => {
             expect(convertMetricsQuery(query, to).issues.length).toBeGreaterThan(0)
         })

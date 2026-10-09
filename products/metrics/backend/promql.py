@@ -105,4 +105,5 @@ def run_promql_range(
             for timestamp, value in result.get("values") or []
         ]
         rows.append((labels, metric_name, clause, points))
-    return rank_and_fill_series(rows)
+    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
+    return rank_and_fill_series(rows, fill=None)

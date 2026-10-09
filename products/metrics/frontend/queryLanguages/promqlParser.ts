@@ -626,6 +626,21 @@ export function parsePromQL(input: string): PromExpr {
     return new Parser(tokenize(input)).parse()
 }
 
+/** Whether an expression has a series in it, not only numbers. */
+export function hasSeries(expr: PromExpr): boolean {
+    switch (expr.type) {
+        case 'number':
+            return false
+        case 'paren':
+        case 'unary':
+            return hasSeries(expr.expr)
+        case 'binary':
+            return hasSeries(expr.lhs) || hasSeries(expr.rhs)
+        default:
+            return true
+    }
+}
+
 /** Removes redundant parentheses so structural matching does not have to look through them. */
 export function unwrapParens(expr: PromExpr): PromExpr {
     while (expr.type === 'paren') {

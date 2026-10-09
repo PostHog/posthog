@@ -1,9 +1,11 @@
 import type { MetricsAttributeScope } from '~/queries/schema/schema-general'
 
+import { type PromExpr, PromQLParseError, parsePromQL } from './promqlParser'
 import {
     type BuilderClause,
     type BuilderQuery,
     type ConversionResult,
+    SQL_EMPTY_INTERVAL_ISSUE,
     normalizeClause,
     normalizeLabelKey,
 } from './types'
@@ -17,13 +19,18 @@ import {
  * runs (products/metrics/backend/metric_query_runner.py): one value per series and bucket (the last
  * value, or the rate or increase from per-sample deltas with counter-reset handling), then the
  * aggregation across series, and the same bucket interpolation for histogram quantiles. A clause
- * without an aggregation keeps each series. `sqlToBuilder` reads this exact shape back.
+ * without an aggregation keeps each series. A formula matches series by label set, as the builder
+ * does, and divides by zero to 0. `sqlToBuilder` reads this exact shape back.
  */
 
 /** The label column of a clause without an aggregation: SQL cannot list the attributes of each series. */
 export const PER_SERIES_COLUMN = 'series_fingerprint'
 
 export const SQL_RESERVED_COLUMNS = new Set(['time', 'value', 'clause', PER_SERIES_COLUMN])
+
+/** The error a histogram query raises when the series of one interval have different bucket bounds. */
+export const MIXED_HISTOGRAM_BOUNDS_ERROR =
+    'The series have different histogram bounds. Add filters so that all series use the same buckets.'
 
 export const quoteSqlString = (value: string): string => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
@@ -267,6 +274,8 @@ function histogramClauseSql(clause: BuilderClause, options: ClauseSqlOptions): s
             'toStartOfInterval(s.sample_timestamp, {interval}) AS time',
             ...labels.columns,
             'any(s.histogram_bounds) AS bounds',
+            // Adding counts by position is only right when every series has the same bounds.
+            'uniqExactIf(s.histogram_bounds, notEmpty(s.histogram_bounds)) AS layouts',
             'arrayMap(x -> ifNull(x, 0.0), sumForEach(s.contribution_counts)) AS counts',
         ].join(',\n            ')}`,
         '        FROM (',
@@ -302,6 +311,7 @@ function histogramClauseSql(clause: BuilderClause, options: ClauseSqlOptions): s
         `        GROUP BY ${['time', ...labels.groupBy].join(', ')}`,
         '    )',
         '    WHERE arraySum(counts) > 0',
+        `        AND throwIf(layouts > 1, ${quoteSqlString(MIXED_HISTOGRAM_BOUNDS_ERROR)}) = 0`,
         ')',
         ...(options.orderByTime ? ['ORDER BY time'] : []),
     ]
@@ -314,8 +324,56 @@ function clauseSql(clause: BuilderClause, options: ClauseSqlOptions): string {
         : seriesClauseSql(clause, options)
 }
 
-/** Builder formula → SQL expression over the per-clause value columns. The grammar is the same. */
-const formulaToSql = (formula: string): string => formula.replace(/\s+/g, ' ').trim()
+/** Builder formula → SQL expression over the per-clause value columns. A division by zero gives 0, as in the builder. */
+function formulaToSql(expr: PromExpr): string {
+    switch (expr.type) {
+        case 'number':
+            return String(expr.value)
+        case 'selector':
+            return expr.name ?? ''
+        case 'paren':
+            return `(${formulaToSql(expr.expr)})`
+        case 'unary': {
+            const inner = formulaToSql(expr.expr)
+            return `${expr.op}${expr.expr.type === 'binary' ? `(${inner})` : inner}`
+        }
+        case 'binary': {
+            const lhs = formulaToSql(expr.lhs)
+            const rhs = formulaToSql(expr.rhs)
+            return expr.op === '/' ? `if(${rhs} = 0, 0, ${lhs} / ${rhs})` : `${lhs} ${expr.op} ${rhs}`
+        }
+        default:
+            throw new Error('The formula has an unsupported term')
+    }
+}
+
+/** The formula's value where every series is 0, with the builder's division policy. */
+function formulaAtZero(expr: PromExpr): number {
+    switch (expr.type) {
+        case 'number':
+            return expr.value
+        case 'paren':
+            return formulaAtZero(expr.expr)
+        case 'unary':
+            return expr.op === '-' ? -formulaAtZero(expr.expr) : formulaAtZero(expr.expr)
+        case 'binary': {
+            const lhs = formulaAtZero(expr.lhs)
+            const rhs = formulaAtZero(expr.rhs)
+            switch (expr.op) {
+                case '+':
+                    return lhs + rhs
+                case '-':
+                    return lhs - rhs
+                case '*':
+                    return lhs * rhs
+                default:
+                    return rhs === 0 ? 0 : lhs / rhs
+            }
+        }
+        default:
+            return 0
+    }
+}
 
 export function builderToSql(query: BuilderQuery): ConversionResult<string> {
     const issues: string[] = []
@@ -365,6 +423,22 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
     if (groupSets.size > 1) {
         issues.push('The formula mixes series with different group-by labels.')
     }
+    let parsed: PromExpr
+    try {
+        parsed = parsePromQL(formula)
+    } catch (error) {
+        const message = error instanceof PromQLParseError ? error.message : String(error)
+        return { value: null, issues: [`The formula "${formula}" cannot be read: ${message}`] }
+    }
+    let formulaSql: string
+    try {
+        formulaSql = formulaToSql(parsed)
+    } catch (error) {
+        return { value: null, issues: [error instanceof Error ? error.message : String(error)] }
+    }
+    if (formulaAtZero(parsed) !== 0) {
+        issues.push(SQL_EMPTY_INTERVAL_ISSUE)
+    }
     const used = usable.filter((clause) => new RegExp(`\\b${clause.name}\\b`).test(formula))
     const unused = usable.filter((clause) => !used.includes(clause))
     if (unused.length) {
@@ -375,25 +449,34 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
     const labelColumns = labelKeys.map(quoteSqlIdentifier)
     const branches = used.map((clause) => {
         const values = used.map((other) => `${other === clause ? 'value' : '0'} AS ${other.name}`)
+        const seen = used.map((other) => `${other === clause ? 1 : 0} AS ${other.name}_seen`)
         return [
             'SELECT',
-            `    ${['time', ...labelColumns, ...values].join(', ')}`,
+            `    ${['time', ...labelColumns, ...values, ...seen].join(', ')}`,
             'FROM (',
             indent(clauseSql(clause, { labelKeys, orderByTime: false }), 4),
             ')',
         ].join('\n')
     })
+    // The builder keeps a label set only when every series of the formula has it.
+    const partition = labelColumns.length ? `OVER (PARTITION BY ${labelColumns.join(', ')})` : 'OVER ()'
     const lines = [
         'SELECT',
-        `    ${['time', ...labelColumns, `${formulaToSql(formula)} AS value`].join(',\n    ')}`,
+        `    ${['time', ...labelColumns, `${formulaSql} AS value`].join(',\n    ')}`,
         'FROM (',
         '    SELECT',
-        `        ${['time', ...labelColumns, ...used.map((clause) => `sum(${clause.name}) AS ${clause.name}`)].join(',\n        ')}`,
+        `        ${[
+            'time',
+            ...labelColumns,
+            ...used.map((clause) => `sum(${clause.name}) AS ${clause.name}`),
+            ...used.map((clause) => `max(max(${clause.name}_seen)) ${partition} AS ${clause.name}_in_label_set`),
+        ].join(',\n        ')}`,
         '    FROM (',
         indent(branches.join('\nUNION ALL\n'), 8),
         '    )',
         `    GROUP BY ${['time', ...labelColumns].join(', ')}`,
         ')',
+        `WHERE ${used.map((clause) => `${clause.name}_in_label_set = 1`).join(' AND ')}`,
         'ORDER BY time',
     ]
     return { value: lines.join('\n'), issues }

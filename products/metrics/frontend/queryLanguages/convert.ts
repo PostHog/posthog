@@ -6,7 +6,14 @@ import { type PromExpr, parsePromQL } from './promqlParser'
 import { printPromQL } from './promqlPrinter'
 import { promqlToBuilder } from './promqlToBuilder'
 import { sqlToBuilder } from './sqlToBuilder'
-import { type BuilderQuery, type ConversionResult, clauseAlias, normalizeClause, normalizeLabelKey } from './types'
+import {
+    type BuilderQuery,
+    type ConversionResult,
+    VALUE_ONLY_ISSUES,
+    clauseAlias,
+    normalizeClause,
+    normalizeLabelKey,
+} from './types'
 
 export const METRICS_QUERY_LANGUAGES: MetricsQueryLanguage[] = ['builder', 'promql', 'sql']
 
@@ -187,7 +194,12 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
         if (limits.length) {
             issues.push(`The builder cannot edit this query: ${limits.join('; ')}.`)
         }
-        if (from !== 'builder' && builder && !issues.length && !textSurvives(metricsQueryText(query), builder, from)) {
+        if (
+            from !== 'builder' &&
+            builder &&
+            !reportsQueryChange(issues) &&
+            !textSurvives(metricsQueryText(query), builder, from)
+        ) {
             issues.push(GENERIC_LOSS_ISSUE)
         }
         return {
@@ -199,7 +211,7 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
     const target = builder ? fromBuilderQuery(builder, to) : { value: null, issues: [] }
     issues.push(...target.issues)
     const text = target.value ?? ''
-    if (builder && target.value !== null && !issues.length) {
+    if (builder && target.value !== null && !reportsQueryChange(issues)) {
         const survives =
             from === 'builder'
                 ? builderSurvives(builder, text, to)
@@ -215,3 +227,6 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
 }
 
 const dedupe = (issues: string[]): string[] => [...new Set(issues)]
+
+/** Whether an issue already reports a change to the query. Then the round-trip check has nothing to add. */
+const reportsQueryChange = (issues: string[]): boolean => issues.some((issue) => !VALUE_ONLY_ISSUES.has(issue))

@@ -1,4 +1,4 @@
-import { type Matcher, type PromExpr, PromQLParseError, parsePromQL, unwrapParens } from './promqlParser'
+import { type Matcher, type PromExpr, PromQLParseError, hasSeries, parsePromQL, unwrapParens } from './promqlParser'
 import { printPromQL } from './promqlPrinter'
 import { builderRegexToPromRegex } from './regex'
 import {
@@ -6,6 +6,7 @@ import {
     type BuilderQuery,
     CLAUSE_LABEL,
     type ConversionResult,
+    PROMQL_DIVISION_ISSUE,
     normalizeClause,
     normalizeLabelKey,
 } from './types'
@@ -138,6 +139,9 @@ function substituteFormula(
         case 'binary': {
             const lhs = substituteFormula(node.lhs, clauses, used, issues)
             const rhs = substituteFormula(node.rhs, clauses, used, issues)
+            if (node.op === '/' && hasSeries(node.rhs) && !issues.includes(PROMQL_DIVISION_ISSUE)) {
+                issues.push(PROMQL_DIVISION_ISSUE)
+            }
             const binary: PromExpr = { type: 'binary', op: node.op, lhs: lhs.expr, rhs: rhs.expr }
             if (lhs.labels === null || rhs.labels === null) {
                 return { expr: binary, labels: lhs.labels ?? rhs.labels }

@@ -1,6 +1,14 @@
 import type { MetricsQueryFilter } from '~/queries/schema/schema-general'
 
-import { COMPARISON_OPS, type PromExpr, PromQLParseError, SET_OPS, parsePromQL, unwrapParens } from './promqlParser'
+import {
+    COMPARISON_OPS,
+    type PromExpr,
+    PromQLParseError,
+    SET_OPS,
+    hasSeries,
+    parsePromQL,
+    unwrapParens,
+} from './promqlParser'
 import { printPromQL } from './promqlPrinter'
 import { promRegexToBuilderRegex } from './regex'
 import {
@@ -10,6 +18,7 @@ import {
     type ConversionResult,
     ENGINE_QUANTILE,
     MAX_CONVERTED_CLAUSES,
+    PROMQL_DIVISION_ISSUE,
     clauseAlias,
 } from './types'
 
@@ -357,6 +366,9 @@ class FormulaBuilder {
         }
         if (expr.bool) {
             this.note('The bool modifier is dropped.')
+        }
+        if (expr.op === '/' && hasSeries(expr.rhs)) {
+            this.note(PROMQL_DIVISION_ISSUE)
         }
         const lhs = this.formula(expr.lhs)
         const rhs = this.formula(expr.rhs)

@@ -5,8 +5,10 @@ not as a generic SQL insight: the metrics runner caches it, the logs workload ru
 metrics byte cap limits it. To keep those limits honest, it may read only the metrics tables.
 
 The result contract: a `time` column, a numeric `value` column, and any other columns as series
-labels. The SQL can use `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}`, filled in
-from the insight's (or dashboard's) date range and the bucket interval.
+labels. A `clause` column names the series of a multi-series query. As in the builder, a series with
+no row for a time that another series has gets 0 there. The SQL can use `{date_from}`, `{date_to}`,
+`{interval}` and `{interval_seconds}`, filled in from the insight's (or dashboard's) date range and
+the bucket interval.
 """
 
 import math
@@ -14,6 +16,7 @@ import datetime as dt
 from typing import Any
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
@@ -36,7 +39,7 @@ from posthog.models import Team
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 from products.metrics.backend.metric_query_runner import (
     _QUERY_SETTINGS,
-    _ROW_LIMIT,
+    _RAW_ROW_LIMIT,
     _align_to_interval,
     _interval_expr,
     _interval_step,
@@ -47,6 +50,10 @@ from products.metrics.backend.series import rank_and_fill_series
 METRICS_SQL_TABLES: frozenset[str] = frozenset(
     {"metrics", "metric_samples", "metric_series", "metric_names", "metric_attributes"}
 )
+
+# One row for each series and bucket, as a builder clause without an aggregation returns. HogQL
+# returns at most MAX_SELECT_RETURNED_ROWS rows, so a higher limit would drop rows without an error.
+_SQL_ROW_LIMIT = min(_RAW_ROW_LIMIT, MAX_SELECT_RETURNED_ROWS)
 
 # The same label as a PromQL `clause` label: it names the series of a multi-series query.
 CLAUSE_COLUMN = "clause"
@@ -121,7 +128,7 @@ def build_metrics_sql_query(
     _assert_reads_only_metrics_tables(team, inner)
     wrapped = parse_select(
         "SELECT * FROM {inner} LIMIT {row_limit}",
-        placeholders={"inner": inner, "row_limit": ast.Constant(value=_ROW_LIMIT)},
+        placeholders={"inner": inner, "row_limit": ast.Constant(value=_SQL_ROW_LIMIT)},
     )
     assert isinstance(wrapped, ast.SelectQuery)
     return wrapped
@@ -161,7 +168,7 @@ def run_metrics_sql(
             f'A SQL metrics insight must return a "time" and a "value" column. It returned: {", ".join(columns)}.'
         )
     results = response.results or []
-    if len(results) >= _ROW_LIMIT:
+    if len(results) >= _SQL_ROW_LIMIT:
         raise ExposedHogQLError(
             "The query returned too many rows. Use a coarser interval, a shorter date range, or fewer labels."
         )
@@ -182,5 +189,6 @@ def run_metrics_sql(
         [
             (dict(labels), None, clause, sorted(points, key=lambda point: point.time))
             for (clause, labels), points in points_by_series.items()
-        ]
+        ],
+        fill=0.0,
     )

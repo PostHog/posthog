@@ -279,6 +279,14 @@ describe('metricsViewerLogic', () => {
         expectHeatmapFallback(() =>
             logic.actions.setClauses([createViewerClause('a'), createViewerClause('b')], 'a / 2')
         )
+        expectHeatmapFallback(() =>
+            logic.actions.applyQuery({
+                kind: NodeKind.MetricsQuery,
+                clauses: [],
+                language: 'promql',
+                promql: 'sum(rate(request_duration_bucket))',
+            })
+        )
     })
 
     // Guards the multi-series save path: each clause carries its own metric/aggregation,
@@ -443,21 +451,49 @@ describe('metricsViewerLogic', () => {
         toastSpy.mockRestore()
     })
 
-    it('names a formula insight after the formula and its inputs', async () => {
+    it.each<[string, () => void, string]>([
+        [
+            'a formula, after the formula and its inputs',
+            () => {
+                logic.actions.setMetricName('requests_total')
+                logic.actions.addClause()
+                logic.actions.setMetricName('queue_depth')
+                logic.actions.setFormula('a / b')
+            },
+            'a / b (requests_total, queue_depth)',
+        ],
+        [
+            'a PromQL query, after its text',
+            () =>
+                logic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum(rate(requests_total))',
+                }),
+            'PromQL: sum(rate(requests_total))',
+        ],
+        [
+            'a SQL query, after its text',
+            () =>
+                logic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'sql',
+                    sql: 'SELECT now() AS time,\n    1 AS value',
+                }),
+            'SQL: SELECT now() AS time, 1 AS value',
+        ],
+    ])('names %s', async (_name, setUp, expectedName) => {
         jest.mocked(insightsApi.create).mockImplementation(
             async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
         )
-        logic.actions.setMetricName('requests_total')
-        logic.actions.addClause()
-        logic.actions.setMetricName('queue_depth')
-        logic.actions.setFormula('a / b')
+        setUp()
 
         logic.actions.saveAsInsight()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
 
-        expect(insightsApi.create).toHaveBeenCalledWith(
-            expect.objectContaining({ name: 'a / b (requests_total, queue_depth)' })
-        )
+        expect(insightsApi.create).toHaveBeenCalledWith(expect.objectContaining({ name: expectedName }))
     })
 
     // A type outside the API enum (or a metric missing from the picker list) must be

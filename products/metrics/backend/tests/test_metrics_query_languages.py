@@ -35,6 +35,10 @@ FIXTURES: dict[str, dict[str, Any]] = json.loads(
 NOW = dt.datetime(2026, 9, 19, 12, 0, tzinfo=dt.UTC)
 DATE_RANGE = DateRange(date_from="2026-09-19T11:00:00Z", date_to="2026-09-19T12:00:00Z")
 HISTOGRAM_BOUNDS = [10.0, 50.0, 100.0]
+# Gauges the fixtures need in a special shape: one series stops halfway, one service is missing, or every value is 0.
+SPARSE_METRIC = "sparse_queue_depth"
+API_ONLY_METRIC = "api_queue_depth"
+ZERO_METRIC = "idle_queue_depth"
 SERIES_LABELS = [
     ("api", {"http.route": "/api/users", "http.request.method": "GET", "http.response.status_code": "200"}),
     ("api", {"http.route": "/health", "http.request.method": "OPTIONS", "http.response.status_code": "500"}),
@@ -57,13 +61,13 @@ def _metric_kinds() -> dict[str, str]:
     return kinds
 
 
-def _comparable(series: list[Any], *, use_clause: bool) -> dict[tuple, dict[str, float]]:
+def _comparable(series: list[Any], *, use_clause: bool) -> dict[tuple, dict[str, float | None]]:
     # A SQL union fills the labels another series groups by with ''; the builder has no such label.
-    out: dict[tuple, dict[str, float]] = {}
+    out: dict[tuple, dict[str, float | None]] = {}
     for item in series:
         labels = tuple(sorted((key, value) for key, value in item.labels.items() if value != ""))
         key = (item.clause if use_clause else None, labels)
-        out[key] = {point.time: point.value for point in item.points if point.value is not None}
+        out[key] = {point.time: point.value for point in item.points}
     return out
 
 
@@ -73,9 +77,17 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
         start = NOW - dt.timedelta(minutes=70)
         for metric_name, kind in _metric_kinds().items():
             for index, (service, labels) in enumerate(SERIES_LABELS):
-                minutes = range(0, 70, 1)
+                if metric_name == API_ONLY_METRIC and service != "api":
+                    continue
+                minutes = range(0, 35 if metric_name == SPARSE_METRIC and service == "worker" else 70)
                 if kind == "gauge":
-                    points = [(start + dt.timedelta(minutes=m), float((index + 1) * 10 + m % 7)) for m in minutes]
+                    points = [
+                        (
+                            start + dt.timedelta(minutes=m),
+                            0.0 if metric_name == ZERO_METRIC else float((index + 1) * 10 + m % 7),
+                        )
+                        for m in minutes
+                    ]
                     seed_metric(
                         team_id=self.team.pk,
                         metric_name=metric_name,
@@ -125,15 +137,59 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
                 use_clause = len(builder["clauses"]) > 1 and not builder.get("formula")
                 expected_points = _comparable(expected, use_clause=use_clause)
                 actual_points = _comparable(actual, use_clause=use_clause)
-                assert set(actual_points) == {key for key, values in expected_points.items() if values}, name
-                for key, values in actual_points.items():
-                    # The builder fills empty buckets with 0, so compare the buckets SQL returned.
-                    for time, value in values.items():
-                        assert math.isclose(value, expected_points[key].get(time, 0.0), rel_tol=1e-6, abs_tol=1e-9), (
-                            name,
-                            key,
-                            time,
-                        )
+                # With no data the builder returns one series without points, and SQL returns none.
+                expected_points = {key: values for key, values in expected_points.items() if values}
+                assert set(actual_points) == set(expected_points), name
+                for key, expected_values in expected_points.items():
+                    assert list(actual_points[key]) == list(expected_values), (name, key)
+                    for time, value in expected_values.items():
+                        actual_value = actual_points[key][time]
+                        assert (actual_value is None) == (value is None), (name, key, time)
+                        if value is not None and actual_value is not None:
+                            assert math.isclose(actual_value, value, rel_tol=1e-6, abs_tol=1e-9), (name, key, time)
+
+    def test_mixed_histogram_bounds_fail_in_both_languages(self) -> None:
+        start = NOW - dt.timedelta(minutes=30)
+        for bounds, service in (([10.0], "api"), ([100.0], "worker")):
+            for m in range(0, 30):
+                seed_metric(
+                    team_id=self.team.pk,
+                    metric_name="http.server.duration",
+                    points=[(start + dt.timedelta(minutes=m), 0.0)],
+                    service_name=service,
+                    metric_type="histogram",
+                    histogram_bounds=bounds,
+                    histogram_counts=[m * 10, 0],
+                )
+        fixture = FIXTURES["histogram p99"]
+
+        with pytest.raises(ExposedHogQLError, match="histogram bounds differ"):
+            self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
+        with pytest.raises(Exception, match="different histogram bounds"):
+            self._run(clauses=[], language="sql", sql=fixture["sql"])
+
+    @parameterized.expand(
+        [
+            # 40 series in 288 buckets: more rows than an aggregated builder clause may return,
+            # but fewer than a clause without an aggregation may.
+            ("per_series_day_of_5_minute_buckets", 11_520, None),
+            ("over_the_row_limit", 100_000, "too many rows"),
+            # Each row its own clause: under the row limit, but too many series to chart.
+            ("a_clause_for_each_row", 9_000, "too many series"),
+        ]
+    )
+    def test_sql_output_limits(self, _name: str, rows: int, error: str | None) -> None:
+        clause = "toString(n) AS clause, " if error == "too many series" else ""
+        sql = (
+            f"SELECT toDateTime('2026-09-19 11:00:00') + toIntervalMinute(intDiv(n, 40) * 5) AS time, "
+            f"1 AS value, {clause}toString(n % 40) AS series FROM (SELECT arrayJoin(range({rows})) AS n)"
+        )
+        if error:
+            with pytest.raises(ExposedHogQLError, match=error):
+                self._run(clauses=[], language="sql", sql=sql)
+        else:
+            results = self._run(clauses=[], language="sql", sql=sql)
+            assert (len(results), {len(series.points) for series in results}) == (40, {288})
 
     @parameterized.expand(
         [
@@ -346,6 +402,31 @@ def test_series_cap_applies_per_clause() -> None:
 
     rows = [row("a", "big", 100.0), row("a", "huge", 900.0), row("b", "small", 1.0)]
     with patch("products.metrics.backend.series.MAX_SERIES_PER_CLAUSE", 1):
-        series = rank_and_fill_series(rows)
+        series = rank_and_fill_series(rows, fill=None)
 
     assert [(item.clause, item.labels["job"]) for item in series] == [("a", "huge"), ("b", "small")]
+
+
+def test_grid_keeps_the_times_of_series_the_cap_drops() -> None:
+    rows = [
+        ({"job": "big"}, None, "a", [MetricPoint(time="11:00", value=100.0)]),
+        ({"job": "small"}, None, "a", [MetricPoint(time="11:00", value=1.0), MetricPoint(time="11:05", value=1.0)]),
+    ]
+    with patch("products.metrics.backend.series.MAX_SERIES_PER_CLAUSE", 1):
+        [series] = rank_and_fill_series(rows, fill=0.0)
+
+    assert [(point.time, point.value) for point in series.points] == [("11:00", 100.0), ("11:05", 0.0)]
+
+
+@parameterized.expand([("too_many_series", 3, 1), ("too_many_points", 2, 3)])
+def test_output_is_bounded(_name: str, series_count: int, time_count: int) -> None:
+    rows = [
+        ({"job": str(index)}, None, str(index), [MetricPoint(time=str(time), value=1.0) for time in range(time_count)])
+        for index in range(series_count)
+    ]
+    with (
+        patch("products.metrics.backend.series.MAX_SERIES_TOTAL", 2),
+        patch("products.metrics.backend.series.MAX_POINTS_TOTAL", 4),
+        pytest.raises(ValueError, match="too many series"),
+    ):
+        rank_and_fill_series(rows, fill=None)

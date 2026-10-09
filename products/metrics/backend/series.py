@@ -1,19 +1,26 @@
 from collections.abc import Sequence
 
 from products.metrics.backend.facade.api import MAX_SERIES_PER_CLAUSE
-from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
+from products.metrics.backend.facade.contracts import MAX_CLAUSES_PER_QUERY, MetricPoint, MetricSeries
+from products.metrics.backend.metric_query_runner import _MAX_BUCKET_COUNT
+
+# The most a builder query can return: every clause at its series cap, on the longest bucket grid.
+# A PromQL or SQL query chooses its own clauses and times, so these limits bound its output too.
+MAX_SERIES_TOTAL = MAX_CLAUSES_PER_QUERY * MAX_SERIES_PER_CLAUSE
+MAX_POINTS_TOTAL = MAX_SERIES_TOTAL * _MAX_BUCKET_COUNT
+
+Row = tuple[dict[str, str], str | None, str | None, list[MetricPoint]]
 
 
-def rank_and_fill_series(
-    rows: Sequence[tuple[dict[str, str], str | None, str | None, list[MetricPoint]]],
-) -> list[MetricSeries]:
+def rank_and_fill_series(rows: Sequence[Row], *, fill: float | None) -> list[MetricSeries]:
     """Keep the largest series of each clause and put every series on one shared time grid.
 
     Each row is `(labels, metric_name, clause, points)`. Series rank by summed absolute value and the
-    cap applies per clause, as in the builder engine. A bucket with no point is a gap (None), not
-    zero: a PromQL or SQL query with no row for a bucket has no data there.
+    cap applies per clause, as in the builder engine. The grid is every time of every row, also the
+    rows the cap drops, as in the builder engine. A bucket with no point gets `fill`.
     """
-    rows_by_clause: dict[str | None, list[tuple[dict[str, str], str | None, str | None, list[MetricPoint]]]] = {}
+    grid = sorted({point.time for row in rows for point in row[3]})
+    rows_by_clause: dict[str | None, list[Row]] = {}
     for row in rows:
         rows_by_clause.setdefault(row[2], []).append(row)
     ranked = [
@@ -27,14 +34,18 @@ def rank_and_fill_series(
             ),
         )[:MAX_SERIES_PER_CLAUSE]
     ]
-    grid = sorted({point.time for row in ranked for point in row[3]})
+    if len(ranked) > MAX_SERIES_TOTAL or len(ranked) * len(grid) > MAX_POINTS_TOTAL:
+        raise ValueError(
+            f"The query returns too many series or time buckets to chart ({len(ranked)} series, "
+            f"{len(grid)} buckets). Use fewer series, a coarser interval, or a shorter date range."
+        )
     series: list[MetricSeries] = []
     for labels, metric_name, clause, points in ranked:
         values = {point.time: point.value for point in points}
         series.append(
             MetricSeries(
                 labels=labels,
-                points=tuple(MetricPoint(time=time, value=values.get(time)) for time in grid),
+                points=tuple(MetricPoint(time=time, value=values.get(time, fill)) for time in grid),
                 metric_name=metric_name,
                 clause=clause,
             )

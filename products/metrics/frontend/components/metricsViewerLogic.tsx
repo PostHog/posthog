@@ -339,10 +339,18 @@ export const singleAggregationForClause = (
     return !clause.aggregation || clause.aggregation === 'sum' ? clause.rangeFunction : null
 }
 
-const insightNameForViewerQuery = (clauses: MetricsViewerClause[], formula: string): string => {
+const insightNameForViewerQuery = (
+    language: MetricsQueryLanguage,
+    queryText: string,
+    clauses: MetricsViewerClause[],
+    formula: string
+): string => {
     const names = clauses.map((clause) => clause.metricName.trim())
     let name: string
-    if (formula) {
+    if (language !== 'builder') {
+        // A PromQL or SQL query has no named clauses, so its text names it.
+        name = `${language === 'promql' ? 'PromQL' : 'SQL'}: ${queryText.replace(/\s+/g, ' ').trim()}`
+    } else if (formula) {
         name = `${formula} (${names.join(', ')})`
     } else if (clauses.length > 1) {
         name = `${names.join(', ')} (${clauses.length} series)`
@@ -801,7 +809,11 @@ export interface metricsViewerLogicMeta {
             queryText: string
         ) => MetricsQuery | null
         queryTextChanged: (queryDraft: string, queryText: string) => boolean
-        heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
+        heatmapEligible: (
+            language: MetricsQueryLanguage,
+            namedClauses: MetricsViewerClause[],
+            formula: string
+        ) => boolean
         histogramQueryNode: (
             namedClauses: MetricsViewerClause[],
             heatmapEligible: boolean,
@@ -1183,8 +1195,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             }
         }
         // The heatmap display is valid only while the query stays eligible. Every change
-        // that can end eligibility (a formula, a second clause, a group-by, a URL restore)
-        // must fall back, or "heatmap" stays selected while the viewer renders a time
+        // that can end eligibility (a formula, a second clause, a group-by, a URL restore,
+        // a switch to PromQL or SQL) must fall back, or "heatmap" stays selected while the viewer renders a time
         // series and saving silently does nothing (savedQueryNode is null).
         const resetHeatmapIfIneligible = (): void => {
             if (values.displayType === 'heatmap' && !values.heatmapEligible) {
@@ -1206,6 +1218,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 resetHeatmapIfIneligible()
             },
             setFormula: resetHeatmapIfIneligible,
+            applyQuery: resetHeatmapIfIneligible,
             // `setFilterGroup` changes the active clause's chips; the clause-navigation
             // actions change which clause's chips are the scope.
             setFilterGroup: syncPickerServices,
@@ -1442,7 +1455,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         return null
                     }
                     const insight = await insightsApi.create({
-                        name: insightNameForViewerQuery(values.namedClauses, values.formula),
+                        name: insightNameForViewerQuery(
+                            values.language,
+                            values.queryText,
+                            values.namedClauses,
+                            values.formula
+                        ),
                         query,
                         saved: true,
                     })
@@ -1686,12 +1704,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (s) => [s.queryDraft, s.queryText],
             (queryDraft: string, queryText: string): boolean => queryDraft.trim() !== queryText,
         ],
-        // The heatmap renders one distribution, so it needs exactly one non-formula clause on a
-        // distribution metric. The OTel type is latched at pick time (backfilled from the picker
+        // The heatmap renders one distribution, so it needs exactly one non-formula builder clause
+        // on a distribution metric. The OTel type is latched at pick time (backfilled from the picker
         // list), so this doesn't flicker as the live picker search results change.
         heatmapEligible: [
-            (s) => [s.namedClauses, s.formula],
-            (namedClauses: MetricsViewerClause[], formula: string): boolean =>
+            (s) => [s.language, s.namedClauses, s.formula],
+            (language: MetricsQueryLanguage, namedClauses: MetricsViewerClause[], formula: string): boolean =>
+                language === 'builder' &&
                 namedClauses.length === 1 &&
                 !formula &&
                 namedClauses[0].groupByKeys.length === 0 &&

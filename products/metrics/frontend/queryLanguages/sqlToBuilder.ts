@@ -259,6 +259,13 @@ function parseSource(tokens: Token[]): { source: Source; alias: string | null; r
             }
             index++
         }
+        if (!name.length) {
+            throw new SqlReadError(
+                isPunct(tokens[0], ',')
+                    ? 'Tables joined with a comma are not supported. Use JOIN.'
+                    : 'The FROM part of the SQL cannot be read.'
+            )
+        }
         source = { kind: 'table', name: name.join('.') }
     }
     let alias: string | null = null
@@ -514,6 +521,7 @@ const NON_LABEL_COLUMNS = new Set([
     'value',
     'clause',
     'bounds',
+    'layouts',
     'counts',
     'series_fingerprints',
     PER_SERIES_COLUMN,
@@ -670,7 +678,82 @@ function readClauseSelect(tokens: Token[], issues: string[]): ReadClause | null 
     }
 }
 
-const FORMULA_TOKEN = /^[a-z_][a-z0-9_]*$|^\d*\.?\d+$|^[-+*/()]$/
+const isZero = (token: Token | undefined): boolean => token?.type === 'number' && Number(token.value) === 0
+
+/**
+ * The builder formula of the value expression builderToSql writes: `+ - * /` over clause aliases and
+ * numbers, where `if(r = 0, 0, l / r)` is the division `l / r`. Null for any other SQL.
+ */
+function formulaFromSql(tokens: Token[]): string | null {
+    let i = 0
+    const expr = (): string | null => {
+        let lhs = term()
+        while (lhs !== null && (isPunct(tokens[i], '+') || isPunct(tokens[i], '-'))) {
+            const op = tokens[i++].value
+            const rhs = term()
+            lhs = rhs === null ? null : `${lhs} ${op} ${rhs}`
+        }
+        return lhs
+    }
+    const term = (): string | null => {
+        let lhs = factor()
+        while (lhs !== null && (isPunct(tokens[i], '*') || isPunct(tokens[i], '/'))) {
+            const op = tokens[i++].value
+            const rhs = factor()
+            lhs = rhs === null ? null : `${lhs} ${op} ${rhs}`
+        }
+        return lhs
+    }
+    const factor = (): string | null => {
+        const token = tokens[i]
+        if (isPunct(token, '-') || isPunct(token, '+')) {
+            i++
+            const inner = factor()
+            return inner === null ? null : `${token.value}${inner}`
+        }
+        if (token?.type === 'number') {
+            i++
+            return token.value
+        }
+        if (isPunct(token, '(')) {
+            i++
+            const inner = expr()
+            if (inner === null || !isPunct(tokens[i], ')')) {
+                return null
+            }
+            i++
+            return `(${inner})`
+        }
+        if (isWord(token, 'IF') && isPunct(tokens[i + 1], '(')) {
+            i += 2
+            const divisor = expr()
+            if (
+                divisor === null ||
+                !isPunct(tokens[i], '=') ||
+                !isZero(tokens[i + 1]) ||
+                !isPunct(tokens[i + 2], ',') ||
+                !isZero(tokens[i + 3]) ||
+                !isPunct(tokens[i + 4], ',')
+            ) {
+                return null
+            }
+            i += 5
+            const division = expr()
+            if (division === null || !isPunct(tokens[i], ')') || !division.endsWith(` / ${divisor}`)) {
+                return null
+            }
+            i++
+            return division
+        }
+        if (token?.type === 'word') {
+            i++
+            return token.value.toLowerCase()
+        }
+        return null
+    }
+    const formula = expr()
+    return formula !== null && i === tokens.length ? formula : null
+}
 
 export function sqlToBuilder(sql: string): ConversionResult<BuilderQuery> {
     if (!sql.trim()) {
@@ -724,7 +807,10 @@ const dedupeNames = (clauses: BuilderClause[]): BuilderClause[] => {
     })
 }
 
-/** The formula shape builderToSql writes: an outer formula over per-clause sums of a UNION ALL. Null when it is not that shape. */
+/**
+ * The formula shape builderToSql writes: an outer formula over per-clause sums of a UNION ALL, which
+ * keeps the label sets every series has. Null when it is not that shape.
+ */
 function readFormula(tokens: Token[], issues: string[]): ConversionResult<BuilderQuery> | null {
     const outer = parseSelect(tokens)
     if (outer.source?.kind !== 'subquery') {
@@ -756,11 +842,10 @@ function readFormula(tokens: Token[], issues: string[]): ConversionResult<Builde
         }
         clauses.push({ ...read.clause, name: own.alias!.toLowerCase() })
     }
-    const formulaTokens = valueColumn.expr.map((token) => token.value)
-    if (!formulaTokens.every((token) => FORMULA_TOKEN.test(token.toLowerCase()))) {
+    const formula = formulaFromSql(valueColumn.expr)
+    if (formula === null) {
         issues.push(`The formula "${canon(valueColumn.expr)}" uses SQL the builder formula does not support.`)
         return { value: null, issues }
     }
-    const formula = formulaTokens.join(' ').toLowerCase().replace(/\( /g, '(').replace(/ \)/g, ')')
     return { value: { clauses, formula }, issues }
 }
