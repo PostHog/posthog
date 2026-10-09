@@ -40,10 +40,10 @@ export class CloudTaskPrompt {
   }
 
   // A revision can come from a different origin than the run that opened the PR, so the
-  // footer the PR already carries is the record of where the work came from.
+  // footer the PR already carries is the record of where the work came from. The report can
+  // belong to another project than this run, so the report URL comes from the Origin section.
   private buildExistingPrFooterInstruction(): string {
-    const inboxReportsUrl = `${this.options.apiUrl.replace(/\/$/, "")}/project/${this.options.projectId}/inbox/reports/`;
-    return `When you update the PR description, keep its existing footer. Do not remove an inbox report link from it. You can add a link to this run's Slack thread after the report link. If the PR body has a \`<!-- posthog-self-driving-origin:<report_id> -->\` marker and the footer has no inbox report link, add the link \`${inboxReportsUrl}<report_id>\` to the footer.`;
+    return `When you update the PR description, keep its existing footer. Do not remove an inbox report link from it. You can add a link to this run's Slack thread after the report link. If the footer has no inbox report link and the PR body has a \`<!-- posthog-self-driving-origin:<report_id> -->\` Origin section, copy the URL from the \`Inbox report\` line of that section into the footer. Do not build the report URL yourself.`;
   }
 
   buildDetectedPrContext(prUrl: string): string {

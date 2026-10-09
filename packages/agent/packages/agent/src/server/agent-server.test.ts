@@ -7837,8 +7837,9 @@ describe("AgentServer HTTP Mode", () => {
               "Do not remove an inbox report link from it",
             );
             expect(text).toContain(
-              "http://localhost:8000/project/1/inbox/reports/<report_id>",
+              "copy the URL from the `Inbox report` line of that section",
             );
+            expect(text).not.toContain("/project/1/inbox/reports/");
           } finally {
             delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
           }
