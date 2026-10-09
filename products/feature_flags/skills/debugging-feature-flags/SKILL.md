@@ -255,7 +255,8 @@ reports otherwise, the flag is fine as configured and the problem is between it 
 
 ## "Works locally but not in production" (or vice versa)
 
-Almost always **evaluation path drift**: the browser hits `/flags` (always current) while a
+Almost always **evaluation path drift**: the browser hits `/flags`, so PostHog evaluates the flag
+against the current definition on each request that reaches it, while a
 server-side fleet uses **local evaluation**, whose flag definitions refresh on an interval — a recent
 flag edit that "hasn't taken effect on the backend" is a stale local definition, and it's the one cause
 here that actually changes the **value**. A few conditions can't be evaluated from the local cache and
