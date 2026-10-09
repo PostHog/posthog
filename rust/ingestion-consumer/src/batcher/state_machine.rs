@@ -95,6 +95,12 @@ impl BatcherStateMachine {
                 "the pack latency budget must be at most half the stall timeout".to_string(),
             );
         }
+        // Without a target, one request takes every ready run of a class,
+        // and one failure replays all of it.
+        let targets = packer.targets();
+        if targets.events.is_none() && targets.bytes.is_none() {
+            return Err("set a pack target in events or bytes".to_string());
+        }
         Ok(BatcherStateMachine::Running(ActiveState {
             keys: KeyQueues::new(packer.targets().run_cap()),
             packer,
@@ -836,11 +842,26 @@ mod tests {
         let assigner =
             WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
         let packer = Packer::new(PackTargets {
+            events: NonZeroUsize::new(1),
+            bytes: None,
             latency_budget: STALL / 2 + Duration::from_millis(1),
-            ..PackTargets::default()
         });
         let created =
             BatcherStateMachine::new(packer, assigner, retry_policy(), STALL, Instant::now());
+        assert!(created.is_err());
+    }
+
+    #[test]
+    fn a_packer_without_a_target_is_rejected() {
+        let assigner =
+            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+        let created = BatcherStateMachine::new(
+            Packer::new(PackTargets::default()),
+            assigner,
+            retry_policy(),
+            STALL,
+            Instant::now(),
+        );
         assert!(created.is_err());
     }
 
@@ -870,7 +891,10 @@ mod tests {
         let assigner =
             WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
         let created = BatcherStateMachine::new(
-            Packer::new(PackTargets::default()),
+            Packer::new(PackTargets {
+                events: NonZeroUsize::new(1),
+                ..PackTargets::default()
+            }),
             assigner,
             retry_policy(),
             Duration::ZERO,

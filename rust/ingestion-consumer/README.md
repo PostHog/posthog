@@ -61,8 +61,8 @@ Under `key_table`:
 
 | Setting | Default | Effect under `key_table` |
 | --- | --- | --- |
-| `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. It also caps one key's run. `0` disables the event target and the cap. |
-| `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. It also caps one key's run. `0` disables the byte target and the cap. |
+| `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. It also caps one key's run. `0` disables the event target and the cap, and needs a byte target. |
+| `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. It also caps one key's run. `0` disables the byte target and the cap, and needs an event target. |
 | `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 
