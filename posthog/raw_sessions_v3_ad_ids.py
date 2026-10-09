@@ -38,6 +38,7 @@ SESSION_V3_LOWER_TIER_AD_IDS = [
     "syclid",  # shopify
     "_bhlid",  # beehiiv
     "rtid",  # rokt
+    "oppref",  # openai ads
 ]
 
 # URL query-string spellings that differ from the canonical property key. Snapchat documents

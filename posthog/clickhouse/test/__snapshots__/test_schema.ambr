@@ -6682,7 +6682,8 @@
               `awc` Nullable(String),
               `syclid` Nullable(String),
               `_bhlid` Nullable(String),
-              `rtid` Nullable(String)
+              `rtid` Nullable(String),
+              `oppref` Nullable(String)
           )') as p,
           JSONExtractString(person_properties, 'email') as _person_email,
           tupleElement(p, '$current_url') as _current_url,
@@ -6741,6 +6742,7 @@
           coalesce(nullIf(tupleElement(p, 'syclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'syclid')), 2048), '')) as syclid,
           coalesce(nullIf(tupleElement(p, '_bhlid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, '_bhlid')), 2048), '')) as _bhlid,
           coalesce(nullIf(tupleElement(p, 'rtid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'rtid')), 2048), '')) as rtid,
+          coalesce(nullIf(tupleElement(p, 'oppref'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'oppref')), 2048), '')) as oppref,
           CAST(arrayFilter(x -> x IS NOT NULL, [
               if(gclsrc IS NOT NULL, concat('gclsrc=', gclsrc), NULL),
               if(dclid IS NOT NULL, concat('dclid=', dclid), NULL),
@@ -6773,7 +6775,8 @@
               if(awc IS NOT NULL, concat('awc=', awc), NULL),
               if(syclid IS NOT NULL, concat('syclid=', syclid), NULL),
               if(_bhlid IS NOT NULL, concat('_bhlid=', _bhlid), NULL),
-              if(rtid IS NOT NULL, concat('rtid=', rtid), NULL)
+              if(rtid IS NOT NULL, concat('rtid=', rtid), NULL),
+              if(oppref IS NOT NULL, concat('oppref=', oppref), NULL)
           ]) AS Array(String)) as ad_ids_set,
           tupleElement(p, '$host') as _host,
       -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
