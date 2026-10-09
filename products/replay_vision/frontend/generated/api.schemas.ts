@@ -2253,6 +2253,11 @@ export interface VariantAnalysisLineApi {
     statement: string
     /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
     count: number
+    /**
+     * How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.
+     * @nullable
+     */
+    read: number | null
     /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
     example_observation_ids: string[]
 }
@@ -2293,6 +2298,11 @@ export interface VariantReadoutApi {
  */
 export type VariantAnalysisDifferenceApiCounts = { [key: string]: number }
 
+/**
+ * Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.
+ */
+export type VariantAnalysisDifferenceApiRead = { [key: string]: number }
+
 export interface VariantAnalysisDifferenceApi {
     /** The theme the difference rests on. */
     theme: string
@@ -2300,6 +2310,8 @@ export interface VariantAnalysisDifferenceApi {
     statement: string
     /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
     counts: VariantAnalysisDifferenceApiCounts
+    /** Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them. */
+    read: VariantAnalysisDifferenceApiRead
 }
 
 export interface VariantsAnalysisStateApi {

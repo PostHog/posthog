@@ -22,15 +22,19 @@ from posthog.schema import (
 )
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.flag_called_warnings import FLAG_CALLED_ON_EVENTS_WARNING
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models.scoping import team_scope
 from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -354,6 +358,76 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(metadata.warnings, [])
+
+    @parameterized.expand(
+        [
+            ("equals", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 1),
+            ("in_list", "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')", True, 1),
+            ("namespaced_table", "SELECT count() FROM posthog.events WHERE event = '$feature_flag_called'", True, 1),
+            ("aliased_table", "SELECT count() FROM events AS e WHERE e.event = '$feature_flag_called'", True, 1),
+            ("aliased_column", "SELECT event AS name FROM events WHERE name = '$feature_flag_called'", True, 1),
+            ("table_not_available", "SELECT count() FROM events WHERE event = '$feature_flag_called'", False, 1),
+            (
+                "flag_evaluations_table",
+                "SELECT count() FROM posthog.flag_evaluations WHERE event = '$feature_flag_called'",
+                True,
+                0,
+            ),
+            ("saved_view_body", "SELECT count() FROM flag_calls_view WHERE event != '$feature_flag_called'", True, 0),
+            (
+                "property_named_event",
+                "SELECT count() FROM events WHERE properties.event = '$feature_flag_called'",
+                True,
+                0,
+            ),
+            ("not_compared_to_event", "SELECT '$feature_flag_called' FROM events", True, 0),
+            (
+                "saved_expression_body",
+                "SELECT count() FROM events WHERE flag_call_expr AND distinct_id != '$feature_flag_called'",
+                True,
+                0,
+            ),
+            ("move_notices_off", "SELECT count() FROM events WHERE event = '$feature_flag_called'", True, 0, False),
+        ]
+    )
+    def test_metadata_warns_for_flag_called_read_from_events(
+        self,
+        _name: str,
+        query: str,
+        flag_evaluations_enabled: bool,
+        expected: int,
+        move_notices_enabled: bool = True,
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="flag_calls_view",
+            query={"query": "SELECT uuid, event FROM events WHERE event = '$feature_flag_called'"},
+            columns={"uuid": "String", "event": "String"},
+        )
+        with team_scope(self.team.pk, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="events",
+                field_name="flag_call_expr",
+                expression="event = '$feature_flag_called'",
+            )
+
+        with (
+            patch(
+                "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+                return_value=flag_evaluations_enabled,
+            ),
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=move_notices_enabled),
+        ):
+            metadata = self._select(query)
+
+        self.assertTrue(metadata.isValid, metadata.errors)
+        warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
+        literal_start = query.rindex("'$feature_flag_called'")
+        self.assertEqual(
+            [(w.start, w.end, w.fix) for w in warnings],
+            [(literal_start, literal_start + len("'$feature_flag_called'"), None)] * expected,
+        )
 
     def test_metadata_warns_for_unknown_event_in_literal(self):
         EventDefinition.objects.create(team=self.team, name="signed_up")

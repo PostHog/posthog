@@ -15,6 +15,7 @@ import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema,
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
+    buildCreateSourcePayload,
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
@@ -323,6 +324,27 @@ describe('sourceWizardLogic', () => {
             expect(message).toBeTruthy()
             expect(message).not.toEqual('undefined')
         })
+    })
+
+    describe('buildCreateSourcePayload', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+        })
+
+        it.each([
+            { connector: 'Postgres', flagOn: false, expectedAccessMethod: 'direct' },
+            { connector: 'BigQuery', flagOn: false, expectedAccessMethod: 'warehouse' },
+            { connector: 'BigQuery', flagOn: true, expectedAccessMethod: 'direct' },
+        ])(
+            'keeps direct mode for $connector only when supported (flag on: $flagOn)',
+            ({ connector, flagOn, expectedAccessMethod }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.BIGQUERY_DIRECT_QUERY]: flagOn })
+
+                const payload = buildCreateSourcePayload({ access_method: 'direct', prefix: 'bq' } as any, connector)
+
+                expect(payload).toMatchObject({ access_method: expectedAccessMethod, source_type: connector })
+            }
+        )
     })
 
     describe('getDatabaseSchemaPayload', () => {
