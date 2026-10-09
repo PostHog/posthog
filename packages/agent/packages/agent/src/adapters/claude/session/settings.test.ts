@@ -195,7 +195,7 @@ describe("SettingsManager per-repo persistence", () => {
     );
   });
 
-  it("ignores repository settings throughout an untrusted checkout", async () => {
+  it("never reads or persists repository settings in an untrusted checkout", async () => {
     await fs.promises.mkdir(path.join(worktree, ".claude"), {
       recursive: true,
     });
