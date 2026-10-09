@@ -7,6 +7,8 @@ from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import User
 from posthog.models.integration import Integration
 
@@ -46,25 +48,39 @@ class TestSeedReviewSettingsMigration(BaseTest):
             quiet.id: {"celebrate_clean_reviews": False, "review_inbox_prs": True, "stamphog_review_inbox_prs": True},
         }
 
-    def test_the_first_team_selects_the_repositories_the_allowlists_covered(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "cached_list_names_the_repositories",
+                {},
+                [
+                    {"id": 11, "name": "posthog", "full_name": "PostHog/posthog"},
+                    {"id": 12, "name": "ai-gateway", "full_name": "PostHog/ai-gateway"},
+                    {"id": 13, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+                ],
+                [("PostHog/posthog", 11), ("PostHog/ai-gateway", 12)],
+            ),
+            (
+                "account_name_without_a_cached_list",
+                {"account": {"name": "posthog"}},
+                [],
+                [("PostHog/posthog", None), ("PostHog/ai-gateway", None)],
+            ),
+            ("another_account", {"account": {"name": "example-org"}}, [], []),
+        ]
+    )
+    def test_the_first_team_selects_the_repositories_the_allowlists_covered(
+        self, _name: str, config: dict, repository_cache: list, expected_rows: list
+    ) -> None:
         Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="1001",
-            config={},
-            repository_cache=[
-                {"id": 11, "name": "posthog", "full_name": "PostHog/posthog"},
-                {"id": 12, "name": "ai-gateway", "full_name": "PostHog/ai-gateway"},
-                {"id": 13, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
-            ],
+            team=self.team, kind="github", integration_id="1001", config=config, repository_cache=repository_cache
         )
 
         self._run()
 
-        claim = ReviewInstallationClaim.objects.for_team(self.team.id).get()
-        assert (claim.installation_id, claim.scope) == ("1001", "selected")
-        rows = ReviewRepository.objects.for_team(self.team.id).order_by("github_repo_id")
+        claims = ReviewInstallationClaim.objects.for_team(self.team.id)
+        assert list(claims.values_list("installation_id", "scope")) == ([("1001", "selected")] if expected_rows else [])
+        rows = ReviewRepository.objects.for_team(self.team.id).order_by("id")
         assert list(rows.values_list("full_name", "github_repo_id", "selected", "flash_for")) == [
-            ("PostHog/posthog", 11, True, None),
-            ("PostHog/ai-gateway", 12, True, None),
+            (full_name, github_repo_id, True, None) for full_name, github_repo_id in expected_rows
         ]

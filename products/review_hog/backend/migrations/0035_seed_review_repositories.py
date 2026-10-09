@@ -1,10 +1,15 @@
 from django.conf import settings
 from django.db import migrations
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 # The repositories the hardcoded allowlists covered: automatic Flash reviews ran only in
 # PostHog/posthog, and the label trigger also accepted PostHog/ai-gateway. The first ReviewHog team
 # selects both, so automatic reviews and the label trigger keep their project. The project rule
 # stays at its default, opt-in only, so only people who chose Flash get it.
+SEEDED_ACCOUNT = "PostHog"
 SEEDED_REPOSITORIES = ("PostHog/posthog", "PostHog/ai-gateway")
 
 
@@ -41,39 +46,68 @@ def copy_settings_into_preferences(apps, schema_editor):
             row.delete()
 
 
+def _cached_repositories(integration) -> dict[str, dict]:
+    cached = integration.repository_cache if isinstance(integration.repository_cache, list) else []
+    return {
+        str(repository.get("full_name", "")).lower(): repository
+        for repository in cached
+        if isinstance(repository, dict)
+    }
+
+
+def _account_name(integration) -> str:
+    account = (integration.config or {}).get("account") or {}
+    return str(account.get("name") or "")
+
+
+def _seed_integration(integrations: list):
+    """The GitHub connection of the PostHog account.
+
+    The connection's account name decides. The repository cache only helps when no account name
+    matches, because the cache is empty until someone opens a repository list, and can be stale.
+    """
+    for integration in integrations:
+        if _account_name(integration).lower() == SEEDED_ACCOUNT.lower():
+            return integration
+    for integration in integrations:
+        if any(full_name.lower() in _cached_repositories(integration) for full_name in SEEDED_REPOSITORIES):
+            return integration
+    return None
+
+
 def _seed_repository_rows(apps, team_id: int) -> None:
     Integration = apps.get_model("posthog", "Integration")
     ReviewInstallationClaim = apps.get_model("review_hog", "ReviewInstallationClaim")
     ReviewRepository = apps.get_model("review_hog", "ReviewRepository")
 
-    wanted = {full_name.lower(): full_name for full_name in SEEDED_REPOSITORIES}
-    for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-        cached = integration.repository_cache if isinstance(integration.repository_cache, list) else []
-        found = {
-            str(repository.get("full_name", "")).lower(): repository
-            for repository in cached
-            if isinstance(repository, dict)
-        }
-        matches = [found[name] for name in wanted if name in found]
-        if not matches or not integration.integration_id:
-            continue
-        installation_id = integration.integration_id
-        ReviewInstallationClaim.objects.get_or_create(
-            team_id=team_id, installation_id=installation_id, defaults={"scope": "selected"}
-        )
-        for repository in matches:
-            full_name = str(repository["full_name"])
-            github_repo_id = repository.get("id") if isinstance(repository.get("id"), int) else None
-            if ReviewRepository.objects.filter(installation_id=installation_id, full_name__iexact=full_name).exists():
-                continue
-            ReviewRepository.objects.create(
-                team_id=team_id,
-                installation_id=installation_id,
-                github_repo_id=github_repo_id,
-                full_name=full_name,
-                selected=True,
-            )
+    integrations = (
+        Integration.objects.filter(team_id=team_id, kind="github")
+        .exclude(integration_id=None)
+        .exclude(integration_id="")
+        .order_by("id")
+    )
+    integration = _seed_integration(list(integrations))
+    if integration is None:
+        logger.warning("review_hog_seed_skipped", reason="no_github_integration", team_id=team_id)
         return
+    installation_id = integration.integration_id
+    ReviewInstallationClaim.objects.get_or_create(
+        team_id=team_id, installation_id=installation_id, defaults={"scope": "selected"}
+    )
+    cached = _cached_repositories(integration)
+    for full_name in SEEDED_REPOSITORIES:
+        if ReviewRepository.objects.filter(installation_id=installation_id, full_name__iexact=full_name).exists():
+            continue
+        # Without a cached id the row matches by name, and the first webhook stores the id.
+        cached_id = cached.get(full_name.lower(), {}).get("id")
+        ReviewRepository.objects.create(
+            team_id=team_id,
+            installation_id=installation_id,
+            github_repo_id=cached_id if isinstance(cached_id, int) else None,
+            full_name=full_name,
+            selected=True,
+        )
+    logger.info("review_hog_seeded_repositories", team_id=team_id, installation_id=installation_id)
 
 
 def seed_review_settings(apps, schema_editor):
@@ -82,10 +116,12 @@ def seed_review_settings(apps, schema_editor):
     # Only the first ReviewHog team received automatic and label-triggered reviews. Other instances
     # leave the setting empty, or name a team that does not exist there.
     if not settings.REVIEWHOG_TEAM_IDS:
+        logger.info("review_hog_seed_skipped", reason="no_reviewhog_team")
         return
     team_id = settings.REVIEWHOG_TEAM_IDS[0]
     Team = apps.get_model("posthog", "Team")
     if not Team.objects.filter(id=team_id).exists():
+        logger.warning("review_hog_seed_skipped", reason="team_missing", team_id=team_id)
         return
     _seed_repository_rows(apps, team_id)
 
