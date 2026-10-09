@@ -507,11 +507,12 @@ describe("ChatView", () => {
         { kind: "user", id: "u1", text: "yo" },
         tool("t1", "bash"),
         tool("t2", "bash", "in_progress", "pnpm test"),
+        tool("t3", "bash", "pending", "git status"),
       ],
       {
         notice: {
           text: "Running",
-          detail: "pnpm test · 30s · 2 tools",
+          detail: "git status · 30s · 3 tools",
           tone: "working",
         },
       },
@@ -522,26 +523,28 @@ describe("ChatView", () => {
     expect(trimmed(4)).toEqual([
       "❯ yo",
       "",
-      "▶ Running pnpm test · 30s · 2 tools",
+      "▶ Running git status · 30s · 3 tools",
       "",
     ]);
     expect(chat.toggleAt(2)).toBe(true);
-    expect(trimmed(5).slice(2)).toEqual([
-      "▼ Running pnpm test · 30s · 2 tools",
+    expect(trimmed(6).slice(2)).toEqual([
+      "▼ Running git status · 30s · 3 tools",
       "● bash cmd",
       "● bash pnpm test",
+      "● bash git status",
     ]);
-    // The running call's dot pulses; the finished one holds still.
+    // The running and pending calls' dots pulse; the finished one holds still.
     const frameAt = (now: number): string[] => {
       const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-      const rows = chat.render(60, 5).slice(3, 5);
+      const rows = chat.render(60, 6).slice(3, 6);
       clock.mockRestore();
       return rows;
     };
-    const [done, running] = frameAt(0);
-    const [doneLater, runningLater] = frameAt(500);
+    const [done, running, pending] = frameAt(0);
+    const [doneLater, runningLater, pendingLater] = frameAt(500);
     expect(doneLater).toBe(done);
     expect(runningLater).not.toBe(running);
+    expect(pendingLater).not.toBe(pending);
   });
 });
 

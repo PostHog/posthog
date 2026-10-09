@@ -9,6 +9,7 @@ const LABELS = {
   logout: "Log out of ChatGPT",
   token: "Claude token",
   removeToken: "Remove token",
+  context: "Show context in composer",
 } as const;
 
 export function Settings({
@@ -22,6 +23,7 @@ export function Settings({
     logout: view.account ? `Logged in as ${view.account}` : "",
     token: view.hasToken ? "Saved" : "Not set",
     removeToken: "",
+    context: view.showContext ? "On" : "Off",
   };
   const asking = view.draft !== null;
   const pastingToken = asking && view.prompt === null;

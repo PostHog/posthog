@@ -116,6 +116,7 @@ export function Pane({
   newChatPlace,
   banner = [],
   billing,
+  showContext,
   chat,
   composer,
   pending,
@@ -155,6 +156,8 @@ export function Pane({
   banner?: string[];
   // Who pays for a new chat, from /billing, until its run says.
   billing?: Billing;
+  // The context donut on the composer's rule, from settings.
+  showContext?: boolean;
   chat: ChatView;
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
@@ -351,7 +354,11 @@ export function Pane({
       : undefined;
   const drawn =
     width > 0
-      ? composer.render(width, focused, usageStatus(fill, cost, shells))
+      ? composer.render(
+          width,
+          focused,
+          usageStatus(showContext ? fill : null, cost, shells),
+        )
       : { editor: [], popup: [] };
   const composerLines = drawn.editor.map(shade);
   // A blank row on top separates floating suggestions from the chat they cover.

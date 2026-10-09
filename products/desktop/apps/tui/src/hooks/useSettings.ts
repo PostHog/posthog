@@ -7,7 +7,7 @@ import {
 } from "../claudeToken";
 import { messageOf } from "../errors";
 import { openUrl } from "../openUrl";
-import { loadPrefs } from "../prefs";
+import { loadPrefs, savePrefs } from "../prefs";
 import { type SettingsView, settingsKey, settingsView } from "../settings";
 
 export interface SettingsState {
@@ -83,6 +83,7 @@ export function useSettings(): SettingsState {
             billing: loadPrefs().billing,
             account: chatgptAccount(),
             hasToken: loadClaudeToken() !== null,
+            showContext: loadPrefs().showContext,
           }),
         );
       setOpen(!open);
@@ -94,6 +95,8 @@ export function useSettings(): SettingsState {
       try {
         if (effect.kind === "saveToken") return saveClaudeToken(effect.token);
         if (effect.kind === "clearToken") return clearClaudeToken();
+        if (effect.kind === "showContext")
+          return savePrefs({ showContext: effect.on });
       } catch (error) {
         return update({
           ...next,
