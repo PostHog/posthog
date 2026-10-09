@@ -93518,6 +93518,8 @@ export namespace Schemas {
        * * `ready` - Ready
        * * `warming` - Warming */
       cache_status: RepositoryCacheStatusEnum;
+      /** GitHub description for this repository. Empty when GitHub has none or the cache has not loaded it. */
+      description: string;
     }
 
     export interface RepositoryConnect {
