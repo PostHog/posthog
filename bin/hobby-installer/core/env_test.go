@@ -28,6 +28,20 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 			notWant: []string{"posthog.example.com, http://"},
 		},
 		{
+			name: "replaces blank caddy keys",
+			env:  "DOMAIN=posthog.example.com\nTLS_BLOCK=internal\nCADDY_HOST=\nCADDY_TLS_BLOCK=\"\"\n",
+			want: []string{
+				`CADDY_HOST="posthog.example.com, http://, https://"`,
+				`CADDY_TLS_BLOCK="internal"`,
+			},
+			notWant: []string{"CADDY_HOST=\n", "CADDY_TLS_BLOCK=\"\"\n"},
+		},
+		{
+			name: "replaces quoted empty caddy host without trailing newline",
+			env:  "DOMAIN=posthog.example.com\nCADDY_HOST=''",
+			want: []string{`CADDY_HOST="posthog.example.com, http://, https://"`},
+		},
+		{
 			name:    "skips caddy keys without domain or tls block",
 			env:     "TLS_BLOCK=\n",
 			notWant: []string{"CADDY_HOST=", "CADDY_TLS_BLOCK="},
@@ -41,6 +55,9 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			if err := UpdateEnvForUpgrade(""); err != nil {
+				t.Fatal(err)
+			}
 			if err := UpdateEnvForUpgrade(""); err != nil {
 				t.Fatal(err)
 			}
@@ -58,6 +75,11 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 			for _, nw := range tt.notWant {
 				if strings.Contains(got, nw) {
 					t.Errorf("expected .env not to contain %q, got:\n%s", nw, got)
+				}
+			}
+			for _, key := range []string{"CADDY_HOST=", "CADDY_TLS_BLOCK="} {
+				if strings.Count(got, key) > 1 {
+					t.Errorf("expected at most one %s entry, got:\n%s", key, got)
 				}
 			}
 		})

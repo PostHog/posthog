@@ -124,9 +124,16 @@ func UpdateEnvValue(key, value string) error {
 		}
 	}
 	if !found {
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
 		lines = append(lines, prefix+value)
 	}
-	return os.WriteFile(".env", []byte(strings.Join(lines, "\n")), 0600)
+	updated := strings.Join(lines, "\n")
+	if !strings.HasSuffix(updated, "\n") {
+		updated += "\n"
+	}
+	return os.WriteFile(".env", []byte(updated), 0600)
 }
 
 func UpdateEnvForUpgrade(version string) error {
@@ -150,13 +157,13 @@ func UpdateEnvForUpgrade(version string) error {
 
 	// Compose fills the proxy Caddyfile from .env, so older installs without these keys serve http://localhost:8000.
 	if existing["CADDY_HOST"] == "" && existing["DOMAIN"] != "" {
-		if err := AppendToEnv("CADDY_HOST", fmt.Sprintf(`"%s, http://, https://"`, existing["DOMAIN"])); err != nil {
+		if err := UpdateEnvValue("CADDY_HOST", fmt.Sprintf(`"%s, http://, https://"`, existing["DOMAIN"])); err != nil {
 			return err
 		}
 	}
 
 	if existing["CADDY_TLS_BLOCK"] == "" && existing["TLS_BLOCK"] != "" {
-		if err := AppendToEnv("CADDY_TLS_BLOCK", fmt.Sprintf(`"%s"`, existing["TLS_BLOCK"])); err != nil {
+		if err := UpdateEnvValue("CADDY_TLS_BLOCK", fmt.Sprintf(`"%s"`, existing["TLS_BLOCK"])); err != nil {
 			return err
 		}
 	}
