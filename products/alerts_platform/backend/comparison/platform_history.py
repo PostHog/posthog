@@ -19,7 +19,7 @@ from uuid import UUID
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.alerts_platform.backend.facade.contracts import PlatformCheck, SourceKind
+from products.alerts_platform.backend.facade.contracts import GroupingMode, PlatformCheck, SourceKind
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -95,9 +95,11 @@ def read_platform_checks(
     """
     _refuse_unregistered(source)
 
+    # A grouped configuration writes a row per group, and the source's own stack has one verdict per
+    # check, so the two cannot be compared check for check.
     legacy_ids: dict[UUID, UUID | None] = dict(
         PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(source_kind=source.value)
+        .filter(source_kind=source.value, grouping__mode=GroupingMode.SINGLE.value)
         .values_list("id", "legacy_configuration_id")
     )
     if not legacy_ids:

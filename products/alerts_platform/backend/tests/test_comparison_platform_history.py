@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.enums import LabeledStrEnum
@@ -140,9 +143,17 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert teams_with_configurations(SourceKind.LOGS) == [self.team.id]
 
-    def test_another_source_is_not_in_a_logs_comparison(self) -> None:
+    @parameterized.expand(
+        [
+            ("another_source", {"source_kind": "insight"}),
+            ("a_grouped_configuration", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+        ]
+    )
+    def test_a_check_with_no_comparable_verdict_is_not_in_a_logs_comparison(
+        self, _name: str, overrides: dict[str, Any]
+    ) -> None:
         self._record(
-            self._configuration(source_kind="insight", legacy_configuration_id=uuid4()),
+            self._configuration(legacy_configuration_id=uuid4(), **overrides),
             evaluation_key="run:2026-09-30T11:59:00+00:00",
         )
 
