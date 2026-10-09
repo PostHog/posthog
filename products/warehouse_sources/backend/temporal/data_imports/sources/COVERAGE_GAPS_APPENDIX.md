@@ -5113,14 +5113,14 @@ Note: LACRM's v2 API is RPC-shaped (single POST endpoint with a Function name), 
 
 ## Lever — gaps
 
-Today (8): `archive_reasons`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
+Today (12): `applications`, `archive_reasons`, `feedback`, `interviews`, `offers`, `opportunities`, `postings`, `requisitions`, `sources`, `stages`, `tags`, `users`
 
 Diffed against: <https://hire.lever.co/developer/documentation>
 
-- [ ] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high)
-- [ ] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high)
-- [ ] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high)
-- [ ] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high)
+- [x] `opportunities/{id}/feedback` — interview scorecards and ratings - the core hiring-quality signal, missing entirely (high) — synced as `feedback`
+- [x] `opportunities/{id}/interviews` — scheduled interview records with panel/interviewer and timing, needed for funnel and scheduling analysis (high) — synced as `interviews`
+- [x] `candidates/{id}/applications (+ /applications/deleted)` — links a candidate/opportunity to a specific posting; the join table behind apply-to-hire funnels (high) — synced as `applications` through `GET /opportunities?expand=applications`, the route Lever recommends over the deprecated per-candidate endpoint; `/applications/deleted` is not synced because it requires 30-day windows with no documented start
+- [x] `opportunities/{id}/offers` — offer records with salary/status - offer acceptance rate is a headline recruiting metric (high) — synced as `offers`
 - [ ] `disposition_stages` — lookup resolving the disposition/stage codes carried on archived opportunities (medium)
 - [ ] `audit_events` — state-transition history for candidates, postings and users; the only source of change-over-time in Lever (medium)
 - [ ] `opportunities/{id}/notes` — recruiter activity volume per candidate (medium)
