@@ -42,9 +42,13 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
-    team_ids: list[int] | None = None,
+    *,
+    team_ids: list[int],
 ) -> TaskRun | None:
-    """Find the TaskRun a GitHub webhook belongs to, preferably scoped to ``team_ids``.
+    """Find the TaskRun a GitHub webhook belongs to, among the runs of ``team_ids``.
+
+    An empty ``team_ids`` matches nothing, so a delivery whose installation no team links to is
+    not attributed to any run. Without the ``team_id`` filter, the legs below scan the whole table.
 
     A checkout branch alone does not prove PR ownership: a discussion can inspect a shared
     branch without authoring a change. Legacy branch matches also require the exact reported PR URL.
@@ -54,8 +58,9 @@ def find_task_run(
     observe_github_webhook_task_run_lookup(scoped=bool(team_ids))
     if not team_ids:
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
+        return None
 
-    candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
+    candidates = TaskRun.objects.filter(team_id__in=team_ids)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
     # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
@@ -595,7 +600,7 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 
 
 def _task_run_scope_team_ids(payload: dict) -> list[int]:
-    """Teams to scope the TaskRun lookup to, or empty to leave the lookup unscoped.
+    """Teams to scope the TaskRun lookup to. Empty means no run can match the delivery.
 
     An installation reaches a team two ways. Team-level ``Integration`` rows are the obvious
     one. The other is a personal install: a task picks a ``UserIntegration`` through
@@ -606,7 +611,7 @@ def _task_run_scope_team_ids(payload: dict) -> list[int]:
 
     Accepted edge: a user who has since left the organization no longer widens the scope, so
     a delivery for a run they created that way stops matching. Anything with no installation
-    id, or an installation nothing is linked to, falls back to the unscoped lookup.
+    id, or an installation nothing is linked to, matches no run.
     """
     external_id = installation_id(payload)
     if external_id is None:

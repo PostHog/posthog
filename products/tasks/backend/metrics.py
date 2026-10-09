@@ -462,9 +462,8 @@ def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
-# TaskRun lookup could ride the team_id index. "false" means it fell back to the legacy
-# unscoped lookup, which walks posthog_task_run once per leg — the thing we want to watch
-# shrink in production before considering anything stricter.
+# TaskRun lookup could ride the team_id index. "false" means no team links the installation,
+# so the lookup is skipped and the delivery matches no run.
 GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL = Counter(
     "posthog_tasks_github_webhook_task_run_lookup_total",
     "GitHub webhook TaskRun lookups, labeled by whether they were scoped to the installation's teams",
