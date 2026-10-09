@@ -1,6 +1,13 @@
 import type { Series } from '@posthog/quill-charts'
 
-import type { ChartDisplayType, FunnelResult, TrendsQuery, TrendsResultItem } from './types'
+import type {
+    ChartDisplayType,
+    FunnelResult,
+    HogQLResult,
+    TrendsQuery,
+    TrendsResultItem,
+    WebOverviewItem,
+} from './types'
 
 export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType {
     return query?.trendsFilter?.display || 'ActionsLineGraph'
@@ -123,4 +130,66 @@ export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: strin
             order: step.order ?? idx,
         })
     )
+}
+
+// Web stats columns that drive the web analytics UI only, not data.
+const HIDDEN_WEB_STATS_COLUMNS = new Set(['ui_fill_fraction', 'cross_sell'])
+
+function humanizeKey(key: string): string {
+    const text = key.replace(/_/g, ' ')
+    return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function formatWebOverviewValue({ kind, value }: WebOverviewItem): string | null {
+    if (value === null || value === undefined) {
+        return null
+    }
+    if (kind === 'percentage') {
+        return `${value.toFixed(1)}%`
+    }
+    if (kind === 'duration_s') {
+        return formatDuration(value * 1000)
+    }
+    return formatNumber(value)
+}
+
+function webStatsCell(column: string, value: unknown): unknown {
+    // Metric cells are `[current, previous]` tuples; multi-part breakdowns (city, region) are tuples too.
+    if (Array.isArray(value) && column === 'breakdown_value') {
+        return value.filter((part) => part !== null && part !== '').join(', ')
+    }
+    const current = Array.isArray(value) ? value[0] : value
+    return typeof current === 'number' && /rate|percentage/.test(column) ? formatPercent(current) : current
+}
+
+/** Maps query results that have no chart of their own into the `columns`/`results` shape of the table. */
+export function toTableResult(query: unknown, results: unknown, columns: string[] | undefined): HogQLResult {
+    const node = (query ?? {}) as { kind?: unknown; breakdownBy?: unknown }
+    if (node.kind === 'WebOverviewQuery' && Array.isArray(results)) {
+        return {
+            columns: ['Metric', 'Value', 'Change'],
+            results: (results as WebOverviewItem[]).map((item) => [
+                humanizeKey(item.key),
+                formatWebOverviewValue(item),
+                typeof item.changeFromPreviousPct === 'number'
+                    ? `${item.changeFromPreviousPct > 0 ? '+' : ''}${item.changeFromPreviousPct}%`
+                    : null,
+            ]),
+        }
+    }
+    if (node.kind === 'WebStatsTableQuery' && Array.isArray(results)) {
+        const names = (columns ?? []).map((column) => column.replace(/^context\.columns\./, ''))
+        const kept = names.flatMap((name, index) => (HIDDEN_WEB_STATS_COLUMNS.has(name) ? [] : [index]))
+        return {
+            columns: kept.map((index) =>
+                names[index] === 'breakdown_value' && typeof node.breakdownBy === 'string'
+                    ? node.breakdownBy
+                    : humanizeKey(names[index]!)
+            ),
+            results: (results as unknown[][]).map((row) =>
+                kept.map((index) => webStatsCell(names[index]!, row[index]))
+            ),
+        }
+    }
+    return results as HogQLResult
 }

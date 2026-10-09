@@ -151,6 +151,13 @@ export interface HogQLResult {
     results?: unknown[][]
 }
 
+export interface WebOverviewItem {
+    key: string
+    kind: 'unit' | 'duration_s' | 'percentage' | 'currency'
+    value?: number | null
+    changeFromPreviousPct?: number | null
+}
+
 export type RetentionAggregationType = 'count' | 'sum' | 'avg'
 export type RetentionReference = 'total' | 'previous'
 export type RetentionPeriod = 'Hour' | 'Day' | 'Week' | 'Month'
