@@ -394,12 +394,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 
-    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
-    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
-    /// Empty string means the v1 sink layer is disabled.
-    #[envconfig(default = "")]
-    pub capture_v1_sinks: String,
-
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
     #[envconfig(default = "10485760")]
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -573,7 +567,7 @@ pub struct OutputsConfig {
     pub dlq_producer: ProducerName,
     /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
     /// divert AI events here instead of the main topic on every deployment,
-    /// capture-ai included. Setup also injects it into every v1 sink config.
+    /// capture-ai included.
     #[envconfig(
         from = "CAPTURE_OUTPUT_AI_MAIN_TOPIC",
         default = "events_plugin_ingestion_ai"

@@ -1,12 +1,7 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::fmt;
-
-use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
-use crate::ordering::OrderingGuarantee;
+use crate::pipeline::{self, Address, Lane};
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -111,6 +106,25 @@ impl Destination {
         }
     }
 
+    /// The output address this destination publishes to. `None` for `Drop`,
+    /// which is never published.
+    pub fn address(&self) -> Option<Address> {
+        let lane = |pipeline, lane| Some(Address::Lane { pipeline, lane });
+        match self {
+            Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
+            Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
+            Self::Overflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
+            Self::AiEvents => lane(pipeline::Pipeline::Ai, Lane::Main),
+            Self::AiEventsOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
+            Self::ExceptionErrorTracking => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
+            Self::HeatmapMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
+            Self::ClientIngestionWarning => lane(pipeline::Pipeline::Warnings, Lane::Main),
+            Self::Dlq => Some(Address::Dlq),
+            Self::Custom(topic) => Some(Address::Custom(topic.clone())),
+            Self::Drop => None,
+        }
+    }
+
     /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
     /// so admin-configured topic names never become label values.
     pub fn as_tag(&self) -> &'static str {
@@ -133,6 +147,7 @@ impl Destination {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
+    use crate::sinks::registry::Destination as Output;
 
     #[test]
     fn is_analytics_pipeline_true_for_main_and_historical() {
@@ -151,6 +166,28 @@ mod destination_tests {
         assert!(!Destination::Dlq.is_analytics_pipeline());
         assert!(!Destination::Drop.is_analytics_pipeline());
         assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
+    }
+
+    /// Each v1 destination publishes to the output that carried its topic
+    /// before v1 joined the outputs layer.
+    #[rstest::rstest]
+    #[case(Destination::AnalyticsMain, Some(Output::AnalyticsMain))]
+    #[case(Destination::AnalyticsHistorical, Some(Output::AnalyticsHistorical))]
+    #[case(Destination::Overflow, Some(Output::AnalyticsOverflow))]
+    #[case(Destination::Dlq, Some(Output::Dlq))]
+    #[case(Destination::Custom("admin_topic".into()), Some(Output::Custom("admin_topic".into())))]
+    #[case(Destination::ExceptionErrorTracking, Some(Output::ErrorTrackingMain))]
+    #[case(Destination::HeatmapMain, Some(Output::HeatmapsMain))]
+    #[case(Destination::ClientIngestionWarning, Some(Output::ClientWarningsMain))]
+    #[case(Destination::AiEvents, Some(Output::AiMain))]
+    #[case(Destination::AiEventsOverflow, Some(Output::AiOverflow))]
+    #[case(Destination::Drop, None)]
+    fn address_selects_the_destinations_output(
+        #[case] destination: Destination,
+        #[case] expected: Option<Output>,
+    ) {
+        let output = destination.address().and_then(Output::for_address);
+        assert_eq!(output, expected);
     }
 
     /// Exhaustive: every variant's tag is non-empty, stable, and unique.
@@ -198,80 +235,11 @@ mod destination_tests {
 }
 
 // ---------------------------------------------------------------------------
-// Outcome
-// ---------------------------------------------------------------------------
-
-/// What happened when a publish attempt resolved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
-    Success,
-    Timeout,
-    RetriableError,
-    FatalError,
-}
-
-impl Outcome {
-    pub fn as_tag(&self) -> &'static str {
-        match self {
-            Self::Success => "success",
-            Self::Timeout => "timeout",
-            Self::RetriableError => "retriable_error",
-            Self::FatalError => "fatal_error",
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SinkResult
-// ---------------------------------------------------------------------------
-
-/// Backend-agnostic trait for introspecting per-event publish results.
-pub trait SinkResult: Send + Sync {
-    /// Correlation key -- the originating event's UUID.
-    fn key(&self) -> Uuid;
-
-    fn outcome(&self) -> Outcome;
-
-    /// Stable, low-cardinality tag for metrics. None on success.
-    fn cause(&self) -> Option<&'static str>;
-
-    /// Rich human-readable error detail for logging. None on success.
-    fn detail(&self) -> Option<Cow<'_, str>>;
-
-    /// Time between batch enqueue and this event's ack completion.
-    /// None if the event never entered the ack path (immediate error).
-    fn elapsed(&self) -> Option<std::time::Duration>;
-}
-
-// ---------------------------------------------------------------------------
-// PreparedEvent
-// ---------------------------------------------------------------------------
-
-/// Storage-agnostic, fully-owned output of the serialize step. Produced by
-/// [`serialize_batch`](super::prepare::serialize_batch) and consumed by any
-/// [`Sink`](super::sink::Sink). Owns its payload (`Bytes`) so it can be cloned
-/// across multiple sinks (dual-write) without re-encoding and moved into
-/// spawned tasks. The Sink resolves `destination` to a concrete backend target
-/// and applies its own routing policy (e.g. nulling `partition_key`).
-#[derive(Debug, Clone)]
-pub struct PreparedEvent {
-    pub uuid: Uuid,
-    pub destination: Destination,
-    pub payload: bytes::Bytes,
-    pub headers: CapturedEventHeaders,
-    /// Raw key; whether the Sink uses it is decided by `ordering`.
-    pub partition_key: String,
-    /// The guarantee `partition_key` exists to preserve.
-    /// [`OrderingGuarantee::None`] means publish without a key.
-    pub ordering: OrderingGuarantee,
-}
-
-// ---------------------------------------------------------------------------
 // SerializationFailure
 // ---------------------------------------------------------------------------
 
-/// `SinkResult` for an event that failed during the serialize step (before any
-/// sink saw it). Always fatal (non-retriable) and has no ack latency.
+/// An event that failed during the serialize step, before any output saw it.
+/// Always fatal: the event is dropped, never retried.
 #[derive(Debug, Clone)]
 pub struct SerializationFailure {
     uuid: Uuid,
@@ -304,114 +272,11 @@ impl SerializationFailure {
         self.uuid
     }
 
+    pub fn cause(&self) -> &'static str {
+        self.cause
+    }
+
     pub fn detail_str(&self) -> &str {
         &self.detail
-    }
-}
-
-impl SinkResult for SerializationFailure {
-    fn key(&self) -> Uuid {
-        self.uuid
-    }
-
-    fn outcome(&self) -> Outcome {
-        Outcome::FatalError
-    }
-
-    fn cause(&self) -> Option<&'static str> {
-        Some(self.cause)
-    }
-
-    fn detail(&self) -> Option<Cow<'_, str>> {
-        Some(Cow::Borrowed(&self.detail))
-    }
-
-    fn elapsed(&self) -> Option<std::time::Duration> {
-        None
-    }
-}
-
-// ---------------------------------------------------------------------------
-// BatchSummary
-// ---------------------------------------------------------------------------
-
-/// Aggregated stats for a batch of publish results.
-pub struct BatchSummary {
-    pub total: usize,
-    pub succeeded: usize,
-    pub retriable: usize,
-    pub fatal: usize,
-    pub timed_out: usize,
-    /// Counts keyed by cause tag (e.g. "queue_full", "timeout").
-    pub errors: HashMap<&'static str, usize>,
-}
-
-impl BatchSummary {
-    pub fn from_results(results: &[Box<dyn SinkResult>]) -> Self {
-        let mut succeeded = 0usize;
-        let mut retriable = 0usize;
-        let mut fatal = 0usize;
-        let mut timed_out = 0usize;
-        let mut errors: HashMap<&'static str, usize> = HashMap::new();
-
-        for r in results {
-            match r.outcome() {
-                Outcome::Success => succeeded += 1,
-                Outcome::Timeout => {
-                    timed_out += 1;
-                    if let Some(tag) = r.cause() {
-                        *errors.entry(tag).or_default() += 1;
-                    }
-                }
-                Outcome::RetriableError => {
-                    retriable += 1;
-                    if let Some(tag) = r.cause() {
-                        *errors.entry(tag).or_default() += 1;
-                    }
-                }
-                Outcome::FatalError => {
-                    fatal += 1;
-                    if let Some(tag) = r.cause() {
-                        *errors.entry(tag).or_default() += 1;
-                    }
-                }
-            }
-        }
-
-        Self {
-            total: results.len(),
-            succeeded,
-            retriable,
-            fatal,
-            timed_out,
-            errors,
-        }
-    }
-
-    pub fn all_ok(&self) -> bool {
-        self.retriable == 0 && self.fatal == 0 && self.timed_out == 0
-    }
-}
-
-impl fmt::Display for BatchSummary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} total, {} ok, {} retriable, {} fatal, {} timed_out",
-            self.total, self.succeeded, self.retriable, self.fatal, self.timed_out
-        )?;
-        if !self.errors.is_empty() {
-            let mut pairs: Vec<_> = self.errors.iter().collect();
-            pairs.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
-            write!(f, " (")?;
-            for (i, (tag, count)) in pairs.iter().enumerate() {
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{}={}", tag, count)?;
-            }
-            write!(f, ")")?;
-        }
-        Ok(())
     }
 }

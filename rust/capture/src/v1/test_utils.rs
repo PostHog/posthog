@@ -7,24 +7,26 @@ use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
+use crate::outputs::PreparedEvent;
 use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::types::PreparedEvent;
 use crate::v1::sinks::Destination;
 
-/// Serialize publishable events into `PreparedEvent`s for driving sinks in tests.
-/// Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit) via `?Sized`.
+/// Serialize publishable events into `PreparedEvent`s for driving outputs in
+/// tests. Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit)
+/// via `?Sized`.
 pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> Vec<PreparedEvent> {
     events
         .iter()
         .filter(|e| e.should_publish())
-        .map(|e| PreparedEvent {
+        .filter_map(|e| Some((e, e.destination().address()?)))
+        .map(|(e, address)| PreparedEvent {
             uuid: e.uuid(),
-            destination: e.destination().clone(),
+            address,
             payload: e.serialize(ctx).expect("test payload must serialize"),
             headers: e.headers(ctx),
             partition_key: e.partition_key(ctx),
@@ -167,28 +169,29 @@ pub fn find_by_did<'a>(events: &'a [WrappedEvent], distinct_id: &str) -> &'a Wra
         .unwrap()
 }
 
-pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
-    let env: std::collections::HashMap<String, String> = [
-        ("HOSTS", "localhost:9092"),
-        ("TOPIC_MAIN", "events_main"),
-        ("TOPIC_HISTORICAL", "events_hist"),
-        ("TOPIC_OVERFLOW", "events_overflow"),
-        ("TOPIC_DLQ", "events_dlq"),
-        ("TOPIC_EXCEPTION", "error_tracking_events"),
-        ("TOPIC_HEATMAP", "heatmaps_ingestion"),
-        ("TOPIC_CLIENT_INGESTION_WARNING", "events_plugin_ingestion"),
+/// The outputs v1 test states publish to, one distinct topic per output.
+pub fn test_outputs_config() -> crate::config::OutputsConfig {
+    let env: HashMap<String, String> = [
+        ("CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC", "events_main"),
+        ("CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC", "events_hist"),
+        ("CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC", "events_overflow"),
+        ("CAPTURE_OUTPUT_DLQ_TOPIC", "events_dlq"),
+        (
+            "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC",
+            "error_tracking_events",
+        ),
+        ("CAPTURE_OUTPUT_HEATMAPS_TOPIC", "heatmaps_ingestion"),
+        (
+            "CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC",
+            "events_plugin_ingestion",
+        ),
+        ("CAPTURE_OUTPUT_AI_MAIN_TOPIC", "ai_events"),
+        ("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", "ai_events_overflow"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
-    let mut cfg: crate::v1::sinks::kafka::config::Config =
-        envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-    // Mirrors production, where setup injects the deployment-level
-    // CAPTURE_OUTPUT_AI_MAIN_TOPIC and CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC into every sink config
-    // after env loading.
-    cfg.topic_ai = "ai_events".to_string();
-    cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
-    cfg
+    envconfig::Envconfig::init_from_hashmap(&env).expect("test outputs config")
 }
 
 // ---------------------------------------------------------------------------
@@ -568,104 +571,13 @@ pub fn event_with_empty_options() -> Event {
 }
 
 // ---------------------------------------------------------------------------
-// Mock SinkResult for unit testing merge logic
-// ---------------------------------------------------------------------------
-
-use std::borrow::Cow;
-use std::time::Duration;
-
-use crate::v1::sinks::types::{Outcome, SinkResult as SinkResultTrait};
-
-/// Concrete SinkResult for testing — all fields are user-specified.
-pub struct MockSinkResult {
-    pub uuid: Uuid,
-    pub outcome: Outcome,
-    pub cause: Option<&'static str>,
-    pub detail: Option<String>,
-    pub elapsed: Option<Duration>,
-}
-
-impl MockSinkResult {
-    pub fn success(uuid: Uuid) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::Success,
-            cause: None,
-            detail: None,
-            elapsed: Some(Duration::from_millis(5)),
-        })
-    }
-
-    pub fn retriable(uuid: Uuid, cause: &'static str) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::RetriableError,
-            cause: Some(cause),
-            detail: Some(format!("{cause}: queue full")),
-            elapsed: Some(Duration::from_millis(100)),
-        })
-    }
-
-    pub fn timeout(uuid: Uuid) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::Timeout,
-            cause: Some("timeout"),
-            detail: Some("message delivery timed out".to_string()),
-            elapsed: Some(Duration::from_secs(30)),
-        })
-    }
-
-    pub fn fatal(uuid: Uuid, cause: &'static str) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::FatalError,
-            cause: Some(cause),
-            detail: Some(format!("{cause}: permanent failure")),
-            elapsed: None,
-        })
-    }
-
-    pub fn fatal_no_cause(uuid: Uuid) -> Box<dyn SinkResultTrait> {
-        Box::new(Self {
-            uuid,
-            outcome: Outcome::FatalError,
-            cause: None,
-            detail: None,
-            elapsed: None,
-        })
-    }
-}
-
-impl SinkResultTrait for MockSinkResult {
-    fn key(&self) -> Uuid {
-        self.uuid
-    }
-
-    fn outcome(&self) -> Outcome {
-        self.outcome
-    }
-
-    fn cause(&self) -> Option<&'static str> {
-        self.cause
-    }
-
-    fn detail(&self) -> Option<Cow<'_, str>> {
-        self.detail.as_ref().map(|s| Cow::Borrowed(s.as_str()))
-    }
-
-    fn elapsed(&self) -> Option<Duration> {
-        self.elapsed
-    }
-}
-
-// ---------------------------------------------------------------------------
 // TestStateBuilder — builds a router::State for V1 pipeline integration tests
 // ---------------------------------------------------------------------------
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_redis::MockRedisClient;
 use limiters::overflow::OverflowLimiter;
@@ -675,19 +587,20 @@ use limiters::token_dropper::TokenDropper;
 use crate::config::CaptureMode;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::outputs::OutputRegistry;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
+use crate::sinks::kafka::KafkaSinkBase;
+use crate::sinks::producer::MockKafkaProducer;
+use crate::sinks::registry::OutputTable;
 use crate::time::TimeSource;
-use crate::v1::sinks::kafka::mock::MockProducer;
-use crate::v1::sinks::kafka::sink::KafkaSink;
-use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::{self as v1_sinks, SinkName};
 
 /// Result of building a test state — gives access to both the `router::State`
-/// and the underlying `MockProducer` so tests can inspect sent records.
+/// and the `MockKafkaProducer` behind its outputs, so tests can inspect sent
+/// records.
 pub struct TestState {
     pub state: router::State,
-    pub mock_producer: Arc<MockProducer>,
+    pub mock_producer: MockKafkaProducer,
 }
 
 /// Builder for `router::State` with configurable mock services.
@@ -701,7 +614,7 @@ pub struct TestStateBuilder {
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
-    mock_producer: Option<Arc<MockProducer>>,
+    mock_producer: Option<MockKafkaProducer>,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
@@ -804,8 +717,8 @@ impl TestStateBuilder {
         self
     }
 
-    /// Supply a pre-configured MockProducer (e.g. for error injection).
-    pub fn with_mock_producer(mut self, producer: Arc<MockProducer>) -> Self {
+    /// Supply a pre-configured producer (e.g. for error injection).
+    pub fn with_mock_producer(mut self, producer: MockKafkaProducer) -> Self {
         self.mock_producer = Some(producer);
         self
     }
@@ -832,14 +745,6 @@ impl TestStateBuilder {
     }
 
     pub fn build(self) -> TestState {
-        let mut manager = lifecycle::Manager::builder("test_state")
-            .with_trap_signals(false)
-            .with_prestop_check(false)
-            .build();
-        let handle = manager.register("test_state", lifecycle::ComponentOptions::new());
-        handle.report_healthy();
-        let _monitor = manager.monitor_background();
-
         let redis: Arc<dyn common_redis::Client + Send + Sync> = if self.quota_limited {
             let mut mock = MockRedisClient::new();
             for resource in &[
@@ -899,39 +804,16 @@ impl TestStateBuilder {
         });
         let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
 
-        // Build the v1 sink router with a MockProducer-backed KafkaSink
-        let mock_producer = self
-            .mock_producer
-            .unwrap_or_else(|| Arc::new(MockProducer::new(SinkName::Msk, handle.clone())));
-
-        let kafka_config = test_kafka_config();
-        let sink_config = v1_sinks::Config {
-            produce_timeout: Duration::from_secs(30),
-            kafka: kafka_config,
-        };
-
-        let kafka_sink = KafkaSink::new(
-            SinkName::Msk,
-            Arc::clone(&mock_producer),
-            sink_config,
-            CaptureMode::Events,
-            handle.clone(),
-        );
-
-        let boxed_sink: Box<dyn Sink> = Box::new(kafka_sink);
-        let sinks_map: HashMap<SinkName, Box<dyn Sink>> =
-            [(SinkName::Msk, boxed_sink)].into_iter().collect();
-        let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
-
-        // Legacy produce surface — no-op since V1 tests go through v1_sink_router
-        let legacy_outputs = Arc::new(crate::outputs::OutputRegistry::single(
-            crate::sinks::noop::NoOpSink::new(),
-        ));
+        let mock_producer = self.mock_producer.unwrap_or_default();
+        let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
+            mock_producer.clone(),
+            OutputTable::from(&test_outputs_config()),
+        )));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
 
         let state = router::State {
-            outputs: legacy_outputs,
+            outputs,
             timesource,
             redis,
             global_rate_limiter_token_distinctid: self.global_rate_limiter,
@@ -952,7 +834,6 @@ impl TestStateBuilder {
             ai_events_overflow_limiter,
             ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,
-            v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ai_events_overflow_enabled,
