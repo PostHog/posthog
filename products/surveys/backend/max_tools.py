@@ -296,8 +296,7 @@ def _always_schedule_warning(survey_type: str, schedule: str | None, conditions:
     )
 
 
-SURVEY_CREATION_TOOL_DESCRIPTION = dedent(
-    """
+SURVEY_CREATION_TOOL_DESCRIPTION = dedent(f"""
     Create and optionally launch a survey.
 
     # When to use
@@ -328,14 +327,11 @@ SURVEY_CREATION_TOOL_DESCRIPTION = dedent(
     - "single_choice": pick one from choices
     - "multiple_choice": pick many from choices
     - "link": call-to-action link
-    """
-    + SCHEDULE_PROMPT
-    + """
+    {SCHEDULE_PROMPT}
     # After creation
     Always share the survey link with the user so they can view and configure it.
     The link is included in the tool response.
-    """
-).strip()
+    """).strip()
 
 
 class CreateSurveyToolArgs(BaseModel):
@@ -518,8 +514,7 @@ class CreateSurveyTool(MaxTool):
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
 
 
-SURVEY_EDIT_TOOL_DESCRIPTION = dedent(
-    """
+SURVEY_EDIT_TOOL_DESCRIPTION = dedent(f"""
     Edit an existing survey.
 
     # When to use
@@ -540,9 +535,7 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent(
     - Set remove_linked_flag=true to remove linked feature flag targeting
     - Set remove_linked_flag_variant=true to remove only feature flag variant targeting
     - Set remove_wait_period=true to remove the survey wait period
-    """
-    + SCHEDULE_PROMPT
-    + """
+    {SCHEDULE_PROMPT}
     # Question identity
     - When updating questions, use read_data(kind="survey") first to see the current questions
     - Each question is shown with a number (1, 2, 3, ...) — pass that number (or the question's real UUID) as the question's `id` to preserve its identity and historical response data
@@ -553,8 +546,7 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent(
     - Only include fields you want to change
     - Omitted targeting fields are preserved. Use the remove_* fields when the user explicitly asks to remove targeting.
     - When updating questions, provide the complete list (it replaces existing)
-    """
-).strip()
+    """).strip()
 
 
 class EditSurveyToolArgs(BaseModel):
