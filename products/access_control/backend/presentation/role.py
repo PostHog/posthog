@@ -17,8 +17,8 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
-from products.access_control.backend.logic import terraform_managed_team_with_role_rules
 from products.access_control.backend.models.role import Role, RoleMembership
 
 if TYPE_CHECKING:
@@ -148,11 +148,12 @@ class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, views
         return context
 
     def perform_destroy(self, instance: Role) -> None:
-        team = terraform_managed_team_with_role_rules(instance, cast(User, self.request.user))
-        if team is not None:
+        team_name = access_control_api.terraform_managed_team_name_with_role_rules(
+            role_id=instance.id, user_id=cast(User, self.request.user).id
+        )
+        if team_name is not None:
             raise PermissionDenied(
-                f"Access control for {team.name} is managed by Terraform and this role has rules there. "
-                "Remove them in your Terraform configuration first."
+                f"Access control for {team_name} is managed with Terraform and this role has rules there."
             )
         super().perform_destroy(instance)
 

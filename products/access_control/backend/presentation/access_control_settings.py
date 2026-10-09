@@ -58,7 +58,6 @@ from products.access_control.backend.facade.user_access_control import (
     minimum_access_level,
     ordered_access_levels,
 )
-from products.access_control.backend.logic import can_write_access_rules
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 
@@ -303,7 +302,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
-            and can_write_access_rules(team.id, cast(User, request.user)),
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
             "project_access_level": project_access_level,
             "resource_access_levels": resource_access_levels,
             # The resources the settings UI can search and rule on; every entry works with
@@ -370,7 +369,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "available_project_levels": list(ordered_access_levels("project")),
             "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
             "can_edit": user_access_control.check_can_modify_access_levels_for_object(team)
-            and can_write_access_rules(team.id, cast(User, request.user)),
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
             "results": results,
         }
         return Response(AccessControlRolesResponseSerializer(payload).data)
@@ -406,9 +405,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if request.query_params.get("member_id"):
             memberships = memberships.filter(id=self._get_membership(request, team).id)
 
-        can_edit = user_access_control.check_can_modify_access_levels_for_object(team) and can_write_access_rules(
-            team.id, cast(User, request.user)
-        )
+        can_edit = user_access_control.check_can_modify_access_levels_for_object(
+            team
+        ) and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id)
         hide_non_project_members = (
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )

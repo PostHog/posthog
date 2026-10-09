@@ -37,6 +37,7 @@ from products.event_definitions.backend.models import effective_project_id_expr
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
+from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
@@ -209,6 +210,41 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     if not entitled:
         return False
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
+
+
+def terraform_account_user_id_for_team(*, team_id: int) -> int | None:
+    """The user behind the personal API key Terraform uses to manage this project's access rules,
+    or None when Terraform does not manage them. A filter rather than get_or_create_team_extension,
+    so that a read on the hot path never inserts a row."""
+    config = (
+        TeamAccessControlConfig.objects.filter(team_id=team_id, managed_by__isnull=False)
+        .select_related("managed_by")
+        .first()
+    )
+    return config.managed_by.user_id if config and config.managed_by else None
+
+
+def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
+    """When Terraform manages the project, only its account may change the rules. The check is on
+    the user behind the request, never on a client header, because any client can send any header."""
+    terraform_user_id = terraform_account_user_id_for_team(team_id=team_id)
+    return terraform_user_id is None or terraform_user_id == user_id
+
+
+def terraform_managed_team_name_with_role_rules(*, role_id: UUID, user_id: int) -> str | None:
+    """The name of a Terraform-managed team where the role has rules and `user_id` is not the
+    Terraform account, else None. AccessControl.role cascades, so deleting the role would remove
+    those rules without any rule endpoint running."""
+    config = (
+        TeamAccessControlConfig.objects.filter(
+            managed_by__isnull=False,
+            team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
+        )
+        .exclude(managed_by__user_id=user_id)
+        .select_related("team")
+        .first()
+    )
+    return config.team.name if config else None
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:

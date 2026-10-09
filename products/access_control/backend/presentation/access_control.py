@@ -18,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_CHOICES,
@@ -40,7 +41,6 @@ from products.access_control.backend.facade.user_access_control import (
     ordered_access_levels,
     resource_to_display_name,
 )
-from products.access_control.backend.logic import can_write_access_rules
 from products.access_control.backend.models.access_control import AccessControl
 
 if TYPE_CHECKING:
@@ -253,9 +253,7 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
-TERRAFORM_MANAGED_MESSAGE = (
-    "Access control for this project is managed by Terraform. Change it in your Terraform configuration."
-)
+TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Terraform."
 
 
 def apply_access_control_rule(
@@ -274,7 +272,7 @@ def apply_access_control_rule(
     params = serializer.validated_data
 
     # Every rule write goes through here. When Terraform manages the project, only its account may write.
-    if not can_write_access_rules(team.id, user):
+    if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
         raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
     instance = AccessControl.objects.filter(
@@ -436,7 +434,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
             "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj)
-            and can_write_access_rules(team.id, cast(User, request.user)),
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
         }
 
         if not is_resource_level:

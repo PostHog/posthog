@@ -3046,7 +3046,7 @@ class TestAccessControlManagedByTerraform(BaseAccessControlTest):
             assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         # A member is refused by the existing admin check first, so only the admin sees the managed message
         if level == OrganizationMembership.Level.ADMIN:
-            assert "managed by Terraform" in self._put_default_rule().json()["detail"]
+            assert "managed with Terraform" in self._put_default_rule().json()["detail"]
         assert AccessControl.objects.filter(team=self.team).count() == 0
 
     def test_the_managing_account_writes_rules_without_a_terraform_user_agent(self):
