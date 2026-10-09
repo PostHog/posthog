@@ -262,8 +262,8 @@ The SQL returns a superset. `system.feature_flags` has no `active` column, and a
 - `feature-flag-get-definition` shows the flag active, an empty `experiment_set`, an empty `filters.payloads`, and no remote configuration;
 - the release conditions have not changed in the last 30 days. A flag moved to 100% this week is still in its soak, not finished. Find the last `filters` change in `feature-flags-activity-retrieve`, because `updated_at` also moves for a rename or a description edit. Use `updated_at` only when activity history is unavailable;
 - the definition has no setting that decides the result before the release conditions or outside them. `filters` carries no `holdout`, `holdout_groups`, `super_groups`, `early_exit`, or `feature_enrollment`, neither `filters` nor any group sets `aggregation_group_type_index`, and `bucketing_identifier` is not `device_id`. `effectively_full_rollout` ignores these settings, so a holdout flag still serves a second result that the bundle must not call the retained behavior;
-- the definition shows an empty `features` (early access) list and `is_used_in_replay_settings: false`, and no survey uses the flag. The definition's `surveys` field lists only surveys that link the flag, so read `surveys-get-all` once per run and drop each candidate that a survey names as `linked_flag`, `targeting_flag`, or `internal_targeting_flag`. The check excludes all of these linked flags;
-- no other non-deleted flag depends on it, enabled or disabled. `feature-flags-dependent-flags-retrieve` returns only active dependents, and a disabled dependent can be enabled again. Check all shortlisted ids with one roster query:
+- the definition shows an empty `features` (early access) list and `is_used_in_replay_settings: false`, and no survey targets with the flag. The definition's `surveys` field lists only surveys that link the flag, and a link is a user-managed relationship that the check keeps as a candidate. A survey's `targeting_flag` or `internal_targeting_flag` is excluded, as the check does. Page `surveys-get-all` with `limit` and `offset` until no page remains, and keep only those two flag ids from each survey, not its questions or appearance. Read the surveys once per run for the whole shortlist;
+- no other non-deleted flag depends on it, enabled or disabled. `feature-flags-dependent-flags-retrieve` returns only active dependents, and a disabled dependent can be enabled again. A dependency key can be stored as a string or a number, so the query reads the raw value. Check all shortlisted ids with one roster query:
 
 ```sql
 SELECT id, key
@@ -271,7 +271,7 @@ FROM system.feature_flags
 WHERE deleted = 0
   AND arrayExists(
       g -> arrayExists(
-          p -> JSONExtractString(p, 'type') = 'flag' AND JSONExtractString(p, 'key') IN ('<id>', '<id>'),
+          p -> JSONExtractString(p, 'type') = 'flag' AND trim(BOTH '"' FROM JSONExtractRaw(p, 'key')) IN ('<id>', '<id>'),
           JSONExtractArrayRaw(g, 'properties')
       ),
       JSONExtractArrayRaw(filters, 'groups')
