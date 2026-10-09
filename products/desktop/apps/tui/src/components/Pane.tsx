@@ -21,6 +21,7 @@ import {
   type RunView,
   runNotice,
   setupProgress,
+  windowed,
   withListedRun,
 } from "../runs";
 import { renderSheet, type Sheet } from "../sheet";
@@ -91,9 +92,19 @@ function useRunView(
   const [view, setView] = useState(emptyRunView);
   const subscription = useRef<RunSubscription | null>(null);
   // Keyed on ids only: each list refresh brings a new task object for the same run.
+  const localWindow = useRef<ReturnType<typeof windowed> | null>(null);
   useEffect(() => {
     setView(emptyRunView);
-    if (local) return local.watch(setView);
+    if (local) {
+      // A local agent keeps its whole log; the pane takes its tail, as it does a cloud run's.
+      const window = windowed(setView);
+      localWindow.current = window;
+      const stop = local.watch(window.publish);
+      return () => {
+        localWindow.current = null;
+        stop();
+      };
+    }
     if (!taskId || !cloudRunId || !runs) return;
     const current = runs.watch(taskId, cloudRunId, setView, {
       withEarlierRuns,
@@ -104,7 +115,13 @@ function useRunView(
       current.stop();
     };
   }, [runs, taskId, cloudRunId, local, withEarlierRuns]);
-  return { view, loadOlder: () => void subscription.current?.loadOlder() };
+  return {
+    view,
+    loadOlder: () =>
+      localWindow.current
+        ? localWindow.current.loadOlder()
+        : void subscription.current?.loadOlder(),
+  };
 }
 
 export function Pane({
