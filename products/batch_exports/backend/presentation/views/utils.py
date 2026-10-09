@@ -10,7 +10,7 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.models import Team
 
-from products.batch_exports.backend.hogql_source import drop_unknown_hogql_modifiers
+from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
 
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. "
