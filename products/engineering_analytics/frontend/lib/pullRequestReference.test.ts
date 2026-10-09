@@ -1,4 +1,3 @@
-import type { GitHubSourceApi } from '../generated/api.schemas'
 import {
     type PullRequestReference,
     type PullRequestTarget,
@@ -7,10 +6,8 @@ import {
 } from './pullRequestReference'
 
 const LINK: PullRequestReference = { kind: 'link', owner: 'PostHog', repo: 'posthog', number: 123 }
+const LINK_TARGET = { owner: 'PostHog', repo: 'posthog', number: 123 }
 const NUMBER: PullRequestReference = { kind: 'number', number: 123 }
-
-const POSTHOG: GitHubSourceApi = { id: 'src-posthog', repo: 'PostHog/posthog', prefix: '', synced: true }
-const WEBSITE: GitHubSourceApi = { id: 'src-website', repo: 'PostHog/posthog.com', prefix: '', synced: true }
 
 describe('pullRequestReference', () => {
     it.each<[string, string, PullRequestReference | null]>([
@@ -44,44 +41,29 @@ describe('pullRequestReference', () => {
         expect(parsePullRequestReference(text)).toEqual(expected)
     })
 
-    it.each<[string, PullRequestReference, GitHubSourceApi[], GitHubSourceApi | null, PullRequestTarget | null]>([
+    it.each<[string, PullRequestReference, string | null, PullRequestTarget | null]>([
         [
-            'a bare number to the picked repository',
+            'a bare number to the repository in scope',
             NUMBER,
-            [POSTHOG, WEBSITE],
-            WEBSITE,
-            { owner: 'PostHog', repo: 'posthog.com', number: 123, sourceId: 'src-website' },
+            'PostHog/posthog.com',
+            { owner: 'PostHog', repo: 'posthog.com', number: 123, inScope: true },
         ],
+        ['a bare number to nothing when no repository is in scope', NUMBER, null, null],
+        ['a bare number to nothing when the scope is not an owner and a name', NUMBER, 'posthog', null],
         [
-            'a bare number to the only connected repository',
-            NUMBER,
-            [POSTHOG],
-            null,
-            { owner: 'PostHog', repo: 'posthog', number: 123, sourceId: 'src-posthog' },
-        ],
-        ['a bare number to nothing when several repositories are connected', NUMBER, [POSTHOG, WEBSITE], null, null],
-        [
-            'a bare number to nothing when the only source reports no repository',
-            NUMBER,
-            [{ ...POSTHOG, repo: '' }],
-            null,
-            null,
-        ],
-        [
-            'a link to its own repository, in the casing of the source, when another is picked',
+            'a link to the repository in scope, in the casing of the scope',
             { kind: 'link', owner: 'posthog', repo: 'POSTHOG', number: 123 },
-            [POSTHOG, WEBSITE],
-            WEBSITE,
-            { owner: 'PostHog', repo: 'posthog', number: 123, sourceId: 'src-posthog' },
+            'PostHog/posthog',
+            { owner: 'PostHog', repo: 'posthog', number: 123, inScope: true },
         ],
         [
-            'a link to a repository with no connected source as typed',
+            'a link to another repository as typed, out of scope',
             { kind: 'link', owner: 'keajs', repo: 'kea', number: 123 },
-            [POSTHOG],
-            POSTHOG,
-            { owner: 'keajs', repo: 'kea', number: 123, sourceId: null },
+            'PostHog/posthog',
+            { owner: 'keajs', repo: 'kea', number: 123, inScope: false },
         ],
-    ])('resolves %s', (_label, reference, sources, pickedSource, expected) => {
-        expect(resolvePullRequestTarget(reference, sources, pickedSource)).toEqual(expected)
+        ['a link with no repository in scope as typed', LINK, null, { ...LINK_TARGET, inScope: false }],
+    ])('resolves %s', (_label, reference, scopedRepo, expected) => {
+        expect(resolvePullRequestTarget(reference, scopedRepo)).toEqual(expected)
     })
 })
