@@ -723,7 +723,7 @@ class AssignAndEmitSignalInput:
     remediation: Optional[dict] = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
@@ -1124,13 +1124,19 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=db_result.promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
+        report_title = db_result.report_title
+        # The matcher blanks an unsafe report's title, so the batch context must not bring it back.
+        if report_title and await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
+            db_result.report_id, input.team_id
+        ):
+            report_title = ""
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
             research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
-            report_title=db_result.report_title,
+            report_title=report_title,
         )
     except Exception as e:
         logger.exception(

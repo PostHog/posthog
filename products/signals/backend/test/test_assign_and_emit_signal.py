@@ -1027,16 +1027,17 @@ async def test_non_promoting_states_increment_counters_but_do_not_promote(ateam,
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("status", "signals_at_run", "signals_researched", "expected_title"),
+    ("status", "signals_at_run", "signals_researched", "unsafe", "expected_title"),
     [
-        (SignalReport.Status.POTENTIAL, 0, None, "specificity title"),
+        (SignalReport.Status.POTENTIAL, 0, None, False, "specificity title"),
         # A first run stamps signals_at_run when it starts, before its research completes.
-        (SignalReport.Status.IN_PROGRESS, 7, None, "specificity title"),
-        (SignalReport.Status.READY, 7, 4, "researched title"),
+        (SignalReport.Status.IN_PROGRESS, 7, None, False, "specificity title"),
+        (SignalReport.Status.READY, 7, 4, False, "researched title"),
+        (SignalReport.Status.READY, 7, 4, True, "researched title"),
     ],
 )
 async def test_specificity_title_only_renames_unresearched_reports(
-    ateam, status, signals_at_run, signals_researched, expected_title
+    ateam, status, signals_at_run, signals_researched, unsafe, expected_title
 ):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -1048,6 +1049,13 @@ async def test_specificity_title_only_renames_unresearched_reports(
         title="researched title",
         summary="researched summary",
     )
+    if unsafe:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content='{"choice": false}',
+        )
     input_ = _build_input(ateam.id, _existing_match(str(report.id)))
     input_.updated_title = "specificity title"
 
@@ -1055,7 +1063,7 @@ async def test_specificity_title_only_renames_unresearched_reports(
 
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
     assert refreshed.title == expected_title
-    assert result.report_title == expected_title
+    assert result.report_title == ("" if unsafe else expected_title)
     assert refreshed.signal_count == 5
 
 
