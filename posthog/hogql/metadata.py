@@ -332,7 +332,11 @@ def _flag_called_on_events_warnings(
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
             return []
-        return flag_called_on_events_warnings(hogql_ast, context, _flag_called_announcement_url(move_notices.payload))
+        warnings = flag_called_on_events_warnings(hogql_ast, context)
+        if not warnings:
+            return []
+        url = _flag_called_announcement_url(move_notices.payload)
+        return [warning.model_copy(update={"url": url}) for warning in warnings]
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this
         # check failed, and the caller turns any exception here into an invalid query.

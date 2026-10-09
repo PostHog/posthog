@@ -471,6 +471,20 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             [(literal_start, literal_start + len("'$feature_flag_called'"), None, expected_url)] * expected,
         )
 
+    def test_metadata_does_not_log_invalid_announcement_url_without_a_flag_called_literal(self) -> None:
+        with (
+            patch(
+                "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+                return_value=True,
+            ),
+            patch("posthoganalytics.get_feature_flag_result", return_value=_move_notices("http://example.com")),
+            patch("posthog.hogql.metadata.logger") as mock_logger,
+        ):
+            metadata = self._select("SELECT 1")
+
+        self.assertTrue(metadata.isValid, metadata.errors)
+        mock_logger.warning.assert_not_called()
+
     def test_metadata_warns_for_unknown_event_in_literal(self):
         EventDefinition.objects.create(team=self.team, name="signed_up")
 
