@@ -2,6 +2,7 @@ use std::mem::size_of;
 
 use uuid::Uuid;
 
+use super::codec::{PropertiesCodec, StoredProperties};
 use super::persons::{CachedPerson, PersonCacheKey};
 
 /// What foyer spends per record beyond the key and the value: the `Arc`
@@ -28,12 +29,12 @@ pub(super) struct StoredPerson {
 }
 
 impl StoredPerson {
-    pub(super) fn new(person: CachedPerson) -> Self {
+    pub(super) fn new(person: CachedPerson, codec: &PropertiesCodec) -> Self {
         Self {
             id: person.id,
             team_id: person.team_id,
             uuid: StoredUuid::new(person.uuid),
-            properties: StoredProperties::Raw(person.properties.into_boxed_slice()),
+            properties: codec.encode(person.properties),
             created_at: person.created_at,
             version: person.version,
             last_seen_at: person.last_seen_at,
@@ -42,19 +43,22 @@ impl StoredPerson {
         }
     }
 
-    pub(super) fn to_cached(&self) -> CachedPerson {
-        let StoredProperties::Raw(properties) = &self.properties;
-        CachedPerson {
+    pub(super) fn to_cached(&self, codec: &PropertiesCodec) -> Result<CachedPerson, &'static str> {
+        Ok(CachedPerson {
             id: self.id,
             uuid: self.uuid.to_owned_string(),
             team_id: self.team_id,
-            properties: properties.to_vec(),
+            properties: codec.decode(&self.properties)?,
             created_at: self.created_at,
             version: self.version,
             is_identified: self.is_identified,
             is_deleted: self.is_deleted,
             last_seen_at: self.last_seen_at,
-        }
+        })
+    }
+
+    pub(super) fn properties(&self) -> &StoredProperties {
+        &self.properties
     }
 
     /// The bytes this entry holds against the cache capacity: the key,
@@ -65,20 +69,6 @@ impl StoredPerson {
             + FOYER_RECORD_BOOKKEEPING_BYTES
             + self.properties.stored_len()
             + self.uuid.heap_len()
-    }
-}
-
-/// A person's properties as the cache holds them.
-pub(super) enum StoredProperties {
-    /// Serialized JSON, verbatim.
-    Raw(Box<[u8]>),
-}
-
-impl StoredProperties {
-    pub(super) fn stored_len(&self) -> usize {
-        match self {
-            Self::Raw(bytes) => bytes.len(),
-        }
     }
 }
 

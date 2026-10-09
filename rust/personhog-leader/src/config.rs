@@ -24,6 +24,13 @@ pub struct Config {
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 
+    /// Compress cached person properties with a zstd dictionary that
+    /// each pod trains from the first documents it caches. Fits more
+    /// persons in `cache_memory_capacity_bytes` at the cost of CPU on
+    /// every cache read and write.
+    #[envconfig(default = "false")]
+    pub cache_properties_compression_enabled: bool,
+
     /// How long a fencing transaction window admits joining writes
     /// before committing, when it does not fill first (see
     /// FENCING_WINDOW_MAX_WRITES). Amortizes the commit round trip

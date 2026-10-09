@@ -1,3 +1,4 @@
+mod codec;
 mod dirty_index;
 mod partitioned;
 mod persons;

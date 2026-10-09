@@ -5,6 +5,7 @@ use foyer::{Cache, CacheBuilder, Event, EventListener};
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
 
+use super::codec::PropertiesCodec;
 use super::stored::StoredPerson;
 
 /// Key for person cache lookups: (team_id, person_id).
@@ -117,6 +118,7 @@ impl EventListener for CacheEventMetrics {
 /// by switching to `HybridCache`.
 pub struct PersonCache {
     inner: Cache<PersonCacheKey, StoredPerson>,
+    codec: Arc<PropertiesCodec>,
 }
 
 impl PersonCache {
@@ -124,36 +126,58 @@ impl PersonCache {
     /// (see `StoredPerson::weight`), not their count — person documents
     /// vary by orders of magnitude and grow in place across writes, so
     /// an entry-count bound cannot bound memory.
-    pub fn new(capacity_bytes: usize) -> Self {
+    pub(super) fn new(capacity_bytes: usize, codec: Arc<PropertiesCodec>) -> Self {
         let cache = CacheBuilder::new(capacity_bytes)
             .with_weighter(|_key: &PersonCacheKey, value: &StoredPerson| value.weight())
             .with_event_listener(Arc::new(CacheEventMetrics))
             .build();
-        Self { inner: cache }
+        Self {
+            inner: cache,
+            codec,
+        }
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        match self.inner.get(key) {
-            Some(entry) => {
-                counter!("personhog_leader_cache_hits_total").increment(1);
-                Some(entry.value().to_cached())
-            }
-            None => {
-                counter!("personhog_leader_cache_misses_total").increment(1);
-                None
-            }
+        let person = self.peek(key);
+        match person {
+            Some(_) => counter!("personhog_leader_cache_hits_total").increment(1),
+            None => counter!("personhog_leader_cache_misses_total").increment(1),
         }
+        person
     }
 
     /// A read that skips the hit/miss counters — for bookkeeping passes
     /// (the death-document settle), not serving. It still promotes the
     /// entry's recency, which is harmless for those passes.
     pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
-        self.inner.get(key).map(|entry| entry.value().to_cached())
+        let entry = self.inner.get(key)?;
+        match entry.value().to_cached(&self.codec) {
+            Ok(person) => Some(person),
+            Err(reason) => {
+                // The miss path recovers the person from the changelog or
+                // Postgres, so dropping the entry is safe where failing the
+                // read is not.
+                counter!("personhog_leader_cache_decode_failures_total").increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    reason,
+                    "dropping cache entry whose properties failed to decode"
+                );
+                self.inner.remove(key);
+                None
+            }
+        }
     }
 
     pub fn put(&self, key: PersonCacheKey, person: CachedPerson) {
-        self.inner.insert(key, StoredPerson::new(person));
+        let stored = StoredPerson::new(person, &self.codec);
+        let properties = stored.properties();
+        counter!("personhog_leader_cache_properties_put_bytes_total", "form" => "raw")
+            .increment(properties.raw_len() as u64);
+        counter!("personhog_leader_cache_properties_put_bytes_total", "form" => "stored")
+            .increment(properties.stored_len() as u64);
+        self.inner.insert(key, stored);
     }
 
     pub fn remove(&self, key: &PersonCacheKey) {
@@ -221,7 +245,7 @@ mod tests {
         // 64 KiB capacity → ~8 KiB per shard; ~2 KiB entries fit a
         // shard several times over, and 128 of them (~224 KiB) overrun
         // the total capacity by more than 3x.
-        let cache = PersonCache::new(64 * 1024);
+        let cache = PersonCache::new(64 * 1024, Arc::new(PropertiesCodec::disabled()));
         let blob = "x".repeat(1536);
         for person_id in 0..128 {
             let mut person = test_person();
@@ -259,7 +283,7 @@ mod tests {
 
     #[test]
     fn cache_put_get_roundtrip() {
-        let cache = PersonCache::new(1 << 20);
+        let cache = PersonCache::new(1 << 20, Arc::new(PropertiesCodec::disabled()));
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,
@@ -281,7 +305,7 @@ mod tests {
 
     #[test]
     fn cache_remove() {
-        let cache = PersonCache::new(1 << 20);
+        let cache = PersonCache::new(1 << 20, Arc::new(PropertiesCodec::disabled()));
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,
@@ -296,7 +320,7 @@ mod tests {
 
     #[test]
     fn cache_overwrite() {
-        let cache = PersonCache::new(1 << 20);
+        let cache = PersonCache::new(1 << 20, Arc::new(PropertiesCodec::disabled()));
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,
