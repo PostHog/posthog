@@ -704,7 +704,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 priorityFilter.length > 0 ||
                 activeCreatedWindow !== null,
         ],
-        // The server narrows such a list to reports that name the user as a reviewer.
         isScopedToMe: [
             (s) => [s.scope, s.user],
             (scope: InboxScope, user: UserType | null): boolean =>

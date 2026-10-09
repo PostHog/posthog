@@ -77,7 +77,6 @@ describe('InboxBulkSelectionBar', () => {
 
     it.each([
         { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: ['b', 'c'], unassigned: ['b'] },
-        // A For you list only holds reports that name you, so a report without the flag counts too.
         { scope: INBOX_SCOPE_FOR_YOU, sent: ['a', 'b', 'c'], unassigned: ['a', 'b'] },
     ])('under $scope unassigns $sent and drops only the ones that succeeded', async ({ scope, sent, unassigned }) => {
         const deleted: string[] = []

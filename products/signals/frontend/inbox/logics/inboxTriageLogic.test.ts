@@ -116,7 +116,6 @@ describe('inboxTriageLogic', () => {
         { scope: INBOX_SCOPE_FOR_YOU, mine: true, expectedId: 'r-3', stillQueued: false, unassigned: ['r-2'] },
         { scope: INBOX_SCOPE_ENTIRE_PROJECT, mine: true, expectedId: 'r-3', stillQueued: true, unassigned: ['r-2'] },
         { scope: INBOX_SCOPE_ENTIRE_PROJECT, mine: false, expectedId: 'r-2', stillQueued: true, unassigned: [] },
-        // The server clears the flag on failed reports, but a For you list only holds reports that name you.
         { scope: INBOX_SCOPE_FOR_YOU, mine: false, expectedId: 'r-3', stillQueued: false, unassigned: ['r-2'] },
     ])(
         'unassigning me under $scope (reviewer: $mine) lands on $expectedId',
