@@ -35,7 +35,6 @@ def _signals(
     return StripeSignals(
         posthog_organization_id=org_id,
         billing_customer_id="bc-1",
-        billing_customer_name="Acme Inc",
         stripe_customer_id=stripe_id,
         address_line_1=line1,
         address_line_2=line2,
@@ -44,6 +43,21 @@ def _signals(
         address_postal_code="94107",
         address_country="US",
         last_changed_at=last_changed_at or dt.datetime(2026, 4, 10, 12, 0, tzinfo=dt.UTC),
+    )
+
+
+def _signals_with_no_stripe_data(org_id: str = "org-1") -> StripeSignals:
+    return StripeSignals(
+        posthog_organization_id=org_id,
+        billing_customer_id="bc-1",
+        stripe_customer_id=None,
+        address_line_1=None,
+        address_line_2=None,
+        address_city=None,
+        address_state=None,
+        address_postal_code=None,
+        address_country=None,
+        last_changed_at=dt.datetime(2026, 4, 10, tzinfo=dt.UTC),
     )
 
 
@@ -68,30 +82,18 @@ class TestPrepareStripeUpdateRecord(SimpleTestCase):
     def test_full_record(self):
         record = prepare_stripe_update_record("001ABC", _signals(line2="Suite 200"))
 
-        assert record["Id"] == "001ABC"
-        assert record["Name"] == "Acme Inc"
-        assert record["Stripe_id__c"] == "cus_1"
-        assert record["BillingStreet"] == "1 Main St\nSuite 200"
-        assert record["BillingCity"] == "SF"
-        assert record["BillingState"] == "CA"
-        assert record["BillingPostalCode"] == "94107"
-        assert record["BillingCountry"] == "US"
+        assert record == {
+            "Id": "001ABC",
+            "Stripe_id__c": "cus_1",
+            "BillingStreet": "1 Main St\nSuite 200",
+            "BillingCity": "SF",
+            "BillingState": "CA",
+            "BillingPostalCode": "94107",
+            "BillingCountry": "US",
+        }
 
     def test_none_values_omitted(self):
-        signals = StripeSignals(
-            posthog_organization_id="org-1",
-            billing_customer_id="bc-1",
-            billing_customer_name=None,
-            stripe_customer_id=None,
-            address_line_1=None,
-            address_line_2=None,
-            address_city=None,
-            address_state=None,
-            address_postal_code=None,
-            address_country=None,
-            last_changed_at=dt.datetime(2026, 4, 10, tzinfo=dt.UTC),
-        )
-        record = prepare_stripe_update_record("001ABC", signals)
+        record = prepare_stripe_update_record("001ABC", _signals_with_no_stripe_data())
 
         assert record == {"Id": "001ABC"}
 
@@ -178,40 +180,73 @@ class TestEnrichStripePageActivity(SimpleTestCase):
         mock_bulk.assert_called_once()
         sent_records = mock_bulk.call_args[0][1]
         assert len(sent_records) == 2
-        assert sent_records[0]["Name"] == "Acme Inc"
+        assert sent_records[0]["Stripe_id__c"] == "cus_1"
 
+    @parameterized.expand(
+        [
+            (
+                "no_matching_account",
+                [_signals(org_id="org-1"), _signals(org_id="org-missing")],
+                {"org-1": "001ABC"},
+                ["001ABC"],
+                1,
+            ),
+            (
+                "no_stripe_data",
+                [_signals(org_id="org-1"), _signals_with_no_stripe_data(org_id="org-2")],
+                {"org-1": "001ABC", "org-2": "001DEF"},
+                ["001ABC"],
+                0,
+            ),
+            (
+                "whole_page_without_stripe_data",
+                [_signals_with_no_stripe_data(org_id="org-1"), _signals_with_no_stripe_data(org_id="org-2")],
+                {"org-1": "001ABC", "org-2": "001DEF"},
+                [],
+                0,
+            ),
+        ]
+    )
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=1, failed=0))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_skips_rows_with_no_matching_sfdc_account(
+    async def test_skips_rows_it_cannot_update(
         self,
+        _name,
+        signals_rows,
+        account_ids_by_org,
+        expected_sent_ids,
+        expected_skipped_no_account,
         _mock_close,
         mock_fetch,
         mock_sf_client,
         mock_bulk,
         _mock_heartbeat,
     ):
-        mock_fetch.return_value = [
-            _signals(org_id="org-1"),
-            _signals(org_id="org-missing"),
-        ]
+        mock_fetch.return_value = signals_rows
+        mock_bulk.return_value = BulkUpdateResult(succeeded=len(expected_sent_ids), failed=0)
 
         mock_sf = MagicMock()
-        mock_sf.query_all.return_value = {"records": [{"Id": "001ABC", "Posthog_Org_ID__c": "org-1"}]}
+        mock_sf.query_all.return_value = {
+            "records": [
+                {"Id": account_id, "Posthog_Org_ID__c": org_id} for org_id, account_id in account_ids_by_org.items()
+            ]
+        }
         mock_sf_client.return_value = mock_sf
 
         with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
             result = await enrich_stripe_page_activity(EnrichStripePageInputs(page_size=5000))
 
+        sent_ids = [record["Id"] for call in mock_bulk.call_args_list for record in call[0][1]]
+        assert sent_ids == expected_sent_ids
         assert result.rows_fetched == 2
-        assert result.updated == 1
-        assert result.skipped_no_account == 1
-        sent_records = mock_bulk.call_args[0][1]
-        assert len(sent_records) == 1
-        assert sent_records[0]["Id"] == "001ABC"
+        assert result.updated == len(expected_sent_ids)
+        assert result.skipped_no_account == expected_skipped_no_account
+        assert result.errors == []
+        assert result.next_cursor_org_id == signals_rows[-1].posthog_organization_id
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")

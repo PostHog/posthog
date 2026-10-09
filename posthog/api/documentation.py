@@ -1,10 +1,12 @@
 import os
 import re
+import copy
 from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
+from drf_spectacular.contrib.rest_framework_dataclasses import OpenApiDataclassSerializerExtensions
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
@@ -19,7 +21,9 @@ from drf_spectacular.utils import (
 )  # # noqa: F401 for easy import
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
+from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 
+from posthog.enums import LabeledEnumType
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
@@ -180,6 +184,37 @@ class ValueField(serializers.Field):
 
     def to_internal_value(self, data):
         return data
+
+
+def _use_class_labels(field: serializers.Field) -> None:
+    child = getattr(field, "child", None)
+    if isinstance(child, serializers.Field):
+        _use_class_labels(child)
+    if not isinstance(field, DataclassEnumField) or field.by_name:
+        return
+    enum_class = field.enum_class
+    if not (isinstance(enum_class, LabeledEnumType) or issubclass(enum_class, models.Choices)):
+        return
+    # Leave choices that a declared field or extra_kwargs set on purpose.
+    library_default = {field.to_representation(member): member.name for member in enum_class}
+    if dict(field.choices) == library_default:
+        field.choices = enum_class.choices
+
+
+# rest_framework_dataclasses labels enum choices with member names, which no class carries, so
+# posthog/openapi/enum_names.py cannot name those enums after their class. This fixes the schema only.
+class LabeledEnumDataclassSerializerExtension(OpenApiDataclassSerializerExtensions):
+    priority = 1
+
+    def map_serializer(self, auto_schema: AutoSchema, direction: Any) -> dict[str, Any]:
+        # drf-spectacular reuses instances passed to extend_schema, so map a copy. A shallow copy keeps
+        # partial=True on PATCH bodies, and dropping the cached fields gives the copy fresh ones.
+        serializer = copy.copy(self.target)
+        serializer.__dict__.pop("fields", None)
+        for field in serializer.fields.values():
+            _use_class_labels(field)
+        schema = auto_schema._map_serializer(serializer, direction, bypass_extensions=True)
+        return self.strip_library_doc(schema)
 
 
 class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
