@@ -757,8 +757,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lemlist/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lemon_squeezy/lemon_squeezy.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lemon_squeezy/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/less_annoying_crm/less_annoying_crm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/less_annoying_crm/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lever/lever.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lever/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lightdash/settings.py
