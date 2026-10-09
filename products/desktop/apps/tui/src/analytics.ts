@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { PostHog } from "posthog-node";
 import pkg from "../package.json" with { type: "json" };
 
@@ -7,7 +6,6 @@ import pkg from "../package.json" with { type: "json" };
 const HOST = "https://internal-c.posthog.com";
 const ANONYMOUS = "anonymous-tui";
 // The desktop app's key is baked into its build; the TUI reads the same `.env` when the shell has not set one.
-const DESKTOP_ENV = new URL("../../../../.env", import.meta.url);
 
 export interface AnalyticsClient {
   capture(message: {
@@ -39,17 +37,10 @@ function uuidv7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+// The build bakes the key in from the desktop workspace's .env, and a run can set it; tests must never reach the real project.
 function apiKey(): string | undefined {
-  if (process.env.VITE_POSTHOG_API_KEY) return process.env.VITE_POSTHOG_API_KEY;
-  // Tests must never reach the real project.
   if (process.env.VITEST) return undefined;
-  try {
-    return readFileSync(DESKTOP_ENV, "utf8").match(
-      /^VITE_POSTHOG_API_KEY=(\S+)/m,
-    )?.[1];
-  } catch {
-    return undefined;
-  }
+  return process.env.VITE_POSTHOG_API_KEY || undefined;
 }
 
 // Properties every event and exception carries, so a failure's trail can be read back per session.

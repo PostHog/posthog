@@ -20,6 +20,7 @@ A chat runs pi, or Claude Code on the user's own Claude plan, here or in the clo
 
 - `pnpm dev` (from this folder) starts the app through Vite, so edits hot-reload into the running screen.
 - `pnpm build` bundles the app into `dist/` with esbuild (pi stays a dependency on disk, since it reads its themes beside its own modules), and `pnpm start` runs that build: no Vite, no hot reload, half the startup time. `files` in `package.json` is what npm publishes.
+- Install: `npm i -g @posthog/tui` (Node 22.19+; `claude` on PATH for local Claude Code chats), or `posthog-cli code` from the Rust CLI, which runs the latest package through `npx`. A merge to master touching this folder tags `tui-vX.Y.<n>` (`desktop-tui-tag.yml`, patch = commits since the base `tui-vX.Y` tag) and `desktop-tui-release.yml` builds the agent workspace, builds and tests the TUI, smokes the packed tarball in a temp prefix with `posthog-tui --version`, and publishes with provenance. `--version` is answered by the launcher before the app loads.
 - Tests: `../../node_modules/.bin/vitest run` or `hogli test products/desktop/apps/tui`. Typecheck: `../../node_modules/.bin/tsc --noEmit -p .`.
 - `@posthog/agent` and `@posthog/harness` resolve to their `dist/`. After changing them, rebuild with `pnpm --filter <package> build` (harness types: `pnpm build:types`).
 
