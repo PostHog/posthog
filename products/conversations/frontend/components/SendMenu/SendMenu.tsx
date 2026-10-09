@@ -136,7 +136,7 @@ export function SendMenu({
                 },
             ]}
         >
-            <LemonButton type="primary" loading={loading} disabledReason={disabledReason}>
+            <LemonButton type="primary" loading={loading} disabledReason={disabledReason} data-attr="send-menu-trigger">
                 {children}
             </LemonButton>
         </LemonMenu>

@@ -164,7 +164,7 @@ describe('MessageInput', () => {
         it('sends nothing until a row is picked, then sends with that status', async () => {
             const onSendMessage = renderSimplified()
 
-            await userEvent.click(screen.getByRole('button', { name: /^Send/ }))
+            await userEvent.click(screen.getByTestId('send-menu-trigger'))
             expect(onSendMessage).not.toHaveBeenCalled()
             expect(await screen.findByText('This will send to the linked Slack thread')).toBeInTheDocument()
 
