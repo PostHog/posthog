@@ -495,8 +495,8 @@ SQL
     }
   }
 
-  # Post read-cutover: the main-cluster reader lives under the legacy alias;
-  # the app-facing `log_entries` (aux reader) comes from roles/coshared/log_entries_aux.
+  # Main-cluster reader over sharded_log_entries, kept as the rollback target for log_entries
+  # reads. The app-facing `log_entries` aux reader comes from roles/coshared/log_entries_aux.
   table "log_entries_distributed" {
     column "team_id" {
       type = "UInt64"

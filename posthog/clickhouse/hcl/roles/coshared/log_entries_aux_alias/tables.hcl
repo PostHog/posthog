@@ -1,6 +1,6 @@
-# Legacy-named alias of the aux log_entries reader, kept from the dual-write era
-# so older references and pushed-down queries resolve on the aux cluster. Not
-# composed on local-single, where the combined node carries the data-role naming.
+# A second name for the aux log_entries reader on the aux nodes, so queries that name
+# log_entries_distributed resolve there. Not composed on local-single, because the
+# combined node carries the data-role log_entries_distributed (the main-cluster reader).
 database "posthog" {
   table "log_entries_distributed" {
     extend = "_log_entries_aux_columns"
