@@ -29,6 +29,7 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
+import { MESSAGE_KEYS } from './log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
 import {
@@ -44,6 +45,7 @@ import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
@@ -69,6 +71,8 @@ export interface LogsIngestionConsumerDeps {
     logsTransformer?: LogsTransformerService
     /** When set, enabled teams stamp per-row retention from retention rules before produce. */
     retentionRulesCache?: RetentionRulesCache
+    /** When set, pattern masking reads each team's message keys instead of the defaults. */
+    patternMessageKeysCache?: PatternMessageKeysCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -374,7 +378,6 @@ export class LogsIngestionConsumer {
     private readonly patternMaskingEnabledTeamsRaw: string
     private readonly jsonAttributeParsingEnabledTeamsRaw: string
     private readonly jsonAttributeExtractionEnabledTeamsRaw: string
-    private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
     protected topic: string
@@ -427,7 +430,6 @@ export class LogsIngestionConsumer {
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
         this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
         this.jsonAttributeExtractionEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS
-        this.patternMaskingStage = makePatternMaskingStage()
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -571,7 +573,11 @@ export class LogsIngestionConsumer {
             if (modeWithoutMasking !== 'decode_and_reencode') {
                 logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
             }
-            stages.push(this.patternMaskingStage)
+            const keysCache = this.deps.patternMessageKeysCache
+            const messageKeys = keysCache
+                ? await this.retryOnDependencyUnavailable(() => keysCache.getMessageKeys(message.teamId))
+                : MESSAGE_KEYS
+            stages.push(makePatternMaskingStage(messageKeys))
         }
 
         trace.getActiveSpan()?.setAttributes({
