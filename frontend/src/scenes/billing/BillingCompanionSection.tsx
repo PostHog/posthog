@@ -4,6 +4,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -25,6 +26,8 @@ export const BillingCompanionSection = ({ product }: { product: BillingProductV2
     if (isUnlicensedDebug || noLimitCompanionAmounts.length === 0) {
         return null
     }
+
+    const periodLabel = `${billing?.billing_period?.interval || 'month'}-to-date`
 
     return (
         <div className="border-t border-primary px-8 py-4" data-attr={`billing-companions-${product.type}`}>
@@ -52,7 +55,7 @@ export const BillingCompanionSection = ({ product }: { product: BillingProductV2
                                     <span className="font-bold text-lg leading-5">
                                         {humanFriendlyCurrency(currentAmount)}
                                     </span>
-                                    <span className="text-xs text-secondary">Month-to-date</span>
+                                    <span className="text-xs text-secondary">{capitalizeFirstLetter(periodLabel)}</span>
                                 </div>
                                 <div className="flex flex-col items-end">
                                     <span className="text-secondary text-lg leading-5">
@@ -75,8 +78,11 @@ export const BillingCompanionSection = ({ product }: { product: BillingProductV2
             </div>
             {product.subscribed && (
                 <p className="text-sm mt-4 mb-0" data-attr={`billing-companions-total-${product.type}`}>
-                    Total including this section: {humanFriendlyCurrency(totalsIncludingCompanions.currentTotal)}{' '}
-                    month-to-date, {humanFriendlyCurrency(totalsIncludingCompanions.projectedTotal)} projected
+                    <span>Total including this section:&nbsp;</span>
+                    <span translate="no">{humanFriendlyCurrency(totalsIncludingCompanions.currentTotal)}</span>
+                    <span>{`\u00a0${periodLabel},\u00a0`}</span>
+                    <span translate="no">{humanFriendlyCurrency(totalsIncludingCompanions.projectedTotal)}</span>
+                    <span>&nbsp;projected</span>
                 </p>
             )}
         </div>

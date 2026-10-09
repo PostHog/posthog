@@ -86,12 +86,13 @@ describe('BillingCompanionSection', () => {
         expect(row).toHaveTextContent('Custom retention')
         expect(row).toHaveTextContent('$12.50Month-to-date')
         expect(row).toHaveTextContent('$30.25Projected')
-        expect(screen.getByTestId('billing-companions-total-logs')).toHaveTextContent(
-            'Total including this section: $112.50 month-to-date, $230.25 projected'
-        )
+        const total = screen.getByTestId('billing-companions-total-logs')
+        expect(total).toHaveTextContent('Total including this section: $112.50 month-to-date, $230.25 projected')
+        expect(within(total).getByText('$112.50')).toHaveAttribute('translate', 'no')
+        expect(within(total).getByText('$230.25')).toHaveAttribute('translate', 'no')
 
-        await userEvent.click(screen.getByRole('button', { name: 'Show Custom retention details' }))
-        expect(screen.getByRole('button', { name: 'Hide Custom retention details' })).toBeInTheDocument()
+        await userEvent.click(screen.getByLabelText('Show Custom retention details'))
+        expect(screen.getByLabelText('Hide Custom retention details')).toBeInTheDocument()
         expect(row.querySelector('.LemonTable')).toBeInTheDocument()
     })
 
@@ -143,37 +144,40 @@ describe('BillingCompanionSection', () => {
             name: 'the parent is not subscribed and the companion is stale',
             parent: { ...logs, subscribed: false },
             companion: customRetention({ subscribed: false }),
-            interval: 'month' as const,
-            showsTotal: false,
+            billingPeriod: { ...billingJson.billing_period!, interval: 'month' as const },
+            rowLabel: '$12.50Month-to-date',
+            totals: [],
         },
         {
             name: 'the plan bills yearly',
             parent: logs,
             companion: customRetention(),
-            interval: 'year' as const,
-            showsTotal: true,
+            billingPeriod: { ...billingJson.billing_period!, interval: 'year' as const },
+            rowLabel: '$12.50Year-to-date',
+            totals: ['Total including this section: $112.50 year-to-date, $230.25 projected'],
         },
         {
             name: 'the parent has no billing limit',
             parent: { ...logs, no_billing_limit: true },
             companion: customRetention(),
-            interval: 'month' as const,
-            showsTotal: true,
+            billingPeriod: { ...billingJson.billing_period!, interval: 'month' as const },
+            rowLabel: '$12.50Month-to-date',
+            totals: ['Total including this section: $112.50 month-to-date, $230.25 projected'],
         },
     ])(
-        'keeps the rows but drops the limit sentence when $name',
-        async ({ parent, companion, interval, showsTotal }) => {
-            await seedBilling([parent, companion], {
-                billing_period: { ...billingJson.billing_period!, interval },
-            })
+        'keeps the rows for the billing interval but drops the limit sentence when $name',
+        async ({ parent, companion, billingPeriod, rowLabel, totals }) => {
+            await seedBilling([parent, companion], { billing_period: billingPeriod })
             renderSection(parent)
 
             expect(screen.getByText('Not covered by your billing limit')).toBeInTheDocument()
-            expect(screen.getByTestId('billing-companion-logs_retention_custom')).toHaveTextContent(
-                '$12.50Month-to-date'
-            )
+            expect(screen.getByTestId('billing-companion-logs_retention_custom')).toHaveTextContent(rowLabel)
             expect(screen.queryByText(/billing limit does not cap these charges/)).not.toBeInTheDocument()
-            expect(!!screen.queryByTestId('billing-companions-total-logs')).toBe(showsTotal)
+            expect(
+                screen
+                    .queryAllByTestId('billing-companions-total-logs')
+                    .map((total) => total.textContent?.replace(/\s+/g, ' '))
+            ).toEqual(totals)
         }
     )
 
@@ -223,40 +227,32 @@ describe('BillingCompanionSection', () => {
         expect(screen.getByTestId('billing-product-logs')).toContainElement(section)
         expect(limit.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
-})
 
-describe('a companion outside its parent card', () => {
-    beforeEach(() => {
-        initKeaTests()
-    })
+    describe('a companion outside its parent card', () => {
+        it('never gets its own product card, even when it is not inclusion-only', async () => {
+            await seedBilling([logs, { ...customRetention(), inclusion_only: false }])
+            render(
+                <Provider>
+                    <Billing />
+                </Provider>
+            )
 
-    afterEach(() => {
-        cleanup()
-    })
+            expect(await screen.findByTestId('billing-product-logs')).toBeInTheDocument()
+            expect(screen.queryByTestId('billing-product-logs_retention_custom')).not.toBeInTheDocument()
+        })
 
-    it('never gets its own product card, even when it is not inclusion-only', async () => {
-        await seedBilling([logs, { ...customRetention(), inclusion_only: false }])
-        render(
-            <Provider>
-                <Billing />
-            </Provider>
-        )
+        it('is left out of the included platform features in the plan comparison', async () => {
+            const integrations = billingJson.products.find((p) => p.type === 'integrations') as BillingProductV2Type
+            await seedBilling([productAnalytics, integrations, customRetention()], { has_active_subscription: false })
+            render(
+                <Provider>
+                    <PlanComparison product={productAnalytics} />
+                </Provider>
+            )
 
-        expect(await screen.findByTestId('billing-product-logs')).toBeInTheDocument()
-        expect(screen.queryByTestId('billing-product-logs_retention_custom')).not.toBeInTheDocument()
-    })
-
-    it('is left out of the included platform features in the plan comparison', async () => {
-        const integrations = billingJson.products.find((p) => p.type === 'integrations') as BillingProductV2Type
-        await seedBilling([productAnalytics, integrations, customRetention()], { has_active_subscription: false })
-        render(
-            <Provider>
-                <PlanComparison product={productAnalytics} />
-            </Provider>
-        )
-
-        expect(screen.getByText('Included platform features:')).toBeInTheDocument()
-        expect(screen.getByText('Integrations')).toBeInTheDocument()
-        expect(screen.queryByText('Logs custom retention')).not.toBeInTheDocument()
+            expect(screen.getByText('Included platform features:')).toBeInTheDocument()
+            expect(screen.getByText('Integrations')).toBeInTheDocument()
+            expect(screen.queryByText('Logs custom retention')).not.toBeInTheDocument()
+        })
     })
 })
