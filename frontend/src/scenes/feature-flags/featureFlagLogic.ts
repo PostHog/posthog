@@ -399,6 +399,15 @@ export type VariantError = {
     key: string | undefined
 }
 
+/** Another flag in the project that uses the key typed in the form. */
+export interface FeatureFlagKeyConflict {
+    key: string
+    existingFlagId: number
+    existingFlagKey: string
+    /** False when the keys differ only by letter case. The backend rejects only exact matches. */
+    exact: boolean
+}
+
 export interface DependentFlag {
     id: number
     key: string
@@ -964,6 +973,7 @@ export interface featureFlagLogicValues {
     copySchedule: boolean
     cronExpression: string | null
     cronPreview: string | null
+    currentKeyConflict: FeatureFlagKeyConflict | null
     customPairDisableCron: string
     customPairDisableCronPreview: string | null
     customPairEnableCron: string
@@ -1101,6 +1111,8 @@ export interface featureFlagLogicValues {
     isFeatureFlagValid: boolean
     isFormDirty: boolean
     isRecurring: boolean
+    keyConflict: FeatureFlagKeyConflict | null
+    keyConflictLoading: boolean
     multivariateEnabled: boolean
     newCohort: CohortType | null
     newCohortLoading: boolean
@@ -1195,6 +1207,31 @@ export interface featureFlagLogicActions {
     }
     applyUrlTemplate: (templateId: string) => {
         templateId: string
+    }
+    checkKeyConflict: (key: string) => string
+    checkKeyConflictFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    checkKeyConflictSuccess: (
+        keyConflict: {
+            exact: boolean
+            existingFlagId: number
+            existingFlagKey: string
+            key: string
+        } | null,
+        payload?: string
+    ) => {
+        keyConflict: {
+            exact: boolean
+            existingFlagId: number
+            existingFlagKey: string
+            key: string
+        } | null
+        payload?: string
     }
     copyFlag: () => any
     copyFlagFailure: (
@@ -2193,6 +2230,10 @@ export interface featureFlagLogicMeta {
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
+        currentKeyConflict: (
+            keyConflict: FeatureFlagKeyConflict | null,
+            featureFlag: FeatureFlagType
+        ) => FeatureFlagKeyConflict | null
         hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
         tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
         advancedPanelOpen: (
@@ -3713,6 +3754,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return null
             },
         },
+        keyConflict: [
+            null as FeatureFlagKeyConflict | null,
+            {
+                checkKeyConflict: async (key: string, breakpoint) => {
+                    await breakpoint(300)
+                    const { currentProjectId, featureFlag, originalFeatureFlag } = values
+                    if (
+                        !currentProjectId ||
+                        validateFeatureFlagKey(key) ||
+                        (featureFlag.id && key === originalFeatureFlag?.key)
+                    ) {
+                        return null
+                    }
+                    // A failed lookup must not block the form. The save-time check stays as the fallback.
+                    const response = await featureFlagsList(String(currentProjectId), { key }).catch(() => null)
+                    breakpoint()
+                    // The list filter is case-insensitive, so it also returns keys that differ only by case.
+                    const others = (response?.results ?? []).filter((flag) => flag.id !== featureFlag.id)
+                    const match =
+                        others.find((flag) => flag.key === key) ??
+                        others.find((flag) => flag.key.toLowerCase() === key.toLowerCase())
+                    return match
+                        ? { key, existingFlagId: match.id, existingFlagKey: match.key, exact: match.key === key }
+                        : null
+                },
+            },
+        ],
         dependentFlags: [
             [] as DependentFlag[],
             {
@@ -3746,6 +3814,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     }),
     listeners(({ actions, values, props, sharedListeners, cache }) => ({
+        setFeatureFlagValue: ({ name, value }) => {
+            // The form `Field` dispatches the name as a path array (`['key']`), while direct calls pass a string.
+            const field = Array.isArray(name) ? name.join('.') : name
+            if (field === 'key') {
+                actions.checkKeyConflict(value)
+            }
+        },
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
             const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
 
@@ -4956,6 +5031,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                 return getRecordingFilterForFlagVariant(flagKey, null, featureFlag.has_enriched_analytics)
             },
+        ],
+        currentKeyConflict: [
+            (s) => [s.keyConflict, s.featureFlag],
+            (keyConflict: FeatureFlagKeyConflict | null, featureFlag: FeatureFlagType): FeatureFlagKeyConflict | null =>
+                keyConflict && keyConflict.key === featureFlag.key ? keyConflict : null,
         ],
         hasEarlyAccessFeatures: [
             (s) => [s.featureFlag],
