@@ -11,7 +11,8 @@ import { initKeaTests } from '~/test/init'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
-import { SignalReport, SignalReportStatus } from '../types'
+import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
+import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { inboxTriageLogic } from './inboxTriageLogic'
 
 jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
@@ -79,7 +80,11 @@ describe('inboxTriageLogic', () => {
         })
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        // The list scope persists to localStorage, so a test that changes it would leak into the next.
+        localStorage.clear()
+    })
 
     async function mountAt(searchParams: Record<string, unknown>): Promise<void> {
         router.actions.push(urls.inboxTriage(), searchParams)
@@ -105,6 +110,37 @@ describe('inboxTriageLogic', () => {
         expect(openResolveReportDialog).toHaveBeenCalledWith(expect.objectContaining({ hasOpenPr: true }))
         expect(openDismissReportDialog).toHaveBeenCalledWith(expect.objectContaining({ hasOpenPr: true }))
     })
+
+    it.each([
+        { scope: INBOX_SCOPE_FOR_YOU, mine: true, expectedId: 'r-3', stillQueued: false, unassigned: ['r-2'] },
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, mine: true, expectedId: 'r-3', stillQueued: true, unassigned: ['r-2'] },
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, mine: false, expectedId: 'r-2', stillQueued: true, unassigned: [] },
+    ])(
+        'unassigning me under $scope (reviewer: $mine) lands on $expectedId',
+        async ({ scope, mine, expectedId, stillQueued, unassigned }) => {
+            const reports = FIRST_PAGE.slice(0, 5).map((r) => ({ ...r, is_suggested_reviewer: mine }))
+            const deleted: string[] = []
+            useMocks({
+                get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+                delete: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/me/': ({ params }) => {
+                        deleted.push(String(params.id))
+                        return [204, null]
+                    },
+                },
+            })
+            await mountAt({ report: 'r-2', at: 2 })
+            inboxFiltersLogic.actions.setScope(scope)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.unassignCurrent()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.currentReport?.id).toBe(expectedId)
+            expect(logic.values.reports.some((r) => r.id === 'r-2')).toBe(stillQueued)
+            expect(deleted).toEqual(unassigned)
+        }
+    )
 
     it.each([
         {

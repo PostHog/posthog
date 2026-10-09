@@ -8,8 +8,10 @@ import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
 import { HotkeyInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
+import { isMac } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
@@ -28,13 +30,20 @@ import { ConventionalCommitScopeTag, InboxCardSourceMeta } from '../cards/Report
  * on `window`, and a modal's buttons are not inputs, so without this pressing the archive key on the
  * archive dialog's own button would stack a second dialog.
  */
-function outsideDialogs(action: () => void): HotkeyInterface['action'] {
+function outsideDialogs(action: (event: KeyboardEvent) => void): HotkeyInterface['action'] {
     return (event) => {
         if ((event.target as Element | null)?.closest?.('.LemonModal')) {
             return
         }
-        action()
+        action(event)
     }
+}
+
+const IS_MAC = isMac()
+const COMMAND_KEY = IS_MAC ? 'Meta' : 'Control'
+
+function isCommandKeyDown(event: KeyboardEvent): boolean {
+    return IS_MAC ? event.metaKey : event.ctrlKey
 }
 
 export type TriageEnterIntent = 'passthrough' | 'open' | 'toggle'
@@ -94,10 +103,46 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
     )
 }
 
+/**
+ * The footer has no room for another button, so Unassign me takes the Dismiss slot while the command
+ * key is held, and the reader sees what the chord will do before U is pressed. Unassign me has no icon
+ * so that it fits the width Dismiss leaves free: a wider button would wrap the row each time the key
+ * goes down. Its own component, so a key press re-renders this button and not the whole card.
+ */
+function DismissOrUnassignButton(): JSX.Element {
+    const { unassignDisabledReason } = useValues(inboxTriageLogic)
+    const { dismissCurrent, unassignCurrent } = useActions(inboxTriageLogic)
+    const commandKeyHeld = useKeyHeld(COMMAND_KEY)
+
+    return commandKeyHeld ? (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={unassignCurrent}
+            disabledReason={unassignDisabledReason}
+            sideIcon={<KeyboardShortcut command u />}
+            data-attr="inbox-triage-unassign-me"
+        >
+            Unassign me
+        </LemonButton>
+    ) : (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconHide />}
+            onClick={dismissCurrent}
+            sideIcon={<KeyboardShortcut a />}
+            // pinned: data-attr predates the Archive → Dismiss rename; dashboards read it.
+            data-attr="inbox-triage-archive"
+        >
+            Dismiss
+        </LemonButton>
+    )
+}
+
 function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
     const { canCreatePr, isCreatingPr, createPrDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
-    const { dismissCurrent, resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } =
-        useActions(inboxTriageLogic)
+    const { resolveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -198,17 +243,7 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                 >
                     Resolve
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconHide />}
-                    onClick={dismissCurrent}
-                    sideIcon={<KeyboardShortcut a />}
-                    // pinned: data-attr predates the Archive → Dismiss rename; dashboards read it.
-                    data-attr="inbox-triage-archive"
-                >
-                    Dismiss
-                </LemonButton>
+                <DismissOrUnassignButton />
                 {canCreatePr && (
                     <LemonButton
                         type="primary"
@@ -270,6 +305,7 @@ export function InboxTriageView(): JSX.Element {
         setExpanded,
         dismissCurrent,
         resolveCurrent,
+        unassignCurrent,
         createPrForCurrent,
         openCurrent,
         ensureLoaded,
@@ -299,6 +335,17 @@ export function InboxTriageView(): JSX.Element {
             e: { action: outsideDialogs(() => toggleExpanded()) },
             o: { action: outsideDialogs(() => openCurrent()) },
             a: { action: outsideDialogs(() => dismissCurrent()) },
+            u: {
+                action: outsideDialogs((event) => {
+                    if (!isCommandKeyDown(event) || event.shiftKey || event.altKey) {
+                        return
+                    }
+                    // The chord replaces the browser's own ⌘U / Ctrl+U (view page source) in triage.
+                    event.preventDefault()
+                    unassignCurrent()
+                }),
+                willHandleEvent: true,
+            },
             r: { action: outsideDialogs(() => resolveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
             escape: {
@@ -319,6 +366,7 @@ export function InboxTriageView(): JSX.Element {
             setExpanded,
             dismissCurrent,
             resolveCurrent,
+            unassignCurrent,
             createPrForCurrent,
             openCurrent,
         ]

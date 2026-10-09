@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
@@ -68,5 +70,34 @@ describe('InboxBulkSelectionBar', () => {
         fireEvent.click(screen.getByText('Dismiss'))
 
         expect(await screen.findByText(/The pull request opened for this report is closed/)).toBeInTheDocument()
+    })
+
+    it('unassigns you only from your selected reports and drops only the ones that succeeded', async () => {
+        const deleted: string[] = []
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': ({ params }) => {
+                    deleted.push(String(params.id))
+                    return params.id === 'c' ? [500, {}] : [204, null]
+                },
+            },
+        })
+        logic.actions.setSelectedReportIds(['a', 'b', 'c'])
+        render(
+            <InboxBulkSelectionBar
+                reports={[
+                    makeReport('a'),
+                    makeReport('b', { is_suggested_reviewer: true }),
+                    makeReport('c', { is_suggested_reviewer: true }),
+                ]}
+            />
+        )
+
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByText('Unassign me'))
+        })
+            .toDispatchActions([logic.actionCreators.unassignedMe(['b']), 'bulkUnassignMeSuccess'])
+            .toMatchValues({ selectedReportIds: [] })
+        expect(deleted.sort()).toEqual(['b', 'c'])
     })
 })
