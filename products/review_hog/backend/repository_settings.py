@@ -379,6 +379,7 @@ class RepositoryChoices:
         self.user = user
 
     def save(self, ref: RepositoryRef, mode: str) -> tuple[ReviewUserRepositoryChoice | None, AutomaticReviewDecision]:
+        ProjectRepositories(self.team, self.user).integration_for(ref.installation_id)
         owner = RepositoryOwnership.find(ref)
         if owner is None or owner.team_id != self.team.id:
             raise RepositorySettingsError(f"This project does not review {ref.full_name}.")
