@@ -924,6 +924,9 @@ export class PostgresPersonMerge {
         // will not merge a user who's already identified into anyone else.
         const mergeAllowed = this.request.allowIdentifiedSources || !otherPerson.is_identified
         if (!mergeAllowed) {
+            // A replay of a committed createTargetBesideIdentifiedSource lands here, so re-emit
+            // the target's mapping in case the crash came before its produce.
+            const { kafkaAck } = await this.reemitSatisfiedMappings([mergeIntoDistinctId])
             return {
                 survivor: mergeInto,
                 results: [
@@ -933,6 +936,7 @@ export class PostgresPersonMerge {
                         sourcePersonUuid: otherPerson.uuid,
                     },
                 ],
+                kafkaAck,
             }
         }
 
