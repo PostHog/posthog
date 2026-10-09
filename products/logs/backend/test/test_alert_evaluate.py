@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.api import due_checks, list_configu
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    CheckFailure,
     Grouping,
     GroupingMode,
     GroupOutcome,
@@ -350,6 +351,21 @@ class TestLogsAlertEvaluation(APIBaseTest):
             )
             return evaluate_logs_batch(self.team.id, slot_of(configuration.next_check_at, now), now)
 
+    def test_an_open_group_with_a_hashed_key_resolves_only_when_the_query_was_not_cut(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=1)
+        configuration = self._configuration(grouping=grouping.to_stored())
+        long_name = "checkout-" * 40
+        self._record(self._run_grouped(configuration, {long_name: 500}))
+
+        def run_after(counts: dict[str, int]) -> dict[str, AlertEventKind]:
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, self.cutoff - timedelta(minutes=1))
+            (outcome,) = self._run_grouped(configuration, counts).outcomes
+            return {group.labels.get("service_name", group.grouping_key[:7]): group.kind for group in outcome.groups}
+
+        assert run_after({"api": 600, "web": 550}) == {}
+        assert run_after({"api": 600}) == {"sha256:": AlertEventKind.RESOLVED}
+
     def test_a_grouped_alert_fires_per_group_resolves_a_vanished_one_and_reports_overflow(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service_name",), max_instances=2)
         configuration = self._configuration(grouping=grouping.to_stored())
@@ -382,10 +398,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
             ("null_filter_values", {"condition": CONDITION, "filterGroup": {"type": "AND", "values": None}}),
+            ("grouped_by_an_attribute", {"condition": CONDITION}, ("http.route",)),
+            ("grouped_below", {"condition": {**CONDITION, "threshold_operator": "below"}}, ("service_name",)),
         ]
     )
-    def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
-        configuration = self._configuration(source_config=source_config)
+    def test_a_broken_config_stops_being_discovered(
+        self, _name: str, source_config: dict[str, Any], grouping_keys: tuple[str, ...] = ()
+    ) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=grouping_keys) if grouping_keys else Grouping()
+        configuration = self._configuration(source_config=source_config, grouping=grouping.to_stored())
         healthy = self._configuration(name="Healthy")
 
         evaluation, query = self._run(configuration, healthy)
@@ -574,10 +595,18 @@ class TestEvaluationTimeoutLadder(SimpleTestCase):
 
 
 def _outcome(kind: AlertEventKind, *, notified: bool = True) -> PlatformAlertOutcome:
+    # A broken check is a failure, which the platform reports on the outcome with no groups.
+    if kind == AlertEventKind.BROKEN:
+        return PlatformAlertOutcome(
+            configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
+            evaluation_key="slot:x|window:y",
+            consecutive_failures=5,
+            failure=CheckFailure(kind=kind, new_state="broken", notified=notified),
+        )
     return PlatformAlertOutcome(
         configuration_id=UUID("01936a2e-0000-7000-8000-000000000001"),
         evaluation_key="slot:x|window:y",
-        consecutive_failures=5 if kind == AlertEventKind.BROKEN else 0,
+        consecutive_failures=0,
         groups=(
             GroupOutcome(
                 grouping_key="",
