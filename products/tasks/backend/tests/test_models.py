@@ -770,14 +770,18 @@ class TestTask(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
 
+        deferred_run = task.create_run(defer_dispatch=True)
+
         self.assertFalse(task.deleted)
         self.assertIsNone(task.deleted_at)
 
         task.soft_delete()
 
         task.refresh_from_db()
+        deferred_run.refresh_from_db()
         self.assertTrue(task.deleted)
         self.assertIsNotNone(task.deleted_at)
+        self.assertEqual(deferred_run.status, TaskRun.Status.CANCELLED)
 
     def test_unclaimed_prewarm_cleanup_does_not_overwrite_claimed_task(self) -> None:
         task = Task.objects.create(

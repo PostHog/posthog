@@ -4902,13 +4902,16 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("scheduled", {"scheduled_at": django_timezone.now() + timedelta(days=1)}),
+            ("deferred", {"defer_dispatch": True}),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_start_run_endpoint_rejects_scheduled_run(self, mock_workflow):
+    def test_start_run_endpoint_rejects_a_run_another_owner_dispatches(self, _name, run_kwargs, mock_workflow):
         task = self.create_task()
-        task_run = task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            scheduled_at=django_timezone.now() + timedelta(days=1),
-        )
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD, **run_kwargs)
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/")
 

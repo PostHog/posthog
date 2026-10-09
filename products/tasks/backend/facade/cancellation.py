@@ -166,7 +166,7 @@ def cancel_task_run(
         if only_if_awaiting_first_message:
             return "unavailable", tasks_api._task_run_detail_to_dto(run)
 
-    if run.scheduled_at is not None and run.status == TaskRun.Status.NOT_STARTED:
+    if run.dispatch_is_deferred:
         dto = tasks_api.update_task_run(
             run.id,
             task_id,
