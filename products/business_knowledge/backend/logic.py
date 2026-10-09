@@ -2914,6 +2914,7 @@ def list_due_refresh_sources(
 def list_documents_pending_classification(
     *,
     limit: int = PENDING_CLASSIFICATION_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
 ) -> list[PendingDocument]:
     """
     Return documents whose ``safety_verdict`` is still ``unknown``.
@@ -2936,17 +2937,17 @@ def list_documents_pending_classification(
     # into memory per doc at CLASSIFY_MAX_TOTAL_CHARS + 1 — the classifier
     # fails closed on anything longer than the cap, and the +1 lets it detect
     # that the content was truncated here without a second Length() round-trip.
+    pending = KnowledgeDocument.objects.unscoped().filter(
+        safety_verdict=SafetyVerdict.UNKNOWN,
+        tombstoned_at__isnull=True,
+        classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS,
+        team__organization__is_ai_data_processing_approved=True,
+    )
+    # Empty NOT IN is invalid SQL. Skip the clause when this run has tried nothing yet.
+    if exclude_ids:
+        pending = pending.exclude(id__in=exclude_ids)
     rows = (
-        KnowledgeDocument.objects.unscoped()
-        .filter(
-            safety_verdict=SafetyVerdict.UNKNOWN,
-            tombstoned_at__isnull=True,
-            classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS,
-            team__organization__is_ai_data_processing_approved=True,
-        )
-        .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
-        # A chunk that leaves a doc unknown bumps its attempt count. Lowest
-        # count first, or the next chunk selects that same doc again.
+        pending.annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
         .order_by("classification_attempts", "id")
         .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")[:limit]
     )

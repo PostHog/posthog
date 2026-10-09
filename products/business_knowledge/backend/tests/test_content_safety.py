@@ -142,6 +142,8 @@ class TestSafetyFilteringAndClassification(BaseTest):
         _fresh_source, fresh = self._ready_unknown_source("B", "beta content here")
         pending = logic.list_documents_pending_classification(limit=1)
         assert pending[0].document_id == fresh.id
+        excluded = logic.list_documents_pending_classification(limit=1, exclude_ids=[fresh.id])
+        assert excluded[0].document_id == doc.id
 
     def test_pending_classification_skips_docs_past_attempt_cap(self) -> None:
         _source, doc = self._ready_unknown_source("A", "alpha content here")

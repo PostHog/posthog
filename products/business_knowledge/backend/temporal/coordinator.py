@@ -23,8 +23,9 @@ import json
 import asyncio
 import dataclasses
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 import structlog
@@ -58,17 +59,13 @@ logger = structlog.get_logger(__name__)
 # Bounded so a large backlog can't flood the shared worker queue.
 MAX_CONCURRENT_REFRESHES = 25
 
-# One activity holds at most one scan cap of documents. Classification keeps
-# the document text in memory (up to ~1 MB each), so the cap stays the chunk
-# size. A full chunk that made progress means more documents are still queued.
 _CLASSIFY_CHUNK_SIZE = logic.PENDING_CLASSIFICATION_SCAN_CAP
 _EMBED_CHUNK_SIZE = PENDING_EMBEDDING_SCAN_CAP
 _CLASSIFY_DRAIN_MAX_CHUNKS = max(1, MAX_URLS_PER_SOURCE // _CLASSIFY_CHUNK_SIZE)
 _EMBED_DRAIN_MAX_CHUNKS = max(1, MAX_URLS_PER_SOURCE // _EMBED_CHUNK_SIZE)
 
-# A second workflow name, not a patched body. An in-flight run keeps the activity
-# sequence already in its history. A mismatched replay fails the workflow task,
-# and this schedule's stable workflow id plus SKIP overlap then blocks later hours.
+# A new name, because a mismatched replay fails the workflow task and this
+# schedule's stable id plus SKIP overlap then blocks later hours.
 REFRESH_COORDINATOR_WORKFLOW_V2 = "business-knowledge-refresh-coordinator-v2"
 
 
@@ -91,11 +88,21 @@ async def sweep_tombstoned_documents_activity() -> int:
 
 
 @activity.defn
-async def classify_pending_documents_activity() -> dict[str, Any]:
-    """Classify documents whose safety verdict is still unknown."""
-    docs = await database_sync_to_async(logic.list_documents_pending_classification, thread_sensitive=False)()
+async def classify_pending_documents_activity(exclude_ids: list[str] | None = None) -> dict[str, Any]:
+    """Classify documents whose safety verdict is still unknown.
+
+    ``exclude_ids`` are documents this coordinator run already tried. One run
+    must not spend the hourly retry budget on the same page.
+    """
+
+    def _list() -> list[logic.PendingDocument]:
+        parsed = [UUID(value) for value in exclude_ids] if exclude_ids else None
+        return logic.list_documents_pending_classification(exclude_ids=parsed)
+
+    docs = await database_sync_to_async(_list, thread_sensitive=False)()
+    tried_ids = [str(doc.document_id) for doc in docs]
     if not docs:
-        return {"classified": 0, "unsafe": 0, "scanned": 0}
+        return {"classified": 0, "unsafe": 0, "scanned": 0, "tried_ids": tried_ids}
     async with Heartbeater():
         results = await safety.classify_documents(docs)
         for result in results:
@@ -107,7 +114,7 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
                 content_hash=result.content_hash,
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
-    return {"classified": len(results), "unsafe": unsafe, "scanned": len(docs)}
+    return {"classified": len(results), "unsafe": unsafe, "scanned": len(docs), "tried_ids": tried_ids}
 
 
 def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
@@ -486,29 +493,37 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
         return RefreshSourceInputs(**loaded)
 
 
-def _index_chunk_has_more(batch: dict[str, Any], *, chunk_size: int, progress_key: str) -> bool:
-    # A full chunk that made no progress would select the same documents again.
-    scanned = int(batch.get("scanned", 0))
-    progressed = int(batch.get(progress_key, 0))
-    return scanned >= chunk_size and progressed > 0
+_ChunkT = TypeVar("_ChunkT")
 
 
-def _add_index_chunk(totals: dict[str, int], batch: dict[str, Any], keys: tuple[str, ...]) -> None:
-    for key in keys:
-        if key not in batch:
-            continue
-        totals[key] = totals.get(key, 0) + int(batch[key])
+def _embed_chunk_has_more(batch: dict[str, int], *, chunk_size: int) -> bool:
+    scanned = batch["scanned"]
+    return scanned >= chunk_size and batch["documents_embedded"] > 0
+
+
+def _add_counts(totals: dict[str, int], counts: dict[str, int]) -> None:
+    for key, value in counts.items():
+        totals[key] = totals.get(key, 0) + value
 
 
 async def _take_index_chunk(
-    activity_fn: Any,
+    activity_fn: Callable[..., Awaitable[_ChunkT]],
     *,
     start_to_close: timedelta,
     retry: RetryPolicy,
     heartbeat: timedelta | None = None,
-) -> dict[str, Any]:
+    arg: list[str] | None = None,
+) -> _ChunkT:
+    if arg is None:
+        return await workflow.execute_activity(
+            activity_fn,
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
+            retry_policy=retry,
+        )
     return await workflow.execute_activity(
         activity_fn,
+        arg,
         start_to_close_timeout=start_to_close,
         heartbeat_timeout=heartbeat,
         retry_policy=retry,
@@ -522,6 +537,8 @@ async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
     embedded_totals: dict[str, int] = {}
     classify_more = True
     embed_more = True
+    embed_blocked = False
+    tried_ids: list[str] = []
     classify_retry = RetryPolicy(maximum_attempts=2)
     embed_retry = RetryPolicy(maximum_attempts=2)
     for _ in range(max(_CLASSIFY_DRAIN_MAX_CHUNKS, _EMBED_DRAIN_MAX_CHUNKS)):
@@ -532,22 +549,38 @@ async def _drain_index_queues() -> tuple[dict[str, int], dict[str, int]]:
                 start_to_close=timedelta(minutes=30),
                 heartbeat=timedelta(minutes=5),
                 retry=classify_retry,
+                arg=tried_ids,
             )
-            _add_index_chunk(classified_totals, classified, ("classified", "unsafe"))
-            classify_more = _index_chunk_has_more(
-                classified, chunk_size=_CLASSIFY_CHUNK_SIZE, progress_key="classified"
+            _add_counts(
+                classified_totals,
+                {"classified": int(classified["classified"]), "unsafe": int(classified["unsafe"])},
             )
-            classify_scanned = int(classified.get("scanned", 0))
-        if embed_more or classify_scanned > 0:
+            classify_scanned = int(classified["scanned"])
+            classify_more = classify_scanned >= _CLASSIFY_CHUNK_SIZE
+            tried_ids.extend(str(document_id) for document_id in classified["tried_ids"])
+        if not embed_blocked and (embed_more or classify_scanned > 0):
             embedded = await _take_index_chunk(
                 emit_pending_embeddings_activity,
                 start_to_close=timedelta(minutes=10),
                 retry=embed_retry,
             )
-            _add_index_chunk(embedded_totals, embedded, ("documents_embedded", "chunks_emitted"))
-            embed_more = _index_chunk_has_more(
-                embedded, chunk_size=_EMBED_CHUNK_SIZE, progress_key="documents_embedded"
+            embedded_counts = {
+                "documents_embedded": int(embedded["documents_embedded"]),
+                "chunks_emitted": int(embedded["chunks_emitted"]),
+                "scanned": int(embedded["scanned"]),
+            }
+            _add_counts(
+                embedded_totals,
+                {
+                    "documents_embedded": embedded_counts["documents_embedded"],
+                    "chunks_emitted": embedded_counts["chunks_emitted"],
+                },
             )
+            if embedded_counts["scanned"] >= _EMBED_CHUNK_SIZE and embedded_counts["documents_embedded"] == 0:
+                embed_blocked = True
+                embed_more = False
+            else:
+                embed_more = _embed_chunk_has_more(embedded_counts, chunk_size=_EMBED_CHUNK_SIZE)
         if not classify_more and not embed_more:
             break
     return classified_totals, embedded_totals
