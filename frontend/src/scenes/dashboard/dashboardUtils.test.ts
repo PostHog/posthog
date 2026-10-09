@@ -658,76 +658,94 @@ describe('getInsightWithRetry', () => {
         )
     })
 
-    it.each([false, true])('limits async status requests too (expired status: %s)', async (expiredStatus) => {
-        const concurrency = new ConcurrencyController(4)
-        let priority = 0
-        let activePolls = 0
-        let peakPolls = 0
-        let releasePolls!: () => void
-        const pendingPolls = new Promise<void>((resolve) => {
-            releasePolls = resolve
-        })
-        jest.spyOn(api, 'getResponse').mockImplementation(async (url) =>
-            insightResponse({
-                ...insight,
-                result: url.includes('refresh=force_cache') ? [] : null,
-                query_status: url.includes('refresh=force_cache') ? undefined : capacityStatus,
+    it.each([
+        { delayedResponse: 'status', expiredStatus: false },
+        { delayedResponse: 'status', expiredStatus: true },
+        { delayedResponse: 'cache', expiredStatus: false },
+    ])(
+        'limits async $delayedResponse requests (expired status: $expiredStatus)',
+        async ({ delayedResponse, expiredStatus }) => {
+            const concurrency = new ConcurrencyController(4)
+            let priority = 0
+            let activeResponses = 0
+            let peakResponses = 0
+            let releaseResponses!: () => void
+            const pendingResponses = new Promise<void>((resolve) => {
+                releaseResponses = resolve
             })
-        )
-        jest.spyOn(api, 'get').mockImplementation(async (url) => ({
-            ...insight,
-            query_status: {
-                ...capacityStatus,
-                id: new URL(url, 'http://localhost').searchParams.get('client_query_id'),
-                complete: false,
-                error: false,
-            },
-        }))
-        const expiredQueries = new Set<string>()
-        jest.spyOn(api.queryStatus, 'get').mockImplementation(async (queryId) => {
-            if (expiredStatus && !expiredQueries.has(queryId)) {
-                expiredQueries.add(queryId)
-                throw new ApiError('Query not found', 404)
+            const waitForBody = async (): Promise<void> => {
+                activeResponses++
+                peakResponses = Math.max(peakResponses, activeResponses)
+                await pendingResponses
+                activeResponses--
             }
-            activePolls++
-            peakPolls = Math.max(peakPolls, activePolls)
-            await pendingPolls
-            activePolls--
-            return {
-                query_status: { ...capacityStatus, error: false, error_code: null, error_message: null },
-            }
-        })
-
-        const requests = Array.from({ length: 6 }, (_, index) => {
-            const controller = new AbortController()
-            return getInsightWithRetry(
-                1,
-                { ...insight, id: insight.id + index },
-                60,
-                `query-${index}`,
-                'blocking',
-                {
-                    signal: controller.signal,
-                    runRequest: (fn) => concurrency.run({ fn, priority: priority++, abortController: controller }),
+            jest.spyOn(api, 'getResponse').mockImplementation(async (url) => {
+                if (url.includes('refresh=force_cache')) {
+                    return {
+                        json: async () => {
+                            if (delayedResponse === 'cache') {
+                                await waitForBody()
+                            }
+                            return { ...insight, result: [] }
+                        },
+                    } as Response
+                }
+                return insightResponse({ ...insight, result: null, query_status: capacityStatus })
+            })
+            jest.spyOn(api, 'get').mockImplementation(async (url) => ({
+                ...insight,
+                query_status: {
+                    ...capacityStatus,
+                    id: new URL(url, 'http://localhost').searchParams.get('client_query_id'),
+                    complete: false,
+                    error: false,
                 },
-                undefined,
-                undefined,
-                undefined,
-                1,
-                1
-            )
-        })
-        try {
-            await jest.advanceTimersByTimeAsync(1000)
-            expect(activePolls).toBe(4)
-        } finally {
-            releasePolls()
-            await jest.runAllTimersAsync()
-            const results = await Promise.all(requests)
-            expect(results.map((result) => result?.result)).toEqual(Array(6).fill([]))
+            }))
+            const expiredQueries = new Set<string>()
+            jest.spyOn(api.queryStatus, 'get').mockImplementation(async (queryId) => {
+                if (expiredStatus && !expiredQueries.has(queryId)) {
+                    expiredQueries.add(queryId)
+                    throw new ApiError('Query not found', 404)
+                }
+                if (delayedResponse === 'status') {
+                    await waitForBody()
+                }
+                return {
+                    query_status: { ...capacityStatus, error: false, error_code: null, error_message: null },
+                }
+            })
+
+            const requests = Array.from({ length: 6 }, (_, index) => {
+                const controller = new AbortController()
+                return getInsightWithRetry(
+                    1,
+                    { ...insight, id: insight.id + index },
+                    60,
+                    `query-${index}`,
+                    'blocking',
+                    {
+                        signal: controller.signal,
+                        runRequest: (fn) => concurrency.run({ fn, priority: priority++, abortController: controller }),
+                    },
+                    undefined,
+                    undefined,
+                    undefined,
+                    1,
+                    1
+                )
+            })
+            try {
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(activeResponses).toBe(4)
+            } finally {
+                releaseResponses()
+                await jest.runAllTimersAsync()
+                const results = await Promise.all(requests)
+                expect(results.map((result) => result?.result)).toEqual(Array(6).fill([]))
+            }
+            expect(peakResponses).toBe(4)
         }
-        expect(peakPolls).toBe(4)
-    })
+    )
 
     describe.each([
         ['blocking retry', 2, false],

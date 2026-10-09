@@ -458,11 +458,11 @@ export async function getInsightWithRetry(
                     try {
                         const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
                             if (finalStatus.complete && !finalStatus.error) {
-                                const refreshedInsightResponse = await runRequest(() =>
+                                const legacyInsight: InsightModel | null = await runRequest(async () => {
                                     // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
-                                    api.getResponse(insightUrl('force_cache'), methodOptions)
-                                )
-                                const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
+                                    const response = await api.getResponse(insightUrl('force_cache'), methodOptions)
+                                    return getJSONOrNull(response)
+                                })
                                 if (legacyInsight) {
                                     const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
                                     return {
