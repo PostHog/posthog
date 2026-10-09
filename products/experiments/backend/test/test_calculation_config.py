@@ -16,7 +16,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.utils import BayesianSettings, FrequentistSettings
-from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, normalize_exposure, plan
+from products.experiments.backend.metric_calculation.config import (
+    ExperimentCalculationSettings,
+    build_calculation_configs,
+    normalize_exposure,
+)
 from products.experiments.backend.metric_resolution import MetricRole, MetricSource
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -132,7 +136,7 @@ STORED_KEY_CASES = [
 ]
 
 
-class TestCalculationSpec(BaseTest):
+class TestMetricCalculationConfig(BaseTest):
     def _flag(self) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -198,22 +202,22 @@ class TestCalculationSpec(BaseTest):
         experiment = self._experiment(**overrides)
         self._add_metric(experiment, kind, source, breakdown=breakdown)
 
-        [spec] = plan(experiment)
+        [calculation_config] = build_calculation_configs(experiment)
 
-        assert spec.legacy_key() == stored_key
+        assert calculation_config.legacy_key() == stored_key
 
     @parameterized.expand([("no_breakdowns", False), ("with_breakdowns", True)])
-    def test_equivalent_inline_and_saved_metrics_have_equal_specs(self, _name: str, breakdown: bool) -> None:
+    def test_equivalent_inline_and_saved_metrics_have_equal_configs(self, _name: str, breakdown: bool) -> None:
         experiment = self._experiment()
         self._add_metric(experiment, "funnel", "inline", breakdown=breakdown, role="primary")
         self._add_metric(experiment, "funnel", "saved", breakdown=breakdown, role="secondary")
 
-        inline_spec, saved_spec = plan(experiment)
+        inline_config, saved_config = build_calculation_configs(experiment)
 
-        assert (inline_spec.metric_id, inline_spec.role) == ("inline-funnel", "primary")
-        assert (saved_spec.metric_id, saved_spec.role) == ("saved-funnel", "secondary")
-        assert inline_spec == saved_spec
-        assert inline_spec.calculation_key() == saved_spec.calculation_key()
+        assert (inline_config.metric_id, inline_config.role) == ("inline-funnel", "primary")
+        assert (saved_config.metric_id, saved_config.role) == ("saved-funnel", "secondary")
+        assert inline_config == saved_config
+        assert inline_config.calculation_key() == saved_config.calculation_key()
 
     def test_settings_resolve_team_defaults_and_flag_variants(self) -> None:
         team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
@@ -231,9 +235,9 @@ class TestCalculationSpec(BaseTest):
         )
         self._add_metric(experiment, "mean", "inline")
 
-        [spec] = plan(experiment)
+        [calculation_config] = build_calculation_configs(experiment)
 
-        settings = spec.settings
+        settings = calculation_config.settings
         assert settings.variants == ("control", "test")
         assert settings.baseline == "control"
         assert settings.stats == FrequentistSettings(
@@ -284,22 +288,22 @@ class TestCalculationSpec(BaseTest):
             ),
         ]
     )
-    def test_configurations_that_compute_the_same_thing_have_equal_specs(
+    def test_configurations_that_compute_the_same_thing_have_equal_configs(
         self, _name: str, first: dict[str, Any], second: dict[str, Any]
     ) -> None:
         team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         team_config.default_cuped_enabled = True
         team_config.save()
         flag = self._flag()
-        specs = []
+        calculation_configs = []
         for overrides in (first, second):
             experiment = self._experiment(flag, **overrides)
             self._add_metric(experiment, "mean", "inline")
-            specs.extend(plan(experiment))
+            calculation_configs.extend(build_calculation_configs(experiment))
 
-        first_spec, second_spec = specs
-        assert first_spec == second_spec
-        assert first_spec.calculation_key() == second_spec.calculation_key()
+        first_config, second_config = calculation_configs
+        assert first_config == second_config
+        assert first_config.calculation_key() == second_config.calculation_key()
 
     @parameterized.expand(
         [
@@ -326,7 +330,7 @@ class TestCalculationSpec(BaseTest):
         experiment = self._experiment(stats_config=base_stats)
         self._add_metric(experiment, "mean", "inline", role="primary")
         get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        [before] = plan(experiment)
+        [before] = build_calculation_configs(experiment)
 
         if target == "experiment":
             if "stats_config" in changes:
@@ -342,28 +346,31 @@ class TestCalculationSpec(BaseTest):
             for name, value in changes.items():
                 setattr(self.team, name, value)
             self.team.save()
-        [after] = plan(Experiment.objects.get(pk=experiment.pk))
+        [after] = build_calculation_configs(Experiment.objects.get(pk=experiment.pk))
 
         assert (after.calculation_key() != before.calculation_key()) is key_changes
 
     def test_the_key_does_not_depend_on_the_exposure_event_rollout_flag(self) -> None:
         experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1))
         self._add_metric(experiment, "mean", "inline")
-        specs = {}
+        calculation_configs = {}
         for flag_enabled in (False, True):
             with patch(
                 "products.experiments.backend.hogql_queries.exposure_query_logic.posthoganalytics.feature_enabled",
                 return_value=flag_enabled,
             ):
-                [specs[flag_enabled]] = plan(experiment)
+                [calculation_configs[flag_enabled]] = build_calculation_configs(experiment)
 
         # The query runner still counts the event the flag picks.
-        assert [spec.settings.exposure and spec.settings.exposure.exposure_config for spec in specs.values()] == [
+        assert [
+            calculation_config.settings.exposure and calculation_config.settings.exposure.exposure_config
+            for calculation_config in calculation_configs.values()
+        ] == [
             ExperimentEventExposureConfig(event="$feature_flag_called", properties=[]),
             ExperimentEventExposureConfig(event="$experiment_exposure", properties=[]),
         ]
-        assert specs[False] == specs[True]
-        assert specs[False].calculation_key() == specs[True].calculation_key()
+        assert calculation_configs[False] == calculation_configs[True]
+        assert calculation_configs[False].calculation_key() == calculation_configs[True].calculation_key()
 
     @parameterized.expand(
         [
@@ -376,9 +383,9 @@ class TestCalculationSpec(BaseTest):
         experiment = self._experiment(**overrides)
         self._add_metric(experiment, "mean", "inline")
 
-        [spec] = plan(experiment)
+        [calculation_config] = build_calculation_configs(experiment)
 
-        assert len(spec.calculation_key()) == 64
+        assert len(calculation_config.calculation_key()) == 64
 
 
 _SETTINGS = ExperimentCalculationSettings(
@@ -411,8 +418,8 @@ _MEAN = {**DEFINITIONS["mean"], "uuid": "m1"}
     ],
 )
 def test_only_real_breakdowns_change_the_key(variant: dict, expected_equal: bool) -> None:
-    base_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
-    variant_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=variant).calculation_key()
+    base_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
+    variant_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=variant).calculation_key()
     assert (variant_key == base_key) is expected_equal
 
 
@@ -436,12 +443,12 @@ def test_float_noise_does_not_split_keys(
     stats: FrequentistSettings, metric_change: dict[str, Any], expected_equal: bool
 ) -> None:
     base = dataclasses.replace(_SETTINGS, stats=_FREQUENTIST)
-    base_key = base.spec_for(
+    base_key = base.build_metric_config(
         metric_id="m1", role="primary", definition={**_MEAN, "upper_bound_percentile": 0.95, "conversion_window": 14}
     ).calculation_key()
     variant_key = (
         dataclasses.replace(_SETTINGS, stats=stats)
-        .spec_for(
+        .build_metric_config(
             metric_id="m1",
             role="primary",
             definition={**_MEAN, "upper_bound_percentile": 0.95, "conversion_window": 14, **metric_change},
@@ -646,8 +653,8 @@ def test_the_key_follows_what_the_calculation_reads(
     definition: dict,
     keys_equal: bool,
 ) -> None:
-    before_key = before.spec_for(metric_id="m1", role="primary", definition=definition).calculation_key()
-    after_key = after.spec_for(metric_id="m1", role="primary", definition=definition).calculation_key()
+    before_key = before.build_metric_config(metric_id="m1", role="primary", definition=definition).calculation_key()
+    after_key = after.build_metric_config(metric_id="m1", role="primary", definition=definition).calculation_key()
     assert (after_key == before_key) is keys_equal
 
 
@@ -698,4 +705,4 @@ def test_every_field_that_can_change_the_key_has_a_case() -> None:
 def test_key_version_2_is_stable(settings: ExperimentCalculationSettings, definition: dict, key: str) -> None:
     # Every stored result is filed under this hash. A change to the hashed payload, such as a new settings field,
     # makes all of them unreachable for reuse, so it has to come with a CALCULATION_KEY_VERSION bump and new pins.
-    assert settings.spec_for(metric_id="m1", role="primary", definition=definition).calculation_key() == key
+    assert settings.build_metric_config(metric_id="m1", role="primary", definition=definition).calculation_key() == key

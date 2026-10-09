@@ -12,6 +12,10 @@ from parameterized import parameterized
 from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
     _recalc_fingerprint,
@@ -19,7 +23,6 @@ from products.experiments.backend.metric_calculation.results import (
     record_daily_metric_failure,
     record_daily_metric_result,
 )
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -98,7 +101,9 @@ class TestMetricResultStore(BaseTest):
             completed_at=completed_at,
         )
 
-    def _read(self, reader: str, experiment: Experiment, spec: CalculationSpec) -> tuple[list[int], bool]:
+    def _read(
+        self, reader: str, experiment: Experiment, calculation_config: MetricCalculationConfig
+    ) -> tuple[list[int], bool]:
         """The samples of the row a reader returns at _WINDOW, and whether it marks that row legacy."""
         store = MetricResultStore(experiment_id=experiment.id)
         match reader:
@@ -115,17 +120,19 @@ class TestMetricResultStore(BaseTest):
                 return [sample for item in stored for sample in _samples(item.row)], any(i.legacy for i in stored)
             case "latest_daily_point":
                 point = store.latest_daily_point(
-                    spec, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
+                    calculation_config, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
                 )
                 return (_samples(point.row), point.legacy) if point is not None else ([], False)
             case "timeseries":
-                series = store.timeseries(spec, timezone=ZoneInfo("UTC"))
+                series = store.timeseries(calculation_config, timezone=ZoneInfo("UTC"))
                 return _samples(series.by_day.get(_WINDOW_DAY)), _WINDOW_DAY in series.legacy_days
             case "previous_completed":
-                row = store.previous_completed("m1", spec.calculation_key(), before=_WINDOW + timedelta(days=1))
+                row = store.previous_completed(
+                    "m1", calculation_config.calculation_key(), before=_WINDOW + timedelta(days=1)
+                )
                 return _samples(row), False
             case "current_outcome":
-                summary = store.current_outcome(spec)
+                summary = store.current_outcome(calculation_config)
                 assert summary is not None and summary.baseline_samples is not None
                 return [int(summary.baseline_samples)], summary.legacy
         raise AssertionError(f"unknown reader {reader}")
@@ -152,9 +159,13 @@ class TestMetricResultStore(BaseTest):
     )
     def test_rows_sharing_a_window_resolve_to_the_newest_write(self, _name: str, reader: str, tie: str) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        fingerprint = _recalc_fingerprint(spec.calculation_key()) if reader == "for_run" else spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        fingerprint = (
+            _recalc_fingerprint(calculation_config.calculation_key())
+            if reader == "for_run"
+            else calculation_config.calculation_key()
+        )
         self._allow_rows_sharing_a_window()
         if tie == "newer_write_wins":
             # The newer write gets the lower id, so an order on id alone picks the wrong row.
@@ -164,7 +175,7 @@ class TestMetricResultStore(BaseTest):
             self._row(experiment, fingerprint, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=1)
             self._row(experiment, fingerprint, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=2)
 
-        assert self._read(reader, experiment, spec) == ([2], False)
+        assert self._read(reader, experiment, calculation_config) == ([2], False)
 
     @parameterized.expand(
         [
@@ -177,29 +188,29 @@ class TestMetricResultStore(BaseTest):
         self, _name: str, reader: str, case: str
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         salt = _recalc_fingerprint if reader == "for_run" else (lambda key: key)
         self._allow_rows_sharing_a_window()
         # The legacy row is the newer write, so only the key family keeps it behind the current row.
-        self._row(experiment, salt(spec.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+        self._row(experiment, salt(calculation_config.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
         if case == "a_current_row_covers_it":
             self._row(
                 experiment,
-                salt(spec.calculation_key()),
+                salt(calculation_config.calculation_key()),
                 query_to=_WINDOW,
                 completed_at=_WINDOW - timedelta(hours=1),
                 samples=2,
             )
 
         expected = ([2], False) if case == "a_current_row_covers_it" else ([1], True)
-        assert self._read(reader, experiment, spec) == expected
+        assert self._read(reader, experiment, calculation_config) == expected
 
     def test_the_latest_window_inside_a_day_stands_for_that_day(self) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        key = spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        key = calculation_config.calculation_key()
         # Both windows fall on 9 January. The later window was written first, so the write time alone picks the
         # other row.
         self._row(experiment, key, query_to=_WINDOW, completed_at=_WINDOW + timedelta(hours=1), samples=2)
@@ -207,7 +218,9 @@ class TestMetricResultStore(BaseTest):
             experiment, key, query_to=_WINDOW - timedelta(hours=6), completed_at=_WINDOW + timedelta(hours=2), samples=1
         )
 
-        timeseries = MetricResultStore(experiment_id=experiment.id).timeseries(spec, timezone=ZoneInfo("UTC"))
+        timeseries = MetricResultStore(experiment_id=experiment.id).timeseries(
+            calculation_config, timezone=ZoneInfo("UTC")
+        )
 
         assert list(timeseries.by_day) == [_WINDOW_DAY]
         assert _samples(timeseries.by_day[_WINDOW_DAY]) == [2]
@@ -224,17 +237,17 @@ class TestMetricResultStore(BaseTest):
         self, _name: str, own_team: bool, points: list[tuple[str, datetime, int]], expected_samples: int | None
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         for family, query_to, samples in points:
-            key = spec.calculation_key() if family == "current" else spec.legacy_key()
+            key = calculation_config.calculation_key() if family == "current" else calculation_config.legacy_key()
             self._row(experiment, key, query_to=query_to, completed_at=query_to, samples=samples)
 
         result = previous_completed_metric_result(
             experiment.id,
             team_id=self.team.id if own_team else self.team.id + 1,
             metric_uuid="m1",
-            calculation_key=spec.calculation_key(),
+            calculation_key=calculation_config.calculation_key(),
             before=_WINDOW + timedelta(days=1),
         )
 
@@ -252,11 +265,21 @@ class TestMetricResultStore(BaseTest):
         self, _name: str, status: str, finished_hours_from_now: int | None, shows_legacy: bool
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
-        self._row(experiment, _recalc_fingerprint(spec.legacy_key()), query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         self._row(
-            experiment, spec.calculation_key(), query_to=_START + timedelta(days=1), completed_at=_START, samples=2
+            experiment,
+            _recalc_fingerprint(calculation_config.legacy_key()),
+            query_to=_WINDOW,
+            completed_at=_WINDOW,
+            samples=1,
+        )
+        self._row(
+            experiment,
+            calculation_config.calculation_key(),
+            query_to=_START + timedelta(days=1),
+            completed_at=_START,
+            samples=2,
         )
         run = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
@@ -286,11 +309,16 @@ class TestMetricResultStore(BaseTest):
         self, _name: str, change: str, history_shown: bool
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         store = MetricResultStore(experiment_id=experiment.id)
         store.record_daily_point(
-            "m1", spec.calculation_key(), spec=spec, window=_WINDOW, query_from=_START, result=_stored_result(3)
+            "m1",
+            calculation_config.calculation_key(),
+            calculation_config=calculation_config,
+            window=_WINDOW,
+            query_from=_START,
+            result=_stored_result(3),
         )
         run_window = _WINDOW + timedelta(hours=1)
         run = ExperimentMetricsRecalculation.objects.create(
@@ -301,7 +329,12 @@ class TestMetricResultStore(BaseTest):
             status=ExperimentMetricsRecalculation.Status.IN_PROGRESS,
         )
         store.record_run_result(
-            str(run.id), spec, window=run_window, query_from=_START, result=_stored_result(4), query_id=None
+            str(run.id),
+            calculation_config,
+            window=run_window,
+            query_from=_START,
+            result=_stored_result(4),
+            query_id=None,
         )
         ExperimentMetricsRecalculation.objects.filter(id=run.id).update(
             status=ExperimentMetricsRecalculation.Status.COMPLETED, completed_at=django_timezone.now()
@@ -325,21 +358,21 @@ class TestMetricResultStore(BaseTest):
             ]
             experiment.save()
         experiment = Experiment.objects.get(pk=experiment.pk)
-        changed_spec = plan_metric(experiment, "m1")
-        assert changed_spec is not None and changed_spec.calculation_key() != spec.calculation_key()
+        changed_config = get_metric_calculation_config(experiment, "m1")
+        assert changed_config is not None and changed_config.calculation_key() != calculation_config.calculation_key()
 
-        series = store.timeseries(changed_spec, timezone=ZoneInfo("UTC"))
-        outcome = store.current_outcome(changed_spec)
+        series = store.timeseries(changed_config, timezone=ZoneInfo("UTC"))
+        outcome = store.current_outcome(changed_config)
         shown = (
             _samples(series.by_day.get(_WINDOW_DAY)),
             _WINDOW_DAY in series.legacy_days,
             outcome and (outcome.baseline_samples, outcome.legacy),
         )
         assert shown == (([3], True, ("4", True)) if history_shown else ([], False, None))
-        assert not store.has_completed(changed_spec, window=run_window)
+        assert not store.has_completed(changed_config, window=run_window)
         assert store.for_run(ExperimentMetricsRecalculation.objects.get(id=run.id)) == []
         cold_start = store.latest_daily_point(
-            changed_spec, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
+            changed_config, since=_WINDOW - timedelta(days=1), until=_WINDOW, include_legacy=True
         )
         assert cold_start is None
 
@@ -348,27 +381,47 @@ class TestMetricResultStore(BaseTest):
             team=self.team, experiment=experiment, metric_uuids=["m1"], status=status, query_to=_WINDOW
         )
 
-    def _write(self, writer: str, experiment: Experiment, spec: CalculationSpec) -> None:
+    def _write(self, writer: str, experiment: Experiment, calculation_config: MetricCalculationConfig) -> None:
         store = MetricResultStore(experiment_id=experiment.id)
-        key = spec.calculation_key()
+        key = calculation_config.calculation_key()
         match writer:
             case "run_result":
                 run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
                 store.record_run_result(
-                    str(run.id), spec, window=_WINDOW, query_from=_START, result=_stored_result(9), query_id="q"
+                    str(run.id),
+                    calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    result=_stored_result(9),
+                    query_id="q",
                 )
             case "run_failure":
                 run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
                 store.record_run_failure(
-                    str(run.id), spec, window=_WINDOW, query_from=_START, error_message="boom", query_id="q"
+                    str(run.id),
+                    calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    error_message="boom",
+                    query_id="q",
                 )
             case "daily_point":
                 store.record_daily_point(
-                    "m1", key, spec=spec, window=_WINDOW, query_from=_START, result=_stored_result(9)
+                    "m1",
+                    key,
+                    calculation_config=calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    result=_stored_result(9),
                 )
             case "daily_failure":
                 store.record_daily_failure(
-                    "m1", key, spec=spec, window=_WINDOW, query_from=_START, error_message="boom"
+                    "m1",
+                    key,
+                    calculation_config=calculation_config,
+                    window=_WINDOW,
+                    query_from=_START,
+                    error_message="boom",
                 )
             case "daily_metric_result":
                 record_daily_metric_result(
@@ -392,7 +445,9 @@ class TestMetricResultStore(BaseTest):
                 )
             case "sync_copy":
                 point = ExperimentMetricResult(result=_stored_result(9))
-                store.copy_into_sync_run(_WINDOW, [(spec, point)], query_from=_START, completed_at=_WINDOW)
+                store.copy_into_sync_run(
+                    _WINDOW, [(calculation_config, point)], query_from=_START, completed_at=_WINDOW
+                )
             case _:
                 raise AssertionError(f"unknown writer {writer}")
 
@@ -411,15 +466,18 @@ class TestMetricResultStore(BaseTest):
         self, writer: str, salted: bool, status: str
     ) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         self._row(experiment, "another-fingerprint", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
 
-        self._write(writer, experiment, spec)
+        self._write(writer, experiment, calculation_config)
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
         salt = _recalc_fingerprint if salted else (lambda key: key)
-        assert (row.fingerprint, row.display_key) == (salt(spec.calculation_key()), salt(spec.legacy_key()))
+        assert (row.fingerprint, row.display_key) == (
+            salt(calculation_config.calculation_key()),
+            salt(calculation_config.legacy_key()),
+        )
         assert row.status == status
         if status == ExperimentMetricResult.Status.COMPLETED:
             assert (row.result, row.error_message) == (_stored_result(9), None)
@@ -429,10 +487,12 @@ class TestMetricResultStore(BaseTest):
     @parameterized.expand([("another_team",), ("stale_key",)])
     def test_a_daily_write_resolves_no_display_key_outside_its_team_or_under_a_stale_key(self, cause: str) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         team_id = Team.objects.create(organization=self.organization).id if cause == "another_team" else self.team.id
-        key = "key-of-the-configuration-before-an-edit" if cause == "stale_key" else spec.calculation_key()
+        key = (
+            "key-of-the-configuration-before-an-edit" if cause == "stale_key" else calculation_config.calculation_key()
+        )
 
         record_daily_metric_result(
             experiment.id,
@@ -456,8 +516,8 @@ class TestMetricResultStore(BaseTest):
     )
     def test_a_run_write_skips_a_terminal_or_missing_recalculation(self, status: str | None) -> None:
         experiment = self._experiment()
-        spec = plan_metric(experiment, "m1")
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
         run = self._run(experiment, ExperimentMetricsRecalculation.Status.IN_PROGRESS)
         if status is None:
             ExperimentMetricsRecalculation.objects.filter(id=run.id).delete()
@@ -467,7 +527,7 @@ class TestMetricResultStore(BaseTest):
 
         MetricResultStore(experiment_id=experiment.id).record_run_failure(
             str(run.id),
-            spec,
+            calculation_config,
             window=_WINDOW,
             query_from=_START,
             error_message="the orphan's late failure",

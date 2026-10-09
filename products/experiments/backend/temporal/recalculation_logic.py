@@ -39,9 +39,9 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import plan_metric
-from products.experiments.backend.metric_resolution import build_metric, resolve_scheduled_metrics
+from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
@@ -122,7 +122,7 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     """
     return [
         ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-        for metric in resolve_scheduled_metrics(experiment)
+        for metric in get_metrics_for_calculation(experiment)
     ]
 
 
@@ -653,8 +653,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        spec = plan_metric(experiment, metric_uuid)
-        if spec is None:
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
             return _fail(
                 recalculation_id,
                 metric_uuid,
@@ -662,7 +662,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 f"Metric {metric_uuid} not found in experiment {experiment_id}",
                 error_type="validation_error",
             )
-        metric_dict = spec.definition
+        metric_dict = calculation_config.definition
 
         if not experiment.start_date:
             return _fail(
@@ -677,7 +677,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.
-        if results.has_completed(spec, window=query_to_dt):
+        if results.has_completed(calculation_config, window=query_to_dt):
             # A crash between the result write and the retry cleanup on a prior attempt lands here on the
             # next one; clear so a completed metric can't keep reporting as retrying.
             _clear_retry(recalculation_id, metric_uuid)
@@ -691,7 +691,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         def record_terminal_error(message: str, error_type: str, *, retriable: bool) -> None:
             results.record_run_failure(
                 recalculation_id,
-                spec,
+                calculation_config,
                 window=query_to_dt,
                 query_from=query_from,
                 error_message=message,
@@ -746,7 +746,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
             results.record_run_result(
                 recalculation_id,
-                spec,
+                calculation_config,
                 window=query_to_dt,
                 query_from=query_from,
                 result=result_dict,
@@ -769,7 +769,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             results.record_run_failure(
                 recalculation_id,
-                spec,
+                calculation_config,
                 window=query_to_dt,
                 query_from=query_from,
                 error_message=message,

@@ -9,7 +9,7 @@ from posthog.dataclasses import frozen
 from posthog.models.utils import convert_legacy_metric, convert_legacy_metrics
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, stamp_calculation_keys
+from products.experiments.backend.metric_calculation.config import ExperimentCalculationSettings, stamp_calculation_keys
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -97,7 +97,7 @@ def migrate_experiment(
                 migrated_saved_metric_ids=[],
             )
 
-        saved_metric_targets, migrated_saved_metric_ids = _resolve_saved_metrics(
+        saved_metric_targets, migrated_saved_metric_ids = _get_effective_saved_metrics(
             original, team_id, migrate_shared_metrics=migrate_shared_metrics
         )
 
@@ -112,7 +112,7 @@ def migrate_experiment(
             setattr(new_experiment, field.name, value)
 
         new_experiment.stats_config = {**(new_experiment.stats_config or {}), "migrated_from": original.id}
-        calculation_settings = ExperimentCalculationSettings.of_experiment(new_experiment)
+        calculation_settings = ExperimentCalculationSettings.from_experiment(new_experiment)
         new_experiment.metrics = _prepare_metrics(
             convert_legacy_metrics(original.metrics), "primary", calculation_settings
         )
@@ -140,7 +140,7 @@ def migrate_experiment(
         )
 
 
-def _resolve_saved_metrics(
+def _get_effective_saved_metrics(
     original: Experiment, team_id: int, *, migrate_shared_metrics: bool
 ) -> tuple[list[tuple[ExperimentToSavedMetric, ExperimentSavedMetric]], list[int]]:
     """Pick the shared metric each link should point at, migrating legacy ones when allowed."""

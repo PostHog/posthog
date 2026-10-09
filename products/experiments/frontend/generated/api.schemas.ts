@@ -3588,10 +3588,10 @@ export type ExperimentTimeseriesResultsApiTimeseries = { [key: string]: unknown 
 export type ExperimentTimeseriesResultsApiErrors = { [key: string]: string } | null
 
 /**
- * * `pending` - pending
- * * `completed` - completed
- * * `partial` - partial
- * * `failed` - failed
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `partial` - Partial
+ * * `failed` - Failed
  */
 export type ExperimentTimeseriesResultsStatusEnumApi =
     (typeof ExperimentTimeseriesResultsStatusEnumApi)[keyof typeof ExperimentTimeseriesResultsStatusEnumApi]
@@ -3613,10 +3613,10 @@ export interface ExperimentTimeseriesResultsApi {
     metric_uuid: string
     /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
      *
-     * * `pending` - pending
-     * * `completed` - completed
-     * * `partial` - partial
-     * * `failed` - failed */
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed */
     status: ExperimentTimeseriesResultsStatusEnumApi
     /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
     timeseries: ExperimentTimeseriesResultsApiTimeseries

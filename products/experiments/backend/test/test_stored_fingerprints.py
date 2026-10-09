@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.experiments.backend.metric_calculation.spec import plan_metric
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.stored_fingerprints import (
     FingerprintRewriteReport,
     rewrite_stored_fingerprints,
@@ -42,7 +42,9 @@ class TestStoredFingerprints(BaseTest):
             metrics_secondary=[_mean_metric("current")],
         )
         keys = {
-            spec.metric_id: spec for spec in (plan_metric(experiment, uuid) for uuid in ("stale", "current")) if spec
+            calculation_config.metric_id: calculation_config
+            for calculation_config in (get_metric_calculation_config(experiment, uuid) for uuid in ("stale", "current"))
+            if calculation_config
         }
         # A metric stamped before the key version changed, one never stamped, and one stamped with the current key.
         Experiment.objects.filter(pk=experiment.pk).update(
@@ -53,9 +55,9 @@ class TestStoredFingerprints(BaseTest):
         return experiment
 
     def _current_key(self, experiment: Experiment, uuid: str) -> str:
-        spec = plan_metric(experiment, uuid)
-        assert spec is not None
-        return spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, uuid)
+        assert calculation_config is not None
+        return calculation_config.calculation_key()
 
     @parameterized.expand([("dry_run", False), ("apply", True)])
     def test_rewrites_only_the_stale_fingerprints(self, _name: str, apply: bool) -> None:

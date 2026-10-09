@@ -10,8 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -31,9 +31,9 @@ def _mean_metric(uuid: str) -> dict:
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -277,9 +277,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert exp.start_date is not None
         assert recalc.query_to is not None
         for metric_uuid, family in zip(("m1", "m2"), key_families):
-            spec = plan_metric(exp, metric_uuid)
-            assert spec is not None
-            key = spec.calculation_key() if family == "current" else spec.legacy_key()
+            calculation_config = get_metric_calculation_config(exp, metric_uuid)
+            assert calculation_config is not None
+            key = calculation_config.calculation_key() if family == "current" else calculation_config.legacy_key()
             ExperimentMetricResult.objects.create(
                 experiment=exp,
                 metric_uuid=metric_uuid,
@@ -342,12 +342,12 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         self, exp: Experiment, metric_uuid: str, query_to: datetime, *, legacy: bool = False
     ) -> None:
         assert exp.start_date is not None
-        spec = plan_metric(exp, metric_uuid)
-        assert spec is not None
+        calculation_config = get_metric_calculation_config(exp, metric_uuid)
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=spec.legacy_key() if legacy else spec.calculation_key(),
+            fingerprint=calculation_config.legacy_key() if legacy else calculation_config.calculation_key(),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",

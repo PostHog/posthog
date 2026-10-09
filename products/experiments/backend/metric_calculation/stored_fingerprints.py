@@ -18,7 +18,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import (
+from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     stamp_calculation_keys,
     team_experiments_configs,
@@ -44,7 +44,7 @@ class FingerprintRewriteReport:
 def _rewritten_fields(experiment: Experiment, team_config: TeamExperimentsConfig) -> tuple[dict[str, list[Any]], int]:
     """The inline metric fields whose stored fingerprints differ from the current keys, with only those fingerprints
     replaced, and how many metrics change. A metric without a stored fingerprint stays as it is."""
-    settings = ExperimentCalculationSettings.of_experiment(experiment, team_config=team_config)
+    settings = ExperimentCalculationSettings.from_experiment(experiment, team_config=team_config)
     fields: dict[str, list[Any]] = {}
     changed_metrics = 0
     for field_name, role in _INLINE_METRIC_FIELDS:

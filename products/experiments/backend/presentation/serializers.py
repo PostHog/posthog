@@ -10,6 +10,7 @@ import logging
 from copy import deepcopy
 from typing import Annotated, Any, Final, TypeGuard
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -52,7 +53,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -797,7 +798,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         served_query.get("kind") == "ExperimentMetric"
                         and served_query.get("metric_type") in METRIC_BUILDERS
                     ):
-                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                        saved_metric["effective_query"] = apply_saved_metric_overrides(
                             served_query, saved_metric.get("metadata")
                         )
 
@@ -1587,13 +1588,20 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentTimeseriesResultsStatus(models.TextChoices):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
     """Day-by-day results of one metric under the experiment's current settings."""
 
     experiment_id = serializers.IntegerField(help_text="Experiment id.")
     metric_uuid = serializers.CharField(help_text="UUID of the metric the series belongs to.")
     status = serializers.ChoiceField(
-        choices=["pending", "completed", "partial", "failed"],
+        choices=ExperimentTimeseriesResultsStatus.choices,
         help_text=(
             "'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result "
             "and some failed, 'pending' when no day was calculated yet."
