@@ -1,4 +1,4 @@
-import { RetrySchedule, retryIfRetriable } from '~/common/utils/retries'
+import { RetrySchedule, defaultRetryConfig, retryIfRetriable } from '~/common/utils/retries'
 import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
 
 export interface MetricsRetryOptions extends RetrySchedule {
@@ -40,7 +40,9 @@ export async function retryAfterFirstFailure<T>(fn: () => Promise<T>, options: M
             schedule.softDeadlineMs === undefined
                 ? undefined
                 : Math.max(0, schedule.softDeadlineMs - (Date.now() - startedAt))
-        const result = await retryIfRetriable(attempt, { ...schedule, softDeadlineMs })
+        // At least one try, so the replayed first error is what the caller gets.
+        const tries = Math.max(1, schedule.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT)
+        const result = await retryIfRetriable(attempt, { ...schedule, tries, softDeadlineMs })
         pipelineRetryAttemptsHistogram.labels({ name, outcome: 'completed' }).observe(attempts)
         return result
     } catch (error) {

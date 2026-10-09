@@ -39,6 +39,14 @@ describe('retryAfterFirstFailure', () => {
         expect(await retryCount('completed')).toBe(1)
     })
 
+    it('retries an error without an isRetriable flag, as librdkafka produce errors are', async () => {
+        const fn = jest.fn().mockRejectedValueOnce(new Error('Local: Queue full')).mockResolvedValue('ok')
+        const result = retryAfterFirstFailure(fn, { name: 'test', tries: 3, sleepMs: 100 })
+        await jest.runAllTimersAsync()
+        await expect(result).resolves.toBe('ok')
+        expect(fn).toHaveBeenCalledTimes(2)
+    })
+
     it('does not retry an error marked non-retriable', async () => {
         const error = new MessageSizeTooLarge('too large', new Error('too large'))
         const fn = jest.fn().mockRejectedValue(error)
