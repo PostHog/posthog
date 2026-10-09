@@ -17,6 +17,7 @@ import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -61,6 +62,7 @@ from products.customer_analytics.backend.facade.temporal import stage_warehouse_
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import (
     TRINO_INCREMENTAL_SCOPE,
+    SnapshotPublicationConflict,
     compute_enrichment_hash,
     definition_fingerprint,
     get_incremental_config,
@@ -150,6 +152,20 @@ class TestMaterializeViewManagedWarehouseActivity:
             is_ready.assert_called_once_with(organization_id=ateam.organization_id)
         else:
             is_ready.assert_not_called()
+
+    async def test_shadow_skips_snapshot_models(self, activity_environment, ateam, anode, adag) -> None:
+        # Snapshot history is built only on ClickHouse; a shadow engine would rebuild the view or
+        # fail on every run and get the node suspended for that engine.
+        saved_query = await database_sync_to_async(lambda: anode.saved_query)()
+        saved_query.snapshot_config = {"unique_key": ["id"]}
+        await database_sync_to_async(saved_query.save)(update_fields=["snapshot_config"])
+        inputs = ManagedWarehouseShadowEligibilityInputs(team_id=ateam.pk, node_id=str(anode.id), dag_id=str(adag.id))
+        module = "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse"
+        with (
+            unittest.mock.patch(f"{module}._is_managed_warehouse_shadow_flag_enabled", return_value=True),
+            unittest.mock.patch(f"{module}.is_data_modeling_shadow_ready", return_value=True),
+        ):
+            assert await activity_environment.run(check_managed_warehouse_shadow_eligibility_activity, inputs) is False
 
     @pytest.mark.parametrize(
         "compile_fails,alias_dispatch_fails",
@@ -1335,7 +1351,7 @@ class TestPrepareQueryableTableActivity:
     ):
         generation_uri = (
             f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}"
-            "/snapshot-generations/1791000000_job"
+            "/snapshot-generations/1791000000_job_1"
         )
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
@@ -1367,9 +1383,76 @@ class TestPrepareQueryableTableActivity:
                 str(ajob.id),
                 str(asaved_query.id),
                 ateam.pk,
-                f"{asaved_query.normalized_name}/snapshot-generations/1791000000_job",
+                f"{asaved_query.normalized_name}/snapshot-generations/1791000000_job_1",
             )
         await database_sync_to_async(warehouse_table.delete)()
+
+    async def test_snapshot_conflict_leaves_the_table_on_the_published_generation(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        root = f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}/snapshot-generations"
+        parent, winner, loser = (f"{root}/1791000000_{name}_1" for name in ("parent", "winner", "loser"))
+        asaved_query.snapshot_state = {"generation_uri": parent, "last_run_id": "parent"}
+        await database_sync_to_async(asaved_query.save)()
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam, name="test_snapshot_table", format="Delta"
+        )
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=[],
+            row_count=3,
+            snapshot_generation_uri=loser,
+            snapshot_state={"generation_uri": loser, "parent_generation_uri": parent, "last_run_id": "loser"},
+        )
+
+        def create_table_while_another_run_publishes(*args):
+            # The loser repoints the table, then the winner publishes before the loser takes the lock.
+            DataWarehouseTable.objects.filter(pk=warehouse_table.pk).update(queryable_folder=args[3])
+            DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                snapshot_state={"generation_uri": winner, "parent_generation_uri": parent, "last_run_id": "winner"}
+            )
+            warehouse_table.refresh_from_db()
+            return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+            side_effect=database_sync_to_async(create_table_while_another_run_publishes),
+        ):
+            with pytest.raises(SnapshotPublicationConflict):
+                await activity_environment.run(prepare_queryable_table_activity, inputs)
+
+        await database_sync_to_async(warehouse_table.refresh_from_db)()
+        assert (
+            warehouse_table.queryable_folder
+            == f"{asaved_query.normalized_name}/snapshot-generations/1791000000_winner_1"
+        )
+        await database_sync_to_async(warehouse_table.delete)()
+
+    async def test_snapshot_conflict_is_refused_before_the_table_is_touched(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        root = f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}/snapshot-generations"
+        asaved_query.snapshot_state = {"generation_uri": f"{root}/1791000000_winner_1", "last_run_id": "winner"}
+        await database_sync_to_async(asaved_query.save)()
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=[],
+            row_count=3,
+            snapshot_generation_uri=f"{root}/1791000000_loser_1",
+            snapshot_state={"parent_generation_uri": f"{root}/1791000000_parent_1", "last_run_id": "loser"},
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+        ) as mock_create_table:
+            with pytest.raises(SnapshotPublicationConflict):
+                await activity_environment.run(prepare_queryable_table_activity, inputs)
+            mock_create_table.assert_not_called()
 
     async def test_passes_refresh_file_uris_that_re_reads_the_delta_table(
         self, activity_environment, ateam, asaved_query, ajob
@@ -1711,8 +1794,24 @@ class TestMaterializeViewActivity:
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
 
+    @pytest.mark.parametrize(
+        "snapshot,expected_columns",
+        [
+            (False, ["id", "name"]),
+            (True, ["id", "name", "valid_from", "valid_to", "_ph_snapshot_version_id"]),
+        ],
+    )
     async def test_zero_row_materialization_writes_empty_parquet(
-        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        ajob,
+        bucket_name,
+        adag,
+        snapshot: bool,
+        expected_columns: list[str],
     ):
         # regression: a zero-row query must still produce a queryable empty table.
         #
@@ -1734,6 +1833,10 @@ class TestMaterializeViewActivity:
 
             return async_generator()
 
+        if snapshot:
+            asaved_query.snapshot_config = {"unique_key": ["id"]}
+            await database_sync_to_async(asaved_query.save)(update_fields=["snapshot_config"])
+
         with (
             override_settings(
                 BUCKET_URL=f"s3://{bucket_name}",
@@ -1743,6 +1846,10 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.logic.incremental_plan.snapshot_materialization_enabled",
+                return_value=True,
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1755,17 +1862,20 @@ class TestMaterializeViewActivity:
             assert result.row_count == 0
             assert len(result.file_uris) == 1
             assert result.file_uris[0].endswith(".parquet")
+            # A snapshot serves its generation folder, so the empty file must land there.
+            delta_uri = result.snapshot_generation_uri if snapshot else result.table_uri
+            assert result.file_uris[0].startswith(f"{delta_uri}/")
             # delta log carries the schema so deltaLake() reads in get_columns succeed
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(delta_uri, storage_options=get_aws_storage_options())
             pyarrow_table = delta_table.to_pyarrow_table()
             assert pyarrow_table.num_rows == 0
-            assert set(pyarrow_table.column_names) == {"id", "name"}
+            assert set(pyarrow_table.column_names) == set(expected_columns)
             # ClickHouse rejects a parquet containing a 0-row row group, so the file must be metadata-only
             s3 = get_s3_client()
             with s3.open(result.file_uris[0], "rb") as f:
                 empty_parquet = pq.ParquetFile(BytesIO(f.read()))
             assert empty_parquet.metadata.num_row_groups == 0
-            assert empty_parquet.schema_arrow.names == ["id", "name"]
+            assert empty_parquet.schema_arrow.names == expected_columns
 
     async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
         # regression: a failure in a per-batch write_deltalake call must surface from the
@@ -1809,6 +1919,62 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+    @pytest.mark.parametrize(
+        "clickhouse_message,expects_delayed_retry",
+        [
+            (
+                "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
+                "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)",
+                True,
+            ),
+            ("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)", False),
+        ],
+    )
+    async def test_delta_kernel_read_error_retries_after_a_delay(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        ajob,
+        bucket_name,
+        adag,
+        clickhouse_message,
+        expects_delayed_retry,
+    ):
+        def mock_hogql_table(*args, **kwargs):
+            raise ClickHouseError(clickhouse_message)
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(Exception) as raised:
+                await activity_environment.run(materialize_view_activity, inputs)
+
+        error = raised.value
+        assert clickhouse_message in str(error)
+        if expects_delayed_retry:
+            assert isinstance(error, ApplicationError)
+            assert error.type == "ClickHouseError"
+            assert not error.non_retryable
+            assert error.next_retry_delay is not None
+            assert error.next_retry_delay >= dt.timedelta(minutes=1)
+        else:
+            assert type(error) is ClickHouseError
 
 
 class _EmptyArrowClient:

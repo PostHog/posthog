@@ -19,6 +19,11 @@ RESERVED_COLUMNS = frozenset({"valid_from", "valid_to", "_ph_snapshot_version_id
 SNAPSHOT_RESERVED_COLUMNS = RESERVED_COLUMNS
 
 
+def has_reserved_snapshot_column(names: Iterable[str]) -> bool:
+    """Delta compares column names without case, so `VALID_FROM` collides with the appended `valid_from`."""
+    return any(name.lower() in RESERVED_COLUMNS for name in names)
+
+
 class SnapshotValidationError(ValueError):
     pass
 
@@ -90,18 +95,28 @@ def snapshot_row_key(row: dict[str, Any], config: SnapshotConfig) -> tuple[Any, 
     return tuple(json.dumps(_canonical_value(value), sort_keys=True, separators=(",", ":")) for value in values)
 
 
+def validate_snapshot_values(row: dict[str, Any]) -> None:
+    """Reject values the comparison cannot read, before they enter a generation that later runs must compare."""
+    for column, value in row.items():
+        try:
+            _canonical_value(value)
+        except SnapshotValidationError as error:
+            raise SnapshotValidationError(f"{error} (column {column!r})") from error
+
+
 def validate_observation(rows: Iterable[dict[str, Any]], config: SnapshotConfig) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     schema: set[str] | None = None
     for row in rows:
-        if RESERVED_COLUMNS.intersection(row):
+        if has_reserved_snapshot_column(row):
             raise SnapshotValidationError("Query output uses a reserved snapshot column.")
         if schema is None:
             schema = set(row)
         elif set(row) != schema:
             raise SnapshotValidationError("Snapshot query output schema changed within one observation.")
         row_key = snapshot_row_key(row, config)
+        validate_snapshot_values(row)
         if row_key in seen:
             raise SnapshotValidationError("Snapshot unique key is not unique across the complete result.")
         seen.add(row_key)

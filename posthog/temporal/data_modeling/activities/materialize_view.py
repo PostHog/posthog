@@ -1,6 +1,7 @@
 import uuid
 import typing
 import asyncio
+import datetime as dt
 import tempfile
 import dataclasses
 from pathlib import Path
@@ -16,6 +17,7 @@ import pyarrow.parquet as pq
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -64,12 +66,12 @@ from posthog.temporal.data_modeling.activities.snapshot import (
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
-    SNAPSHOT_RESERVED_COLUMNS,
     IncrementalFilterError,
     SnapshotConfig,
     SnapshotValidationError,
     WritePlan,
     clear_incremental_state,
+    has_reserved_snapshot_column,
     inject_incremental_filter,
     next_observation_time,
     record_incremental_history,
@@ -205,6 +207,11 @@ def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
 
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
+
+# An upstream Delta table's log can be mid-rewrite, so the default backoff exhausts every attempt
+# before the rewrite lands.
+DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
+DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -1173,6 +1180,34 @@ def _active_snapshot_run_ids(team_id: int, saved_query_id: uuid.UUID) -> set[str
     return {str(run_id) for run_id in run_ids}
 
 
+@database_sync_to_async_pool
+def _published_snapshot_generation(team_id: int, saved_query_id: uuid.UUID) -> str | None:
+    state = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, pk=saved_query_id)
+        .values_list("snapshot_state", flat=True)
+        .first()
+    )
+    uri = state.get("generation_uri") if isinstance(state, dict) else None
+    return uri if isinstance(uri, str) else None
+
+
+async def _run_builder_thread(builder: SnapshotCandidateBuilder, function: typing.Callable[..., typing.Any], **kwargs):
+    """Run a blocking builder call in a thread, and on cancellation wait for the thread to exit.
+
+    Cancelling the await does not stop the thread, and leaving the builder's `with` block closes its
+    SQLite file and removes its temp directory underneath a thread that is still using them.
+    """
+    task = asyncio.ensure_future(asyncio.to_thread(function, **kwargs))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        builder.request_stop()
+        await asyncio.wait([task])
+        if not task.cancelled():
+            task.exception()  # mark retrieved; the cancellation is what propagates
+        raise
+
+
 async def _materialize_snapshot(
     objects: MatviewInputObjects,
     hogql_query: str,
@@ -1186,18 +1221,18 @@ async def _materialize_snapshot(
         raise SnapshotValidationError("Snapshot materialization needs a snapshot configuration.")
     config = SnapshotConfig(unique_key=tuple(snapshot_config["unique_key"]))
     output_columns = objects.saved_query.columns if isinstance(objects.saved_query.columns, dict) else {}
-    if SNAPSHOT_RESERVED_COLUMNS.intersection(output_columns):
+    if has_reserved_snapshot_column(output_columns):
         raise SnapshotValidationError("Query output uses a reserved snapshot column.")
     previous_state = objects.saved_query.snapshot_state if isinstance(objects.saved_query.snapshot_state, dict) else {}
     parent_uri_value = previous_state.get("generation_uri")
     parent_uri = parent_uri_value if isinstance(parent_uri_value, str) else None
     run_id = str(objects.job.id)
-    generation_uri = snapshot_generation_uri(table_uri, objects.job.created_at, run_id)
+    generation_uri = snapshot_generation_uri(table_uri, objects.job.created_at, run_id, attempt=activity.info().attempt)
     with tempfile.TemporaryDirectory(prefix="posthog-snapshot-") as temp_dir:
         with SnapshotCandidateBuilder(Path(temp_dir) / "observation.sqlite", config) as builder:
             async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
                 batch = prepare_batch_for_delta(batch, ch_types)
-                await asyncio.to_thread(builder.add_batch, batch)
+                await _run_builder_thread(builder, builder.add_batch, batch=batch)
 
             last_observation = previous_state.get("last_observation_at")
             observed_at = next_observation_time(
@@ -1205,12 +1240,15 @@ async def _materialize_snapshot(
             )
             try:
                 active_run_ids = await _active_snapshot_run_ids(objects.team.pk, objects.saved_query.id)
+                # Another run may have published after this run read its parent, so protect the
+                # generation the table serves now as well as this run's parent.
+                published_uri = await _published_snapshot_generation(objects.team.pk, objects.saved_query.id)
+                protected = {uri for uri in (parent_uri, published_uri, generation_uri) if uri is not None}
                 deleted = await asyncio.to_thread(
                     cleanup_snapshot_generations,
                     get_s3_client(),
                     table_uri=table_uri,
-                    current_generation_uri=parent_uri,
-                    candidate_generation_uri=generation_uri,
+                    protected_generation_uris=protected,
                     active_run_ids=active_run_ids,
                     now=observed_at,
                 )
@@ -1220,7 +1258,8 @@ async def _materialize_snapshot(
                 await logger.awarning(f"Could not clean old snapshot generations: {error}")
                 capture_exception(error)
 
-            result = await asyncio.to_thread(
+            result = await _run_builder_thread(
+                builder,
                 builder.write,
                 parent_uri=parent_uri,
                 generation_uri=generation_uri,
@@ -1229,11 +1268,16 @@ async def _materialize_snapshot(
                 generation=str(objects.saved_query.id),
                 run_id=run_id,
             )
+    file_uris = result.file_uris
+    if not file_uris and result.row_count == 0:
+        # delta-rs writes no parquet for an empty generation, and readers glob the generation folder.
+        file_uris = [await _write_empty_parquet_for_zero_rows(generation_uri, result.schema, logger)]
     state = {
         "generation_uri": generation_uri,
         "parent_generation_uri": parent_uri,
         "generation": str(objects.saved_query.id),
         "definition_fingerprint": snapshot_definition_fingerprint(objects.saved_query.query, config),
+        "unique_key": list(config.unique_key),
         "last_run_id": run_id,
         "last_observation_at": observed_at.isoformat(),
         "first_observation_at": previous_state.get("first_observation_at") or observed_at.isoformat(),
@@ -1245,7 +1289,7 @@ async def _materialize_snapshot(
     }
     return _SnapshotCandidate(
         row_count=result.row_count,
-        file_uris=result.file_uris,
+        file_uris=file_uris,
         generation_uri=generation_uri,
         state=state,
     )
@@ -1341,8 +1385,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     objects.job.full_refresh_reason = _reason_to_record(objects.job, plan)
     await database_sync_to_async_pool(objects.job.save)()
 
-    person_property_sink = await _build_person_property_sink(
-        objects, inputs.job_id, logger, incremental=plan.incremental
+    # A snapshot publishes history, not a row set, and bypasses the row sinks. So its consumers are
+    # left off rather than reported as enabled with nothing staged.
+    person_property_sink = (
+        None
+        if plan.snapshot
+        else await _build_person_property_sink(objects, inputs.job_id, logger, incremental=plan.incremental)
     )
     if person_property_sink is not None:
         # Cleared once at run start, like the import pipeline's sinks. The sink itself decides what to
@@ -1414,7 +1462,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
             inputs.team_id, str(objects.saved_query.id)
         )
-        account_property_sync_enabled = await _account_property_sync_enabled(objects, inputs.job_id, logger)
+        account_property_sync_enabled = (
+            False if plan.snapshot else await _account_property_sync_enabled(objects, inputs.job_id, logger)
+        )
         delta_version: int | None = None
         if account_property_sync_enabled:
             try:
@@ -1440,12 +1490,20 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             person_property_sync_enabled=person_property_sink is not None,
             account_property_sync_enabled=account_property_sync_enabled,
             delta_version=delta_version,
-            should_trigger_cdp_producer=cdp_sink.enabled,
+            should_trigger_cdp_producer=cdp_sink.enabled and not plan.snapshot,
             snapshot_generation_uri=snapshot_generation_uri,
             snapshot_state=snapshot_state,
         )
         published = True
         return result
+    except ClickHouseError as error:
+        if not published:
+            await cdp_sink.discard()
+        if DELTA_KERNEL_ERROR_MARKER in str(error):
+            raise ApplicationError(
+                str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
+            ) from error
+        raise
     except (Exception, asyncio.CancelledError):
         if not published:
             await cdp_sink.discard()

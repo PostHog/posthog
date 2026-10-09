@@ -114,6 +114,8 @@ _LAZY = {
     "validate_observation": "logic.snapshot",
     "snapshot_definition_fingerprint": "logic.snapshot",
     "snapshot_row_key": "logic.snapshot",
+    "validate_snapshot_values": "logic.snapshot",
+    "has_reserved_snapshot_column": "logic.snapshot",
     "snapshot_values_equal": "logic.snapshot",
     "snapshot_version_id": "logic.snapshot",
     "SNAPSHOT_FLAG": "logic.snapshot_rollout",

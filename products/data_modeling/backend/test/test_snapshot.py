@@ -67,6 +67,8 @@ def test_snapshot_closes_changed_and_missing_rows_and_reopens_rows() -> None:
         [{"id": None, "value": 1}],
         [{"id": 1, "value": 1}, {"id": 1, "value": 2}],
         [{"id": 1, "valid_from": "reserved"}],
+        [{"id": 1, "VALID_FROM": "reserved"}],
+        [{"id": 1, "payload": b"raw"}],
     ],
 )
 def test_snapshot_rejects_invalid_observations(rows: list[dict[str, object]]) -> None:

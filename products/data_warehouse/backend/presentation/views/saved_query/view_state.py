@@ -97,6 +97,7 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_is_incremental(self, view: DataWarehouseSavedQuery) -> bool:
         return get_incremental_config(view) is not None
 
+    # nosemgrep: choices-need-a-class -- derived read-only value; a class would rename the generated enum and its FE/MCP types
     @extend_schema_field(serializers.ChoiceField(choices=["full_refresh", "incremental", "snapshot"]))
     def get_materialization_mode(self, view: DataWarehouseSavedQuery) -> str:
         if isinstance(view.snapshot_config, dict) and view.snapshot_config.get("unique_key"):

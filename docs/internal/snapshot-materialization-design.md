@@ -52,10 +52,16 @@ The saved query remains scheduled by the existing DAG and does not depend on dem
 ## Run and publication protocol
 
 The implementation uses an immutable candidate generation. The current Delta path is never deleted
-by a snapshot run. A run reads the complete query into an attempt-specific candidate, applies the
-comparison policy to the last committed generation, writes the complete candidate to a dedicated
-snapshot-generation path, and passes that exact file list to the existing queryable-table staging
-activity. Snapshot state is updated only with the queryable publication update.
+by a snapshot run. A run reads the complete query into a candidate, applies the comparison policy to
+the last committed generation, and writes the complete candidate to its own folder under
+`snapshot-generations/`. The folder name carries the job creation time, the job ID, and the Temporal
+activity attempt number, so a retried attempt never writes into a folder that a failed attempt may
+have partly written.
+
+Snapshots bypass the file-list staging and copy step. Publication points the queryable table at the
+generation folder, and HogQL reads that folder with a `/**.parquet` glob, so readers depend on the
+folder contents rather than on a copied file list. Snapshot state is updated only with the queryable
+publication update.
 
 Existing full-refresh and incremental paths remain unchanged. In particular, snapshots do not call
 the destructive full-refresh helper. A failed extraction or candidate build leaves the committed
@@ -67,8 +73,8 @@ The worker writes each observed batch to a local SQLite spool. It scans the last
 and writes the candidate in bounded Arrow batches. The worker does not hold the full observation or
 history in Python memory.
 
-Each generation name includes the job creation time and job ID. Running job rows own their
-generations. The cleanup keeps owned generations, the published generation, and the current
+Job identity and attempt identity are separate: the job ID names the logical run, and the attempt
+number names one physical write. Running job rows own their generations. The cleanup keeps owned generations, the published generation, and the current
 candidate. It removes other generations after a delay that exceeds the materialization activity
 timeout.
 
@@ -100,12 +106,12 @@ interchangeable.
 
 ## Validation evidence
 
-The implementation was validated against the existing Delta writer, explicit file-list queryable
-staging, and the saved-query publication update. Regression coverage exercises initial and unchanged
+The implementation was validated against the existing Delta writer, direct reads of a generation
+folder by the queryable table, and the saved-query publication update. Regression coverage exercises initial and unchanged
 observations, updates, disappearance and reappearance, composite keys, duplicate and null keys,
 reserved columns, nested values, null-safe comparison, and column-order independence.
 
-Before production rollout, measure candidate rewrite and queryable-file copy costs at representative
+Before production rollout, measure candidate rewrite cost and direct-read query cost at representative
 history sizes and add failure-injection
 coverage for extraction, candidate writing, staging, publication acknowledgment, overlapping runs,
 schema drift, and generic rebuild attempts. Keep rollout behind a feature flag until those checks
