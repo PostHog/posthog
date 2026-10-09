@@ -18,6 +18,7 @@ import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
 import { matchesPaneQuery } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { todayShellLogic } from './todayShellLogic'
 import { TodayViewsFilterMenu } from './TodayViewsFilterMenu'
 import { todayViewsLogic } from './todayViewsLogic'
 import { shortTimeAgo } from './todayWorkItems'
@@ -40,6 +41,7 @@ export function TodayViewsSidebar(): JSX.Element {
     } = useValues(todayViewsLogic)
     const { loadRecentViews, loadMoreRecentViews, setRecentQuery, clearRecentSearchAndFilters } =
         useActions(todayViewsLogic)
+    const { collapseSidebarAfterPick } = useActions(todayShellLogic)
     const [scrollRoot, setScrollRoot] = useState<Element | null>(null)
     const { ref: inViewRef, inView: endInView } = useInView({
         root: scrollRoot,
@@ -99,6 +101,7 @@ export function TodayViewsSidebar(): JSX.Element {
                                 to={recent.href}
                                 active={path === removeProjectIdIfPresent(recent.href)}
                                 dataAttr="today-views-recently-viewed"
+                                onOpen={collapseSidebarAfterPick}
                             />
                         ))}
                     </div>
@@ -113,6 +116,7 @@ export function TodayViewsSidebar(): JSX.Element {
                             to={urls.views()}
                             active={path === urls.views()}
                             dataAttr="today-views-all"
+                            onOpen={collapseSidebarAfterPick}
                         />
                     )}
                     {recentUnavailable || !recentReady ? (
@@ -164,6 +168,7 @@ export function TodayViewsSidebar(): JSX.Element {
                                         to={item.href}
                                         active={path === removeProjectIdIfPresent(item.href)}
                                         dataAttr={`today-views-recent-${item.type}`}
+                                        onOpen={collapseSidebarAfterPick}
                                     />
                                 )
                             })}

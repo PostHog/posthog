@@ -13,7 +13,7 @@ const TAB_CLASS =
 
 export function TodayTabBar(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
-    const { pickPane } = useActions(todayShellLogic)
+    const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
@@ -27,7 +27,7 @@ export function TodayTabBar(): JSX.Element {
                             type="button"
                             aria-current={active ? 'page' : undefined}
                             data-attr={`today-rail-${pane}`}
-                            onClick={() => pickPane(pane)}
+                            onClick={() => clickRailPane(pane)}
                             className={cn(
                                 TAB_CLASS,
                                 active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground'

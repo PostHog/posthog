@@ -1,9 +1,8 @@
 import { useActions } from 'kea'
 
-import { IconSidebarClose } from '@posthog/icons'
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { todaySidebarShortcutLabel } from './todayRailItems'
+import { IconHideSidebar, todaySidebarShortcutLabel } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
 /** Hides the sidebar from its own title row. The scene header then shows the pane title to open it again. */
@@ -24,7 +23,7 @@ export function TodaySidebarCollapseButton(): JSX.Element {
                     />
                 }
             >
-                <IconSidebarClose />
+                <IconHideSidebar />
             </TooltipTrigger>
             <TooltipContent>
                 Hide sidebar

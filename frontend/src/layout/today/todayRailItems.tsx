@@ -1,4 +1,4 @@
-import { IconApps, IconChat, IconGridMasonry, IconHome } from '@posthog/icons'
+import { IconApps, IconChat, IconGridMasonry, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
 import { isMac } from 'lib/utils/dom'
 
@@ -28,3 +28,7 @@ export const TODAY_PANE_TITLES: Record<TodayRailPane, string> = {
 export function todaySidebarShortcutLabel(): string {
     return isMac() ? '⌘B' : 'Ctrl+B'
 }
+
+// The icon names describe the panel, not the click: IconSidebarOpen's arrow points in, so it reads as hide.
+export const IconHideSidebar = IconSidebarOpen
+export const IconShowSidebar = IconSidebarClose
