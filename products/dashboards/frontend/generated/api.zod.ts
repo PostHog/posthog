@@ -227,15 +227,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
-    level: zod
-        .union([zod.literal(21), zod.literal(37)])
-        .describe(
-            '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-        ),
-    user_uuid: zod.uuid(),
-})
-
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')

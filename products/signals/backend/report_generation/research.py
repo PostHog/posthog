@@ -336,6 +336,9 @@ _AGENT_CHECK_GUIDANCE = """- Use `kind: "agent"` when no single number settles t
   `{{"instructions": "<what a later run must establish>", "probe_hints": ["<issue id>", "<service>"]}}`.
   Say in `instructions` what result means the fix held and what result means it did not."""
 
+_METRIC_ONLY_CHECK_GUIDANCE = """- Only `metric_threshold` checks can run on this project, because it has no scout to run an
+  `agent` check. Do not return an `agent` check. When no metric settles the claim, return no check."""
+
 
 class FixVerificationOutput(BaseModel):
     """Session output for the final, actionable-only fix verification turn."""
@@ -1265,8 +1268,8 @@ def build_fix_verification_prompt(
 
     The two flags decide whether this turn may schedule its plan as well as write it, and are
     resolved per team: `metric_threshold` needs the report metrics rollout, because the check rides a
-    metric this report already shows, and `agent` needs the team enrolled in scouts, because nothing
-    would ever run a check with no fleet behind it. With neither, the turn writes prose only and the
+    metric this report already shows, and `agent` needs the team enrolled in scouts with a lane that
+    can run it, because nothing would ever run a check with no scout behind it. With neither, the turn writes prose only and the
     `checks` field never reaches the schema, so the model is not offered a channel it cannot use.
     """
     schema_dict = FixVerificationOutput.model_json_schema()
@@ -1275,6 +1278,7 @@ def build_fix_verification_prompt(
         for guidance, enabled in (
             (_METRIC_CHECK_GUIDANCE, metric_checks_enabled),
             (_AGENT_CHECK_GUIDANCE, agent_checks_enabled),
+            (_METRIC_ONLY_CHECK_GUIDANCE, metric_checks_enabled and not agent_checks_enabled),
         )
         if enabled
     ]

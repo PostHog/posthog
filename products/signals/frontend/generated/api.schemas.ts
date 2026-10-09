@@ -122,6 +122,7 @@ export interface PauseResponseApi {
  * * `in_progress` - In Progress
  * * `pending_input` - Pending Input
  * * `ready` - Ready
+ * * `monitoring` - Monitoring
  * * `resolved` - Resolved
  * * `failed` - Failed
  * * `deleted` - Deleted
@@ -135,6 +136,7 @@ export const SignalReportStatusEnumApi = {
     InProgress: 'in_progress',
     PendingInput: 'pending_input',
     Ready: 'ready',
+    Monitoring: 'monitoring',
     Resolved: 'resolved',
     Failed: 'failed',
     Deleted: 'deleted',
@@ -4465,6 +4467,8 @@ export interface ScoutTrialComparisonApi {
      * * `failed` - failed
      * * `unknown` - unknown */
     status: ScoutTrialComparisonStatusEnumApi
+    /** Whether this finished trial is hidden from the default history. */
+    archived: boolean
     /**
      * Sanitized comparison error, if any.
      * @nullable
@@ -4474,11 +4478,23 @@ export interface ScoutTrialComparisonApi {
     evaluation: ScoutTrialEvaluationApi | null
 }
 
+export interface ScoutTrialComparisonArchiveRequestApi {
+    /** Saved comparison identity. */
+    comparison_id: string
+    /** Hide a finished trial from history, or restore it without rerunning it. */
+    archived: boolean
+}
+
 export interface ScoutTrialComparisonHistoryApi {
     /** This operator's most recent saved comparisons. */
     results: ScoutTrialComparisonApi[]
     /** Whether more comparisons exist than the requested limit. */
     has_more: boolean
+    /**
+     * Cursor for the next page, or null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
 }
 
 export interface ScoutTrialComparisonQueryApi {
@@ -7708,6 +7724,16 @@ export type SignalsScoutConfigListParams = {
 }
 
 export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Cursor returned by the previous history page. Omit to read the newest trials.
+     * @minLength 1
+     * @pattern ^[0-9]{19}-[0-9a-f-]{36}\.json$
+     */
+    cursor?: string
+    /**
+     * Include archived trials in the history.
+     */
+    include_archived?: boolean
     /**
      * Maximum number of recent private runs to return.
      * @minimum 1

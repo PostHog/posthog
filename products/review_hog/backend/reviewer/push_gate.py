@@ -7,10 +7,12 @@ sees a first review or a human trigger: the workflow calls it only for automatic
 The rules, in order. The first rule that matches gives the reason:
 
 1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
-2. `merge_only`: the PR's full diff against its base is the same at both heads (a base merge or a
+2. `reviewhog_commits_only`: the ReviewHog app authored every new commit, for example the fixes the
+   resolution stage pushed. Reviewing them again would review ReviewHog's own answer to its review.
+3. `merge_only`: the PR's full diff against its base is the same at both heads (a base merge or a
    rebase). A merge that changes the PR's own lines runs the review.
-3. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
-4. `system_one_below_threshold`: System One rates the new own commits below a threshold.
+4. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
+5. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
@@ -31,13 +33,18 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.llm.system_one_client import build_system_one_client
 
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    github_api_request,
+    is_app_bot_author,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRParser
 
 logger = logging.getLogger(__name__)
 
 # A rule that is off only records the skip it would make, so production data can calibrate it first.
 SKIP_NO_NEW_COMMITS = True
+SKIP_REVIEWHOG_COMMITS_ONLY = True
 SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
@@ -85,7 +92,9 @@ _NON_CODE_FILE = re.compile(
     )
 )
 
-SkipReason = Literal["no_new_commits", "merge_only", "docs_only", "system_one_below_threshold"]
+SkipReason = Literal[
+    "no_new_commits", "reviewhog_commits_only", "merge_only", "docs_only", "system_one_below_threshold"
+]
 RunReason = Literal[
     "commits_removed",
     "system_one_above_threshold",
@@ -127,11 +136,14 @@ class _PRDiff:
     commit_shas: list[str]
     merge_shas: set[str]
     files: list[_ChangedFile]
+    reviewhog_shas: set[str]
 
 
 def _rule_enabled(reason: SkipReason) -> bool:
     if reason == "no_new_commits":
         return SKIP_NO_NEW_COMMITS
+    if reason == "reviewhog_commits_only":
+        return SKIP_REVIEWHOG_COMMITS_ONLY
     if reason == "merge_only":
         return SKIP_MERGE_ONLY
     if reason == "docs_only":
@@ -229,6 +241,7 @@ class PushGate:
             commit_shas=[commit["sha"] for commit in commits],
             merge_shas={commit["sha"] for commit in commits if len(commit.get("parents") or []) > 1},
             files=files,
+            reviewhog_shas={commit["sha"] for commit in commits if is_app_bot_author(commit.get("author"))},
         )
 
     def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:
@@ -287,6 +300,8 @@ class PushGate:
             # A force-push back to an earlier commit adds no commit but removes changes the last review saw.
             return _runs("commits_removed")
         own_shas = [sha for sha in new_shas if sha not in current.merge_shas]
+        if all(sha in current.reviewhog_shas for sha in new_shas):
+            return _matched("reviewhog_commits_only", own_commits=len(own_shas))
         if _same_full_diff(previous, current):
             return _matched("merge_only", own_commits=len(own_shas))
         if not own_shas:

@@ -29,6 +29,9 @@ _DIMENSION_FIELDS = {
 }
 
 
+SEARCH_SESSION_COLUMNS = ("entry_url", "has_gclid", "has_msclkid")
+
+
 def _raw_session_source(modifiers: HogQLQueryModifiers) -> tuple[str, ast.Expr]:
     is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
     table = "raw_sessions_v3" if is_v3 else "raw_sessions"
@@ -53,6 +56,12 @@ def _raw_dimensions(
         "$end_timestamp",
         *[field for column, field in _DIMENSION_FIELDS.items() if column in columns],
     ]
+    if "entry_url" in columns or "has_msclkid" in columns:
+        fields.append("$entry_current_url")
+    if "has_gclid" in columns:
+        fields.append("$entry_gclid")
+    if "has_msclkid" in columns:
+        fields.append("$entry_msclkid")
     context = HogQLContext(modifiers=modifiers)
     select_sessions = (
         select_from_sessions_table_v3
@@ -96,6 +105,14 @@ def _raw_dimensions(
             dimensions.append(
                 parse_expr("toString(ifNull({field}, ''))", placeholders={"field": ast.Field(chain=[field])})
             )
+    search_dimensions = {
+        "entry_url": parse_expr("cutQueryStringAndFragment(ifNull($entry_current_url, ''))"),
+        "has_gclid": parse_expr("notEmpty(ifNull($entry_gclid, ''))"),
+        "has_msclkid": parse_expr(
+            "notEmpty(ifNull($entry_msclkid, '')) OR notEmpty(extractURLParameter(ifNull($entry_current_url, ''), 'msclkid'))"
+        ),
+    }
+    dimensions.extend(search_dimensions[column] for column in SEARCH_SESSION_COLUMNS if column in columns)
     query = parse_select(
         """
         SELECT session_id_v7, {dimensions} AS dimensions, now() AS computed_at, 1 AS source_priority
