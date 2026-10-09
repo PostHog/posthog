@@ -670,7 +670,12 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual((user_id, title, push_body), (creator.id, "posthog", '"Test Task" needs your input'))
         self.assertEqual(
             data,
-            {"taskId": str(self.task.id), "taskRunId": str(self.task_run.id), "notificationKind": "awaiting"},
+            {
+                "taskId": str(self.task.id),
+                "taskRunId": str(self.task_run.id),
+                "notificationKind": "awaiting",
+                "projectId": str(self.task.team_id),
+            },
         )
 
     @parameterized.expand(

@@ -65,6 +65,7 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(title, "posthog")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
+        self.assertEqual(data["projectId"], str(self.task.team_id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
         self.assertEqual(data["notificationKind"], _name)
         # No presence rows in this test's setUp, so nothing to suppress.
