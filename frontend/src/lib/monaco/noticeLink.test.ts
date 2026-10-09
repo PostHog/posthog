@@ -20,4 +20,16 @@ describe('noticeLink', () => {
     ])('adds no link for %s', (_name: string, url: string | undefined) => {
         expect(noticeLink(url, monaco)).toBeUndefined()
     })
+
+    it('adds no link when Monaco rejects an https url', () => {
+        const rejectingMonaco = {
+            Uri: {
+                parse: () => {
+                    throw new Error('[UriError]')
+                },
+            },
+        } as unknown as Pick<Monaco, 'Uri'>
+
+        expect(noticeLink('https:////x', rejectingMonaco)).toBeUndefined()
+    })
 })

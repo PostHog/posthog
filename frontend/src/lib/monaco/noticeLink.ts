@@ -16,10 +16,16 @@ export function noticeLink(
     url: string | null | undefined,
     monaco: Pick<Monaco, 'Uri'> | null | undefined
 ): editor.IMarkerData['code'] {
-    if (!url || !monaco || !isHttpsUrl(url)) {
+    const trimmed = url?.trim()
+    if (!trimmed || !monaco || !isHttpsUrl(trimmed)) {
         return undefined
     }
-    // Uri.parse throws on surrounding whitespace.
-    // Monaco gets the trimmed value that isHttpsUrl checked.
-    return { value: 'Learn more', target: monaco.Uri.parse(url.trim()) }
+    try {
+        return { value: 'Learn more', target: monaco.Uri.parse(trimmed) }
+    } catch {
+        // Uri.parse rejects some URLs that isHttpsUrl accepts, such as `https:////x`.
+        // An exception here would stop every marker for the query.
+        // The catch drops only the link.
+        return undefined
+    }
 }

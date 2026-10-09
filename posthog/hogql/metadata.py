@@ -307,16 +307,13 @@ def _flag_called_move_notices(team: Team) -> FeatureFlagResult | None:
 
 
 def _flag_called_announcement_url(payload: object) -> str | None:
-    """Only an https URL with a host passes, because the SQL editor turns the URL into a link.
+    """The announcement URL from a flag payload of the shape `{"url": ...}`.
 
-    The result has no surrounding whitespace, because the editor's URI parser rejects it.
+    Clients of HogQL metadata, such as the SQL editor, turn `HogQLNotice.url` into a link.
+    Only an https URL with a host passes for this reason. The result has no surrounding whitespace.
     """
-    if not isinstance(payload, dict):
-        if payload is not None:
-            logger.warning("hogql_flag_called_announcement_payload_invalid", payload_type=type(payload).__name__)
-        return None
-    url = payload.get("url")
-    if url is None:
+    url = payload.get("url") if isinstance(payload, dict) else None
+    if payload is None or (isinstance(payload, dict) and url is None):
         return None
     try:
         parsed = urlparse(url.strip()) if isinstance(url, str) else None
@@ -324,7 +321,7 @@ def _flag_called_announcement_url(payload: object) -> str | None:
         parsed = None
     if parsed is not None and parsed.scheme == "https" and parsed.hostname:
         return parsed.geturl()
-    logger.warning("hogql_flag_called_announcement_url_invalid", url=str(url))
+    logger.warning("hogql_flag_called_announcement_url_invalid", payload=repr(payload)[:200])
     return None
 
 
