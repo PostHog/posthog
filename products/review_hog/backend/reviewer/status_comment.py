@@ -17,6 +17,8 @@ retry a review, so all exceptions are swallowed after logging.
 
 import random
 import logging
+from collections.abc import Sequence
+from dataclasses import field
 from datetime import timedelta
 from typing import Any
 
@@ -34,6 +36,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
+    finding_heading,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
@@ -54,6 +57,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_request,
     is_app_bot_author,
 )
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +219,10 @@ def render_in_progress_body(
     )
 
 
+# A long list would bury the turn's own outcome, so the status comment shows this many and counts the rest.
+_ALREADY_RAISED_SHOWN = 10
+
+
 def render_final_body(
     report_id: str,
     *,
@@ -229,7 +237,8 @@ def render_final_body(
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
     capped_lens_parts: int | None = None,
-    already_raised: int = 0,
+    already_raised: Sequence[AlreadyRaised] = (),
+    pr_url: str | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -240,15 +249,18 @@ def render_final_body(
     place the author hears about held-back findings, so the comment must not dead-end.
     `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
     note goes here and not in the review body, because a clean turn posts no review. `already_raised`
-    counts the findings a review asked for additional findings skipped because a PR comment raises them.
+    lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
+    linked to that comment under `pr_url`.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = [f"### \U0001f994 {_product_name(review_mode)} reviewed this pull request", ""]
+    if found_total == 0 and already_raised:
+        lines.append("Nothing new to raise.")
     # A flash turn is the quick pass, so a clean one gets a plain line instead of the celebration.
-    if found_total == 0 and review_mode == REVIEW_MODE_FLASH:
+    elif found_total == 0 and review_mode == REVIEW_MODE_FLASH:
         lines.append("Nothing worth raising.")
     elif found_total == 0 and celebrate_clean_reviews:
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
@@ -287,13 +299,13 @@ def render_final_body(
                 f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
             ]
         )
-    if already_raised > 0:
-        lines.extend(
-            [
-                "",
-                f"Skipped {_plural(already_raised, 'finding')} that other comments on this pull request already raise.",
-            ]
-        )
+    if already_raised:
+        lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
+        for raised in already_raised[:_ALREADY_RAISED_SHOWN]:
+            link = f" ([comment]({pr_url}#discussion_r{raised.comment_id}))" if pr_url else ""
+            lines.append(f"- {finding_heading(raised.title, raised.level)}, raised by `{raised.commenter}`{link}")
+        if len(already_raised) > _ALREADY_RAISED_SHOWN:
+            lines.append(f"- and {len(already_raised) - _ALREADY_RAISED_SHOWN} more")
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
@@ -592,7 +604,7 @@ class FinalizeStatusCommentInput:
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
     capped_lens_parts: int | None = None
-    already_raised: int = 0
+    already_raised: list[AlreadyRaised] = field(default_factory=list)
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -624,6 +636,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,
             already_raised=input.already_raised,
+            pr_url=report.pr_url or None,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:

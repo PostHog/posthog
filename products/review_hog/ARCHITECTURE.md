@@ -292,20 +292,18 @@ heads' PR snapshots are compared by line content per file, so lines a base merge
 findings, files whose patch GitHub left out, a first review, and a re-run at the reviewed head skip the check. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
 `run_oneshot_openai_review`): the main findings against earlier turns, and the lens findings against the same plus
-the main findings as anchors, so a lens finding can lose to a main finding but never the reverse. PR comments from
-people and other bots join the dedup only when the trigger asks for additional findings
-(`dedupe_against_pr_comments`, off by default), so a review posts what it finds whatever other comments say. In that
-mode the status comment counts the findings skipped because a PR comment already raises them.
+the main findings as anchors, so a lens finding can lose to a main finding but never the reverse. Flash never reads
+PR comments, so it posts what it finds whatever people or other bots already said.
 Both calls send every finding to the LLM; the pipeline's positional pre-filter does not apply to Flash.
-The Flash dedup output (`FlashIssueDeduplication`) names what each duplicate repeats (`duplicate_of`: the finding kept
-in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
+The dedup output (`IssueDeduplication`, shared with the pipeline) names what each duplicate repeats (`duplicate_of`:
+the finding kept in its place, an earlier turn's finding by its issue key, or a PR comment id). A finding that survives takes the
 priority of the most severe duplicate removed in its favor, so a lens P1 that repeats a main P3 posts as must-fix.
 A removal holds only when what it names survives (`_resolve_duplicates`): a finding that names itself or an id its call
 was not shown stays, findings that name each other in a loop keep the first one in the compose order (priority, P level,
 main before lens, session order), and a removal whose target also drops records the survivor at the end of the chain.
 A Flash dedup call that fails non-retryably (the gateway rejects the model), or fails on the activity's last attempt,
-falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding or a PR comment
-drops as its repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
+falls back to the positional pre-filter alone: a finding on the lines of an earlier turn's finding drops as its
+repeat, and findings of this turn never drop each other. The turn logs it, marks those drops
 `dedup_fallback`, and reports `flash_dedup_fallback`, so a dedup failure never fails a turn whose sessions succeeded.
 `compose_flash_findings` then ranks the findings highest priority first, a reported P0 before a P1 of the same stored
 priority, and the main session first on ties, before anything persists. Every must-fix (P0/P1) finding is kept outside the cap, up to `FLASH_MUST_FIX_CAP_MULTIPLIER` (2)
@@ -389,6 +387,11 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    `DEDUP_*` constants — which also drops findings any prior inline
    comment already raised — every reviewer (bot
    or human, ReviewHog's own included) treated uniformly, the author handle passed through for context.
+   Only a Full turn reads PR comments here, and it reads them again at dedup time (`_current_pr_comments`),
+   because other review bots often post while it runs; comments GitHub no longer places on a line (outdated)
+   do not count. Each duplicate names what it repeats, and the final status comment lists the findings
+   another reviewer's comment already raises (`already_raised`, ReviewHog's own comments excluded) with a link
+   to that comment, so the agreement shows instead of disappearing. A pipeline Flash turn reads no comments.
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
 8. **Validate** — the `ValidateIssuesWorkflow` child groups the survivors by chunk and fans out **one warm

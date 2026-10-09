@@ -74,9 +74,6 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
-    # Off by default, so a review posts what it finds whatever other comments on the PR say. A trigger that
-    # asks for only the findings not on the PR yet turns it on.
-    dedupe_against_pr_comments: bool = False
 
     @property
     def repository(self) -> str:

@@ -14,10 +14,12 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
+    REVIEW_HOG_FINDING_MARKER,
+    display_level,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication, IssueDeduplication
-from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
+from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
+from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange, ReportedPriority
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_openai_review, run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
@@ -31,8 +33,37 @@ class Duplicate:
 
     issue: Issue
     # The id of what it repeats: a finding of this call, an anchor, an earlier turn's issue key, or a PR
-    # comment id. Only the Flash dedup names it.
+    # comment id.
     duplicate_of: str | None
+
+
+@frozen
+class AlreadyRaised:
+    """A finding a turn did not post because another reviewer's PR comment already raises it."""
+
+    title: str
+    level: ReportedPriority
+    comment_id: int
+    commenter: str
+
+
+def already_raised(duplicates: Sequence[Duplicate], pr_comments: Sequence[PRComment]) -> list[AlreadyRaised]:
+    """The duplicates that repeat another reviewer's PR comment. ReviewHog's own comments do not count."""
+    others = {
+        str(comment.id): comment
+        for comment in pr_comments
+        if comment.id is not None and REVIEW_HOG_FINDING_MARKER not in comment.body
+    }
+    return [
+        AlreadyRaised(
+            title=duplicate.issue.title,
+            level=display_level(duplicate.issue.priority, duplicate.issue.reported_priority),
+            comment_id=comment.id,
+            commenter=comment.user,
+        )
+        for duplicate in duplicates
+        if (comment := others.get(duplicate.duplicate_of or "")) is not None and comment.id is not None
+    ]
 
 
 @frozen
@@ -120,16 +151,13 @@ def _positional_duplicates(
     return named
 
 
-def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None, *, with_id: bool) -> dict:
-    """One prior finding as prompt data: its content plus how the earlier turn's validator ruled.
-
-    `with_id` adds the issue key as the finding's id, for a dedup that names what each duplicate repeats.
-    """
+def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None) -> dict:
+    """One prior finding as prompt data: its content, its issue key as the id a duplicate names, and how
+    the earlier turn's validator ruled."""
     payload = finding.model_dump(
         mode="json", include={"title", "file", "lines", "body", "suggestion", "priority", "source_perspective"}
     )
-    if with_id:
-        payload["id"] = finding.issue_key
+    payload["id"] = finding.issue_key
     if verdict is None:
         payload["prior_ruling"] = "not validated (the earlier turn did not finish judging it)"
     elif verdict.is_valid:
@@ -233,8 +261,8 @@ async def deduplicate_issues(
 
     `anchors` are findings this turn keeps whatever the LLM answers. They count as prior coverage, so
     an issue that restates one is dropped, and they are never dropped or returned themselves.
-    `for_flash` runs the LLM call on the Flash dedup pins instead of the pipeline's, and asks it to name
-    what each duplicate repeats (`Duplicate.duplicate_of`). A Flash call that fails non-retryably, or
+    Every call names what each duplicate repeats (`Duplicate.duplicate_of`). `for_flash` runs the LLM call
+    on the Flash dedup pins instead of the pipeline's. A Flash call that fails non-retryably, or
     fails at all when `fall_back_on_any_error` says no retry follows, falls back to the positional
     pre-filter alone (`_positional_duplicates`), because the review sessions already ran and a dedup
     failure must not cost the turn.
@@ -269,15 +297,11 @@ async def deduplicate_issues(
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
         PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
         PRIOR_FINDINGS_JSON=json.dumps(
-            [_prior_finding_payload(f, v, with_id=for_flash) for f, v in prior_findings]
-            + [_anchor_payload(a) for a in anchors],
+            [_prior_finding_payload(f, v) for f, v in prior_findings] + [_anchor_payload(a) for a in anchors],
             indent=2,
         ),
         ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
-        DEDUPLICATION_SCHEMA=(
-            json.dumps(FlashIssueDeduplication.model_json_schema(), indent=2) if for_flash else schema.strip()
-        ),
-        NAMES_DUPLICATE_OF=for_flash,
+        DEDUPLICATION_SCHEMA=schema.strip(),
     )
 
     # Each removed id, mapped to what it repeats when the dedup names it.
@@ -290,7 +314,7 @@ async def deduplicate_issues(
                 user_id=user_id,
                 prompt=prompt,
                 system_prompt=DEDUP_SYSTEM_PROMPT,
-                model_to_validate=FlashIssueDeduplication,
+                model_to_validate=IssueDeduplication,
                 step_name="dedup",
                 model=FLASH_DEDUP_MODEL,
                 reasoning_effort=FLASH_DEDUP_REASONING_EFFORT,
@@ -314,7 +338,7 @@ async def deduplicate_issues(
             repository=repository,
             workflow_id_prefix=workflow_id_prefix,
         )
-        named_duplicates = {dup.id: None for dup in deduplication_result.duplicates}
+        named_duplicates = {dup.id: dup.duplicate_of for dup in deduplication_result.duplicates}
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
     deduplicated_issues = unique + [issue for issue in candidates if issue.id not in named_duplicates]
     logger.info(

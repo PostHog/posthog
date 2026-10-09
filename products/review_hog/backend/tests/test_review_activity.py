@@ -21,7 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewArm,
     review_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
@@ -37,6 +37,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    _current_pr_comments,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -591,3 +592,33 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
         (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
         (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
     ]
+
+
+def _comment(comment_id: int, line: int | None) -> PRComment:
+    return PRComment(id=comment_id, path="a.py", line=line, body="x", diff_hunk="", user="other-bot", created_at="c")
+
+
+@pytest.mark.parametrize(
+    "fetch_fails,expected_ids",
+    [
+        pytest.param(False, [2, 1], id="adds_comments_posted_during_the_turn"),
+        pytest.param(True, [1], id="keeps_the_first_read_when_github_fails"),
+    ],
+)
+def test_full_dedup_reads_current_comments_without_outdated_ones(fetch_fails: bool, expected_ids: list[int]) -> None:
+    # Other bots often post while a Full turn runs, so a start-of-turn read misses what they raise. A comment
+    # GitHub no longer places on a line is about code that changed, so it must not suppress a finding.
+    snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None)]})
+    fetcher = MagicMock()
+    fetcher.return_value.fetch_pr_comments.return_value = [_comment(2, 20), _comment(1, 10)]
+    with (
+        patch(
+            f"{_MODULE}._installation_auth",
+            side_effect=RuntimeError("no installation") if fetch_fails else None,
+            return_value=("tok", None),
+        ),
+        patch(f"{_MODULE}.PRFetcher", fetcher),
+    ):
+        comments = _current_pr_comments(SandboxStageInput(**_single_agent_stage()), snapshot)
+
+    assert [comment.id for comment in comments] == expected_ids
