@@ -9,6 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+
 from products.metrics.backend.facade.api import list_metric_picker_names
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
 from products.metrics.backend.metric_names_query_runner import (
@@ -531,11 +533,21 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
 
         with patch("products.metrics.backend.metric_names_query_runner.execute_hogql_query") as execute:
-            execute.side_effect = [
-                MagicMock(results=[("m1", 1)]),
-                MagicMock(results=[("m1", "gauge", "", timezone.now())]),
-            ]
+            execute.return_value = MagicMock(results=[("m1", "gauge", "", timezone.now())])
             rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
 
-        self.assertEqual(execute.call_count, 2)
+        # Names and their series details come back in one ClickHouse query.
+        self.assertEqual(execute.call_count, 1)
         self.assertEqual(rows[0]["sparkline"], [])
+
+    def test_name_without_a_series_row_keeps_empty_details(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics4_series")
+
+        rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
+
+        self.assertEqual(
+            [(row["name"], row["metric_type"], row["unit"], row["last_seen"]) for row in rows],
+            [("m1", "", "", None)],
+        )

@@ -88,11 +88,11 @@ function MetricNameFilterInner({
     disabled?: boolean
     disabledReason?: string | null
 }): JSX.Element {
-    const { items: pickerItems, itemsLoading, search } = useValues(metricNamePickerLogic)
+    const { filteredItems: pickerItems, itemsLoading, search } = useValues(metricNamePickerLogic)
     const { setSearch } = useActions(metricNamePickerLogic)
 
     // The list holds one entry per name and type, and the type is not shown.
-    const items = useMemo(
+    const filteredItems = useMemo(
         () => pickerItems.filter((item, index) => pickerItems.findIndex((other) => other.name === item.name) === index),
         [pickerItems]
     )
@@ -106,12 +106,15 @@ function MetricNameFilterInner({
         [value, onChange]
     )
 
-    const rowProps = useMemo<OptionRowData>(() => ({ items, selected: value, onPick }), [items, value, onPick])
+    const rowProps = useMemo<OptionRowData>(
+        () => ({ items: filteredItems, selected: value, onPick }),
+        [filteredItems, value, onPick]
+    )
 
     const listHeight = useMemo(() => {
-        const height = items.length * ROW_HEIGHT
+        const height = filteredItems.length * ROW_HEIGHT
         return Math.min(height, MAX_DROPDOWN_HEIGHT)
-    }, [items.length])
+    }, [filteredItems.length])
 
     const triggerLabel = value || placeholder
 
@@ -131,21 +134,26 @@ function MetricNameFilterInner({
                             autoFocus
                         />
                     </div>
-                    {itemsLoading && items.length === 0 ? (
-                        <div className="p-2 text-muted text-center text-xs">Loading metrics…</div>
-                    ) : items.length === 0 ? (
+                    {itemsLoading && filteredItems.length === 0 ? (
+                        <div className="p-2 text-muted text-center text-xs">
+                            {search ? 'Searching metrics…' : 'Loading metrics…'}
+                        </div>
+                    ) : filteredItems.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
                             {search ? 'No metrics match this search.' : 'No metrics ingested in the last 24 hours.'}
                         </div>
                     ) : (
                         <List<OptionRowData>
                             style={{ width: DROPDOWN_WIDTH, height: listHeight }}
-                            rowCount={items.length}
+                            rowCount={filteredItems.length}
                             rowHeight={ROW_HEIGHT}
                             overscanCount={5}
                             rowComponent={MetricOptionRow}
                             rowProps={rowProps}
                         />
+                    )}
+                    {itemsLoading && search && filteredItems.length > 0 && (
+                        <div className="px-2 py-1 text-muted text-xs">Searching for more metrics…</div>
                     )}
                 </div>
             }

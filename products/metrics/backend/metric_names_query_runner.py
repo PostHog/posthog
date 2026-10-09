@@ -13,6 +13,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
@@ -90,13 +91,13 @@ class MetricNamesQueryRunner:
             right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
         )
 
-    def _build_query(self) -> ast.SelectQuery:
+    def _names_query(self) -> ast.SelectQuery:
         if not self.search:
             # A separate query, because ClickHouse reads a constant sort key as a column position.
             query = parse_select(
                 """
                     SELECT
-                        metric_name AS name,
+                        metric_name,
                         uniqExact(service_name) AS matching_services
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
@@ -112,7 +113,7 @@ class MetricNamesQueryRunner:
             query = parse_select(
                 """
                     SELECT
-                        metric_name AS name,
+                        metric_name,
                         uniqExact(service_name) AS matching_services
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
@@ -152,29 +153,44 @@ class MetricNamesQueryRunner:
             query.where = ast.And(exprs=[query.where, self._services_expr()])
         return query
 
-    def _details_query(self, names: Sequence[str]) -> ast.SelectQuery:
+    def _build_query(self) -> ast.SelectQuery:
+        # One round trip: the names pick the page, and the series join adds type, unit and last seen.
+        names_query = self._names_query()
         # Not aliased `last_seen`: HogQL would resolve the WHERE's `last_seen` to the aggregate.
         query = parse_select(
             """
                 SELECT
-                    metric_name AS name,
-                    any(metric_type) AS metric_type,
-                    any(unit) AS unit,
-                    max(last_seen) AS last_seen_at
-                FROM posthog.metric_series
-                WHERE last_seen >= {lookback_start}
-                  AND metric_name IN {names}
-                GROUP BY metric_name
+                    names.metric_name AS name,
+                    details.metric_type AS metric_type,
+                    details.unit AS unit,
+                    if(details.series_metric_name = '', NULL, details.last_seen_at) AS last_seen_at
+                FROM {names} AS names
+                LEFT JOIN (
+                    SELECT
+                        metric_name AS series_metric_name,
+                        any(metric_type) AS metric_type,
+                        any(unit) AS unit,
+                        max(last_seen) AS last_seen_at
+                    FROM posthog.metric_series
+                    WHERE last_seen >= {lookback_start}
+                      AND metric_name IN (SELECT metric_name FROM {page_names})
+                    GROUP BY metric_name
+                ) AS details ON details.series_metric_name = names.metric_name
             """,
             placeholders={
+                "names": names_query,
+                "page_names": clone_expr(names_query),
                 "lookback_start": self._lookback_start(),
-                "names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names]),
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        assert query.where is not None
         if self.services:
-            query.where = ast.And(exprs=[query.where, self._services_expr()])
+            assert query.select_from is not None and query.select_from.next_join is not None
+            details = query.select_from.next_join.table
+            assert isinstance(details, ast.SelectQuery) and details.where is not None
+            details.where = ast.And(exprs=[details.where, self._services_expr()])
+        # A join does not keep the page order, so the outer query sorts by the same keys.
+        query.order_by = [clone_expr(order) for order in names_query.order_by or []]
         return query
 
     def run(self) -> list[dict[str, Any]]:
@@ -186,33 +202,22 @@ class MetricNamesQueryRunner:
             workload=Workload.LOGS,
             settings=settings,
         )
-        names = [row[0] for row in response.results]
-        if not names:
+        if not response.results:
             return []
 
-        details_response = execute_hogql_query(
-            query_type="MetricNamesDetailsQuery",
-            query=self._details_query(names),
-            team=self.team,
-            workload=Workload.LOGS,
-            settings=settings,
-        )
-        details = {row[0]: row[1:] for row in details_response.results}
+        names = [row[0] for row in response.results]
         sparklines = self._sparklines(names) if self.include_sparklines else {}
 
-        rows = []
-        for name in names:
-            metric_type, unit, last_seen = details.get(name, ("", "", None))
-            rows.append(
-                {
-                    "name": name,
-                    "metric_type": metric_type,
-                    "unit": unit,
-                    "last_seen": _isoformat(last_seen),
-                    "sparkline": sparklines.get(name, []),
-                }
-            )
-        return rows
+        return [
+            {
+                "name": name,
+                "metric_type": metric_type or "",
+                "unit": unit or "",
+                "last_seen": _isoformat(last_seen),
+                "sparkline": sparklines.get(name, []),
+            }
+            for name, metric_type, unit, last_seen in response.results
+        ]
 
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         if not names:

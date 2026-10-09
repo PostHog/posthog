@@ -512,16 +512,17 @@ export interface metricsViewerLogicValues {
 export interface metricsViewerLogicActions {
     loadItemsSuccess: (
         items: _MetricPickerNameApi[],
-        payload?:
-            | {
-                  debounce: boolean
-              }
-            | undefined
+        payload?: any
     ) => {
         items: _MetricPickerNameApi[]
-        payload?: {
-            debounce: boolean
-        }
+        payload?: any
+    } // metricNamePickerLogic
+    searchItemsSuccess: (
+        items: _MetricPickerNameApi[],
+        payload?: any
+    ) => {
+        items: _MetricPickerNameApi[]
+        payload?: any
     } // metricNamePickerLogic
     setServices: (services: string[]) => {
         services: string[]
@@ -818,7 +819,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             metricNamePickerLogic,
             ['items', 'services as pickerServices'],
         ],
-        actions: [metricNamePickerLogic, ['loadItemsSuccess', 'setServices']],
+        actions: [metricNamePickerLogic, ['loadItemsSuccess', 'searchItemsSuccess', 'setServices']],
     })),
     actions({
         // The single-clause setters target the active clause, so everything that
@@ -1214,6 +1215,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
             },
             loadItemsSuccess: backfillClauseTypes,
+            searchItemsSuccess: backfillClauseTypes,
             // A URL restore replaces every clause at once and never ran the pick-time
             // latch, so it needs the same backfill against whatever the picker has.
             setClauses: () => {

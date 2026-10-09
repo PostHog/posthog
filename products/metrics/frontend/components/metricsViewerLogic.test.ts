@@ -838,7 +838,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({ debounce: true })
+            metricNamePickerLogic.actions.loadItems()
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')
