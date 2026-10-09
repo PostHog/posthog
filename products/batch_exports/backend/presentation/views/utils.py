@@ -11,10 +11,12 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.models import Team
 
 HOGQL_MODIFIERS_HELP_TEXT = (
-    "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. "
-    "Each modifier set here overrides the project modifier with the same name, and the project "
-    "modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so "
-    "timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead."
+    "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example "
+    "{\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here "
+    "overrides the project modifier with the same name, and the project modifiers apply to all others. If neither "
+    "sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to "
+    "export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object "
+    "replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
 )
 
 
