@@ -1391,16 +1391,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohorts_by_id = Cohort.objects.filter(team__project_id=team.project_id).in_bulk(
             {cohort_id for cohort_id in map(safe_int, referenced_ids) if cohort_id is not None}
         )
+        # The editor cannot edit a deleted cohort. The user cannot remove the criterion before the restore.
         for value in referenced_ids:
             cohort = cohorts_by_id.get(safe_int(value))
             if cohort is None:
-                raise ValidationError(
-                    detail=f"Cohort with id {value} does not exist. Choose another cohort or remove this criterion.",
-                    code="cohort_does_not_exist",
+                detail = (
+                    f"This cohort can't be restored because it includes cohort with id {value}, which does not exist. Create a new cohort instead."
+                    if restoring
+                    else f"Cohort with id {value} does not exist. Choose another cohort or remove this criterion."
                 )
+                raise ValidationError(detail=detail, code="cohort_does_not_exist")
             if cohort.deleted:
                 label = f"'{cohort.name}' (ID {cohort.pk})" if cohort.name else f"with id {cohort.pk}"
-                # The editor cannot edit a deleted cohort. The user cannot remove the criterion before the restore.
                 detail = (
                     f"This cohort includes cohort {label}, which has been deleted. Restore that cohort first."
                     if restoring
