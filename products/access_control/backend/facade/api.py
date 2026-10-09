@@ -217,7 +217,7 @@ def terraform_account_user_id_for_team(*, team_id: int) -> int | None:
     or None when Terraform does not manage them. A filter rather than get_or_create_team_extension,
     so that a read on the hot path never inserts a row."""
     config = (
-        TeamAccessControlConfig.objects.filter(team_id=team_id, managed_by_terraform=True, managed_by__isnull=False)
+        TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True, managed_by__isnull=False)
         .select_related("managed_by")
         .first()
     )
@@ -237,7 +237,7 @@ def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
     any rule endpoint running."""
     return not (
         TeamAccessControlConfig.objects.filter(
-            managed_by_terraform=True,
+            is_managed_by_terraform=True,
             managed_by__isnull=False,
             team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
         )
