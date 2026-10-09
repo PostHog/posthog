@@ -65,6 +65,16 @@ describe('SankeyChart', () => {
         fireEvent.click(chart.element)
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a', value: 12 }))
 
+        rerender(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={{ ...THEME, colors: [...THEME.colors] }}
+                onNodeClick={onNodeClick}
+            />
+        )
+        expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+
         onNodeClick.mockClear()
         rerender(
             <SankeyChart
