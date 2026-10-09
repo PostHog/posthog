@@ -15,13 +15,11 @@ pub struct PersonCacheKey {
     pub person_id: i64,
 }
 
-/// Person state as the cache hands it out, with properties held in
-/// serialized JSON form.
+/// Cached person state, with properties held in serialized JSON form.
 ///
 /// Serialized rather than parsed for memory accounting: the cache weighs
 /// entries by byte length, and holding the bytes makes the charged
-/// weight the real allocation. Entries held as parsed JSON trees cost a
-/// small multiple of their serialized size. Readers that need the map parse on
+/// weight the real allocation. Readers that need the map parse on
 /// access via [`CachedPerson::parse_properties`]; readers that need the
 /// wire form (proto responses, changelog records) take the bytes as
 /// they are.
@@ -155,9 +153,7 @@ impl PersonCache {
         match entry.value().to_cached(&self.codec) {
             Ok(person) => Some(person),
             Err(reason) => {
-                // The miss path recovers the person from the changelog or
-                // Postgres, so dropping the entry is safe where failing the
-                // read is not.
+                // Safe to drop: the miss path recovers from the changelog or Postgres.
                 counter!("personhog_leader_cache_decode_failures_total").increment(1);
                 tracing::error!(
                     team_id = key.team_id,

@@ -25,8 +25,6 @@ pub struct PartitionedCache {
     /// answers `PartitionNotOwned` on every path.
     warming: DashMap<u32, PersonCache>,
     per_partition_capacity: usize,
-    /// Shared by every partition cache, so the whole process trains and
-    /// uses one dictionary.
     codec: Arc<PropertiesCodec>,
 }
 
@@ -40,8 +38,7 @@ impl PartitionedCache {
         }
     }
 
-    /// Compress cached properties with a zstd dictionary trained from the
-    /// documents this cache stores. Call before any partition exists.
+    /// Call before any partition exists.
     pub fn with_properties_compression(mut self, enabled: bool) -> Self {
         if enabled {
             self.codec = Arc::new(PropertiesCodec::enabled());

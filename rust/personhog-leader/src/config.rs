@@ -16,20 +16,15 @@ pub struct Config {
     pub grpc_address: SocketAddr,
 
     /// Per-partition person-cache capacity in bytes. Entries are weighed
-    /// by their stored properties plus a fixed per-entry overhead, so
-    /// this bounds memory, not entry count. Sized against full
-    /// ownership: a lone survivor owns every partition, so the worst-case
-    /// cache footprint is this value times the partition count: 16 MiB
-    /// × 16 partitions = 256 MiB.
+    /// by their stored size, so this bounds memory, not
+    /// entry count. Sized against full ownership: a lone survivor owns
+    /// every partition, so the worst-case cache footprint is this value
+    /// times the partition count (16 MiB × 16 partitions = 256 MiB).
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 
-    /// Compress cached person properties with a zstd dictionary that
-    /// each pod trains from the first documents it caches. Fits more
-    /// persons in `cache_memory_capacity_bytes` at the cost of CPU on
-    /// every cache read and write. The codec's own memory is outside that
-    /// bound: its training samples until the dictionary exists, the
-    /// dictionary, and one compression context per thread.
+    /// Trades CPU on every cache read and write for more persons per byte.
+    /// The codec's samples, dictionary and per-thread contexts sit outside the capacity bound.
     #[envconfig(default = "false")]
     pub cache_properties_compression_enabled: bool,
 

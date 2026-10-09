@@ -5,17 +5,10 @@ use uuid::Uuid;
 use super::codec::{PropertiesCodec, StoredProperties};
 use super::persons::{CachedPerson, PersonCacheKey};
 
-/// What foyer spends per record beyond the key and the value: the `Arc`
-/// header around the record, its hash, weight, cache properties, LRU
-/// links, reference count and flags, and the hash-table slot that points
-/// at it.
+/// Foyer's per-record cost beyond key and value: the record's `Arc`
+/// header, hash, weight, LRU links, refcount, flags and hash-table slot.
 const FOYER_RECORD_BOOKKEEPING_BYTES: usize = 96;
 
-/// The form a person takes inside the cache. It sits inline in foyer's
-/// record, so an entry costs one allocation for the record and one for
-/// the properties. The uuid packs into the struct (see `StoredUuid`), and
-/// the properties box has no spare capacity, which a `Vec` filled by a
-/// serializer usually has.
 pub(super) struct StoredPerson {
     id: i64,
     team_id: i64,
@@ -61,8 +54,6 @@ impl StoredPerson {
         &self.properties
     }
 
-    /// The bytes this entry holds against the cache capacity: the key,
-    /// this struct, foyer's bookkeeping, and the heap the struct owns.
     pub(super) fn weight(&self) -> usize {
         size_of::<PersonCacheKey>()
             + size_of::<Self>()
@@ -72,9 +63,7 @@ impl StoredPerson {
     }
 }
 
-/// A person's uuid. The canonical spelling (hyphenated, lowercase) packs
-/// into 16 bytes. Every other spelling stays verbatim, so `get` returns
-/// the exact string that `put` received.
+/// Non-canonical spellings stay verbatim, so reads return the exact uuid string written.
 enum StoredUuid {
     Hyphenated(Uuid),
     Verbatim(Box<str>),

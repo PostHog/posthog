@@ -8,20 +8,13 @@ use std::time::Instant;
 use metrics::counter;
 use zstd::zstd_safe::{get_error_name, CCtx, CDict, CParameter, DCtx, DDict, ResetDirective};
 
-/// Below this size the zstd frame and block headers cost more than the
-/// dictionary saves, so smaller documents stay raw and are not sampled.
+/// Below this, zstd frame headers cost more than the dictionary saves.
 const MIN_COMPRESSIBLE_BYTES: usize = 64;
 
-/// Larger documents are not sampled. A few of them would otherwise fill
-/// the budget and train the dictionary on outliers instead of on the
-/// typical document.
+/// Larger documents would fill the sample budget with outliers.
 const MAX_SAMPLE_BYTES: usize = 16 * 1024;
 
-/// Training starts when the samples reach both limits. zstd recommends
-/// sample bytes of about 100 times the dictionary size. The document
-/// minimum keeps a run of large documents from training the dictionary
-/// on a narrow base, and it bounds the buffer at
-/// `MIN_SAMPLES * MAX_SAMPLE_BYTES` when every sample is large.
+/// zstd recommends samples of about 100 times the dictionary size.
 const SAMPLE_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 const MIN_SAMPLES: usize = 1_000;
 
@@ -29,14 +22,13 @@ const DICTIONARY_MAX_BYTES: usize = 32 * 1024;
 
 const COMPRESSION_LEVEL: i32 = 3;
 
-/// A person's properties as the cache holds them.
 pub(super) enum StoredProperties {
-    /// Serialized JSON, verbatim.
     Raw(Box<[u8]>),
-    /// Serialized JSON compressed with the codec's dictionary. The frame
-    /// does not record the content size, so the raw length is kept here
-    /// to size the decompression buffer.
-    ZstdDict { compressed: Box<[u8]>, raw_len: u32 },
+    /// The frame omits the content size, so `raw_len` sizes the output buffer.
+    ZstdDict {
+        compressed: Box<[u8]>,
+        raw_len: u32,
+    },
 }
 
 impl StoredProperties {
@@ -55,20 +47,11 @@ impl StoredProperties {
     }
 }
 
-/// Encodes person properties for the cache.
-///
-/// Disabled, it stores every document raw. Enabled, it samples the
-/// documents it encodes until it has enough, trains one zstd dictionary
-/// from them on a dedicated thread, and compresses every later document
-/// with it. Documents encoded before the dictionary exists stay raw, as
-/// does everything for the life of the process if training fails.
-///
-/// The dictionary lives only in this process's memory. Nothing encoded
-/// with it is persisted, so frames carry no dictionary id and the next
-/// process trains its own.
+/// Enabled, it samples the first documents it encodes, trains one
+/// dictionary from them, and compresses later documents with it.
+/// Documents encoded before that, or after a failed training, stay raw.
 pub(super) struct PropertiesCodec {
-    /// True until the samples go to training. Read before taking the
-    /// sample lock, so puts after the hand-off never contend on it.
+    /// Checked before the sample lock, so puts after the hand-off skip it.
     sampling: AtomicBool,
     samples: Mutex<Samples>,
     dictionary: Arc<OnceLock<Dictionary>>,
@@ -125,8 +108,7 @@ impl PropertiesCodec {
             return;
         }
         let mut samples = self.samples.lock().unwrap_or_else(PoisonError::into_inner);
-        // Another put can hand the samples off between the caller's check
-        // and this lock.
+        // Another put may have handed the samples off since the caller checked.
         if !self.sampling.load(Ordering::Relaxed) {
             return;
         }
@@ -138,8 +120,7 @@ impl PropertiesCodec {
         self.sampling.store(false, Ordering::Relaxed);
         let samples = std::mem::take(&mut *samples);
         let dictionary = Arc::clone(&self.dictionary);
-        // Training takes long enough to stall an async worker, so it gets
-        // its own thread.
+        // Training would stall an async worker for its whole run.
         let spawned = std::thread::Builder::new()
             .name("personhog-cache-dictionary".to_string())
             .spawn(move || train_and_install(samples, &dictionary));
@@ -158,8 +139,6 @@ impl PropertiesCodec {
         codec
     }
 
-    /// Joins a training run if one started, and reports whether the codec
-    /// has a dictionary.
     #[cfg(test)]
     fn wait_for_training(&self) -> bool {
         if let Some(handle) = self.training.lock().unwrap().take() {
@@ -180,7 +159,6 @@ fn train_and_install(samples: Samples, slot: &OnceLock<Dictionary>) {
     match Dictionary::train(&samples) {
         Ok(dictionary) => {
             let dictionary_bytes = dictionary.content_len;
-            // Training runs once per codec, so the slot is always empty here.
             slot.get_or_init(|| dictionary);
             counter!("personhog_leader_cache_dictionary_trainings_total", "outcome" => "ok")
                 .increment(1);
@@ -231,21 +209,15 @@ impl Dictionary {
     fn compress(&self, raw: &[u8]) -> Option<StoredProperties> {
         let raw_len = u32::try_from(raw.len()).ok()?;
         COMPRESSOR.with_borrow_mut(|cctx| {
-            // A buffer the size of the input makes zstd fail instead of
-            // writing output that is not smaller.
+            // Sized to the input, so zstd fails rather than write output that does not shrink.
             let mut compressed = Vec::with_capacity(raw.len());
             let written = cctx
                 .ref_cdict(&self.cdict)
                 .and_then(|_| cctx.compress2(&mut compressed, raw));
-            // A failed frame leaves the context mid-session, and a context
-            // in that state refuses every dictionary change. The reset
-            // returns it to its init stage, so the next document can attach
-            // the dictionary again.
+            // A failed frame leaves the context mid-session, where it refuses any dictionary change.
             cctx.reset(ResetDirective::SessionOnly)
                 .expect("zstd documents that a session reset never fails");
-            // The thread-local context outlives this dictionary, which is
-            // freed when its codec drops. Detach it so the context never
-            // holds a dangling dictionary pointer.
+            // The thread-local context outlives the dictionary, so it must not keep a pointer to it.
             cctx.disable_dictionary()
                 .expect("a context in its init stage accepts a dictionary change");
             written.ok()?;
@@ -276,8 +248,7 @@ thread_local! {
 
 fn new_compressor() -> CCtx<'static> {
     let mut cctx = CCtx::create();
-    // The entry keeps the raw length and the codec has one dictionary,
-    // so the frame needs neither field.
+    // The entry stores the raw length, and the codec has one dictionary.
     cctx.set_parameter(CParameter::ContentSizeFlag(false))
         .expect("content size flag is a valid zstd parameter");
     cctx.set_parameter(CParameter::DictIdFlag(false))
@@ -289,8 +260,6 @@ fn new_compressor() -> CCtx<'static> {
 mod tests {
     use super::*;
 
-    /// A web person document with the SDK's usual keys and values that
-    /// vary by `seed`, about 1 KiB serialized.
     fn person_properties(seed: usize) -> Vec<u8> {
         let browsers = ["Chrome", "Safari", "Firefox", "Microsoft Edge"];
         let systems = ["Mac OS X", "Windows", "iOS", "Android", "Linux"];
@@ -337,8 +306,6 @@ mod tests {
     #[test]
     fn documents_round_trip_and_only_shrinking_ones_are_compressed() {
         let codec = trained_codec();
-        // Bytes from a linear congruential generator: no repeats for zstd
-        // or the dictionary to exploit.
         let mut state: u32 = 7;
         let incompressible: Vec<u8> = (0..512)
             .map(|_| {
@@ -346,8 +313,7 @@ mod tests {
                 (state >> 16) as u8
             })
             .collect();
-        // The incompressible document goes first because a frame that fails
-        // must not stop later documents on the same thread from compressing.
+        // Incompressible first: a failed frame must not stop later documents from compressing.
         for (document, expect_compressed) in [
             (incompressible, false),
             (person_properties(10_001), true),
