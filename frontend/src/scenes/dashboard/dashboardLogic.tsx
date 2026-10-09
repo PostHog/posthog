@@ -4508,7 +4508,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const urlVariables = settingsToRefresh.variables
                 const requestConcurrency = new ConcurrencyController(4)
 
-                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile, index) => async () => {
+                const insightRefreshPromises = sortedTilesToRefresh.map(async (tile, index) => {
                     const insight = tile.insight
                     const tileController = tileControllers[index]
                     const ownsRequest = (): boolean => controllers.get(tile.id) === tileController
@@ -4608,7 +4608,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
 
                 // Cooldowns release request slots so later tiles can still load cached results.
-                await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
+                await Promise.all(insightRefreshPromises)
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed

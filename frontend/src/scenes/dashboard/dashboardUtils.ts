@@ -211,6 +211,7 @@ export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 // own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
 const RATE_LIMITED_ERROR_CODE = 'rate_limited'
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
+const MAX_TILE_RETRY_BACKOFF_MS = 30_000
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
 // insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
@@ -388,7 +389,7 @@ export async function getInsightWithRetry(
         if (methodOptions?.signal?.aborted) {
             throw new DOMException('Aborted', 'AbortError')
         }
-        const backoffMs = Math.min(initialDelay * Math.pow(2, attempt - 1), 30_000)
+        const backoffMs = Math.min(initialDelay * Math.pow(2, attempt - 1), MAX_TILE_RETRY_BACKOFF_MS)
         const jitteredBackoffMs = backoffMs * (0.5 + Math.random() * 0.5)
         const serverDelayMs = isValidRetryAfter(retryAfterSeconds) ? retryAfterSeconds * 1000 : 0
         const waitMs = Math.max(serverDelayMs, jitteredBackoffMs)
