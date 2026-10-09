@@ -47,6 +47,8 @@ Revoke or expire private tokens before rolling the gateway back to a version wit
 
 The rubric stays fixed across scout edits, and saved results retain the rubric used for that trial. If a run is interrupted, reopen the existing trial before starting another paid attempt.
 
+Archive a completed or failed trial to hide it from history. Show archived trials to view their saved reports or restore them; archiving never deletes evidence or stops a running trial. Open a trial to see its individual runs. Run-detail loading errors appear beside the affected run with a retry action, while the history page continues to show saved results.
+
 Trial plans and evaluation documents keep one complete adopted reference each and exclude suggestion-generation history. The judge reads that same adopted reference from its evidence attachment.
 
 Suggestion generation captures the complete scout instructions and reference files for judging, while keeping the generator's prompt bounded. If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.

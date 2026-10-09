@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, MAX_TRIAL_REPEATS, MAX_TRIAL_VARIANTS
 from products.signals.backend.scout_harness.trial_evaluation_serializers import ScoutTrialEvaluationSerializer
+from products.signals.backend.scout_harness.trial_serializers import ScoutTrialHistoryQuerySerializer
 
 
 class ScoutTrialComparisonVariantRequestSerializer(serializers.Serializer):
@@ -46,6 +47,16 @@ class ScoutTrialComparisonQuerySerializer(serializers.Serializer):
     comparison_id = serializers.UUIDField(help_text="Saved comparison identity.")
 
 
+class ScoutTrialComparisonArchiveRequestSerializer(ScoutTrialComparisonQuerySerializer):
+    archived = serializers.BooleanField(
+        help_text="Hide a finished trial from history, or restore it without rerunning it."
+    )
+
+
+class ScoutTrialComparisonHistoryQuerySerializer(ScoutTrialHistoryQuerySerializer):
+    include_archived = serializers.BooleanField(default=False, help_text="Include archived trials in the history.")
+
+
 class ScoutTrialComparisonVariantSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Variant identity.")
     label = serializers.CharField(help_text="Saved variant name.")  # type: ignore[assignment]
@@ -67,6 +78,7 @@ class ScoutTrialComparisonSerializer(serializers.Serializer):
         choices=["not_started", "starting", "running", "judging", "completed", "failed", "unknown"],
         help_text="Comparison lifecycle, including automatic judging.",
     )
+    archived = serializers.BooleanField(help_text="Whether this finished trial is hidden from the default history.")
     error = serializers.CharField(allow_null=True, help_text="Sanitized comparison error, if any.")
     evaluation = ScoutTrialEvaluationSerializer(
         allow_null=True, help_text="Saved evaluation and report when available."

@@ -7,7 +7,6 @@ import { scoutDisplayName } from '../../../../utils/scoutRunsWindow'
 import { ScoutTrialDetail } from './ScoutTrialDetail'
 import { ScoutTrialHistory } from './ScoutTrialHistory'
 import { ScoutTrialRunDrawer } from './ScoutTrialRunDrawer'
-import { ScoutTrialRunHistory } from './ScoutTrialRunHistory'
 import { ScoutTrialSetupPanel } from './ScoutTrialSetupPanel'
 
 type ViewAction =
@@ -36,6 +35,9 @@ type ViewAction =
     | 'loadComparison'
     | 'resumeComparison'
     | 'loadComparisonHistory'
+    | 'setShowArchived'
+    | 'archiveComparison'
+    | 'retryResult'
 
 export type ScoutTrialsViewProps = scoutTrialsLogicValues & {
     teamId: number
@@ -92,7 +94,25 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                         {pageError}
                     </LemonBanner>
                 )}
-                {props.pollError && <LemonBanner type="warning">{props.pollError}</LemonBanner>}
+                {props.pollError && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Retry',
+                            loading: props.comparisonHistoryLoading || props.historyLoading,
+                            onClick: () => {
+                                if (selectedConfigId) {
+                                    props.loadComparisonHistory(selectedConfigId)
+                                    if (props.loadErrors.history) {
+                                        props.loadHistory(selectedConfigId)
+                                    }
+                                }
+                            },
+                        }}
+                    >
+                        {props.pollError}
+                    </LemonBanner>
+                )}
                 {configsLoading && !configs ? (
                     <LemonSkeleton className="h-64" />
                 ) : configs?.length === 0 ? (
@@ -116,10 +136,7 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                             ) : props.trialView === 'detail' && props.selectedComparison ? (
                                 <ScoutTrialDetail {...props} />
                             ) : (
-                                <>
-                                    <ScoutTrialHistory {...props} />
-                                    <ScoutTrialRunHistory {...props} />
-                                </>
+                                <ScoutTrialHistory {...props} />
                             )}
                         </>
                     )
@@ -128,6 +145,12 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                     result={props.selectedResult}
                     launchId={props.selectedLaunchId}
                     error={props.selectedLaunchId ? props.resultErrors[props.selectedLaunchId] : null}
+                    loading={!!props.selectedLaunchId && props.refreshingLaunchIds.includes(props.selectedLaunchId)}
+                    onRetry={() => {
+                        if (props.selectedLaunchId) {
+                            props.retryResult(props.selectedLaunchId)
+                        }
+                    }}
                     report={props.evaluationState.value?.report}
                     onClose={() => props.selectResult(null)}
                 />

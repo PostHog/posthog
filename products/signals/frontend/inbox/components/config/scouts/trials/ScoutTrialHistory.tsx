@@ -1,5 +1,5 @@
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -52,14 +52,27 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            <LemonSwitch
+                checked={props.showArchived}
+                onChange={props.setShowArchived}
+                label="Show archived"
+                className="self-start"
+                data-attr="scout-trials-show-archived"
+            />
             <LemonTable<ScoutTrialComparison>
                 dataSource={props.comparisonsForConfig}
                 rowKey="id"
                 loading={props.comparisonHistoryLoading && !props.comparisonsForConfig.length}
-                emptyState="No trials yet. Create a trial to compare prompts, models, or effort."
+                emptyState={
+                    props.showArchived
+                        ? 'No trials yet. Create a trial to compare prompts, models, or effort.'
+                        : 'No trials to show. Create a trial or turn on Show archived.'
+                }
+                tableLayout="fixed"
                 columns={[
                     {
                         title: 'Trial',
+                        width: '28%',
                         render: (_, trial) => {
                             const saved = props.comparisonStates[trial.id]?.value
                             return (
@@ -77,12 +90,18 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                                             {dayjs(saved.created_at).format('MMM D, YYYY, HH:mm')}
                                         </span>
                                     )}
+                                    {props.archiveErrors[trial.id] && (
+                                        <span className="text-xs text-danger break-words">
+                                            {props.archiveErrors[trial.id]}
+                                        </span>
+                                    )}
                                 </div>
                             )
                         },
                     },
                     {
                         title: 'Versions',
+                        width: '32%',
                         render: (_, trial) => (
                             <div className="flex flex-col gap-1">
                                 <span>{`${trial.groups.length} versions · ${trial.groups.reduce((count, group) => count + group.launchIds.length, 0)} runs`}</span>
@@ -96,23 +115,58 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
                     },
                     {
                         title: 'Status',
+                        width: '22%',
                         render: (_, trial) => {
                             const status = props.comparisonStates[trial.id]?.value?.status
                             return (
-                                <LemonTag
-                                    type={
-                                        status === 'completed'
-                                            ? 'success'
-                                            : status === 'failed'
-                                              ? 'danger'
-                                              : status === 'judging' || status === 'running'
-                                                ? 'primary'
-                                                : 'muted'
+                                <div className="flex flex-wrap gap-1">
+                                    <LemonTag
+                                        type={
+                                            status === 'completed'
+                                                ? 'success'
+                                                : status === 'failed'
+                                                  ? 'danger'
+                                                  : status === 'judging' || status === 'running'
+                                                    ? 'primary'
+                                                    : 'muted'
+                                        }
+                                        wrap
+                                    >
+                                        {STATUS_LABELS[status ?? 'unknown'] ?? 'Status unavailable'}
+                                    </LemonTag>
+                                    {props.comparisonStates[trial.id]?.value?.archived && (
+                                        <LemonTag type="muted">Archived</LemonTag>
+                                    )}
+                                </div>
+                            )
+                        },
+                    },
+                    {
+                        title: '',
+                        width: '18%',
+                        render: (_, trial) => {
+                            const state = props.comparisonStates[trial.id]
+                            const saved = state?.value
+                            return (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    loading={props.archiving.includes(trial.id)}
+                                    disabledReason={
+                                        state?.loading || state?.resuming
+                                            ? 'Wait for the current status.'
+                                            : !saved?.archived &&
+                                                saved?.status !== 'completed' &&
+                                                saved?.status !== 'failed'
+                                              ? 'Only completed or failed trials can be archived.'
+                                              : undefined
                                     }
-                                    wrap
+                                    onClick={() => props.archiveComparison(trial.id, !saved?.archived)}
+                                    aria-label={`${saved?.archived ? 'Restore' : 'Archive'} trial ${trial.id.slice(0, 8)}`}
+                                    data-attr="scout-trial-archive"
                                 >
-                                    {STATUS_LABELS[status ?? 'unknown'] ?? 'Status unavailable'}
-                                </LemonTag>
+                                    {saved?.archived ? 'Restore' : 'Archive'}
+                                </LemonButton>
                             )
                         },
                     },
@@ -120,7 +174,8 @@ export function ScoutTrialHistory(props: ScoutTrialsViewProps): JSX.Element {
             />
             {props.comparisonHistory?.has_more && (
                 <p className="m-0 text-xs text-secondary">
-                    Showing your 30 most recent trials, plus trials saved in this browser.
+                    Showing your 30 most recent{' '}
+                    {props.showArchived ? 'trials, including archived trials' : 'unarchived trials'}.
                 </p>
             )}
             <p className="m-0 text-xs text-secondary">

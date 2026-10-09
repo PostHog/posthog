@@ -4465,6 +4465,8 @@ export interface ScoutTrialComparisonApi {
      * * `failed` - failed
      * * `unknown` - unknown */
     status: ScoutTrialComparisonStatusEnumApi
+    /** Whether this finished trial is hidden from the default history. */
+    archived: boolean
     /**
      * Sanitized comparison error, if any.
      * @nullable
@@ -4472,6 +4474,13 @@ export interface ScoutTrialComparisonApi {
     error: string | null
     /** Saved evaluation and report when available. */
     evaluation: ScoutTrialEvaluationApi | null
+}
+
+export interface ScoutTrialComparisonArchiveRequestApi {
+    /** Saved comparison identity. */
+    comparison_id: string
+    /** Hide a finished trial from history, or restore it without rerunning it. */
+    archived: boolean
 }
 
 export interface ScoutTrialComparisonHistoryApi {
@@ -7708,6 +7717,10 @@ export type SignalsScoutConfigListParams = {
 }
 
 export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Include archived trials in the history.
+     */
+    include_archived?: boolean
     /**
      * Maximum number of recent private runs to return.
      * @minimum 1

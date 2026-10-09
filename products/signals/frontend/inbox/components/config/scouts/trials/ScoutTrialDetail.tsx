@@ -43,6 +43,21 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {trial?.archived && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Restore trial',
+                        loading: props.archiving.includes(trial.comparison_id),
+                        onClick: () => props.archiveComparison(trial.comparison_id, false),
+                    }}
+                >
+                    This trial is archived. Its report and run details are still available.
+                </LemonBanner>
+            )}
+            {trial && props.archiveErrors[trial.comparison_id] && (
+                <LemonBanner type="error">{props.archiveErrors[trial.comparison_id]}</LemonBanner>
+            )}
             {props.managedComparison ? (
                 <>
                     {submitting ? (
@@ -99,6 +114,7 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                 loading={props.comparisonState.resuming}
                                 disabledReason={
                                     props.trialsDisabledReason ||
+                                    (trial?.archived ? 'Restore this trial before retrying it.' : undefined) ||
                                     (props.comparisonState.loading ? 'Wait for the current status.' : undefined)
                                 }
                                 data-attr="scout-comparison-resume"
@@ -138,9 +154,18 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                     <div className="min-w-0 flex-1">
                                         <strong className="break-words">{row.variant}</strong>
                                         <p className="m-0 text-xs text-muted break-words">{`${row.model || 'Saved model'} · ${row.effort || 'default'} effort`}</p>
-                                        {row.error && (
-                                            <p className="m-0 text-xs text-danger break-words">{row.error}</p>
+                                        {props.resultErrors[row.launchId] && (
+                                            <p className="m-0 text-xs text-danger break-words">
+                                                {props.resultErrors[row.launchId]}
+                                            </p>
                                         )}
+                                        {props.cancelErrors[row.launchId] &&
+                                            (trialIsActive(row.status) ||
+                                                trialTaskIsActive(row.result?.task_status)) && (
+                                                <p className="m-0 text-xs text-danger break-words">
+                                                    {props.cancelErrors[row.launchId]}
+                                                </p>
+                                            )}
                                     </div>
                                     <LemonTag
                                         type={
@@ -157,10 +182,20 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                         size="xsmall"
                                         type="tertiary"
                                         onClick={() => props.selectResult(row.launchId)}
-                                        disabledReason={!row.result ? 'Run details have not loaded yet.' : undefined}
                                     >
                                         Run details
                                     </LemonButton>
+                                    {props.resultErrors[row.launchId] && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => props.retryResult(row.launchId)}
+                                            loading={props.refreshingLaunchIds.includes(row.launchId)}
+                                            data-attr="scout-trial-run-retry"
+                                        >
+                                            Retry
+                                        </LemonButton>
+                                    )}
                                     {row.result?.task_id &&
                                         row.result.task_run_id &&
                                         (trialIsActive(row.status) || trialTaskIsActive(row.result.task_status)) && (
