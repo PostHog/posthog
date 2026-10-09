@@ -1132,11 +1132,13 @@ describe('featureFlagLogic', () => {
             try {
                 await expectLogic(newLogic).toFinishAllListeners()
                 // A template loads a starting point that differs from the form defaults.
-                const { filters } = newLogic.values.featureFlag
                 await expectLogic(newLogic, () => {
                     newLogic.actions.loadFeatureFlagSuccess({
                         ...newLogic.values.featureFlag,
-                        filters: { ...filters, groups: [{ properties: [], rollout_percentage: 50, variant: null }] },
+                        filters: {
+                            ...NEW_FLAG.filters,
+                            groups: [{ properties: [], rollout_percentage: 50, variant: null }],
+                        },
                     })
                 }).toFinishAllListeners()
                 newLogic.actions.startNewFlagDisabled()

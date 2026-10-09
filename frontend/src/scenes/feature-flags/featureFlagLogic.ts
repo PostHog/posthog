@@ -4117,9 +4117,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // form to the flag this page loaded, because the submitted values now live in the change
                     // request. The hard-coded defaults would differ from a template's baseline and read as an edit.
                     const baseline = values.originalFeatureFlag
+                    const loaded = baseline
+                        ? (variantKeyToIndexFeatureFlagPayloads(baseline) as FeatureFlagWithV1Config)
+                        : null
                     actions.resetFeatureFlag(
-                        baseline
-                            ? (variantKeyToIndexFeatureFlagPayloads(baseline) as FeatureFlagWithV1Config)
+                        loaded
+                            ? { ...loaded, ensure_experience_continuity: loaded.ensure_experience_continuity ?? false }
                             : undefined
                     )
                     router.actions.replace(urls.approval(changeRequestId))
