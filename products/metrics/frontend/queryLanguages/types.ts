@@ -36,13 +36,9 @@ export const normalizeLabelKey = (key: string): string => (key === 'service.name
 // The PromQL label that keeps the series of a multi-series query apart, as the builder's clause alias does.
 export const CLAUSE_LABEL = 'clause'
 
-// PromQL makes a division by zero ±Inf or NaN, which the chart shows as a gap.
-export const PROMQL_DIVISION_ISSUE =
-    'Where a formula divides by zero, PromQL shows a gap, but the builder and SQL show 0.'
-
 // The backend fills an interval with no SQL row with 0. The builder computes the formula there, with every series at 0.
 export const SQL_EMPTY_INTERVAL_ISSUE =
     "Where no series has data in an interval, SQL shows 0, but the builder shows the formula's value with every series at 0."
 
 /** Issues about values the target computes differently. The query itself converts without change. */
-export const VALUE_ONLY_ISSUES = new Set([PROMQL_DIVISION_ISSUE, SQL_EMPTY_INTERVAL_ISSUE])
+export const VALUE_ONLY_ISSUES = new Set([SQL_EMPTY_INTERVAL_ISSUE])
