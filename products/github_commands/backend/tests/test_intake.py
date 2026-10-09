@@ -76,6 +76,15 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         ("<!-- @posthog stamp -->", None),
         ("<!--\n@posthog stamp\n-->", None),
         ("@posthog stamp\n@posthog qa", AmbiguousCommand(count=2)),
+        # Text inside a list item, wherever its fences open and close, is not a top-level paragraph.
+        ("- ```\n  example\n````\n  ```\n@posthog qa\n````", None),
+        ("- ```\nfiller\n  ```\n@posthog stamp", None),
+        ("- item\n  ```\nfiller\n```\n@posthog stamp", None),
+        ("- item\n    ```\n  @posthog stamp", None),
+        ("- item\n\t```\n  @posthog stamp", None),
+        ("- item\n\n@posthog stamp", ParsedCommand(verb="stamp", argument="")),
+        # Bold text is still the person's own words.
+        ("**@posthog stamp**", ParsedCommand(verb="stamp", argument="")),
     ],
 )
 def test_parse_command(body: str, expected: object) -> None:

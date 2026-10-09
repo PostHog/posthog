@@ -30,7 +30,7 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 ## How a comment becomes a command
 
 1. `backend/webhook_consumers.py` registers the `github_commands` consumer for `issue_comment` on the customer-facing GitHub App endpoint.
-2. `logic/intake.py` reads the payload inside the webhook request, with no database and no API call. It drops everything that is not a new command comment and queues a task for the rest.
+2. `logic/intake.py` reads the payload inside the webhook request, with no database and no API call. It drops everything that is not a new command comment and queues a task for the rest. `logic/parsing.py` finds the command: the CommonMark reference parser gives the comment's block structure, and a command fires only from a top-level paragraph.
 3. `logic/dispatch.py` runs in the task. It applies every check (listed in its module docstring), then calls the command's handler.
 4. `logic/handlers.py` calls the target product's facade and returns the text of the reply.
 
@@ -65,8 +65,8 @@ The checks that make that true:
 Several commands start an agent, and a pull request is full of text other people wrote.
 The defenses do not depend on an agent ignoring instructions:
 
-- The parser reads only lines that start with the mention.
-  Quoted replies and the lines that continue them, code blocks (list-nested fences too), tab-indented code, `<pre>` and similar HTML blocks, HTML blockquotes, inline code and HTML comments never count, so text that shows or repeats a command does not run it.
+- The parser reads only lines that start with the mention, and only in top-level paragraphs as the CommonMark reference parser reads them.
+  Text that GitHub shows as a quote, code, a list item or an HTML block never counts, and neither does inline code, so text that shows or repeats a command does not run it.
 - The command's argument is the commenter's own words, cleaned of control and invisible characters and capped in length. It is treated as their instruction, because the run uses their access.
 - Handlers pass identifiers, never the pull request title, body or other comments. The product reads that content itself and treats it as untrusted.
 - A command runs only when the pull request's branch name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`. Even then, the name never goes into a prompt or a loop payload. Only the head commit SHA does, and the QA task gets the branch as checkout data.
