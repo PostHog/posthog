@@ -505,6 +505,8 @@ def _screenshot_asset_browserless(
             )
 
             page.set_viewport_size({"width": width, "height": final_height})
+            # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
+            page.wait_for_timeout(500)
             page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise

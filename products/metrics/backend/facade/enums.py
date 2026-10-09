@@ -140,3 +140,20 @@ class PanelQueryLanguage(LabeledStrEnum):
     BUILDER = "builder"
     HISTOGRAM = "histogram"
     HOGQL = "hogql"
+
+
+class DashboardTemplateSource(LabeledStrEnum):
+    """Where a template of the metrics dashboard bank comes from: a file in the code, or an AI generation."""
+
+    CURATED = "curated"
+    GENERATED = "generated"
+
+
+class DashboardTemplateStatus(LabeledStrEnum):
+    """Teams see only an approved template. A generated one waits for a staff review first."""
+
+    GENERATING = "generating"
+    PENDING_REVIEW = "pending_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    FAILED = "failed"

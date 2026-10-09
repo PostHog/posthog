@@ -1234,6 +1234,11 @@
         "params": [],
         "scope": "project"
     },
+    "metricsDashboardReview": {
+        "template": "/metrics/dashboard-review",
+        "params": [],
+        "scope": "project"
+    },
     "models": {
         "template": "/models",
         "params": [],

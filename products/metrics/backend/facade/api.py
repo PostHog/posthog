@@ -10,6 +10,8 @@ import datetime as dt
 from collections.abc import Sequence
 from typing import Any
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
@@ -25,6 +27,7 @@ from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
     DashboardImportStatus,
+    DashboardTemplateSummary,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
@@ -38,8 +41,9 @@ from products.metrics.backend.facade.contracts import (
     MetricsOverview,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
+    SuggestedDashboard,
 )
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.facade.enums import DashboardTemplateStatus, FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -51,6 +55,8 @@ from products.metrics.backend.metric_event_samples_query_runner import MetricEve
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+
+logger = structlog.get_logger(__name__)
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -629,3 +635,98 @@ def check_dashboard_panel_queries(
     )
 
     return check_panel_queries(team=team, user=user, panels=panels, import_id=import_id)
+
+
+def list_suggested_dashboards(*, team: Team) -> list[SuggestedDashboard]:
+    """The approved bank dashboards that suit the metrics of the team, best fit first.
+
+    The first call for a team that was never analyzed starts its analysis, so suggestions appear without
+    waiting for its metric names to change.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        discovery,
+        service,
+    )
+    from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        start_team_analysis,
+    )
+
+    if discovery.needs_first_analysis(team.id):
+        try:
+            start_team_analysis(team.id, force=True)
+        except Exception:
+            logger.warning("metrics_suggested_dashboards_first_analysis_not_started", team_id=team.id)
+    return service.list_suggestions(team)
+
+
+def create_suggested_dashboard(*, team: Team, user: User, suggestion_id: str) -> int:
+    """Create the dashboard of a suggestion as the user, and return its id. A second call returns the same id.
+
+    Raises `SuggestedDashboardError` with a message for the user.
+    """
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.create_from_suggestion(team, user, suggestion_id)
+
+
+def analyze_team_metrics_now(*, team: Team) -> None:
+    """Start an analysis of the team's metric names now, even when nothing changed. For the staff review."""
+    from products.metrics.backend.temporal.schedule import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        start_team_analysis,
+    )
+
+    start_team_analysis(team.id, force=True)
+
+
+def list_dashboard_templates(*, status: DashboardTemplateStatus | None = None) -> list[DashboardTemplateSummary]:
+    """The templates of the metrics dashboard bank, newest first. Instance-wide, for the staff review."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.list_templates(status)
+
+
+def get_dashboard_template(*, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.get_template(template_id)
+
+
+def open_dashboard_template_preview(*, team: Team, user: User, template_id: str) -> int:
+    """The id of an unlisted dashboard in the team that shows the template with live data. Builds it when needed."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.open_preview(team, user, template_id)
+
+
+def approve_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    """Approve a template. The changes on its preview dashboard become the template first."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.approve(user, template_id)
+
+
+def reject_dashboard_template(*, user: User, template_id: str) -> DashboardTemplateSummary:
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.reject(user, template_id)
+
+
+def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes | None:
+    """The PNG that a generation round rendered of the preview dashboard."""
+    from products.metrics.backend.suggested_dashboards import (  # noqa: PLC0415 — keeps the dashboard and export code off the facade import path
+        service,
+    )
+
+    return service.picture(template_id, round_number)

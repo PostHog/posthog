@@ -5,6 +5,7 @@ import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { truncate } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -135,7 +136,14 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
         (props.query.language === 'promql' && props.query.promql ? truncate(props.query.promql, 80) : 'metric')
 
     return (
-        <div className="relative flex flex-col w-full h-full min-h-[200px]">
+        // A dashboard tile sets the height, so a minimum would overflow a short tile. Elsewhere the
+        // parent can have no height, and a chart then needs the minimum to draw at all.
+        <div
+            className={cn(
+                'relative flex flex-col w-full h-full',
+                props.context.insightProps?.dashboardId == null && 'min-h-[200px]'
+            )}
+        >
             {responseError && !responseLoading ? (
                 <div className="flex-1 flex items-center p-4 min-w-0">
                     <LemonBanner type="error" className="w-full">

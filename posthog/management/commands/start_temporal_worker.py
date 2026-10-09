@@ -250,6 +250,10 @@ from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    WORKFLOWS as METRICS_WORKFLOWS,
+)
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
@@ -389,7 +393,8 @@ _task_queue_specs = [
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
         + SECURITY_WORKFLOWS
-        + TODAY_WORKFLOWS,
+        + TODAY_WORKFLOWS
+        + METRICS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -416,7 +421,8 @@ _task_queue_specs = [
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
         + SECURITY_ACTIVITIES
-        + TODAY_ACTIVITIES,
+        + TODAY_ACTIVITIES
+        + METRICS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a

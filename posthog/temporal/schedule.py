@@ -121,6 +121,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
 )
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
 from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
@@ -990,6 +991,7 @@ schedules = [
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
     create_sync_access_rules_schedule,
+    create_suggested_dashboards_discovery_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in

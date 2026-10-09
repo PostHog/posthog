@@ -457,6 +457,8 @@ jobs:
                         - 'posthog/temporal/backfill_materialized_property/**'
                         - 'products/security/backend/temporal/**'
                         - 'products/security/backend/logic/**'
+                        - 'products/metrics/backend/temporal/**'
+                        - 'products/metrics/backend/suggested_dashboards/**'
                         - 'posthog/kafka_client/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'

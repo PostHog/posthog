@@ -95,6 +95,18 @@ def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -
     return get_content_response(asset, download=download)
 
 
+def read_export_asset_content(*, team_id: int, asset_id: int) -> bytes | None:
+    """The stored bytes of an export, or None when the export has no content or does not exist in the team."""
+    asset = get_export_asset(team_id=team_id, asset_id=asset_id)
+    if asset is None:
+        return None
+    if asset.content is not None:
+        return bytes(asset.content)
+    if asset.content_location:
+        return object_storage.read_bytes(asset.content_location)
+    return None
+
+
 def save_export_asset_content_from_file(
     *,
     asset: ExportedAsset,

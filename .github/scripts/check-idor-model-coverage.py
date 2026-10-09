@@ -261,6 +261,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # `(slack_workspace_id, slack_channel_id)` from the Slack event handler,
         # never by user-supplied ID. `approved_by` is for audit only.
         "SlackChannel",
+        # Instance-wide bank of metrics dashboards, read only through staff endpoints. `reviewed_by` is for audit only.
+        "MetricsDashboardTemplate",
         "UserActivity",
         "UserGroup",
         "UserGroupMembership",
@@ -310,6 +312,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CommunitySkill",  # instance-global community skills catalog, synced from GitHub
         "CommunitySkillFile",  # bundled files of a CommunitySkill (scoped via the catalog row)
         "HogFunctionTemplate",
+        "MetricsDashboardTemplate",  # instance-global bank of metrics dashboards; staff approve generated rows
         "MCPServer",
         "MCPRegistryServer",  # instance-global MCP registry index, crawled from the official registry
         "MCPRegistryTool",  # tools of an MCPRegistryServer (scoped via the catalog row)
