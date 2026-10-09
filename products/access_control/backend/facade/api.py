@@ -219,7 +219,7 @@ def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
     config = TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True).first()
     if config is None:
         return True
-    return config.managed_by_id is not None and config.managed_by.user_id == user_id
+    return config.managed_by is not None and config.managed_by.user_id == user_id
 
 
 def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
