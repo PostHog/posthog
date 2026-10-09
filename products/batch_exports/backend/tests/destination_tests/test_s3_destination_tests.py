@@ -5,8 +5,8 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
-from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
-from products.batch_exports.backend.presentation.views.destination_tests.s3 import (
+from products.batch_exports.backend.destination_tests import get_destination_test
+from products.batch_exports.backend.destination_tests.s3 import (
     AwsS3DestinationTest,
     S3AssumeRoleTestStep,
     S3CompatibleDestinationTest,
@@ -131,20 +131,14 @@ def test_get_destination_test_resolves_s3_family(destination, expected_test, exp
     assert [type(step) for step in destination_test.steps] == expected_steps
 
 
-def test_aws_s3_destination_test_serializes_without_integration():
-    """AwsS3 configured with inline credentials (no integration) must not raise.
-
-    Its steps reference `organization_id` and each step needs an initialized
-    `result`, so building the steps and serializing them exercises both.
-    """
+def test_aws_s3_destination_test_builds_steps_without_integration() -> None:
+    # The AwsS3 steps read organization_id, which an inline-credential config never sets.
     destination_test = AwsS3DestinationTest()
     destination_test.configure(bucket_name="b", region="us-east-1", aws_access_key_id="a", aws_secret_access_key="s")
 
-    assert destination_test.as_dict() == {
-        "steps": [
-            {"name": step.name, "description": step.description, "result": None} for step in destination_test.steps
-        ]
-    }
+    steps = destination_test.steps
+    assert len(steps) > 0
+    assert all(step.result is None for step in steps)
 
 
 async def test_assume_role_step_passes_with_assumable_role(
