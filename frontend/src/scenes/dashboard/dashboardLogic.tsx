@@ -4352,17 +4352,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Cache values before the long-running await — the logic may unmount
             const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
             const urlVariables = settingsForRefresh.variables
-            const controllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
-            const controller = new AbortController()
-            controllers.get(tile.id)?.abort()
-            controllers.set(tile.id, controller)
+            const activeTileControllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
+            const tileController = new AbortController()
+            activeTileControllers.get(tile.id)?.abort()
+            activeTileControllers.set(tile.id, tileController)
             const queryId = uuid()
             const disposables = cache.disposables
             disposables.add(
                 () => () => {
-                    controller.abort()
-                    if (controllers.get(tile.id) === controller) {
-                        controllers.delete(tile.id)
+                    tileController.abort()
+                    if (activeTileControllers.get(tile.id) === tileController) {
+                        activeTileControllers.delete(tile.id)
                     }
                 },
                 queryId,
@@ -4385,9 +4385,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     queryId,
                     'force_blocking',
                     {
-                        signal: controller.signal,
+                        signal: tileController.signal,
                         onCapacityWaitChange: (waiting) => {
-                            if (!disposables.isDisposed && (!waiting || !controller.signal.aborted)) {
+                            if (!disposables.isDisposed && (!waiting || !tileController.signal.aborted)) {
                                 actions.setCapacityRetry(insight.short_id, queryId, waiting)
                             }
                         },
@@ -4397,7 +4397,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tile.filters_overrides
                 )
 
-                if (controller.signal.aborted || disposables.isDisposed) {
+                if (tileController.signal.aborted || disposables.isDisposed) {
                     return
                 }
 
@@ -4422,7 +4422,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.setRefreshError(insight.short_id)
                 }
             } catch (e: any) {
-                if (!controller.signal.aborted && !disposables.isDisposed) {
+                if (!tileController.signal.aborted && !disposables.isDisposed) {
                     actions.setRefreshError(insight.short_id, e)
                 }
             } finally {
@@ -4476,21 +4476,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 actions.abortAnyRunningQuery()
-                const controllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
+                const activeTileControllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
                 const tileControllers = sortedTilesToRefresh.map((tile) => {
                     const tileController = new AbortController()
-                    controllers.get(tile.id)?.abort()
-                    controllers.set(tile.id, tileController)
+                    activeTileControllers.get(tile.id)?.abort()
+                    activeTileControllers.set(tile.id, tileController)
                     return tileController
                 })
-                const controller = new AbortController()
-                cache.abortController = controller
+                const batchController = new AbortController()
+                cache.abortController = batchController
                 const disposables = cache.disposables
                 disposables.add(
                     () => () => {
-                        controller.abort()
+                        batchController.abort()
                         tileControllers.forEach((tileController) => tileController.abort())
-                        if (cache.abortController === controller) {
+                        if (cache.abortController === batchController) {
                             cache.abortController = null
                         }
                     },
@@ -4511,7 +4511,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const insightRefreshPromises = sortedTilesToRefresh.map(async (tile, index) => {
                     const insight = tile.insight
                     const tileController = tileControllers[index]
-                    const ownsRequest = (): boolean => controllers.get(tile.id) === tileController
+                    const isCurrentTileRefresh = (): boolean => activeTileControllers.get(tile.id) === tileController
                     const queryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
@@ -4546,7 +4546,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 onCapacityWaitChange: (waiting) => {
                                     if (
                                         !disposables.isDisposed &&
-                                        (!waiting || (ownsRequest() && !tileController.signal.aborted))
+                                        (!waiting || (isCurrentTileRefresh() && !tileController.signal.aborted))
                                     ) {
                                         actions.setCapacityRetry(insight.short_id, queryId, waiting)
                                     }
@@ -4557,7 +4557,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        if (!ownsRequest() || tileController.signal.aborted || disposables.isDisposed) {
+                        if (!isCurrentTileRefresh() || tileController.signal.aborted || disposables.isDisposed) {
                             tilesAbortedCount++
                             return
                         }
@@ -4588,7 +4588,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesErroredCount++
                         }
                     } catch (e: any) {
-                        if (!ownsRequest() || disposables.isDisposed) {
+                        if (!isCurrentTileRefresh() || disposables.isDisposed) {
                             tilesAbortedCount++
                             return
                         }
@@ -4601,8 +4601,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesErroredCount++
                         }
                     } finally {
-                        if (ownsRequest()) {
-                            controllers.delete(tile.id)
+                        if (isCurrentTileRefresh()) {
+                            activeTileControllers.delete(tile.id)
                         }
                     }
                 })
@@ -5083,8 +5083,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.disposables.dispose('dashboardRefresh')
         },
         cancelDashboardRefresh: () => {
-            const controllers: Map<number, AbortController> | undefined = cache.tileRefreshControllers
-            controllers?.forEach((controller) => controller.abort())
+            const activeTileControllers: Map<number, AbortController> | undefined = cache.tileRefreshControllers
+            activeTileControllers?.forEach((tileController) => tileController.abort())
             actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {

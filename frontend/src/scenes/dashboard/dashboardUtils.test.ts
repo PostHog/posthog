@@ -310,6 +310,7 @@ describe('getInsightWithRetry', () => {
     })
 
     it.each([429, 503])('honors retry guidance from %s before requesting again', async (status) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         const onCapacityWaitChange = jest.fn()
         const getResponse = jest.spyOn(api, 'getResponse')
         getResponse.mockRejectedValueOnce(new ApiError('Busy', status, new Headers({ 'Retry-After': '47' })))
@@ -323,6 +324,22 @@ describe('getInsightWithRetry', () => {
         expect((await request)?.result).toEqual([])
         expect(getResponse).toHaveBeenCalledTimes(2)
         expect(onCapacityWaitChange.mock.calls).toEqual([[true], [false]])
+        expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual([
+            [
+                'dashboard tile capacity wait completed',
+                {
+                    insight_short_id: 'abc123',
+                    dashboard_id: 60,
+                    client_query_id: 'q',
+                    outcome: 'recovered',
+                    capacity_rejections: 1,
+                    retry_wait_ms: 47_000,
+                    error_status: null,
+                    error_code: null,
+                },
+                undefined,
+            ],
+        ])
     })
 
     it.each([
@@ -330,6 +347,7 @@ describe('getInsightWithRetry', () => {
         { name: 'negative hint', retryAfter: -5 },
         { name: 'non-finite hint', retryAfter: Number.POSITIVE_INFINITY },
     ])('uses jittered exponential backoff for $name', async ({ retryAfter }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         jest.spyOn(Math, 'random').mockReturnValue(0.5)
         const getResponse = jest
             .spyOn(api, 'getResponse')
@@ -370,6 +388,11 @@ describe('getInsightWithRetry', () => {
         expect(getResponse).toHaveBeenCalledTimes(2)
         await jest.advanceTimersByTimeAsync(1)
         expect((await request)?.result).toEqual([])
+        expect(capture).toHaveBeenCalledWith(
+            'dashboard tile capacity wait completed',
+            expect.objectContaining({ outcome: 'recovered', capacity_rejections: 2, retry_wait_ms: 2250 }),
+            undefined
+        )
     })
 
     it.each(['429', '503'])('falls back to jitter for a malformed %s Retry-After', async (status) => {
@@ -421,6 +444,7 @@ describe('getInsightWithRetry', () => {
         { name: 'a 503 hint longer than the budget', status: 503, retryAfter: '120', expectedRequests: 1 },
         { name: 'repeated 503 hints', status: 503, retryAfter: '30', expectedRequests: 2 },
     ])('stops HTTP retries within the retry budget for $name', async ({ status, retryAfter, expectedRequests }) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         const onCapacityWaitChange = jest.fn()
         const error = new ApiError('Busy', status, new Headers({ 'Retry-After': retryAfter }))
         const getResponse = jest.spyOn(api, 'getResponse').mockRejectedValue(error)
@@ -440,7 +464,54 @@ describe('getInsightWithRetry', () => {
         )
         await Promise.all([expect(request).rejects.toBe(error), jest.runAllTimersAsync()])
         expect(getResponse).toHaveBeenCalledTimes(expectedRequests)
+        expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual([
+            [
+                'dashboard tile capacity wait completed',
+                expect.objectContaining({
+                    outcome: 'gave_up',
+                    capacity_rejections: expectedRequests,
+                    retry_wait_ms: expectedRequests === 1 ? 0 : 30_000,
+                    error_status: status,
+                }),
+                undefined,
+            ],
+        ])
         expect(onCapacityWaitChange.mock.calls).toEqual(expectedRequests === 1 ? [] : [[true], [false]])
+    })
+
+    it.each([400, 500, 504])('records a terminal %s after a capacity rejection', async (status) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const error = new ApiError('Failed query', status, undefined, { code: 'test_error' })
+        jest.spyOn(api, 'getResponse')
+            .mockRejectedValueOnce(new ApiError('Busy', 503, new Headers({ 'Retry-After': '2' })))
+            .mockRejectedValueOnce(error)
+        const request = getInsightWithRetry(
+            1,
+            insight,
+            60,
+            'q',
+            'blocking',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            2
+        )
+
+        await Promise.all([expect(request).rejects.toBe(error), jest.runAllTimersAsync()])
+        expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual([
+            [
+                'dashboard tile capacity wait completed',
+                expect.objectContaining({
+                    outcome: 'gave_up',
+                    capacity_rejections: 1,
+                    retry_wait_ms: 2000,
+                    error_status: status,
+                    error_code: 'test_error',
+                }),
+                undefined,
+            ],
+        ])
     })
 
     it('does not retry when a suspended tab resumes after the retry deadline', async () => {
@@ -491,10 +562,14 @@ describe('getInsightWithRetry', () => {
     })
 
     it('starts the retry budget when the first queued request actually begins', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         const getResponse = jest
             .spyOn(api, 'getResponse')
             .mockRejectedValueOnce(new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' })))
-            .mockResolvedValueOnce(insightResponse({ ...insight, result: [] }))
+            .mockImplementationOnce(async () => {
+                jest.advanceTimersByTime(5_000)
+                return insightResponse({ ...insight, result: [] })
+            })
         let requests = 0
         const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking', {
             runRequest: async (send) => {
@@ -508,11 +583,17 @@ describe('getInsightWithRetry', () => {
         await jest.runAllTimersAsync()
         expect((await request)?.result).toEqual([])
         expect(getResponse).toHaveBeenCalledTimes(2)
+        expect(capture).toHaveBeenCalledWith(
+            'dashboard tile capacity wait completed',
+            expect.objectContaining({ outcome: 'recovered', retry_wait_ms: 30_000 }),
+            undefined
+        )
     })
 
     it.each(['http', 'insight', 'async fallback'] as const)(
         'does not send a %s capacity retry if its budget expires in the request queue',
         async (path) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             jest.spyOn(lemonToast, 'error').mockImplementation()
             const error = new ApiError('Busy', 503, new Headers({ 'Retry-After': '30' }))
             const failedInsight = { ...insight, result: null, query_status: { ...capacityStatus, retry_after: 30 } }
@@ -550,12 +631,20 @@ describe('getInsightWithRetry', () => {
             expect(getResponse).toHaveBeenCalledTimes(1)
             expect(get).not.toHaveBeenCalled()
             expect(getStatus).not.toHaveBeenCalled()
+            expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual([
+                [
+                    'dashboard tile capacity wait completed',
+                    expect.objectContaining({ outcome: 'gave_up', capacity_rejections: 1, retry_wait_ms: 30_000 }),
+                    undefined,
+                ],
+            ])
         }
     )
 
     it.each(['before first request', 'during backoff', 'before async fallback'] as const)(
         'cancels %s without sending another request',
         async (stage) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             const controller = new AbortController()
             const onCapacityWaitChange = jest.fn()
             const getResponse = jest
@@ -586,6 +675,9 @@ describe('getInsightWithRetry', () => {
             await jest.runAllTimersAsync()
             expect(getResponse).toHaveBeenCalledTimes(stage === 'before first request' ? 0 : 1)
             expect(get).not.toHaveBeenCalled()
+            expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual(
+                []
+            )
             expect(onCapacityWaitChange.mock.calls).toEqual(stage === 'before first request' ? [] : [[true], [false]])
         }
     )
@@ -596,6 +688,7 @@ describe('getInsightWithRetry', () => {
         ['a 500 (transient server error)', MAX_ATTEMPTS, 500],
         ['a network failure without a status', MAX_ATTEMPTS, undefined],
     ])('on %s, requests %i time(s) before throwing', async (_, expectedAttempts, status) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         const onCapacityWaitChange = jest.fn()
         const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('some error', status))
 
@@ -614,6 +707,9 @@ describe('getInsightWithRetry', () => {
         )
         await Promise.all([expect(request).rejects.toThrow('some error'), jest.runAllTimersAsync()])
         expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
+        expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toHaveLength(
+            status === 429 ? 1 : 0
+        )
         expect(onCapacityWaitChange.mock.calls).toEqual(status === 429 ? [[true], [false], [true], [false]] : [])
     })
 
@@ -824,6 +920,17 @@ describe('getInsightWithRetry', () => {
             expect(
                 capture.mock.calls.filter(([event]) => event === 'dashboard tile recovered from capacity error')
             ).toHaveLength(recovered ? 1 : 0)
+            expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual([
+                [
+                    'dashboard tile capacity wait completed',
+                    expect.objectContaining({
+                        outcome: recovered ? 'recovered' : 'gave_up',
+                        capacity_rejections: 1,
+                        ...(response?.query_status?.error ? { error_code: 'hogql_error' } : {}),
+                    }),
+                    undefined,
+                ],
+            ])
             expect(result?.result ?? null).toEqual(response?.result ?? null)
             expect(Boolean(result?.query_status?.error)).toBe(hasError)
             if (expiredStatus) {
@@ -851,7 +958,9 @@ describe('getInsightWithRetry', () => {
             })
             jest.spyOn(api.queryStatus, 'get')
                 .mockRejectedValueOnce(new ApiError('Query not found', 404))
-                .mockResolvedValueOnce({ query_status: { ...capacityStatus, error: failure === 'failed status' } })
+                .mockResolvedValueOnce({
+                    query_status: { ...capacityStatus, error: failure === 'failed status', error_code: 'hogql_error' },
+                })
 
             const request = getInsightWithRetry(
                 1,
@@ -870,6 +979,21 @@ describe('getInsightWithRetry', () => {
             await jest.runAllTimersAsync()
             expect((await outcome)[0].status).toBe(cancelled ? 'rejected' : 'fulfilled')
             expect(getResponse).toHaveBeenCalledTimes(failure === 'failed status' ? 1 : 2)
+            expect(capture.mock.calls.filter(([event]) => event === 'dashboard tile capacity wait completed')).toEqual(
+                cancelled
+                    ? []
+                    : [
+                          [
+                              'dashboard tile capacity wait completed',
+                              expect.objectContaining({
+                                  outcome: 'gave_up',
+                                  error_status: failure === 'failed cache fetch' ? 503 : null,
+                                  ...(failure === 'failed status' ? { error_code: 'hogql_error' } : {}),
+                              }),
+                              undefined,
+                          ],
+                      ]
+            )
             expect(capture.mock.calls.filter(([event]) => event === 'query rerun after status expired')).toEqual(
                 cancelled
                     ? []

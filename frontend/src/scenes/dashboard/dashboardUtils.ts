@@ -342,6 +342,7 @@ export async function getInsightWithRetry(
     refresh: 'force_blocking' | 'blocking',
     options?: ApiMethodOptions & {
         onCapacityWaitChange?: (waiting: boolean) => void
+        /** Hold a scheduler slot through response-body reads; keep cooldowns and poll delays outside it. */
         runRequest?: <T>(request: () => Promise<T>) => Promise<T>
     },
     filtersOverride?: DashboardFilter,
@@ -349,6 +350,7 @@ export async function getInsightWithRetry(
     tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200,
+    // Bounds retry scheduling from first dispatch, not the duration of an in-flight request or async polling.
     maxRetryTimeMs: number = 90_000
 ): Promise<InsightModel | null> {
     const {
@@ -367,7 +369,8 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
-    let rateLimitedAttempts = 0
+    let capacityRejections = 0
+    let retryWaitMs = 0
     let retryDeadline = Infinity
     let lastResult: InsightModel | null = null
     let lastError: unknown
@@ -399,10 +402,12 @@ export async function getInsightWithRetry(
         if (atCapacity) {
             onCapacityWaitChange?.(true)
         }
+        const waitStartedAt = performance.now()
         try {
             await delay(waitMs, methodOptions?.signal)
         } finally {
             if (atCapacity) {
+                retryWaitMs += performance.now() - waitStartedAt
                 onCapacityWaitChange?.(false)
             }
         }
@@ -410,17 +415,40 @@ export async function getInsightWithRetry(
         return performance.now() < retryDeadline
     }
 
-    const captureRecovery = (result: InsightModel | null): void => {
-        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+    const captureCapacityOutcome = (
+        result: InsightModel | null,
+        error?: unknown,
+        queryStatus = result?.query_status
+    ): void => {
+        if (capacityRejections === 0 || methodOptions.signal?.aborted || isAbortError(error)) {
+            return
+        }
+        const recovered = error === undefined && result?.result != null && !result.query_status?.error
+        const queryErrorCode = queryStatus?.error
+            ? (queryStatus.error_code ??
+              (queryStatus.error_message === RATE_LIMIT_ERROR_MESSAGE ? RATE_LIMITED_ERROR_CODE : null))
+            : null
+        posthog.capture('dashboard tile capacity wait completed', {
+            insight_short_id: insight.short_id,
+            dashboard_id: dashboardId,
+            client_query_id: queryId,
+            outcome: recovered ? 'recovered' : 'gave_up',
+            capacity_rejections: capacityRejections,
+            retry_wait_ms: Math.round(retryWaitMs),
+            error_status: error instanceof ApiError ? (error.status ?? null) : null,
+            error_code: error instanceof ApiError ? (error.code ?? null) : queryErrorCode,
+        })
+        if (recovered) {
             posthog.capture('dashboard tile recovered from capacity error', {
                 insight_short_id: insight.short_id,
                 dashboard_id: dashboardId,
-                attempts: rateLimitedAttempts,
+                attempts: capacityRejections,
             })
         }
     }
 
     while (attempt < maxAttempts) {
+        let requestDispatched = false
         try {
             if (methodOptions?.signal?.aborted) {
                 throw new DOMException('Aborted', 'AbortError')
@@ -435,6 +463,7 @@ export async function getInsightWithRetry(
                     }
                     return lastResult
                 }
+                requestDispatched = true
                 // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
                 const insightResponse = await api.getResponse(insightUrl(refresh), methodOptions)
                 const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
@@ -448,16 +477,23 @@ export async function getInsightWithRetry(
                 result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
             ) {
                 attempt++
-                rateLimitedAttempts++
+                if (requestDispatched) {
+                    capacityRejections++
+                }
 
                 // Async fallback also starts a query, so it must respect the same cooldown.
                 if (!(await waitForRetry(result.query_status.retry_after, true))) {
+                    captureCapacityOutcome(result)
                     return result
                 }
 
                 if (attempt >= maxAttempts) {
+                    let failedQueryStatus: QueryStatus | undefined
                     try {
                         const readCachedInsight = async (finalStatus: QueryStatus): Promise<InsightModel | null> => {
+                            if (finalStatus.error) {
+                                failedQueryStatus = finalStatus
+                            }
                             if (finalStatus.complete && !finalStatus.error) {
                                 const legacyInsight: InsightModel | null = await runRequest(async () => {
                                     // nosemgrep: prefer-codegen-api -- Preserve the existing dynamic insight request and its filter overrides.
@@ -531,12 +567,12 @@ export async function getInsightWithRetry(
                                 if (!rerun) {
                                     throw new Error('The rerun returned no result')
                                 }
-                                captureRecovery(rerun)
+                                captureCapacityOutcome(rerun)
                                 return rerun
                             }
                             const cachedInsight = await readCachedInsight(finalStatus)
                             if (cachedInsight) {
-                                captureRecovery(cachedInsight)
+                                captureCapacityOutcome(cachedInsight)
                                 return cachedInsight
                             }
                         }
@@ -548,6 +584,7 @@ export async function getInsightWithRetry(
                             }" failed to load due to high load. Please try again later.`,
                             { toastId: `insight-concurrency-error-${insight.short_id}` }
                         )
+                        captureCapacityOutcome(result, undefined, failedQueryStatus)
                         return result
                     } catch (e) {
                         if (shouldCancelQuery(e)) {
@@ -560,28 +597,35 @@ export async function getInsightWithRetry(
                             }" failed to load due to high load. Please try again later.`,
                             { toastId: `insight-concurrency-error-${insight.short_id}` }
                         )
+                        captureCapacityOutcome(null, e, failedQueryStatus)
                         return result
                     }
                 }
                 continue // Retry
             }
 
-            captureRecovery(result)
+            captureCapacityOutcome(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
+                captureCapacityOutcome(null, e)
                 throw e // Re-throw cancellation errors
             }
 
             if (isDeterministicClientError(e)) {
+                captureCapacityOutcome(null, e)
                 throw e // A 4xx won't change on retry, so surface it immediately
             }
 
             lastError = e
             attempt++
             const atCapacity = e instanceof ApiError && (e.status === 429 || e.status === 503)
+            if (atCapacity && requestDispatched) {
+                capacityRejections++
+            }
             const retryAfterSeconds = e instanceof ApiError ? (e.retryAfterSeconds ?? undefined) : undefined
             if (attempt >= maxAttempts || !(await waitForRetry(retryAfterSeconds, atCapacity))) {
+                captureCapacityOutcome(null, e)
                 throw e // Re-throw the error after max attempts
             }
         }
