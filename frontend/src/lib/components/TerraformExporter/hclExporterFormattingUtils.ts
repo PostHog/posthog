@@ -21,17 +21,15 @@ export function sanitizeResourceName(name: string, fallback: string = 'resource'
 }
 
 function escapeHclString(str: string): string {
-    return (
-        str
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"')
-            .replace(/\n/g, '\\n')
-            .replace(/\r/g, '\\r')
-            .replace(/\t/g, '\\t')
-            // Terraform reads ${ and %{ inside a quoted string as a template, so a literal one is doubled
-            .replace(/\$\{/g, '$$${')
-            .replace(/%\{/g, '%%{')
-    )
+    // Terraform reads ${ and %{ inside a quoted string as a template, so a literal one is doubled
+    return str
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/\$\{/g, '$$${')
+        .replace(/%\{/g, '%%{')
 }
 
 export function formatHclValue(value: unknown): string {
