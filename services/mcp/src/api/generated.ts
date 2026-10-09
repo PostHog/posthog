@@ -13529,6 +13529,81 @@ export namespace Schemas {
     }
 
     /**
+     * * `everyone` - Automatic Flash for everyone
+     * * `listed` - Automatic Flash for these people
+     * * `off` - Automatic Flash opt-in only
+     */
+    export type AutomaticFlashForEnum = typeof AutomaticFlashForEnum[keyof typeof AutomaticFlashForEnum];
+
+
+    export const AutomaticFlashForEnum = {
+      Everyone: 'everyone',
+      Listed: 'listed',
+      Off: 'off',
+    } as const;
+
+    /**
+     * * `own_repository_choice` - Own choice for this repository
+     * * `own_default` - Own default
+     * * `repository_everyone` - The repository exception reviews everyone
+     * * `repository_excepted` - Excepted by the repository exception
+     * * `repository_listed` - Listed by the repository exception
+     * * `repository_not_listed` - Not listed by the repository exception
+     * * `repository_opt_in` - The repository exception reviews only people who opt in
+     * * `project_everyone` - The project reviews everyone
+     * * `project_excepted` - Excepted by the project
+     * * `project_listed` - Listed by the project
+     * * `project_not_listed` - Not listed by the project
+     * * `project_opt_in` - The project reviews only people who opt in
+     * * `bot_reviewed` - The project reviews bot pull requests
+     * * `bot_skipped` - The project does not review bot pull requests
+     * * `not_in_project` - This project does not review the repository
+     */
+    export type AutomaticReviewReasonEnum = typeof AutomaticReviewReasonEnum[keyof typeof AutomaticReviewReasonEnum];
+
+
+    export const AutomaticReviewReasonEnum = {
+      OwnRepositoryChoice: 'own_repository_choice',
+      OwnDefault: 'own_default',
+      RepositoryEveryone: 'repository_everyone',
+      RepositoryExcepted: 'repository_excepted',
+      RepositoryListed: 'repository_listed',
+      RepositoryNotListed: 'repository_not_listed',
+      RepositoryOptIn: 'repository_opt_in',
+      ProjectEveryone: 'project_everyone',
+      ProjectExcepted: 'project_excepted',
+      ProjectListed: 'project_listed',
+      ProjectNotListed: 'project_not_listed',
+      ProjectOptIn: 'project_opt_in',
+      BotReviewed: 'bot_reviewed',
+      BotSkipped: 'bot_skipped',
+      NotInProject: 'not_in_project',
+    } as const;
+
+    export interface AutomaticReviewDecision {
+      /** Whether the requesting user's own pull requests get automatic Flash reviews in this repository. */
+      flash: boolean;
+      /** Which rule decided: the user's own choice ('own_repository_choice', 'own_default'), the repository exception ('repository_*'), the project rule ('project_*'), or 'not_in_project' when this project does not review the repository.
+       *
+       * * `own_repository_choice` - Own choice for this repository
+       * * `own_default` - Own default
+       * * `repository_everyone` - The repository exception reviews everyone
+       * * `repository_excepted` - Excepted by the repository exception
+       * * `repository_listed` - Listed by the repository exception
+       * * `repository_not_listed` - Not listed by the repository exception
+       * * `repository_opt_in` - The repository exception reviews only people who opt in
+       * * `project_everyone` - The project reviews everyone
+       * * `project_excepted` - Excepted by the project
+       * * `project_listed` - Listed by the project
+       * * `project_not_listed` - Not listed by the project
+       * * `project_opt_in` - The project reviews only people who opt in
+       * * `bot_reviewed` - The project reviews bot pull requests
+       * * `bot_skipped` - The project does not review bot pull requests
+       * * `not_in_project` - This project does not review the repository */
+      reason: AutomaticReviewReasonEnum;
+    }
+
+    /**
      * * `P0` - P0
      * * `P1` - P1
      * * `P2` - P2
@@ -13650,7 +13725,7 @@ export namespace Schemas {
     export type AutoresearchModelModelRecipe = { [key: string]: unknown };
 
     /**
-     * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
+     * Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts.
      */
     export type AutoresearchModelMetrics = { [key: string]: unknown };
 
@@ -13751,7 +13826,7 @@ export namespace Schemas {
          * @nullable
          */
       calibration_error?: number | null;
-      /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
+      /** Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts. */
       metrics?: AutoresearchModelMetrics;
       /**
          * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
@@ -13837,6 +13912,37 @@ export namespace Schemas {
       readonly prediction_date: string;
       /** Realized AUC on that date. */
       readonly realized_auc: number;
+    }
+
+    export interface AutoresearchPredictionCoverage {
+      /** People in the inference population at the run's cutoff. */
+      readonly population: number;
+      /** People with a champion score inside the lookback window before the cutoff. Shadow scores do not count. */
+      readonly with_score: number;
+      /** People with no champion score inside the lookback window. A rolling run scores these people first. */
+      readonly never_scored: number;
+      /**
+         * Mean age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_avg: number | null;
+      /**
+         * Median age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_p50: number | null;
+      /**
+         * 90th percentile age in days of the newest score per person. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_p90: number | null;
+      /**
+         * Oldest score age in days. Null when nobody has a score.
+         * @nullable
+         */
+      readonly age_days_max: number | null;
+      /** How many days before the cutoff the measure reads scores. Older scores count as never scored. */
+      readonly lookback_days: number;
     }
 
     export interface AutoresearchPipeline {
@@ -13946,6 +14052,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly people_scored: number | null;
+      /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
+      readonly coverage: AutoresearchPredictionCoverage | null;
       /** Training runs started for this pipeline. */
       readonly training_run_count: number;
       /** Experiments (iterations) recorded across every training run. */
@@ -14105,6 +14213,8 @@ export namespace Schemas {
       rows_scored?: number | null;
       /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
       metrics: AutoresearchRunMetrics;
+      /** Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs. */
+      readonly coverage: AutoresearchPredictionCoverage | null;
       /** Error message if the run failed. */
       error?: string;
       /**
@@ -19065,7 +19175,7 @@ export namespace Schemas {
       active?: ActiveEnum;
       /** Filter to flags created by a specific user ID. */
       created_by_id?: number;
-      /** Search by feature flag key or name (case-insensitive). */
+      /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
       search?: string;
       /** Filter by flag type.
        *
@@ -19380,6 +19490,19 @@ export namespace Schemas {
       failing_ci: number;
     }
 
+    export interface CIDataFreshness {
+      /**
+         * When the last completed sync of the stored workflow runs started. Every stored run is at least this fresh. The older of the GitHub and Depot CI times when the repository syncs both. Null when a runs table has never synced.
+         * @nullable
+         */
+      runs_synced_at: string | null;
+      /**
+         * The same time for the stored workflow jobs. Null when jobs are not synced.
+         * @nullable
+         */
+      jobs_synced_at: string | null;
+    }
+
     export interface CIFailureLogLine {
       /**
          * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
@@ -19537,6 +19660,141 @@ export namespace Schemas {
       Pytest: 'pytest',
       Jest: 'jest',
     } as const;
+
+    /**
+     * * `success` - Success
+     * * `failure` - Failure
+     */
+    export type CITimingSampleStatusEnum = typeof CITimingSampleStatusEnum[keyof typeof CITimingSampleStatusEnum];
+
+
+    export const CITimingSampleStatusEnum = {
+      Success: 'success',
+      Failure: 'failure',
+    } as const;
+
+    export interface CITimingSample {
+      /** Integer run id of the sampled run; unique only together with ci_engine. */
+      run_id: number;
+      /** Run attempt the sample was taken from, which is the run's latest. */
+      run_attempt: number;
+      /**
+         * Job id of the matched job. Null for a workflow or matrix sample, which spans jobs.
+         * @nullable
+         */
+      job_id: number | null;
+      /**
+         * Number of the matched step in the sampled job. Steps match by name, so it can differ from the selected step's number. Null unless kind is 'step'.
+         * @nullable
+         */
+      step_number: number | null;
+      /** CI engine that ran the sampled run.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine: CIEngineEnum;
+      /**
+         * Source-native run id; use with ci_engine to link to the run.
+         * @nullable
+         */
+      native_run_id: string | null;
+      /**
+         * Source-native workflow run id; use with ci_engine to link to the run.
+         * @nullable
+         */
+      native_workflow_run_id: string | null;
+      /**
+         * Source-native job id of the matched job. Null for a workflow or matrix sample.
+         * @nullable
+         */
+      native_job_id: string | null;
+      /**
+         * Source-native job attempt id of the matched job. Null for a workflow or matrix sample.
+         * @nullable
+         */
+      native_attempt_id: string | null;
+      /** 'success' when every matched job succeeded, or the matched step did. Otherwise 'failure'.
+       *
+       * * `success` - Success
+       * * `failure` - Failure */
+      status: CITimingSampleStatusEnum;
+      /** For a workflow, matrix or job: seconds from the first matched job's start to the last one's end. For a step: the step's own duration. */
+      duration_seconds: number;
+      /** When the last matched job finished. */
+      completed_at: string;
+      /** Commit SHA the sampled run ran on. */
+      head_sha: string;
+    }
+
+    /**
+     * * `workflow_id` - Workflow id
+     * * `workflow_name` - Workflow name
+     */
+    export type CITimingIdentityEnum = typeof CITimingIdentityEnum[keyof typeof CITimingIdentityEnum];
+
+
+    export const CITimingIdentityEnum = {
+      WorkflowId: 'workflow_id',
+      WorkflowName: 'workflow_name',
+    } as const;
+
+    /**
+     * * `default_branch_unknown` - Default branch unknown
+     * * `jobs_not_synced` - Jobs not synced
+     * * `not_executed` - Not executed
+     */
+    export type CITimingUnavailableReasonEnum = typeof CITimingUnavailableReasonEnum[keyof typeof CITimingUnavailableReasonEnum];
+
+
+    export const CITimingUnavailableReasonEnum = {
+      DefaultBranchUnknown: 'default_branch_unknown',
+      JobsNotSynced: 'jobs_not_synced',
+      NotExecuted: 'not_executed',
+    } as const;
+
+    export interface CITimingContext {
+      /** The newest matched samples of any status, newest first. At most three. */
+      recent: CITimingSample[];
+      /**
+         * The repository's default branch, which the samples ran on. Null when unknown.
+         * @nullable
+         */
+      default_branch: string | null;
+      /** How many days back the comparison looks. */
+      window_days: number;
+      /** How runs of the same workflow were found: by 'workflow_id', which a rename keeps, or by 'workflow_name' when the run has no workflow id.
+       *
+       * * `workflow_id` - Workflow id
+       * * `workflow_name` - Workflow name */
+      identity: CITimingIdentityEnum;
+      /** How many default-branch runs of the workflow were checked for a match. */
+      runs_scanned: number;
+      /** True when the window held more eligible runs than were checked, so the figures cover the newest runs only. */
+      sampled: boolean;
+      /** How many checked runs matched the selection and succeeded. */
+      sample_count: number;
+      /**
+         * Mean duration of the successful samples, in seconds. Null when there are none. A run counts only when it ran the same jobs on the same runners, so a null means no comparable run.
+         * @nullable
+         */
+      average_seconds: number | null;
+      /**
+         * When the last completed sync of the stored workflow runs started. Null when unknown.
+         * @nullable
+         */
+      runs_synced_at: string | null;
+      /**
+         * When the last completed sync of the stored workflow jobs started. Null when unknown.
+         * @nullable
+         */
+      jobs_synced_at: string | null;
+      /** Why no comparison was made: 'default_branch_unknown' (no synced pull request names the repository's default branch), 'jobs_not_synced', or 'not_executed' (every selected job was skipped, so there is no duration to compare). Null when the comparison ran, even if it found no samples.
+       *
+       * * `default_branch_unknown` - Default branch unknown
+       * * `jobs_not_synced` - Jobs not synced
+       * * `not_executed` - Not executed */
+      unavailable_reason: CITimingUnavailableReasonEnum | null;
+    }
 
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
@@ -24318,6 +24576,38 @@ export namespace Schemas {
       Xaa: 'xaa',
     } as const;
 
+    export interface ConfusionCounts {
+      /** True positives: flagged users who did the target event. */
+      tp: number;
+      /** False positives: flagged users who did not do the target event. */
+      fp: number;
+      /** False negatives: users not flagged who did the target event. */
+      fn: number;
+      /** True negatives: users not flagged who did not do the target event. */
+      tn: number;
+      /** Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the boundary score, so this can be a little above k. */
+      n_flagged: number;
+      /**
+         * tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.
+         * @nullable
+         */
+      precision: number | null;
+      /**
+         * tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it.
+         * @nullable
+         */
+      recall: number | null;
+    }
+
+    export interface ConfusionByCutoff {
+      /** Counts when the top 10% of users by score are flagged. */
+      top_10: ConfusionCounts;
+      /** Counts when the top 20% of users by score are flagged. */
+      top_20: ConfusionCounts;
+      /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+      likely: ConfusionCounts;
+    }
+
     /**
      * * `posthog_code` - posthog_code
      */
@@ -27399,16 +27689,6 @@ export namespace Schemas {
       readonly team_id: number;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
-    }
-
-    export interface DashboardCollaborator {
-      readonly id: string;
-      readonly dashboard_id: number;
-      readonly user: UserBasic;
-      level: RestrictionLevelEnum;
-      readonly added_at: string;
-      readonly updated_at: string;
-      user_uuid: string;
     }
 
     /**
@@ -31429,6 +31709,8 @@ export namespace Schemas {
      * * `Neo4j` - Neo4j
      * * `TestDino` - TestDino
      * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32807,6 +33089,8 @@ export namespace Schemas {
       Neo4j: 'Neo4j',
       TestDino: 'TestDino',
       ChessCom: 'ChessCom',
+      Userback: 'Userback',
+      Rewardful: 'Rewardful',
     } as const;
 
     /**
@@ -34198,7 +34482,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -34638,6 +34924,20 @@ export namespace Schemas {
       Preset: 'preset',
       Legacy: 'legacy',
       Default: 'default',
+    } as const;
+
+    /**
+     * * `follow` - Follow each repository
+     * * `flash` - Flash everywhere
+     * * `off` - Off everywhere
+     */
+    export type DefaultReviewModeEnum = typeof DefaultReviewModeEnum[keyof typeof DefaultReviewModeEnum];
+
+
+    export const DefaultReviewModeEnum = {
+      Follow: 'follow',
+      Flash: 'flash',
+      Off: 'off',
     } as const;
 
     export interface DeleteTileRequest {
@@ -36820,7 +37120,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -43336,6 +43638,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -43349,6 +43652,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     } as const;
 
     /**
@@ -43372,6 +43676,7 @@ export namespace Schemas {
      * * `add_primary_metric` - Add Primary Metric
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
+     * * `edit_release_conditions` - Edit Release Conditions
      */
     export type ExperimentHealthFindingActionKindEnum = typeof ExperimentHealthFindingActionKindEnum[keyof typeof ExperimentHealthFindingActionKindEnum];
 
@@ -43383,6 +43688,7 @@ export namespace Schemas {
       AddPrimaryMetric: 'add_primary_metric',
       AddSecondaryMetric: 'add_secondary_metric',
       EditExposureCriteria: 'edit_exposure_criteria',
+      EditReleaseConditions: 'edit_release_conditions',
     } as const;
 
     /**
@@ -43400,7 +43706,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `no_metric` - No Metric
        * * `srm` - Sample Ratio Mismatch
-       * * `zero_exposures` - Zero Exposures */
+       * * `zero_exposures` - Zero Exposures
+       * * `forced_variant_release_condition` - Forced Variant Release Condition */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45556,6 +45863,11 @@ export namespace Schemas {
       statement: string;
       /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
       count: number;
+      /**
+         * How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.
+         * @nullable
+         */
+      read: number | null;
       /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
       example_observation_ids: string[];
     }
@@ -45838,6 +46150,11 @@ export namespace Schemas {
      */
     export type VariantAnalysisDifferenceCounts = {[key: string]: number};
 
+    /**
+     * Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.
+     */
+    export type VariantAnalysisDifferenceRead = {[key: string]: number};
+
     export interface VariantAnalysisDifference {
       /** The theme the difference rests on. */
       theme: string;
@@ -45845,6 +46162,8 @@ export namespace Schemas {
       statement: string;
       /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
       counts: VariantAnalysisDifferenceCounts;
+      /** Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them. */
+      read: VariantAnalysisDifferenceRead;
     }
 
     export interface VariantsAnalysisState {
@@ -46523,6 +46842,20 @@ export namespace Schemas {
       S3: 'S3',
     } as const;
 
+    /**
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused
+     */
+    export type ExternalDataDestinationStatusEnum = typeof ExternalDataDestinationStatusEnum[keyof typeof ExternalDataDestinationStatusEnum];
+
+
+    export const ExternalDataDestinationStatusEnum = {
+      Healthy: 'healthy',
+      Failing: 'failing',
+      Paused: 'paused',
+    } as const;
+
     export interface ExternalDataDestination {
       readonly id: string;
       /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -46557,6 +46890,22 @@ export namespace Schemas {
       readonly updated_at: string | null;
       /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
       readonly synced_sources: readonly SyncedSource[];
+      /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+       *
+       * * `healthy` - Healthy
+       * * `failing` - Failing
+       * * `paused` - Paused */
+      readonly status: ExternalDataDestinationStatusEnum;
+      /**
+         * The last delivery error, safe to show to the user. Null if no delivery has failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /**
+         * When the last delivery error occurred.
+         * @nullable
+         */
+      readonly latest_error_at: string | null;
     }
 
     /**
@@ -48380,7 +48729,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -49792,7 +50143,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -50094,7 +50447,7 @@ export namespace Schemas {
       tags?: unknown[];
       evaluation_contexts?: unknown[];
       /**
-         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+         * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
          * @nullable
          */
       readonly usage_dashboard: number | null;
@@ -50483,18 +50836,6 @@ export namespace Schemas {
       evaluation_distinct_id: string | null;
       /** Detailed analysis of each condition in the feature flag */
       conditions: FeatureFlagConditionAnalysis[];
-    }
-
-    export interface FeatureFlagUsageDashboardError {
-      /** Whether the usage dashboard operation completed successfully. */
-      success: boolean;
-      /** Why the usage dashboard operation failed. */
-      error: string;
-    }
-
-    export interface FeatureFlagUsageDashboardSuccess {
-      /** Whether the usage dashboard operation completed successfully. */
-      success: boolean;
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -54599,9 +54940,9 @@ export namespace Schemas {
     export type MappingsInputs = {[key: string]: InputsItem};
 
     export interface Mappings {
-      name?: string;
       inputs_schema?: InputsSchemaItem[];
       inputs?: MappingsInputs;
+      name?: string;
       filters?: HogFunctionFilters;
     }
 
@@ -55500,6 +55841,11 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface MarketingAnalyticsSearchConversionGoal {
+      id: string;
+      name: string;
+    }
+
     export type Platform = typeof Platform[keyof typeof Platform];
 
 
@@ -55508,6 +55854,15 @@ export namespace Schemas {
       BingAds: 'BingAds',
       GoogleSearchConsole: 'GoogleSearchConsole',
     } as const;
+
+    export interface MarketingAnalyticsSearchConversion {
+      conversions?: number | null;
+      costPerConversion?: number | null;
+      id: string;
+      name: string;
+      previousConversions?: number | null;
+      previousCostPerConversion?: number | null;
+    }
 
     export interface MarketingAnalyticsSearchMetrics {
       /** Fraction of Google Search ad impressions shown as the first ad. */
@@ -55540,6 +55895,7 @@ export namespace Schemas {
       page?: string | null;
       platform: Platform;
       position?: number | null;
+      posthogConversions?: MarketingAnalyticsSearchConversion[] | null;
       previous?: MarketingAnalyticsSearchMetrics | null;
       /** Fraction of Google Search ad impressions shown among the top ads. */
       topImpressionRate?: number | null;
@@ -55552,6 +55908,10 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
+      posthogAttributionMode?: AttributionMode | null;
+      posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
+      posthogConversionsWarning?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -55578,6 +55938,7 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsSearchSource {
       keywordTable?: string | null;
+      placementTable?: string | null;
       queryPageTable?: boolean | null;
       sourceType: SourceType;
       statsTable: string;
@@ -55587,10 +55948,12 @@ export namespace Schemas {
       breakdown?: Breakdown1 | null;
       compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
+      includePostHogConversions?: boolean | null;
       keyword?: string | null;
       kind?: 'MarketingAnalyticsSearchQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      normalizePageUrls?: boolean | null;
       page?: string | null;
       response?: MarketingAnalyticsSearchQueryResponse | null;
       search?: string | null;
@@ -56179,6 +56542,15 @@ export namespace Schemas {
       yAxis?: MetricsYAxisSettings | null;
     }
 
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
+
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -56225,6 +56597,7 @@ export namespace Schemas {
     }
 
     export interface MetricsQuery {
+      /** Empty when `language` is `promql` or `sql`. */
       clauses: MetricsQueryClause[];
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
@@ -56235,9 +56608,15 @@ export namespace Schemas {
       /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
+      /** How the query is written; the builder when unset. */
+      language?: MetricsQueryLanguage | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+      promql?: string | null;
       response?: MetricsQueryResponse | null;
+      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
+      sql?: string | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -59239,6 +59618,79 @@ export namespace Schemas {
       successful: number;
       /** Runs that errored or that billing stopped. */
       failed: number;
+    }
+
+    /**
+     * * `cache` - Cache
+     * * `migrations` - Migrations
+     */
+    export type JobLogBadgeKindEnum = typeof JobLogBadgeKindEnum[keyof typeof JobLogBadgeKindEnum];
+
+
+    export const JobLogBadgeKindEnum = {
+      Cache: 'cache',
+      Migrations: 'migrations',
+    } as const;
+
+    /**
+     * * `hit` - Cache hit
+     * * `partial` - Older cache
+     * * `miss` - Cache miss
+     * * `failed` - Cache restore failed
+     * * `none` - No migrations
+     * * `applied` - Migrations applied
+     */
+    export type JobLogBadgeStateEnum = typeof JobLogBadgeStateEnum[keyof typeof JobLogBadgeStateEnum];
+
+
+    export const JobLogBadgeStateEnum = {
+      Hit: 'hit',
+      Partial: 'partial',
+      Miss: 'miss',
+      Failed: 'failed',
+      None: 'none',
+      Applied: 'applied',
+    } as const;
+
+    export interface JobLogBadge {
+      /** What the badge is about: a dependency cache, or migrations.
+       *
+       * * `cache` - Cache
+       * * `migrations` - Migrations */
+      kind: JobLogBadgeKindEnum;
+      /** What happened. For a cache: 'hit' (exact key restored), 'partial' (an older cache restored from a restore key), 'miss' (nothing restored), 'failed' (the restore itself failed). For migrations: 'none' (nothing to apply) or 'applied'.
+       *
+       * * `hit` - Cache hit
+       * * `partial` - Older cache
+       * * `miss` - Cache miss
+       * * `failed` - Cache restore failed
+       * * `none` - No migrations
+       * * `applied` - Migrations applied */
+      state: JobLogBadgeStateEnum;
+      /** How many times the log reports this outcome. */
+      count: number;
+      /** What each occurrence was about: a cache key or a migration name. Capped, so it can hold fewer entries than `count`. */
+      detail: string[];
+    }
+
+    export interface JobStepLogBadges {
+      /** What the log says this step did. */
+      badges: JobLogBadge[];
+      /** The step's number in the job, matching `number` of the job's steps. */
+      number: number;
+    }
+
+    export interface JobLogInsights {
+      /** Every badge found in the log, for the job as a whole. */
+      job: JobLogBadge[];
+      /** The same badges per step. Only steps with a badge are listed. Empty when `attributed_to_steps` is false. */
+      steps: JobStepLogBadges[];
+      /** False when no log was read: a Depot CI job, a job the source does not hold, a log GitHub no longer keeps, or a failed fetch. Empty badges then mean 'unknown', not 'nothing found'. */
+      log_read: boolean;
+      /** False when the log's step markers did not line up with the job's steps, so the badges are reported for the job only. */
+      attributed_to_steps: boolean;
+      /** True when only part of the log was parsed, because the log is too large or its download took too long. The badges are then a lower bound: an outcome in the part that was not parsed is missing. */
+      log_truncated?: boolean;
     }
 
     export interface JobStatsBucket {
@@ -67358,6 +67810,13 @@ export namespace Schemas {
          */
       lift_at_20: number | null;
       /**
+         * Average precision: area under the precision-recall curve. Higher is better, and a random model scores about base_rate. Null when no scored user did the target event, or for dates validated before this metric existed.
+         * @nullable
+         */
+      average_precision: number | null;
+      /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
+      confusion: ConfusionByCutoff | null;
+      /**
          * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
          * @nullable
          */
@@ -71764,6 +72223,7 @@ export namespace Schemas {
      * * `in_progress` - In Progress
      * * `pending_input` - Pending Input
      * * `ready` - Ready
+     * * `monitoring` - Monitoring
      * * `resolved` - Resolved
      * * `failed` - Failed
      * * `deleted` - Deleted
@@ -71778,6 +72238,7 @@ export namespace Schemas {
       InProgress: 'in_progress',
       PendingInput: 'pending_input',
       Ready: 'ready',
+      Monitoring: 'monitoring',
       Resolved: 'resolved',
       Failed: 'failed',
       Deleted: 'deleted',
@@ -75969,6 +76430,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly applied_version: number | null;
+      /** Why the person who rejected this suggestion rejected it, or empty when they gave no reason. */
+      readonly rejection_reason: string;
     }
 
     export interface PaginatedWorkflowProposalList {
@@ -78786,6 +79249,22 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
       readonly synced_sources?: readonly SyncedSource[];
+      /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+       *
+       * * `healthy` - Healthy
+       * * `failing` - Failing
+       * * `paused` - Paused */
+      readonly status?: ExternalDataDestinationStatusEnum;
+      /**
+         * The last delivery error, safe to show to the user. Null if no delivery has failed.
+         * @nullable
+         */
+      readonly latest_error?: string | null;
+      /**
+         * When the last delivery error occurred.
+         * @nullable
+         */
+      readonly latest_error_at?: string | null;
     }
 
     /**
@@ -81226,6 +81705,11 @@ export namespace Schemas {
          * @nullable
          */
       workflow_task_team_rate_limit_per_day?: number | null;
+      /**
+         * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
+         * @nullable
+         */
+      default_email_integration_id?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -82380,9 +82864,141 @@ export namespace Schemas {
       active?: boolean;
     }
 
+    /**
+     * * `all` - All repositories
+     * * `selected` - Only selected repositories
+     */
+    export type ReviewInstallationClaimScopeEnum = typeof ReviewInstallationClaimScopeEnum[keyof typeof ReviewInstallationClaimScopeEnum];
+
+
+    export const ReviewInstallationClaimScopeEnum = {
+      All: 'all',
+      Selected: 'selected',
+    } as const;
+
+    export interface PatchedReviewInstallationClaimUpdate {
+      /** 'all' or 'selected'. Switching to 'selected' removes the exceptions of the repositories that leave the project.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      scope?: ReviewInstallationClaimScopeEnum;
+    }
+
     export interface PatchedReviewPerspectiveConfigUpdate {
       /** Set true to run this perspective on the user's PR reviews, false to stop running it. */
       enabled?: boolean;
+    }
+
+    /**
+     * * `skip` - Not reviewed
+     * * `run` - Automatic Flash
+     */
+    export type ReviewProjectSettingsBotPullRequestsEnum = typeof ReviewProjectSettingsBotPullRequestsEnum[keyof typeof ReviewProjectSettingsBotPullRequestsEnum];
+
+
+    export const ReviewProjectSettingsBotPullRequestsEnum = {
+      Skip: 'skip',
+      Run: 'run',
+    } as const;
+
+    /**
+     * * `consider` - Consider (all)
+     * * `should_fix` - Should fix
+     * * `must_fix` - Must fix
+     */
+    export type UrgencyThresholdEnum = typeof UrgencyThresholdEnum[keyof typeof UrgencyThresholdEnum];
+
+
+    export const UrgencyThresholdEnum = {
+      Consider: 'consider',
+      ShouldFix: 'should_fix',
+      MustFix: 'must_fix',
+    } as const;
+
+    /**
+     * * `listed` - Listed
+     * * `excepted` - Excepted
+     */
+    export type ReviewRepositoryPersonKindEnum = typeof ReviewRepositoryPersonKindEnum[keyof typeof ReviewRepositoryPersonKindEnum];
+
+
+    export const ReviewRepositoryPersonKindEnum = {
+      Listed: 'listed',
+      Excepted: 'excepted',
+    } as const;
+
+    export interface ReviewRepositoryPerson {
+      /** Id of this list entry. Use it to remove the person. */
+      readonly id: string;
+      /** The project member on the list. */
+      readonly user: UserBasic;
+      /** Which list: 'listed' (gets Flash when the rule reviews only listed people) or 'excepted' (skipped when the rule reviews everyone).
+       *
+       * * `listed` - Listed
+       * * `excepted` - Excepted */
+      readonly kind: ReviewRepositoryPersonKindEnum;
+    }
+
+    export interface ReviewProjectRef {
+      /**
+         * Id of the other project. Null when it belongs to another organization.
+         * @nullable
+         */
+      id: number | null;
+      /**
+         * Name of the other project. Null when it belongs to another organization.
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface ReviewInstallation {
+      /** The GitHub App installation id. */
+      installation_id: string;
+      /** The GitHub account (organization or user) of the installation. */
+      account_name: string;
+      /** Who connected the installation to this project. Automatic Flash reviews of bot pull requests run as this user. */
+      connected_by: UserBasic | null;
+      /**
+         * Id of this project's claim. Null when the project reviews nothing there.
+         * @nullable
+         */
+      claim_id: string | null;
+      /** Which repositories this project reviews: 'all' (every repository no other project selected, including future ones), 'selected' (only the selected ones), or null (none).
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      scope: ReviewInstallationClaimScopeEnum | null;
+      /** Another project that takes all repositories of the installation, if any. */
+      all_taken_by_project: ReviewProjectRef | null;
+    }
+
+    export interface PatchedReviewProjectSettings {
+      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for?: AutomaticFlashForEnum;
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+       *
+       * * `skip` - Not reviewed
+       * * `run` - Automatic Flash */
+      bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
+      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      celebrate_clean_reviews?: boolean;
+      /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
+      readonly people?: readonly ReviewRepositoryPerson[];
+      /** Every GitHub installation connected to this project, and which of its repositories this project reviews. */
+      readonly installations?: readonly ReviewInstallation[];
+      /** Whether the requesting user is a project admin and can change these settings. */
+      readonly can_edit?: boolean;
     }
 
     export interface PatchedReviewQueueItemUpdate {
@@ -82404,59 +83020,94 @@ export namespace Schemas {
     }
 
     /**
-     * * `medium` - Medium
-     * * `xhigh` - Extra high
+     * * `user` - Set by the user
+     * * `project` - Project default
+     * * `default` - Built-in default
      */
-    export type ReviewUserSettingsFlashReasoningEffortEnum = typeof ReviewUserSettingsFlashReasoningEffortEnum[keyof typeof ReviewUserSettingsFlashReasoningEffortEnum];
+    export type PreferenceSourceEnum = typeof PreferenceSourceEnum[keyof typeof PreferenceSourceEnum];
 
 
-    export const ReviewUserSettingsFlashReasoningEffortEnum = {
-      Medium: 'medium',
-      Xhigh: 'xhigh',
+    export const PreferenceSourceEnum = {
+      User: 'user',
+      Project: 'project',
+      Default: 'default',
     } as const;
 
-    /**
-     * * `consider` - Consider
-     * * `should_fix` - Should Fix
-     * * `must_fix` - Must Fix
-     */
-    export type ReviewUserSettingsUrgencyThresholdEnum = typeof ReviewUserSettingsUrgencyThresholdEnum[keyof typeof ReviewUserSettingsUrgencyThresholdEnum];
+    export interface ReviewPreferenceSources {
+      /** Where the effective default_review_mode comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      default_review_mode: PreferenceSourceEnum;
+      /** Where the effective resolve_comments comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      resolve_comments: PreferenceSourceEnum;
+      /** Where the effective urgency_threshold comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      urgency_threshold: PreferenceSourceEnum;
+      /** Where the effective celebrate_clean_reviews comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      celebrate_clean_reviews: PreferenceSourceEnum;
+      /** Where the effective review_inbox_prs comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      review_inbox_prs: PreferenceSourceEnum;
+      /** Where the effective stamphog_review_inbox_prs comes from: 'user' (the user set it), 'project' (the project default), or 'default' (the built-in default).
+       *
+       * * `user` - Set by the user
+       * * `project` - Project default
+       * * `default` - Built-in default */
+      stamphog_review_inbox_prs: PreferenceSourceEnum;
+    }
 
-
-    export const ReviewUserSettingsUrgencyThresholdEnum = {
-      Consider: 'consider',
-      ShouldFix: 'should_fix',
-      MustFix: 'must_fix',
-    } as const;
+    export interface ReviewProjectDefaults {
+      /** The project's default for the minimum priority a Full review publishes.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold: UrgencyThresholdEnum;
+      /** The project's default for the image in a Full review that finds nothing to raise. */
+      celebrate_clean_reviews: boolean;
+    }
 
     export interface PatchedReviewUserSettings {
-      /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+       *
+       * * `follow` - Follow each repository
+       * * `flash` - Flash everywhere
+       * * `off` - Off everywhere */
+      default_review_mode?: DefaultReviewModeEnum;
+      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      resolve_comments?: boolean;
+      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      celebrate_clean_reviews?: boolean;
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
-      /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
-      review_labeled_prs?: boolean;
-      /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
-      resolve_comments?: boolean;
-      /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
-      celebrate_clean_reviews?: boolean;
-      /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
-      review_authored_prs?: boolean;
-      /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
-       *
-       * * `medium` - Medium
-       * * `xhigh` - Extra high */
-      flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnum;
-      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
-       *
-       * * `consider` - Consider
-       * * `should_fix` - Should Fix
-       * * `must_fix` - Must Fix */
-      urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page. */
-      readonly can_trigger_reviews?: boolean;
-      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
-      readonly show_internal_features?: boolean;
+      /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
+      readonly sources?: ReviewPreferenceSources;
+      /** The project defaults the Full review preferences fall back to. */
+      readonly project_defaults?: ReviewProjectDefaults;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
     }
@@ -90440,6 +91091,10 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      placementUnavailable?: boolean | null;
+      posthogAttributionMode?: AttributionMode | null;
+      posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null;
+      posthogConversionsWarning?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -93737,6 +94392,20 @@ export namespace Schemas {
       Readme: 'readme',
     } as const;
 
+    /**
+     * * `this_project` - This project
+     * * `other_project` - Another project
+     * * `none` - No project
+     */
+    export type RepositoryOwnerKindEnum = typeof RepositoryOwnerKindEnum[keyof typeof RepositoryOwnerKindEnum];
+
+
+    export const RepositoryOwnerKindEnum = {
+      ThisProject: 'this_project',
+      OtherProject: 'other_project',
+      None: 'none',
+    } as const;
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -94700,6 +95369,8 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
+      /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+      full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
       /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
@@ -94762,6 +95433,44 @@ export namespace Schemas {
       dismissed_findings: ReviewFinding[];
     }
 
+    export interface ReviewHogSettingsError {
+      /** Why the request was rejected. */
+      error: string;
+      /** The project that already holds the repository or the installation, if any. */
+      conflicting_project: ReviewProjectRef | null;
+    }
+
+    export interface ReviewInstallationClaim {
+      /** Id of the claim. */
+      readonly id: string;
+      /** The GitHub App installation id. */
+      readonly installation_id: string;
+      /** 'all' (every repository no other project selected, including future ones) or 'selected'.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      readonly scope: ReviewInstallationClaimScopeEnum;
+      /** The GitHub account (organization or user) of the installation. */
+      readonly account_name: string;
+      /** Who made the claim. */
+      readonly created_by: UserBasic | null;
+      /** When the claim was made. */
+      readonly created_at: string;
+    }
+
+    export interface ReviewInstallationClaimCreate {
+      /**
+         * The GitHub App installation id.
+         * @maxLength 64
+         */
+      installation_id: string;
+      /** 'all' reviews every repository of the installation that no other project selected. At most one project per installation can choose it. 'selected' reviews only selected repositories.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      scope: ReviewInstallationClaimScopeEnum;
+    }
+
     export interface ReviewPerspectiveConfig {
       /** Name of the `review-hog-perspective-*` skill this row toggles (the perspective's identity). */
       skill_name: string;
@@ -94789,6 +95498,34 @@ export namespace Schemas {
       report_count: number;
       /** Per-skill effectiveness across those reviews, most kept findings first. */
       perspectives: ReviewPerspectiveStatItem[];
+    }
+
+    export interface ReviewProjectSettings {
+      /** Who gets automatic Flash reviews in the repositories this project reviews: 'everyone' (except the excepted people), 'listed' (only the listed people), or 'off' (only people who opt in, the default). A repository exception or a person's own choice wins over it.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for?: AutomaticFlashForEnum;
+      /** Pull requests from bots, and from authors who are not project members, in every repository this project reviews: 'skip' (not reviewed, the default) or 'run' (automatic Flash that runs as the person who connected GitHub, with default settings and no changes to the pull request).
+       *
+       * * `skip` - Not reviewed
+       * * `run` - Automatic Flash */
+      bot_prs?: ReviewProjectSettingsBotPullRequestsEnum;
+      /** Project default for the minimum priority a Full review publishes: 'consider' (all, the built-in default), 'should_fix', or 'must_fix'. A person's own value wins.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Project default for the image in a Full review that finds nothing to raise. On by default. A person's own value wins. */
+      celebrate_clean_reviews?: boolean;
+      /** The people on the project rule's two lists. Only the list that matches flash_for has an effect. */
+      readonly people: readonly ReviewRepositoryPerson[];
+      /** Every GitHub installation connected to this project, and which of its repositories this project reviews. */
+      readonly installations: readonly ReviewInstallation[];
+      /** Whether the requesting user is a project admin and can change these settings. */
+      readonly can_edit: boolean;
     }
 
     export interface ReviewQueueCreate {
@@ -94857,6 +95594,8 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
+      /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+      full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
       /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
@@ -94907,6 +95646,213 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface ReviewRepository {
+      /** Id of the repository entry. */
+      readonly id: string;
+      /** The GitHub App installation that sees it. */
+      readonly installation_id: string;
+      /**
+         * GitHub's id of the repository. Null until it is first seen.
+         * @nullable
+         */
+      readonly github_repo_id: number | null;
+      /** GitHub repository in 'owner/name' form. */
+      readonly full_name: string;
+      /** Whether this project selected the repository. A selected repository belongs to this project even when another project takes all repositories of the installation. */
+      readonly selected: boolean;
+      /** The repository exception: 'everyone', 'listed', or 'off' (opt-in only). Null when the repository follows the project rule.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      readonly flash_for: AutomaticFlashForEnum | null;
+      /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
+      readonly people: readonly ReviewRepositoryPerson[];
+      /** Who added the repository. */
+      readonly created_by: UserBasic | null;
+      /** When the repository was added. */
+      readonly created_at: string;
+    }
+
+    /**
+     * * `flash` - Flash
+     * * `off` - Off
+     */
+    export type ReviewUserRepositoryChoiceModeEnum = typeof ReviewUserRepositoryChoiceModeEnum[keyof typeof ReviewUserRepositoryChoiceModeEnum];
+
+
+    export const ReviewUserRepositoryChoiceModeEnum = {
+      Flash: 'flash',
+      Off: 'off',
+    } as const;
+
+    export interface ReviewRepositoryChoice {
+      /** Id of the choice. Use it to clear the choice. */
+      readonly id: string;
+      /** The GitHub App installation. */
+      readonly installation_id: string;
+      /**
+         * GitHub's repository id.
+         * @nullable
+         */
+      readonly github_repo_id: number | null;
+      /** GitHub repository in 'owner/name' form. */
+      readonly full_name: string;
+      /** 'flash' or 'off' for the user's own pull requests in this repository.
+       *
+       * * `flash` - Flash
+       * * `off` - Off */
+      readonly mode: ReviewUserRepositoryChoiceModeEnum;
+    }
+
+    export interface ReviewRepositoryChoiceWrite {
+      /**
+         * The GitHub App installation.
+         * @maxLength 64
+         */
+      installation_id: string;
+      /**
+         * GitHub repository in 'owner/name' form.
+         * @maxLength 200
+         */
+      full_name: string;
+      /**
+         * GitHub's repository id.
+         * @minimum 1
+         */
+      github_repo_id?: number;
+      /** The requesting user's own automatic review for their pull requests in this repository: 'flash' or 'off'. A value equal to what the user inherits clears the choice instead.
+       *
+       * * `flash` - Flash
+       * * `off` - Off */
+      mode: ReviewUserRepositoryChoiceModeEnum;
+    }
+
+    export interface ReviewRepositoryChoiceWriteResponse {
+      /** The stored choice. Null when the value equals the inherited one. */
+      choice: ReviewRepositoryChoice | null;
+      /** What the requesting user's own pull requests get in this repository after the write. */
+      my_result: AutomaticReviewDecision;
+    }
+
+    export interface ReviewRepositoryException {
+      /** The exception's rule: 'everyone', 'listed', or 'off'.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for: AutomaticFlashForEnum;
+      /** The people on the exception's two lists. */
+      people: ReviewRepositoryPerson[];
+    }
+
+    export interface ReviewRepositoryOverviewEntry {
+      /** GitHub repository in 'owner/name' form. */
+      full_name: string;
+      /**
+         * GitHub's repository id.
+         * @nullable
+         */
+      github_repo_id: number | null;
+      /** Which project reviews the repository: 'this_project', 'other_project', or 'none'.
+       *
+       * * `this_project` - This project
+       * * `other_project` - Another project
+       * * `none` - No project */
+      owner: RepositoryOwnerKindEnum;
+      /** The other project that reviews the repository, when owner is 'other_project'. */
+      owner_project: ReviewProjectRef | null;
+      /** Whether this project reviews the repository. */
+      in_project: boolean;
+      /** Whether this project selected the repository explicitly. */
+      selected: boolean;
+      /**
+         * Id of this project's repository entry, for the people list endpoints.
+         * @nullable
+         */
+      repository_id: string | null;
+      /** This project's repository exception. Null when the repository follows the project. */
+      exception: ReviewRepositoryException | null;
+      /** The requesting user's own choice for this repository: 'flash', 'off', or null.
+       *
+       * * `flash` - Flash
+       * * `off` - Off */
+      my_choice: ReviewUserRepositoryChoiceModeEnum | null;
+      /**
+         * Id of that choice, to clear it.
+         * @nullable
+         */
+      my_choice_id: string | null;
+      /** What the requesting user's own pull requests get here, and the rule that decided it. */
+      my_result: AutomaticReviewDecision;
+      /** What the requesting user's own pull requests would get here without their choice for this repository. Equals my_result when there is no choice. */
+      inherited_result: AutomaticReviewDecision;
+    }
+
+    export interface ReviewRepositoryOverview {
+      /** The listed GitHub App installation. */
+      installation_id: string;
+      /** This project's claim on the installation: 'all', 'selected', or null.
+       *
+       * * `all` - All repositories
+       * * `selected` - Only selected repositories */
+      claim_scope: ReviewInstallationClaimScopeEnum | null;
+      /** One page of repositories. */
+      results: ReviewRepositoryOverviewEntry[];
+      /** Repositories that match the search and the view. */
+      total: number;
+      /** Whether more entries follow this page. */
+      has_more: boolean;
+      /**
+         * Offset of the next page, or null.
+         * @nullable
+         */
+      next_offset: number | null;
+    }
+
+    export interface ReviewRepositoryPersonRequest {
+      /** Id of the project member to add. Must be an active member. */
+      user_id: number;
+      /** Which list to add the person to: 'listed' or 'excepted'.
+       *
+       * * `listed` - Listed
+       * * `excepted` - Excepted */
+      kind: ReviewRepositoryPersonKindEnum;
+    }
+
+    export interface ReviewRepositoryWrite {
+      /**
+         * The GitHub App installation that sees the repository, from the overview.
+         * @maxLength 64
+         */
+      installation_id: string;
+      /**
+         * GitHub repository in 'owner/name' form, spelled as GitHub returns it.
+         * @maxLength 200
+         */
+      full_name: string;
+      /**
+         * GitHub's id of the repository, from the overview. Keeps renames.
+         * @minimum 1
+         */
+      github_repo_id?: number;
+      /** True includes the repository into this project, also when another project takes all repositories of the installation. False removes it; with an 'only selected' claim its exception goes too. */
+      selected?: boolean;
+      /** The repository exception: 'everyone', 'listed', or 'off'. Null clears it, so the repository follows the project rule again. Omit it to keep the current value.
+       *
+       * * `everyone` - Automatic Flash for everyone
+       * * `listed` - Automatic Flash for these people
+       * * `off` - Automatic Flash opt-in only */
+      flash_for?: AutomaticFlashForEnum | null;
+    }
+
+    export interface ReviewRepositoryWriteResponse {
+      /** The repository entry after the write. Null when nothing is left to store, so the entry was deleted and the repository follows the project rule or left the project. */
+      repository: ReviewRepository | null;
+      /** The project that took all repositories of the installation, when this write took the repository from it. */
+      taken_from_project: ReviewProjectRef | null;
+    }
+
     /**
      * Request body for asking stamphog to review one pull request.
      */
@@ -94919,6 +95865,20 @@ export namespace Schemas {
          */
       pr_number: number;
     }
+
+    /**
+     * * `flash_after_full` - Flash after a published Full review
+     * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
+     * * `internal_feature` - Not available in this project
+     */
+    export type ReviewRequestRefusalEnum = typeof ReviewRequestRefusalEnum[keyof typeof ReviewRequestRefusalEnum];
+
+
+    export const ReviewRequestRefusalEnum = {
+      FlashAfterFull: 'flash_after_full',
+      ResolutionNotOptedIn: 'resolution_not_opted_in',
+      InternalFeature: 'internal_feature',
+    } as const;
 
     /**
      * The review run a request points at.
@@ -94951,13 +95911,19 @@ export namespace Schemas {
     export interface ReviewTriggerError {
       /** Human-readable explanation of why the trigger was rejected. */
       error: string;
+      /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments), 'internal_feature' (the run mode is not available in this project). Absent for other errors.
+       *
+       * * `flash_after_full` - Flash after a published Full review
+       * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
+       * * `internal_feature` - Not available in this project */
+      code?: ReviewRequestRefusalEnum;
     }
 
     /**
-     * * `review` - review
-     * * `review_only` - review_only
-     * * `resolve_only` - resolve_only
-     * * `flash` - flash
+     * * `review` - Review
+     * * `review_only` - Review only
+     * * `resolve_only` - Resolve only
+     * * `flash` - Flash
      */
     export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
@@ -94972,12 +95938,12 @@ export namespace Schemas {
     export interface ReviewTriggerRequest {
       /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
       pr_url: string;
-      /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.
+      /** What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Full review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.
        *
-       * * `review` - review
-       * * `review_only` - review_only
-       * * `resolve_only` - resolve_only
-       * * `flash` - flash */
+       * * `review` - Review
+       * * `review_only` - Review only
+       * * `resolve_only` - Resolve only
+       * * `flash` - Flash */
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
@@ -94989,33 +95955,30 @@ export namespace Schemas {
     }
 
     export interface ReviewUserSettings {
-      /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
+      /** Automatic reviews of the user's own pull requests in every repository this project reviews: 'follow' (default) uses each repository's rule, 'flash' gives automatic Flash everywhere, and 'off' turns automatic Flash off everywhere. A choice for one repository wins over this default.
+       *
+       * * `follow` - Follow each repository
+       * * `flash` - Flash everywhere
+       * * `off` - Off everywhere */
+      default_review_mode?: DefaultReviewModeEnum;
+      /** After a Full review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
+      resolve_comments?: boolean;
+      /** Minimum priority a validated Full review finding needs to be published: 'consider' publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues. Without the user's own value the project default applies.
+       *
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+      /** Show a fun image in the review comment when a Full review of the user's pull requests finds nothing to raise. Without the user's own value the project default applies. */
+      celebrate_clean_reviews?: boolean;
+      /** Review the pull requests the agent opens for Inbox reports assigned to the user: ReviewHog reviews each one and posts its findings to the pull request. Off by default. */
       review_inbox_prs?: boolean;
       /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
       stamphog_review_inbox_prs?: boolean;
-      /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
-      review_labeled_prs?: boolean;
-      /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
-      resolve_comments?: boolean;
-      /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
-      celebrate_clean_reviews?: boolean;
-      /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
-      review_authored_prs?: boolean;
-      /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
-       *
-       * * `medium` - Medium
-       * * `xhigh` - Extra high */
-      flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnum;
-      /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
-       *
-       * * `consider` - Consider
-       * * `should_fix` - Should Fix
-       * * `must_fix` - Must Fix */
-      urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page. */
-      readonly can_trigger_reviews: boolean;
-      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
-      readonly show_internal_features: boolean;
+      /** Where each effective value comes from. A value equal to the inherited one is never stored, so writing the project default or the built-in default makes the source follow it again. */
+      readonly sources: ReviewPreferenceSources;
+      /** The project defaults the Full review preferences fall back to. */
+      readonly project_defaults: ReviewProjectDefaults;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
     }
@@ -97343,6 +98306,8 @@ export namespace Schemas {
        * * `failed` - failed
        * * `unknown` - unknown */
       status: ScoutTrialComparisonStatusEnum;
+      /** Whether this finished trial is hidden from the default history. */
+      archived: boolean;
       /**
          * Sanitized comparison error, if any.
          * @nullable
@@ -97352,11 +98317,23 @@ export namespace Schemas {
       evaluation: ScoutTrialEvaluation | null;
     }
 
+    export interface ScoutTrialComparisonArchiveRequest {
+      /** Saved comparison identity. */
+      comparison_id: string;
+      /** Hide a finished trial from history, or restore it without rerunning it. */
+      archived: boolean;
+    }
+
     export interface ScoutTrialComparisonHistory {
       /** This operator's most recent saved comparisons. */
       results: ScoutTrialComparison[];
       /** Whether more comparisons exist than the requested limit. */
       has_more: boolean;
+      /**
+         * Cursor for the next page, or null on the last page.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface ScoutTrialComparisonQuery {
@@ -101078,7 +102055,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -102521,7 +103500,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -103931,7 +104912,9 @@ export namespace Schemas {
        * * `Arcade` - Arcade
        * * `Neo4j` - Neo4j
        * * `TestDino` - TestDino
-       * * `ChessCom` - ChessCom */
+       * * `ChessCom` - ChessCom
+       * * `Userback` - Userback
+       * * `Rewardful` - Rewardful */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -111309,7 +112292,38 @@ export namespace Schemas {
       latest_ci_engine?: CIEngineEnum | null;
     }
 
+    export interface WorkflowJobStep {
+      /** 1-based position of the step in the job. */
+      number: number;
+      /** Step name. */
+      name: string;
+      /** Raw step status: 'queued', 'in_progress', 'completed', etc. */
+      status: string;
+      /**
+         * Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the step finishes.
+         * @nullable
+         */
+      conclusion: string | null;
+      /**
+         * When the step started, or null if it has not started.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the step finished, or null while it runs.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * Wall-clock duration in seconds; null until the step finishes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+    }
+
     export interface WorkflowJob {
+      /** The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job. */
+      steps: WorkflowJobStep[];
       /** Integer job id; unique only together with ci_engine. */
       id: number;
       /** The workflow run id this job belongs to. */
@@ -111557,6 +112571,14 @@ export namespace Schemas {
       unavailable_guardrails: string[];
     }
 
+    export interface WorkflowProposalRejectRequest {
+      /**
+         * Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.
+         * @maxLength 2000
+         */
+      reason?: string;
+    }
+
     export interface WorkflowRunActivityPoint {
       /** Integer run id; unique only together with ci_engine. */
       run_id: number;
@@ -111653,6 +112675,16 @@ export namespace Schemas {
          * @nullable
          */
       native_workflow_run_id?: string | null;
+      /**
+         * GitHub's numeric id of the workflow. It stays the same when the workflow is renamed, so use it to follow one workflow over time. Null for a Depot CI run, and for a run whose source does not carry the id.
+         * @nullable
+         */
+      workflow_id?: number | null;
+      /**
+         * Event that triggered the run, such as 'push', 'pull_request' or 'schedule'. Null when unknown, as for a Depot CI run.
+         * @nullable
+         */
+      event?: string | null;
     }
 
     export interface WorkflowRunnerCost {
@@ -115654,6 +116686,9 @@ export namespace Schemas {
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
+     * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -115760,6 +116795,9 @@ export namespace Schemas {
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
+      ReviewRepository: 'ReviewRepository',
+      ReviewProjectSettings: 'ReviewProjectSettings',
+      ReviewInstallationClaim: 'ReviewInstallationClaim',
     } as const;
 
     /**
@@ -115852,6 +116890,9 @@ export namespace Schemas {
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
+     * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -115946,6 +116987,9 @@ export namespace Schemas {
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
+      ReviewRepository: 'ReviewRepository',
+      ReviewProjectSettings: 'ReviewProjectSettings',
+      ReviewInstallationClaim: 'ReviewInstallationClaim',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -118872,6 +119916,18 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsCiDataFreshnessParams = {
+    /**
+     * 'owner/name' repository to report on.
+     * @minLength 1
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsCiFailureLogsParams = {
     /**
      * Pull request number whose CI failure logs to fetch.
@@ -118886,6 +119942,72 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsCiTimingContextParams = {
+    /**
+     * CI engine that ran the run.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI
+     * @minLength 1
+     */
+    ci_engine: EngineeringAnalyticsCiTimingContextCiEngine;
+    /**
+     * Comma-separated job ids from workflow_jobs, at most 200. Required for 'matrix', 'job' and 'step'. Give exactly one id for 'job' and 'step'. Ignored for 'workflow'.
+     * @minLength 1
+     */
+    job_ids?: string;
+    /**
+     * What to compare: the whole 'workflow', a 'matrix' (several jobs of the run), one 'job', or one 'step' of a job.
+     *
+     * * `workflow` - Workflow
+     * * `matrix` - Matrix
+     * * `job` - Job
+     * * `step` - Step
+     * @minLength 1
+     */
+    kind: EngineeringAnalyticsCiTimingContextKind;
+    /**
+     * 'owner/name' repository the run belongs to.
+     * @minLength 1
+     */
+    repo: string;
+    /**
+     * Run attempt that holds the selection.
+     * @minimum 1
+     */
+    run_attempt: number;
+    /**
+     * Integer run id of the run that holds the selection.
+     */
+    run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.
+     */
+    source_id?: string;
+    /**
+     * Number of the step within the job. Required when kind is 'step'.
+     */
+    step_number?: number;
+    };
+
+    export type EngineeringAnalyticsCiTimingContextCiEngine = typeof EngineeringAnalyticsCiTimingContextCiEngine[keyof typeof EngineeringAnalyticsCiTimingContextCiEngine];
+
+
+    export const EngineeringAnalyticsCiTimingContextCiEngine = {
+      GithubActions: 'github_actions',
+      DepotCi: 'depot_ci',
+    } as const;
+
+    export type EngineeringAnalyticsCiTimingContextKind = typeof EngineeringAnalyticsCiTimingContextKind[keyof typeof EngineeringAnalyticsCiTimingContextKind];
+
+
+    export const EngineeringAnalyticsCiTimingContextKind = {
+      Workflow: 'workflow',
+      Matrix: 'matrix',
+      Job: 'job',
+      Step: 'step',
+    } as const;
 
     export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**
@@ -119070,6 +120192,42 @@ export namespace Schemas {
       DefaultBranch: 'default_branch',
       MergeQueue: 'merge_queue',
       PullRequest: 'pull_request',
+    } as const;
+
+    export type EngineeringAnalyticsJobLogInsightsParams = {
+    /**
+     * CI engine. Required when job_id exists in both engines. Only GitHub Actions job logs are read.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI
+     * @minLength 1
+     */
+    ci_engine?: EngineeringAnalyticsJobLogInsightsCiEngine;
+    /**
+     * Job id to read the log of; a row id from workflow_jobs.
+     */
+    job_id: number;
+    /**
+     * 'owner/name' repository the job ran in.
+     * @minLength 1
+     */
+    repo: string;
+    /**
+     * Workflow run id the job belongs to.
+     */
+    run_id: number;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsJobLogInsightsCiEngine = typeof EngineeringAnalyticsJobLogInsightsCiEngine[keyof typeof EngineeringAnalyticsJobLogInsightsCiEngine];
+
+
+    export const EngineeringAnalyticsJobLogInsightsCiEngine = {
+      GithubActions: 'github_actions',
+      DepotCi: 'depot_ci',
     } as const;
 
     export type EngineeringAnalyticsMasterFailuresParams = {
@@ -120609,7 +121767,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string;
     /**
@@ -124989,6 +126147,50 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ReviewHogRepositoryOverviewRetrieveParams = {
+    /**
+     * The GitHub App installation to list.
+     * @minLength 1
+     * @maxLength 64
+     */
+    installation_id: string;
+    /**
+     * Entries per page (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only repositories whose name contains this text.
+     */
+    search?: string;
+    /**
+     * 'all' repositories, 'in_project' (reviewed by this project), 'exceptions' (with a repository exception), or 'mine' (with the requesting user's own choice).
+     *
+     * * `all` - All repositories
+     * * `in_project` - In this project
+     * * `exceptions` - With exceptions
+     * * `mine` - My choices
+     * @minLength 1
+     */
+    view?: ReviewHogRepositoryOverviewRetrieveView;
+    };
+
+    export type ReviewHogRepositoryOverviewRetrieveView = typeof ReviewHogRepositoryOverviewRetrieveView[keyof typeof ReviewHogRepositoryOverviewRetrieveView];
+
+
+    export const ReviewHogRepositoryOverviewRetrieveView = {
+      All: 'all',
+      InProject: 'in_project',
+      Exceptions: 'exceptions',
+      Mine: 'mine',
+    } as const;
+
     export type ReviewHogReviewsListParams = {
     /**
      * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
@@ -125470,6 +126672,16 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Cursor returned by the previous history page. Omit to read the newest trials.
+     * @minLength 1
+     * @pattern ^[0-9]{19}-[0-9a-f-]{36}\.json$
+     */
+    cursor?: string;
+    /**
+     * Include archived trials in the history.
+     */
+    include_archived?: boolean;
     /**
      * Maximum number of recent private runs to return.
      * @minimum 1

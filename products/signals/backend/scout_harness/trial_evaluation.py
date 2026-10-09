@@ -10,10 +10,11 @@ from uuid import UUID
 from django.utils import timezone
 
 from pydantic import BaseModel, JsonValue, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
-from posthog.models import Team, User
+from posthog.models import User
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
@@ -29,6 +30,7 @@ from products.signals.backend.scout_harness.trial_comparison_types import (
 from products.signals.backend.scout_harness.trial_evaluation_report import build_trial_comparison_report
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialComparisonReport,
+    TrialEvaluationAccess,
     TrialEvaluationCriterion,
     TrialEvaluationRequest,
     TrialEvaluationSnapshot,
@@ -231,7 +233,10 @@ def _read_trial_judge_input(team_id: int, evaluation_id: UUID, launch_id: UUID) 
 
 
 def _assert_context_access(
-    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan, *, config: SignalScoutConfig, user: User
+    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan | TrialEvaluationAccess,
+    *,
+    config: SignalScoutConfig,
+    user: User,
 ) -> None:
     if (
         config.team_id != 2
@@ -259,7 +264,7 @@ def assert_evaluation_access(snapshot: TrialEvaluationSnapshot, *, config: Signa
     _assert_context_access(load_trial_context(snapshot.team_id, snapshot.context_id), config=config, user=user)
 
 
-def _assert_worker_access(snapshot: TrialEvaluationSnapshot) -> None:
+def _assert_worker_access(snapshot: TrialEvaluationSnapshot, *, use_saved_access: bool = False) -> None:
     assert_trial_environment_ready()
     config = (
         SignalScoutConfig.objects.for_team(snapshot.team_id)
@@ -270,6 +275,23 @@ def _assert_worker_access(snapshot: TrialEvaluationSnapshot) -> None:
     user = User.objects.filter(id=snapshot.user_id, is_active=True).first()
     if config is None or user is None:
         raise TrialEvaluationError("The evaluation is no longer available to this operator.")
+    access = (
+        _read_document(_key(snapshot.team_id, snapshot.evaluation_id, "access"), TrialEvaluationAccess)
+        if use_saved_access
+        else None
+    )
+    if access is not None:
+        if (
+            access.evaluation_id != snapshot.evaluation_id
+            or access.team_id != snapshot.team_id
+            or access.config_id != snapshot.config_id
+            or access.user_id != snapshot.user_id
+            or access.context_id != snapshot.context_id
+        ):
+            raise TrialEvaluationError("The saved source identity does not match this evaluation.")
+        # Polls only need the frozen source identity; current permissions are still checked every time.
+        _assert_context_access(access, config=config, user=user)
+        return
     assert_evaluation_access(snapshot, config=config, user=user)
 
 
@@ -332,7 +354,6 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
         or not isinstance(marker, dict)
         or marker.get("version") != 1
         or marker.get("context_id") != str(launch.context_id)
-        or (task_run.state or {}).get("scout_trial") != marker
     ):
         raise TrialEvaluationError("The trial does not match its private task and operator.")
     return run
@@ -641,6 +662,20 @@ def prepare_trial_evaluation(
     stored = _write_once(_key(config.team_id, request.evaluation_id, "snapshot"), snapshot)
     if stored.request_hash != request_hash:
         raise TrialEvaluationError("This evaluation ID was already used for a different request.")
+    if stored.context_id != context.id:
+        raise TrialEvaluationError("The saved evaluation uses a different starting context.")
+    access = TrialEvaluationAccess(
+        evaluation_id=stored.evaluation_id,
+        team_id=stored.team_id,
+        config_id=stored.config_id,
+        user_id=stored.user_id,
+        context_id=context.id,
+        skill_name=context.skill_name,
+        skill_version=context.skill_version,
+    )
+    saved_access = _write_once(_key(stored.team_id, stored.evaluation_id, "access"), access)
+    if saved_access != access:
+        raise TrialEvaluationError("The saved source identity does not match this evaluation.")
     _save_trial_judge_inputs(stored)
     return stored
 
@@ -673,22 +708,7 @@ def _error_judgment(evidence: TrialRunEvidence, error: str | None = None) -> Tri
     )
 
 
-def _claim_judgment(snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence) -> bool:
-    key = _key(snapshot.team_id, snapshot.evaluation_id, f"attempts/{evidence.launch_id}")
-    try:
-        object_storage.write(
-            key,
-            _error_judgment(evidence).model_dump_json(),
-            extras={"ContentType": "application/json", "IfNoneMatch": "*"},
-        )
-    except object_storage.ObjectStorageError:
-        if _read_document(key, TrialRunJudgment) is None:
-            raise
-        return False
-    return True
-
-
-async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> None:
+async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID) -> bool:
     from products.signals.backend.scout_harness.trial_judge import (  # noqa: PLC0415 -- keep judge dependencies off API startup
         TrialJudgeExecutionError,
         judge_trial_run,
@@ -703,7 +723,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
         if evidence is None:
             raise TrialEvaluationError("The trial is not part of this evaluation.")
         if await asyncio.to_thread(_read_judgment, snapshot, evidence) is not None:
-            return
+            return True
         if evidence.exclusion_reason:
             judgment = TrialRunJudgment(
                 launch_id=launch_id,
@@ -712,24 +732,22 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
                 summary=evidence.exclusion_reason,
             )
         else:
-            await database_sync_to_async(assert_trial_work_enabled)(
-                await database_sync_to_async(Team.objects.get)(pk=team_id)
-            )
             step = "access_check"
             try:
-                await database_sync_to_async(_assert_worker_access)(snapshot)
-                step = "judgment_claim"
-                if not await asyncio.to_thread(_claim_judgment, snapshot, evidence):
-                    return
+                await database_sync_to_async(_assert_worker_access)(snapshot, use_saved_access=True)
                 step = "judge_execution"
-                judgment = await judge_trial_run(snapshot, evidence)
+                collected_judgment = await judge_trial_run(snapshot, evidence)
+                if collected_judgment is None:
+                    return False
+                judgment = collected_judgment
                 if judgment.launch_id != launch_id or judgment.variant_id != evidence.variant_id:
-                    judgment = _error_judgment(evidence)
+                    judgment = _error_judgment(evidence, "The judge returned a result for another trial run.")
             except TrialJudgeExecutionError as error:
                 judgment = _error_judgment(evidence, str(error))
-            except Exception as error:
+            except (TrialEvaluationError, NotFound, PermissionDenied) as error:
                 judgment = _error_judgment(evidence, safe_judge_failure(step, error))
         await asyncio.to_thread(_write_once, _key(team_id, evaluation_id, f"runs/{launch_id}"), judgment)
+        return True
 
 
 @private_capture_context()
@@ -755,6 +773,10 @@ def finish_trial_evaluation(team_id: int, evaluation_id: UUID) -> TrialCompariso
     for evidence in snapshot.runs:
         judgment = _read_judgment(snapshot, evidence)
         if judgment is None:
+            if not evidence.exclusion_reason:
+                raise TrialEvaluationNotReady(
+                    "Judging has not finished. Resume this evaluation to collect its results."
+                )
             judgment = _write_once(
                 _key(team_id, evaluation_id, f"runs/{evidence.launch_id}"), _error_judgment(evidence)
             )

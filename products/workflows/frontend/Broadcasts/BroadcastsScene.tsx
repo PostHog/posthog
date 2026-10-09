@@ -4,9 +4,7 @@ import { router } from 'kea-router'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,7 +21,6 @@ import {
     MESSAGING_TAB_CONTENT,
     MessagingNavTabKey,
     isMessagingSetupTab,
-    messagingNavTabs,
 } from '../messagingTabs'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
@@ -42,8 +39,6 @@ export function BroadcastsScene(): JSX.Element {
     const currentTab: MessagingNavTabKey | 'broadcasts' = MESSAGING_NAV_TAB_KEYS.includes(lastSegment)
         ? lastSegment
         : 'broadcasts'
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
 
     const broadcastsTab = {
         label: 'Broadcasts',
@@ -84,38 +79,30 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            {newNavigationEnabled ? (
-                <LemonTabs<'broadcasts' | 'library' | 'messaging-setup'>
-                    activeKey={currentTab === 'broadcasts' || currentTab === 'library' ? currentTab : 'messaging-setup'}
-                    tabs={[
-                        broadcastsTab,
-                        {
-                            label: 'Templates',
-                            key: 'library',
-                            link: urls.broadcasts('library'),
-                            content: MESSAGING_TAB_CONTENT.library,
-                        },
-                        {
-                            label: 'Messaging',
-                            key: 'messaging-setup',
-                            link: urls.broadcasts('channels'),
-                            content: (
-                                <MessagingSetup
-                                    tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                    linkFor={(tab) => urls.broadcasts(tab)}
-                                />
-                            ),
-                        },
-                    ]}
-                    sceneInset
-                />
-            ) : (
-                <LemonTabs
-                    activeKey={currentTab}
-                    tabs={[broadcastsTab, ...messagingNavTabs((tab) => urls.broadcasts(tab))]}
-                    sceneInset
-                />
-            )}
+            <LemonTabs<'broadcasts' | 'library' | 'messaging-setup'>
+                activeKey={currentTab === 'broadcasts' || currentTab === 'library' ? currentTab : 'messaging-setup'}
+                tabs={[
+                    broadcastsTab,
+                    {
+                        label: 'Templates',
+                        key: 'library',
+                        link: urls.broadcasts('library'),
+                        content: MESSAGING_TAB_CONTENT.library,
+                    },
+                    {
+                        label: 'Messaging',
+                        key: 'messaging-setup',
+                        link: urls.broadcasts('channels'),
+                        content: (
+                            <MessagingSetup
+                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
+                                linkFor={(tab) => urls.broadcasts(tab)}
+                            />
+                        ),
+                    },
+                ]}
+                sceneInset
+            />
         </SceneContent>
     )
 }

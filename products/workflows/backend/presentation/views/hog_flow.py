@@ -72,7 +72,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
@@ -976,7 +976,7 @@ class WorkflowStatsRowSerializer(serializers.Serializer):
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
 
     def to_internal_value(self, data):
@@ -3647,6 +3647,10 @@ class WorkflowProposalSerializer(serializers.Serializer):
     applied_version = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Workflow version the approved change went live as."
     )
+    rejection_reason = serializers.CharField(
+        read_only=True,
+        help_text="Why the person who rejected this suggestion rejected it, or empty when they gave no reason.",
+    )
 
     @extend_schema_field(serializers.BooleanField)
     def get_is_stale(self, proposal: WorkflowProposalRecord) -> bool:
@@ -3787,7 +3791,15 @@ class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
 
 
 class WorkflowProposalRejectRequestSerializer(serializers.Serializer):
-    """Rejecting takes no body today. The serializer stays so a reason can be added without a new endpoint."""
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads "
+            "it before suggesting again, so a reason stops the same idea coming back in other words."
+        ),
+    )
 
 
 def _flatten_graph_errors(error: serializers.ValidationError) -> list[str]:
@@ -5450,6 +5462,7 @@ class HogFlowViewSet(
                 proposal_id=locked_proposal.id,
                 status=WorkflowProposalStatus.REJECTED,
                 resolved_by_id=request.user.pk if request.user.is_authenticated else None,
+                rejection_reason=param_serializer.validated_data.get("reason", "").strip(),
             )
 
         self._log_activity(instance.id, instance.name, "proposal_rejected")

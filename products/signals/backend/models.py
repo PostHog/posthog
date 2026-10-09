@@ -299,6 +299,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        MONITORING = "monitoring"
         RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
@@ -384,6 +385,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    monitoring_started_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -2725,6 +2727,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
     # `created_at` anchors those.
     schedule_changed_at = models.DateTimeField(null=True, blank=True)
+    # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
+    # No rows, or a single false value, skips the run, so a scout that watches something rare can
+    # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
+    # bound as HogQL placeholders. Null turns the pre-check off.
+    precheck_query = models.TextField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -3070,6 +3077,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
+    trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
     # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable

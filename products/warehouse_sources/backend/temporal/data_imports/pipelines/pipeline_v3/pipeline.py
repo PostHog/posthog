@@ -242,8 +242,15 @@ class PipelineV3(Generic[ResumableData]):
         elif self._schema.is_append:
             sync_type = "append"
 
-        # Determine if this is the first-ever sync (no DWH table exists yet)
-        is_first_ever_sync = self._schema.table is None
+        # The earlier attempts of this run queued every row up to the value this attempt reads after,
+        # and this attempt does not extract those rows again. The queue must therefore treat it as a
+        # resume: a fresh run replaces the queue rows of earlier attempts and overwrites on batch 0.
+        self._continues_incremental_handoff = resumed_incremental_value is not None
+
+        # No DWH table exists yet, so the loader appends each batch. An attempt that continues reads
+        # again the queued rows that hold the newest queued value, and an append keeps both copies.
+        # The loader must merge the batches of that attempt on the primary key.
+        is_first_ever_sync = self._schema.table is None and not self._continues_incremental_handoff
 
         # SQL sources project enabled_columns in their SELECT and own schema_metadata via
         # introspection; managed-schema sources don't allow selection. Everything else gets the
@@ -254,10 +261,6 @@ class PipelineV3(Generic[ResumableData]):
         self._source_resume_manager = resumable_source_manager
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
         self._preemption = preemption
-        # The earlier attempts of this run queued every row up to the value this attempt reads after,
-        # and this attempt does not extract those rows again. The queue must therefore treat it as a
-        # resume: a fresh run replaces the queue rows of earlier attempts and overwrites on batch 0.
-        self._continues_incremental_handoff = resumed_incremental_value is not None
         self._resumed_incremental_run_uuid = resumed_incremental_run_uuid
         self._sent_resumed_run_finalization = False
         is_resume = self._continues_incremental_handoff or (
@@ -716,7 +719,8 @@ class PipelineV3(Generic[ResumableData]):
                 # that holds no key of the batch, and that merge reads each file of the table.
                 is_fresh_sync = TableRebuildRun(self._schema.sync_type_config).started_in(self._job.workflow_run_id)
             if is_fresh_sync:
-                self._mark_first_ever_sync()
+                if not self._continues_incremental_handoff:
+                    self._mark_first_ever_sync()
                 # No pre-write maintenance runs, so nothing here reads the handle that the corruption
                 # check opened. Release it before extraction.
                 self._delta_table_ref.pop_cached_table()

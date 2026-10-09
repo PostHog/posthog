@@ -32,7 +32,7 @@ _FEATURE_FLAG = "review-hog"
 
 
 def flash_available(team_id: int) -> bool:
-    """Flash is limited to the internal ReviewHog project until that gate becomes a flag."""
+    """Flash is limited to projects with the `review-hog-internal` flag."""
     return has_internal_features(resolve_effective_team_id(team_id))
 
 
@@ -41,9 +41,8 @@ def request_pr_review(
 ) -> PRReviewRequestOutcome:
     """Start the run, with the requester as both the run user and the acting user.
 
-    This is the pull request comment path. The run uses the commenter's settings, but the resolution
-    stage writes commits to the pull request's branch. Until the pull request owner's own opt-in
-    decides that, a comment must not write to anyone's branch, so resolution stays off.
+    This is the pull request comment path. The run uses the commenter's settings. The resolution
+    stage writes commits only when the pull request owner opted in, the same rule as every trigger.
     Applies the `review-hog` flag, which the review API applies through its permission class.
     The caller has already checked that the requester is a member of the project.
     Raises `GitHubRateLimitError` when GitHub rate-limits the App's token.
@@ -67,5 +66,4 @@ def request_pr_review(
         pr_number=pr_number,
         run_mode=run_mode,
         trigger_source=TRIGGER_COMMENT,
-        resolve_comments=False,
     )

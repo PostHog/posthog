@@ -661,17 +661,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             (SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX)
         )
 
-    @property
-    def is_scout_trial_judge(self) -> bool:
-        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
-            SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX
-        )
-
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
-        if self.is_scout_experiment:
-            return
         # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
         # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
@@ -3194,8 +3186,6 @@ class TaskRun(models.Model):
         work — but the outcome is reported so callers tracking event loss can count it.
         """
         try:
-            if self.task.is_scout_experiment:
-                return False
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
             distinct_id = distinct_id_override or (

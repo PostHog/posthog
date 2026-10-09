@@ -34,6 +34,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_eligible_count_sql,
     build_inference_anchors_sql,
     build_inference_features_sql,
+    build_prediction_coverage_sql,
     build_random_t0_labeler_sql,
     build_training_features_sql,
     rolling_rescore_runs,
@@ -816,6 +817,20 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
             return sorted(name_by_uuid[str(row[0])] for row in rows)
+
+        coverage_sql, coverage_values = build_prediction_coverage_sql(
+            lookback_days=30,
+            inference_population={},
+            cutoff_ts=int(first_cutoff.timestamp()),
+            pipeline_id=pipeline_id,
+            scored_lookback_days=30,
+        )
+        [[population, with_score, age_avg, age_p50, _age_p90, age_max]] = run_hogql_rows(
+            team=self.team,
+            query=HogQLQuery(query=coverage_sql, values=coverage_values, modifiers=LABELER_QUERY_MODIFIERS),
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+        assert (population, with_score, age_avg, age_p50, age_max) == (5, 2, 6.0, 6.0, 10.0)
 
         selections: list[list[str]] = []
         for day in range(3):
