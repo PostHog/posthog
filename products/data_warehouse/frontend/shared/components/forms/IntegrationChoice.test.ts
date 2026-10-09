@@ -1,6 +1,6 @@
 import { IntegrationType } from '~/types'
 
-import { authorizedIntegrationId } from './IntegrationChoice'
+import { authorizedIntegrationId, sourceOAuthRedirectUrl } from './IntegrationChoice'
 
 const integration = (id: number, kind: string): IntegrationType => ({ id, kind }) as IntegrationType
 
@@ -21,4 +21,23 @@ describe('SourceIntegrationChoice', () => {
     it('waits for the connection list rather than adopting an unverified id', () => {
         expect(authorizedIntegrationId({ integration_id: '7' }, null, 'linkedin-ads')).toBeNull()
     })
+    it.each(['/data-warehouse/new-source', '/onboarding'])(
+        'preserves source origin and return destination through OAuth from %s',
+        (pathname) => {
+            const search = new URLSearchParams({
+                kind: 'MetaAds',
+                returnUrl: '/project/997/marketing?tab=ad-performance',
+                returnLabel: 'Marketing analytics',
+                entry_point: 'marketing_analytics_mcp',
+            }).toString()
+            const redirect = new URL(sourceOAuthRedirectUrl('GoogleAds', pathname, `?${search}`), 'https://example.com')
+            expect(Object.fromEntries(redirect.searchParams)).toEqual({
+                kind: 'GoogleAds',
+                returnUrl: '/project/997/marketing?tab=ad-performance',
+                returnLabel: 'Marketing analytics',
+                entry_point: 'marketing_analytics_mcp',
+            })
+            expect(redirect.pathname).toBe(pathname)
+        }
+    )
 })

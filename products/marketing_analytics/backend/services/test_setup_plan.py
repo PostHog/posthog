@@ -704,6 +704,7 @@ class TestIntegrationSuggestions(SetupPlanTestCase):
             "kind": ["PinterestAds"],
             "returnUrl": [f"/project/{self.team.pk}/marketing"],
             "returnLabel": ["Marketing analytics"],
+            "entry_point": ["marketing_analytics_mcp"],
         }
 
     @pytest.mark.asyncio

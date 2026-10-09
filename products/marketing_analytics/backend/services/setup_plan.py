@@ -319,6 +319,7 @@ def _integration_suggestion(integration: IntegrationDiagnostic, *, team_id: int)
                     "kind": source_type,
                     "returnUrl": f"/project/{team_id}/marketing",
                     "returnLabel": "Marketing analytics",
+                    "entry_point": "marketing_analytics_mcp",
                 }
             ),
             event_volume=paid_volume,

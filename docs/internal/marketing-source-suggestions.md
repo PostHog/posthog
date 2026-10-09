@@ -17,6 +17,9 @@ The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP s
 The read-only `marketing-analytics-setup-plan` tool returns ranked source connection recommendations with evidence, confidence, and a connection link.
 It also returns other setup improvements and supports `refresh=true` for an explicit rescan.
 Connection links include the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
+The `entry_point` query parameter identifies the originating surface separately from the visible return label.
+Marketing links identify MCP (`marketing_analytics_mcp`), onboarding, Setup, the integration menu, search suggestions, and search detail.
+The connection flow preserves the parameter through OAuth and records it on `warehouse source connect completed`.
 Users complete platform authorization through the link; the tool does not connect accounts or apply changes.
 Incomplete or truncated scan results must be presented as such.
 

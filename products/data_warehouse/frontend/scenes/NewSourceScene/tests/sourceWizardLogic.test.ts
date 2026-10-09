@@ -145,7 +145,8 @@ describe('sourceWizardLogic', () => {
                     if (category !== 'Databases') {
                         logic.actions.setReturnConfig(
                             '/project/997/marketing?tab=ad-performance',
-                            'Marketing analytics'
+                            'Marketing analytics',
+                            'marketing_analytics_mcp'
                         )
                     }
                     await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
@@ -154,6 +155,7 @@ describe('sourceWizardLogic', () => {
                         expect.objectContaining({
                             sourceType: source.name,
                             returnLabel: category === 'Databases' ? undefined : 'Marketing analytics',
+                            entry_point: category === 'Databases' ? undefined : 'marketing_analytics_mcp',
                         })
                     )
                     const conversions = jest
