@@ -3120,6 +3120,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const settingsManager = new SettingsManager(
       cwd,
       !!this.options?.machineAuth,
+      meta?.untrustedCheckout === true,
     );
     await settingsManager.initialize();
 

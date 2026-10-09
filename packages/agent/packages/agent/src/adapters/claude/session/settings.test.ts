@@ -194,6 +194,38 @@ describe("SettingsManager per-repo persistence", () => {
       expect.arrayContaining(["A", "B", "C"]),
     );
   });
+
+  it("ignores repository settings throughout an untrusted checkout", async () => {
+    await fs.promises.mkdir(path.join(worktree, ".claude"), {
+      recursive: true,
+    });
+    await fs.promises.mkdir(path.join(mainRepo, ".claude"), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(worktree, ".claude", "settings.json"),
+      JSON.stringify({
+        permissions: { deny: ["Read"] },
+        availableModels: ["repo-model"],
+      }),
+    );
+    await fs.promises.writeFile(
+      path.join(mainRepo, ".claude", "settings.local.json"),
+      JSON.stringify({ model: "local-model" }),
+    );
+
+    const manager = new SettingsManager(worktree, false, true);
+    await manager.initialize();
+
+    expect(manager.checkPermission("mcp__acp__Read", {})).toEqual({
+      decision: "ask",
+    });
+    expect(manager.getSettings().availableModels).not.toContain("repo-model");
+    expect(manager.getSettings().model).not.toBe("local-model");
+
+    manager.dispose();
+    await manager.initialize();
+    expect(manager.checkPermission("mcp__acp__Read", {}).decision).toBe("ask");
+    expect(manager.getSettings().availableModels).not.toContain("repo-model");
+  });
 });
 
 describe("resolveMainRepoPath", () => {

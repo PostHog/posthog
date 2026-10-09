@@ -268,11 +268,13 @@ export class SettingsManager {
   private initPromise: Promise<void> | null = null;
   private writeMutex = new AsyncMutex();
   private readonly machineAuth: boolean;
+  private readonly untrustedCheckout: boolean;
 
-  constructor(cwd: string, machineAuth = false) {
+  constructor(cwd: string, machineAuth = false, untrustedCheckout = false) {
     this.cwd = cwd;
     this.repoRoot = cwd;
     this.machineAuth = machineAuth;
+    this.untrustedCheckout = untrustedCheckout;
   }
 
   async initialize(): Promise<void> {
@@ -309,11 +311,17 @@ export class SettingsManager {
     const [userSettings, projectSettings, localSettings, enterpriseSettings] =
       await Promise.all([
         loadSettingsFile(this.getUserSettingsPath()),
-        loadSettingsFile(this.getProjectSettingsPath()),
-        loadSettingsFile(this.getLocalSettingsPath()),
+        this.untrustedCheckout
+          ? Promise.resolve({})
+          : loadSettingsFile(this.getProjectSettingsPath()),
+        this.untrustedCheckout
+          ? Promise.resolve({})
+          : loadSettingsFile(this.getLocalSettingsPath()),
         loadSettingsFile(getManagedSettingsPath()),
       ]);
     this.userSettings = userSettings;
+    // Review sandboxes execute an untrusted checkout. Repository-owned settings must
+    // not influence permissions, environment, or model selection in those sessions.
     this.projectSettings = projectSettings;
     this.localSettings = localSettings;
     this.enterpriseSettings = enterpriseSettings;

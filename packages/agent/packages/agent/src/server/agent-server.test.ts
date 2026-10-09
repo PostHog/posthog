@@ -8252,3 +8252,44 @@ describe("AgentServer pending user attachments", () => {
     expect(manifestWarnings).toHaveLength(1);
   });
 });
+
+describe("AgentServer session context security", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("refuses to initialize without task-run state after retries", async () => {
+    vi.useFakeTimers();
+    const server = new AgentServer({
+      port: 0,
+      jwtPublicKey: TEST_PUBLIC_KEY,
+      apiUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      projectId: 1,
+      mode: "interactive",
+      taskId: "test-task-id",
+      runId: "test-run-id",
+    });
+    const internals = server as unknown as {
+      posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+      fetchTaskRunForSessionContext(
+        taskId: string,
+        runId: string,
+      ): Promise<TaskRun>;
+    };
+    internals.posthogAPI.getTaskRun = vi.fn(async () => {
+      throw new Error("control plane unavailable");
+    });
+
+    const result = internals.fetchTaskRunForSessionContext(
+      "test-task-id",
+      "test-run-id",
+    );
+    const assertion = expect(result).rejects.toThrow(
+      "Task run context is required",
+    );
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(internals.posthogAPI.getTaskRun).toHaveBeenCalledTimes(3);
+  });
+});

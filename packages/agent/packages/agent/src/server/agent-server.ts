@@ -2070,8 +2070,8 @@ export class AgentServer {
   private async fetchTaskRunForSessionContext(
     taskId: string,
     runId: string,
-  ): Promise<TaskRun | null> {
-    return this.fetchForSessionContext(
+  ): Promise<TaskRun> {
+    const taskRun = await this.fetchForSessionContext(
       () => this.posthogAPI.getTaskRun(taskId, runId),
       (error) =>
         this.logger.warn("Failed to fetch task run for session context", {
@@ -2080,6 +2080,12 @@ export class AgentServer {
           error,
         }),
     );
+    if (!taskRun) {
+      // Run state contains security posture such as untrusted_checkout. Starting
+      // without it would turn a control-plane outage into a fail-open session.
+      throw new Error("Task run context is required to initialize the session");
+    }
+    return taskRun;
   }
 
   private async _doInitializeSession(payload: JwtPayload): Promise<void> {

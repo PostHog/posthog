@@ -285,6 +285,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "end_run_when_done": True,
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
+                "untrusted_checkout": True,
                 "sandbox_jwt_kid": "secret",
                 "scout_trial": {"id": "private-trial"},
                 "scout_trial_private": {"reports": [{"title": "Saved candidate"}]},
@@ -309,6 +310,8 @@ class TestFacadeReadsAndMappers(TestCase):
         # The agent writes these into its skill roots at boot; dropped, it installs none.
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
+        # The sandbox needs this server-owned bit to keep repository configuration disabled.
+        assert detail.state.get("untrusted_checkout") == (True if include_agent_state else None)
         assert "sandbox_jwt_kid" not in detail.state
         assert "scout_trial" not in detail.state
         assert "scout_trial_private" not in detail.state
