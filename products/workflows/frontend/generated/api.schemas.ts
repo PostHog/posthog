@@ -2035,6 +2035,98 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+/**
+ * * `error_tracking` - Error tracking issue
+ * * `early_access` - Early access feature
+ * * `survey` - Survey
+ * * `feature_flag` - Feature flag
+ * * `cohort` - Cohort
+ */
+export type EmailDraftSourceEnumApi = (typeof EmailDraftSourceEnumApi)[keyof typeof EmailDraftSourceEnumApi]
+
+export const EmailDraftSourceEnumApi = {
+    ErrorTracking: 'error_tracking',
+    EarlyAccess: 'early_access',
+    Survey: 'survey',
+    FeatureFlag: 'feature_flag',
+    Cohort: 'cohort',
+} as const
+
+export interface EmailDraftRequestApi {
+    /** The kind of entity the email is about.
+     *
+     * * `error_tracking` - Error tracking issue
+     * * `early_access` - Early access feature
+     * * `survey` - Survey
+     * * `feature_flag` - Feature flag
+     * * `cohort` - Cohort */
+    source: EmailDraftSourceEnumApi
+    /**
+     * ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.
+     * @maxLength 200
+     */
+    source_id: string
+}
+
+/**
+ * * `ai` - AI
+ * * `template` - Template
+ */
+export type EmailDraftOriginEnumApi = (typeof EmailDraftOriginEnumApi)[keyof typeof EmailDraftOriginEnumApi]
+
+export const EmailDraftOriginEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+} as const
+
+/**
+ * * `flag_off` - AI drafts are not enabled for this project
+ * * `ai_not_approved` - The organization has not approved AI data processing
+ * * `gateway_unconfigured` - The AI gateway is not configured
+ * * `rate_limited` - The project used its hourly AI drafts
+ * * `timeout` - The model took too long
+ * * `model_error` - The model call failed
+ * * `invalid_output` - The model returned an unusable draft
+ */
+export type EmailDraftFallbackReasonEnumApi =
+    (typeof EmailDraftFallbackReasonEnumApi)[keyof typeof EmailDraftFallbackReasonEnumApi]
+
+export const EmailDraftFallbackReasonEnumApi = {
+    FlagOff: 'flag_off',
+    AiNotApproved: 'ai_not_approved',
+    GatewayUnconfigured: 'gateway_unconfigured',
+    RateLimited: 'rate_limited',
+    Timeout: 'timeout',
+    ModelError: 'model_error',
+    InvalidOutput: 'invalid_output',
+} as const
+
+export interface EmailDraftApi {
+    /** Email subject line. Empty when there is nothing to draft from. */
+    subject: string
+    /** Preview text shown after the subject in most inboxes. */
+    preheader: string
+    /** Email body as HTML paragraphs. */
+    html: string
+    /** Plain-text version of the body. */
+    text: string
+    /** Whether a model wrote the draft or it came from the fixed template for this source.
+     *
+     * * `ai` - AI
+     * * `template` - Template */
+    generated_by: EmailDraftOriginEnumApi
+    /** Why the template was used instead of a model draft. Null for a model draft.
+     *
+     * * `flag_off` - AI drafts are not enabled for this project
+     * * `ai_not_approved` - The organization has not approved AI data processing
+     * * `gateway_unconfigured` - The AI gateway is not configured
+     * * `rate_limited` - The project used its hourly AI drafts
+     * * `timeout` - The model took too long
+     * * `model_error` - The model call failed
+     * * `invalid_output` - The model returned an unusable draft */
+    template_reason: EmailDraftFallbackReasonEnumApi | null
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
