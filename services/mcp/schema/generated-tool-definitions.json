@@ -14453,7 +14453,7 @@
         "feature": "warehouse_suggestions",
         "summary": "Dismiss a warehouse suggestion",
         "title": "Dismiss a warehouse suggestion",
-        "required_scopes": ["warehouse_objects:write"],
+        "required_scopes": ["warehouse_view:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14468,7 +14468,7 @@
         "feature": "warehouse_suggestions",
         "summary": "Get a warehouse suggestion",
         "title": "Get a warehouse suggestion",
-        "required_scopes": ["warehouse_objects:read"],
+        "required_scopes": ["warehouse_view:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14483,7 +14483,7 @@
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
         "title": "List warehouse suggestions",
-        "required_scopes": ["warehouse_objects:read"],
+        "required_scopes": ["warehouse_view:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14498,7 +14498,7 @@
         "feature": "warehouse_suggestions",
         "summary": "Resume a dismissed warehouse suggestion",
         "title": "Resume a dismissed warehouse suggestion",
-        "required_scopes": ["warehouse_objects:write"],
+        "required_scopes": ["warehouse_view:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -14513,7 +14513,7 @@
         "feature": "warehouse_suggestions",
         "summary": "Get warehouse suggestions status",
         "title": "Get warehouse suggestions status",
-        "required_scopes": ["warehouse_objects:read"],
+        "required_scopes": ["warehouse_view:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

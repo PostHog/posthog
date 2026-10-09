@@ -31,6 +31,7 @@ export const WarehouseSuggestionsListQueryParams = () => zod.object({
         .describe(
             'Only return suggestions in this status.\n\n\* `proposed` - Proposed\n\* `accepted` - Accepted\n\* `dismissed` - Dismissed\n\* `expired` - Expired\n\* `auto_resolved` - Auto-resolved'
         ),
+    subject_id: zod.string().optional().describe('Only return suggestions about the view or table with this ID.'),
 })
 
 export const warehouseSuggestionsRetrievePathIdRegExp = new RegExp(

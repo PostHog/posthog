@@ -161,6 +161,7 @@ const warehouseSuggestionsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 status: params.status,
+                subject_id: params.subject_id,
             },
         })
         const filtered = {
