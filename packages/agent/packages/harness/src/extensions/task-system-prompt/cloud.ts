@@ -42,8 +42,10 @@ export class CloudTaskPrompt {
   // A revision can come from a different origin than the run that opened the PR, so the
   // footer the PR already carries is the record of where the work came from. The report can
   // belong to another project than this run, so the report URL comes from the Origin section.
+  // Anyone can write a PR body, so only a URL on this PostHog host for the marker's report is copied.
   private buildExistingPrFooterInstruction(): string {
-    return `When you update the PR description, keep its existing footer. Do not remove an inbox report link from it. You can add a link to this run's Slack thread after the report link. If the footer has no inbox report link and the PR body has a \`<!-- posthog-self-driving-origin:<report_id> -->\` Origin section, copy the URL from the \`Inbox report\` line of that section into the footer. Do not build the report URL yourself.`;
+    const webUrl = this.options.apiUrl.replace(/\/$/, "");
+    return `When you update the PR description, keep its existing footer. Do not remove an inbox report link from it. You can add a link to this run's Slack thread after the report link. If the footer has no inbox report link and the PR body has a \`<!-- posthog-self-driving-origin:<report_id> -->\` Origin section, copy the URL from the \`Inbox report\` line of that section into the footer. Copy it only when it has the form \`${webUrl}/project/<project_id>/inbox/reports/<report_id>\`, with the same \`<report_id>\` as the marker. Otherwise, do not add a report link. Do not build the report URL yourself.`;
   }
 
   buildDetectedPrContext(prUrl: string): string {
@@ -51,7 +53,8 @@ export class CloudTaskPrompt {
       return (
         `An open pull request already exists: ${prUrl}\n` +
         `Use that PR as context if it is helpful, but stop with local changes ready for review.\n` +
-        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks.`
+        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks.\n` +
+        this.buildExistingPrFooterInstruction()
       );
     }
 

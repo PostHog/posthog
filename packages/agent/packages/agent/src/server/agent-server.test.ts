@@ -7798,6 +7798,7 @@ describe("AgentServer HTTP Mode", () => {
       it.each([
         ["system prompt", "prompt", "slack", {}],
         ["detected PR context", "detected", "slack", {}],
+        ["review-first detected PR context", "detected", undefined, {}],
         ["review-first system prompt", "prompt", undefined, {}],
         ["review-first, no PR", "new", undefined, {}],
         [
@@ -7838,6 +7839,9 @@ describe("AgentServer HTTP Mode", () => {
             );
             expect(text).toContain(
               "copy the URL from the `Inbox report` line of that section",
+            );
+            expect(text).toContain(
+              "`http://localhost:8000/project/<project_id>/inbox/reports/<report_id>`, with the same `<report_id>` as the marker",
             );
             expect(text).not.toContain("/project/1/inbox/reports/");
           } finally {
