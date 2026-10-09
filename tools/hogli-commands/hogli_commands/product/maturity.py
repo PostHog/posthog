@@ -4,7 +4,7 @@ Scores each product across five actionable dimensions that map to the
 sequential work a team does when isolating their product:
 
   1. Models     — move models into products/
-  2. Facade     — add contracts.py + facade/api.py + logic.py
+  2. Facade     — add contracts.py + facade/api.py
   3. Presentation — views through facade, serializers on contracts
   4. Boundaries — tach interfaces + fix cross-product imports
   5. Codegen    — schema annotations, generated TS client adoption
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import json
+import tomllib
 import textwrap
 import warnings
 import subprocess
@@ -157,24 +158,9 @@ def _count_tach_depends_on(block: str) -> tuple[int, list[str]]:
     Cross-product dependencies are the coupling signal.
     """
     baseline = {"posthog", "ee"}
-    deps: list[str] = []
-    in_depends = False
-    for line in block.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("depends_on"):
-            if "[" in stripped and "]" in stripped:
-                for dep in re.findall(r'"([^"]+)"', stripped):
-                    if dep not in baseline:
-                        deps.append(dep)
-                break
-            in_depends = True
-            continue
-        if in_depends:
-            if stripped == "]":
-                break
-            dep = stripped.strip('"').strip(",").strip('"')
-            if dep and dep not in baseline:
-                deps.append(dep)
+    modules = tomllib.loads(block).get("modules", [])
+    depends_on = modules[0].get("depends_on", []) if modules else []
+    deps = [dep for dep in depends_on if dep not in baseline]
     return len(deps), deps
 
 
@@ -227,17 +213,16 @@ def score_models(name: str, backend_dir: Path, assigned_model_counts: dict[str, 
 
 
 def score_facade(backend_dir: Path) -> DimensionScore:
-    """Facade + contracts + logic separation.
+    """Facade + contracts separation.
 
     Scores whether the facade layer is real or just scaffolding.
     A stub facade (1 method when the product has dozens of endpoints) shouldn't
     score high.
 
     Points breakdown (100 total):
-      contracts.py exists + pure + non-empty: 15
-      facade/api.py exists + pure:            15
-      facade has 3+ public methods:           15  (real surface, not a stub)
-      logic.py exists:                        15
+      contracts.py exists + pure + non-empty: 20
+      facade/api.py exists + pure:            20
+      facade has 3+ public methods:           20  (real surface, not a stub)
       views exist inside the product:         20  (facade is pointless if views
                                                    are still in posthog/ee)
       views use the facade:                   20
@@ -261,7 +246,7 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         impure = imports_any(contracts_path, ["django", "rest_framework"])
         dc_names = get_frozen_dataclass_names(contracts_path)
         if dc_names and not impure:
-            score += 15
+            score += 20
             parts.append(f"contracts ({len(dc_names)} dataclasses)")
         elif dc_names:
             score += 5
@@ -302,7 +287,7 @@ def score_facade(backend_dir: Path) -> DimensionScore:
             impure = imports_any(facade_path, ["rest_framework"])
             fn_names = get_public_function_names(facade_path)
             if not impure:
-                score += 15
+                score += 20
             else:
                 score += 5
                 parts.append("facade (impure)")
@@ -313,7 +298,7 @@ def score_facade(backend_dir: Path) -> DimensionScore:
                 )
 
             if len(fn_names) >= 3:
-                score += 15
+                score += 20
                 parts.append(f"facade ({len(fn_names)} methods)")
             elif fn_names:
                 score += 5
@@ -328,18 +313,6 @@ def score_facade(backend_dir: Path) -> DimensionScore:
         next_steps.append(
             "Create backend/facade/api.py with public functions wrapping logic. Use "
             "products/visual_review/backend/facade/api.py as the reference shape."
-        )
-
-    # Logic
-    has_logic = (backend_dir / "logic.py").exists() or (backend_dir / "logic").is_dir()
-    if has_logic:
-        score += 15
-        parts.append("logic")
-    else:
-        parts.append("no logic")
-        next_steps.append(
-            "Add backend/logic.py (or a logic/ package) that owns business rules and ORM access. "
-            "The facade should be a thin orchestration layer that calls into logic."
         )
 
     # Views inside product + using facade
