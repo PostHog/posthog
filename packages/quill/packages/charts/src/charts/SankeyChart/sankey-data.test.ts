@@ -176,6 +176,17 @@ describe('computeSankeyLayout', () => {
         expect(layout.nodes).toHaveLength(0)
         expect(layout.total).toBe(0)
     })
+
+    it('measures the total from the nodes fed by no flow when an earlier link is zero', () => {
+        const layout = layoutOf({
+            links: [
+                { source: 'start', target: 'a', value: 0 },
+                { source: 'a', target: 'done', value: 10 },
+            ],
+        })
+        expect(layout.nodes.length).toBeGreaterThan(0)
+        expect(layout.total).toBe(10)
+    })
 })
 
 describe('sankeyHitAt', () => {

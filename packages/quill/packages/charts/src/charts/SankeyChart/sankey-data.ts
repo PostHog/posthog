@@ -338,10 +338,13 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const columnStep = columnCount > 1 ? (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1) : 0
     const columnX = Array.from({ length: columnCount }, (_, column) => plot.plotLeft + column * columnStep)
 
-    const total = graph.nodes.filter((node) => node.targetLinks.length === 0).reduce((sum, node) => sum + node.value, 0)
+    // Zero-value links do not feed a node, so a node fed only by them still counts as a source.
+    const total = graph.nodes
+        .filter((node) => node.targetLinks.every((link) => link.value === 0))
+        .reduce((sum, node) => sum + node.value, 0)
 
-    // Guard against all-zero flow: the layout engine produces NaN coordinates when total is 0
-    if (total === 0) {
+    // The layout engine produces NaN coordinates when there is no flow at all.
+    if (links.every((link) => link.value === 0)) {
         return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
     }
 
