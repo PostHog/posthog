@@ -6,7 +6,7 @@ use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event, EventInfo};
 use crate::v1::analytics::constants::CAPTURE_V1_EVENTS_QUOTA_LIMITED;
 use crate::v1::analytics::types::{EventResult, WrappedEvent};
-use crate::v1::sinks::Destination;
+use crate::v1::types::Destination;
 use crate::v1::Error;
 
 type ScopedCheck = (QuotaResource, fn(EventInfo) -> bool);

@@ -26,8 +26,7 @@ impl io::Write for StringWriter<'_> {
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::Destination;
+use crate::v1::types::{Destination, Event as SinkEvent};
 
 fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
@@ -1276,9 +1275,8 @@ mod tests {
 
     // --- SinkEvent impl for WrappedEvent ---
 
-    use crate::v1::sinks::event::Event as SinkEventTrait;
-    use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
+    use crate::v1::types::{Destination, Event as SinkEventTrait};
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {

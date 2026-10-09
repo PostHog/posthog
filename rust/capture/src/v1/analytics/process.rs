@@ -32,8 +32,8 @@ use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
 use crate::router;
 use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::{serialize_batch, Destination, SerializationFailure};
+use crate::v1::prepare::{serialize_batch, SerializationFailure};
+use crate::v1::types::{Destination, Event as SinkEvent};
 use crate::v1::Error;
 use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningType, CAPTURE_V1_ANALYTICS, CAPTURE_V1_RATE_LIMIT,
@@ -1244,11 +1244,12 @@ mod tests {
     };
     use crate::v1::analytics::constants::{CAPTURE_V1_PATH, DETAIL_INVALID_OPTIONS};
     use crate::v1::analytics::types::{Batch, Event};
-    use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
+    use crate::v1::prepare::DEFAULT_SCATTER_GATHER_MIN_BATCH;
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
         wrapped_event_at,
     };
+    use crate::v1::types::Destination;
     use crate::v1::Error;
 
     fn valid_batch(events: Vec<Event>) -> Batch {

@@ -9,7 +9,7 @@
 //! Scope is deliberately narrow: the HTTP->Kafka round trip for a single event
 //! and a small batch. Payload shape,
 //! header parity, partition keys, and destination routing are already covered
-//! at the outputs layer by `v1_sink_integration.rs` — we don't re-test them
+//! at the outputs layer by `v1_publish.rs` — we don't re-test them
 //! here.
 
 #[path = "common/utils.rs"]

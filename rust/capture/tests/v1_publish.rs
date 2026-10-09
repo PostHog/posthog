@@ -24,8 +24,8 @@ use capture::sinks::kafka::KafkaSink;
 use capture::sinks::registry::OutputTable;
 use capture::sinks::sink::Outcome;
 use capture::v1::context::RequestContext;
-use capture::v1::sinks::event::Event;
 use capture::v1::test_utils::{self, prepared, WrappedEventMut};
+use capture::v1::types::Event;
 
 fn v1_test_context() -> RequestContext {
     let mut ctx = test_utils::test_context();
@@ -228,7 +228,7 @@ async fn v1_exception_event_round_trip() -> Result<()> {
     wrapped.event.event = "$exception".to_string();
     wrapped.uuid = uuid;
     wrapped.event.uuid = uuid.to_string();
-    wrapped.destination = capture::v1::sinks::Destination::ExceptionErrorTracking;
+    wrapped.destination = capture::v1::types::Destination::ExceptionErrorTracking;
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
@@ -376,9 +376,9 @@ async fn v1_multi_destination_batch() -> Result<()> {
 
     let main_ev = test_utils::realistic_pageview("integ-dest-main");
     let hist_ev = test_utils::realistic_pageview("integ-dest-hist")
-        .with_destination(capture::v1::sinks::Destination::AnalyticsHistorical);
+        .with_destination(capture::v1::types::Destination::AnalyticsHistorical);
     let overflow_ev = test_utils::realistic_pageview("integ-dest-overflow")
-        .with_destination(capture::v1::sinks::Destination::Overflow);
+        .with_destination(capture::v1::types::Destination::Overflow);
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;

@@ -1,7 +1,10 @@
+use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
+use crate::ordering::OrderingGuarantee;
 use crate::pipeline::{self, Address, Lane};
+use crate::v1::context::RequestContext;
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -144,6 +147,46 @@ impl Destination {
     }
 }
 
+/// Transport-agnostic trait declaring an event's identity, routing intent,
+/// metadata, and serialization. The [`Sink`](super::sink::Sink) implementation
+/// resolves `destination()` to a concrete backend target using its own config.
+pub trait Event: Send + Sync {
+    /// Pre-parsed UUID for result correlation.
+    fn uuid(&self) -> Uuid;
+
+    /// Whether this event should be published. Events returning false are
+    /// silently skipped by the Sink -- no `SinkResult` is returned for them.
+    fn should_publish(&self) -> bool;
+
+    /// Semantic routing destination. The Sink resolves this to a concrete
+    /// backend target (e.g. Kafka topic, S3 bucket) using its own config.
+    fn destination(&self) -> &Destination;
+
+    /// Resolve the full set of transport headers for this event, using the
+    /// supplied [`RequestContext`] for batch-scoped fields (token, now,
+    /// historical_migration) alongside any event-owned fields. Sinks convert
+    /// the returned [`CapturedEventHeaders`] to their backend-specific format
+    /// (e.g. `rdkafka::message::OwnedHeaders` via the `From` impl in
+    /// `common_types`).
+    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
+
+    /// Return the partition key for this event. Whether the sink actually uses
+    /// it is decided by [`Event::ordering`], not by inspecting headers.
+    fn partition_key(&self, ctx: &RequestContext) -> String;
+
+    /// The ordering guarantee this event's destination must preserve. The sink
+    /// realizes [`OrderingGuarantee::None`] by publishing without a partition
+    /// key so the broker round-robins; every other guarantee uses
+    /// [`Event::partition_key`], which supplies the value that preserves it.
+    fn ordering(&self) -> OrderingGuarantee;
+
+    /// Serialize the event payload and return the raw bytes. `Bytes` (not
+    /// `String`) so non-UTF-8 / binary payloads (e.g. replay) share this
+    /// contract, and so a serialized payload can be cheaply cloned across
+    /// multiple sinks (dual-write) without re-encoding.
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes>;
+}
+
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
@@ -231,52 +274,5 @@ mod destination_tests {
             Destination::Custom("topic_a".into()).as_tag(),
             Destination::Custom("topic_b".into()).as_tag()
         );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SerializationFailure
-// ---------------------------------------------------------------------------
-
-/// An event that failed during the serialize step, before any output saw it.
-/// Always fatal: the event is dropped, never retried.
-#[derive(Debug, Clone)]
-pub struct SerializationFailure {
-    uuid: Uuid,
-    cause: &'static str,
-    detail: String,
-}
-
-impl SerializationFailure {
-    pub fn from_error(uuid: Uuid, detail: String) -> Self {
-        Self {
-            uuid,
-            cause: "serialization_failed",
-            detail,
-        }
-    }
-
-    pub fn panicked(uuid: Uuid) -> Self {
-        Self {
-            uuid,
-            cause: "serialization_panic",
-            detail: "serialization task panicked".to_string(),
-        }
-    }
-
-    pub fn is_panic(&self) -> bool {
-        self.cause == "serialization_panic"
-    }
-
-    pub fn uuid(&self) -> Uuid {
-        self.uuid
-    }
-
-    pub fn cause(&self) -> &'static str {
-        self.cause
-    }
-
-    pub fn detail_str(&self) -> &str {
-        &self.detail
     }
 }

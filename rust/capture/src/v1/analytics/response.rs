@@ -161,8 +161,8 @@ mod tests {
 
     use super::*;
     use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
-    use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
+    use crate::v1::types::Destination;
 
     fn make_wrapped(result: EventResult, details: Option<&'static str>) -> WrappedEvent {
         let uuid = Uuid::new_v4();

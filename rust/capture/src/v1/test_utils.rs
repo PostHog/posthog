@@ -13,8 +13,7 @@ use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::Destination;
+use crate::v1::types::{Destination, Event as SinkEvent};
 
 /// Serialize publishable events into `PreparedEvent`s for driving outputs in
 /// tests. Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit)
@@ -442,7 +441,7 @@ pub fn assert_round_trip(
     wrapped: &WrappedEvent,
     ctx: &RequestContext,
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
-    use crate::v1::sinks::event::Event as SinkEvent;
+    use crate::v1::types::Event as SinkEvent;
 
     let buf = wrapped.serialize(ctx).expect("serialize failed");
     let captured: common_types::CapturedEvent =

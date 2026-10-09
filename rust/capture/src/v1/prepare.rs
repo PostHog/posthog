@@ -24,8 +24,7 @@ use crate::v1::constants::{
     CAPTURE_V1_SERIALIZE_PANIC_TOTAL,
 };
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event;
-use crate::v1::sinks::types::SerializationFailure;
+use crate::v1::types::Event;
 
 /// Default scatter-gather threshold; overridden by `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
 pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
@@ -194,6 +193,53 @@ fn batch_size_bucket(n: usize) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SerializationFailure
+// ---------------------------------------------------------------------------
+
+/// An event that failed during the serialize step, before any output saw it.
+/// Always fatal: the event is dropped, never retried.
+#[derive(Debug, Clone)]
+pub struct SerializationFailure {
+    uuid: Uuid,
+    cause: &'static str,
+    detail: String,
+}
+
+impl SerializationFailure {
+    pub fn from_error(uuid: Uuid, detail: String) -> Self {
+        Self {
+            uuid,
+            cause: "serialization_failed",
+            detail,
+        }
+    }
+
+    pub fn panicked(uuid: Uuid) -> Self {
+        Self {
+            uuid,
+            cause: "serialization_panic",
+            detail: "serialization task panicked".to_string(),
+        }
+    }
+
+    pub fn is_panic(&self) -> bool {
+        self.cause == "serialization_panic"
+    }
+
+    pub fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+
+    pub fn cause(&self) -> &'static str {
+        self.cause
+    }
+
+    pub fn detail_str(&self) -> &str {
+        &self.detail
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use common_types::CapturedEventHeaders;
@@ -202,8 +248,8 @@ mod tests {
     use super::*;
     use crate::ordering::OrderingGuarantee;
     use crate::pipeline::{Address, Lane, Pipeline};
-    use crate::v1::sinks::types::Destination;
     use crate::v1::test_utils::test_context;
+    use crate::v1::types::Destination;
 
     fn empty_captured_headers() -> CapturedEventHeaders {
         CapturedEventHeaders {
