@@ -1,618 +1,912 @@
-//! Boot-time restore decision + materialization, run **before** `CohortStore::open`.
+//! Boot-time choice of the live store, run before `CohortStore::open`.
 //!
-//! The entry point is [`run_boot_restore`] (distinct from the top-level `crate::recovery` cold-start
-//! stub). It decides where the live store should come from and, for the disaster paths, materializes
-//! it at `store_path` so the existing `effective_wipe_on_start` logic then sees `db_dir_exists ==
-//! true` and keeps the restored data.
+//! ## Order
 //!
-//! ## Precedence
+//! 1. A leftover staging directory from a killed restore is deleted.
+//! 2. **Reopened.** An intact live store reopens. If it carries a restore marker, the restore it
+//!    published is still pending and resumes instead.
+//! 3. With checkpoints enabled, candidates are tried newest first, the freshest local checkpoint
+//!    before S3. The first one that publishes wins.
+//! 4. **Created.** Nothing is restorable: no candidate, or only unusable ones. Every slice then
+//!    begins when its worker spawns, behind the coverage fence.
 //!
-//! 1. **ReopenLive** — an intact, non-stale live store already sits at `store_path`. A normal restart
-//!    with an intact PVC lands here; it needs no manifest, because resume-from-committed
-//!    (`Offset::Stored`) is safe under the `committed <= durable` invariant.
-//! 2. **PvcCheckpoint(dir)** — the live store is gone/stale (lost or corrupt PVC) but a recent local
-//!    checkpoint with a readable `offsets.json` exists within `checkpoint_local_max_staleness`.
-//! 3. **S3** — no usable local source; restore from the most recent S3 checkpoint.
-//! 4. **ColdStart** — nothing to restore; the wipe+replay path takes over.
-//!
-//! The PVC/S3 branches are **gated behind `checkpoint_enabled`**: with the gate off,
-//! [`decide_restore_source`] returns only `ReopenLive` or `ColdStart`.
+//! A candidate that fails, and any listing or local error, blocks the boot instead of creating the
+//! store: a created store would quietly drop the history the checkpoint holds. The boot retries
+//! until the operator fixes the cause or turns checkpoints off.
 
+use std::collections::HashSet;
+use std::io;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use anyhow::Result;
 use chrono::Utc;
-use tracing::{info, warn};
+use metrics::{counter, gauge, histogram};
+use rdkafka::error::KafkaError;
+use tracing::{error, info, warn};
 
-use super::{
-    CheckpointImporter, DirCleanupGuard, OffsetManifest, S3Downloader, MANIFEST_FILENAME,
-    METADATA_FILENAME,
+use super::import::{CheckpointImporter, ImportError};
+use super::lineage::CheckpointLineage;
+use super::manifest::{ManifestError, OffsetManifest};
+use super::metadata::{CheckpointMetadata, MetadataError, METADATA_FILENAME};
+use super::restore_plan::RestorePlan;
+use super::stage::{
+    link_checkpoint, staging_path, PendingRestore, RestoredFrom, ResumeError, ValidatedStage,
 };
+use super::{DirCleanupGuard, S3Downloader};
 use crate::config::Config;
 use crate::observability::metrics::{
+    CHECKPOINT_RESTORE_BLOCKED, CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
     CHECKPOINT_RESTORE_DURATION_SECONDS, CHECKPOINT_RESTORE_TOTAL,
 };
+use crate::partitions::InputGroups;
+use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
 
-/// Where the live store should be sourced from on this boot. Resolved by [`decide_restore_source`]
-/// before the store is opened.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RestoreSource {
-    /// Reopen the intact live store already at `store_path`. No materialization, no manifest.
-    ReopenLive,
-    /// Recursive-copy this local PVC checkpoint dir into `store_path`, then read its `offsets.json`.
-    PvcCheckpoint(PathBuf),
-    /// Download the most recent S3 checkpoint directly into `store_path`, then read its `offsets.json`.
-    S3,
-    /// Nothing to restore; fall through to the wipe+replay cold path.
-    ColdStart,
+const RETRY_START: Duration = Duration::from_secs(30);
+const RETRY_MAX: Duration = Duration::from_secs(300);
+
+/// Where the live store came from.
+#[derive(Debug)]
+enum BootStore {
+    /// The live store reopened. The groups' commits are its positions.
+    Reopened,
+    /// A checkpoint is published at the store path. Nothing folds until the restore settles.
+    Restored(Box<PendingRestore>),
+    /// No store and nothing usable to restore. Every slice begins when its worker spawns.
+    Created,
 }
 
-impl RestoreSource {
-    /// The `source` metric label (`reopen_live` | `pvc` | `s3` | `cold`).
-    fn metric_label(&self) -> &'static str {
-        match self {
-            RestoreSource::ReopenLive => "reopen_live",
-            RestoreSource::PvcCheckpoint(_) => "pvc",
-            RestoreSource::S3 => "s3",
-            RestoreSource::ColdStart => "cold",
+#[derive(Debug, thiserror::Error)]
+enum RestoreBlocked {
+    #[error("listing checkpoints failed")]
+    Listing(#[source] anyhow::Error),
+    #[error("no checkpoint candidate restored: {0:?}")]
+    Candidates(Vec<CandidateFailure>),
+    #[error("reading or committing input positions failed")]
+    Positions(#[source] KafkaError),
+    #[error("staging or publishing the restore failed")]
+    Local(#[source] io::Error),
+}
+
+#[derive(Debug)]
+struct CandidateFailure {
+    checkpoint_id: String,
+    reason: String,
+}
+
+#[derive(Debug)]
+enum Verdict {
+    Published(PendingRestore),
+    Unusable(Unusable),
+    Failed(CandidateFailure),
+}
+
+/// Candidates that no retry can restore. Older candidates are no better, so a search that finds
+/// only these creates the store.
+#[derive(Debug, thiserror::Error)]
+enum Unusable {
+    #[error("its upload never wrote metadata.json")]
+    Unfinished,
+    #[error("store schema {found}, and COHORT_WIPE_ON_SCHEMA_MISMATCH passes over it")]
+    SchemaMismatch { found: u32 },
+    #[error("metadata format {found}")]
+    MetadataFormat { found: u32 },
+    #[error("manifest format {found}")]
+    ManifestFormat { found: u32 },
+}
+
+/// A candidate whose stage failed validation, so later rounds fail it without downloading it
+/// again. A local attempt and its S3 upload share one id, so the source is part of the key.
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum Rejected {
+    Local(String),
+    S3(String),
+}
+
+impl Rejected {
+    fn of(source: &RestoredFrom) -> Self {
+        match source {
+            RestoredFrom::Local { checkpoint_id } => Self::Local(checkpoint_id.clone()),
+            RestoredFrom::S3 { candidate } => Self::S3(candidate.id.clone()),
         }
     }
 }
 
-/// The result of [`run_boot_restore`]: the chosen source plus the offset manifest that the events
-/// consumer seeks to. `manifest` is `None` for the paths with no checkpoint (`ReopenLive`,
-/// `ColdStart`) and `Some` for the disaster paths (`PvcCheckpoint`, `S3`).
-#[derive(Debug)]
-pub struct RestoreOutcome {
-    pub source: RestoreSource,
-    pub manifest: Option<OffsetManifest>,
+fn failed(checkpoint_id: &str, reason: impl std::fmt::Display) -> Verdict {
+    Verdict::Failed(CandidateFailure {
+        checkpoint_id: checkpoint_id.to_owned(),
+        reason: format!("{reason:#}"),
+    })
 }
 
-/// True when `path` looks like a valid, non-empty RocksDB store: the directory exists and contains a
-/// `CURRENT` file (RocksDB's manifest pointer, present in every opened DB). A bare or partially-wiped
-/// directory without `CURRENT` is treated as absent so reopen-live never resumes from a torn store.
+/// The live store's rule: a store of another schema blocks the boot unless the operator allowed
+/// wiping it.
+fn schema_mismatch(checkpoint_id: &str, found: u32, wipe_on_schema_mismatch: bool) -> Verdict {
+    if wipe_on_schema_mismatch {
+        Verdict::Unusable(Unusable::SchemaMismatch { found })
+    } else {
+        failed(
+            checkpoint_id,
+            format_args!(
+                "store schema {found}, this build writes {STORE_SCHEMA_VERSION}; set \
+                 COHORT_WIPE_ON_SCHEMA_MISMATCH=true to pass over it"
+            ),
+        )
+    }
+}
+
+/// Candidate verdicts, newest first.
+#[derive(Debug, Default)]
+struct Search {
+    failed: Vec<CandidateFailure>,
+}
+
+impl Search {
+    /// Breaks with the restore once a candidate publishes, so no older candidate is downloaded.
+    fn record(&mut self, verdict: Verdict) -> ControlFlow<Box<PendingRestore>> {
+        let label = match &verdict {
+            Verdict::Published(_) => "published",
+            Verdict::Unusable(_) => "unusable",
+            Verdict::Failed(_) => "failed",
+        };
+        counter!(CHECKPOINT_RESTORE_CANDIDATES_TOTAL, "verdict" => label).increment(1);
+        match verdict {
+            Verdict::Published(pending) => ControlFlow::Break(Box::new(pending)),
+            Verdict::Unusable(reason) => {
+                info!(%reason, "passing over an unusable checkpoint");
+                ControlFlow::Continue(())
+            }
+            Verdict::Failed(failure) => {
+                warn!(
+                    checkpoint = %failure.checkpoint_id,
+                    reason = %failure.reason,
+                    "checkpoint candidate failed",
+                );
+                self.failed.push(failure);
+                ControlFlow::Continue(())
+            }
+        }
+    }
+
+    /// With nothing published, any failure blocks; only unusable candidates, or none at all, create
+    /// the store.
+    fn conclude(self) -> Result<BootStore, RestoreBlocked> {
+        if self.failed.is_empty() {
+            Ok(BootStore::Created)
+        } else {
+            Err(RestoreBlocked::Candidates(self.failed))
+        }
+    }
+}
+
+/// The store this boot runs on: reopened, restored or created, with a restore's unreplayable slices
+/// reset. A restore comes back with it, for the events consumer to settle before anything folds.
+///
+/// A restore that cannot finish blocks here, retrying with backoff, until the operator fixes the
+/// cause or turns checkpoints off. `lineage` is `None` when checkpoints are disabled.
+pub async fn open_store(
+    config: &Config,
+    lineage: Option<CheckpointLineage>,
+    groups: Arc<InputGroups>,
+) -> Result<(CohortStore, Option<PendingRestore>), StoreError> {
+    let boot = restore_until_ready(config.clone(), lineage, groups).await;
+
+    // A published restore leaves a store at the path, so `effective_wipe_on_start` keeps it.
+    let store_config = config.store_config();
+    info!(
+        durable_restore_enabled = config.durable_restore_enabled,
+        wipe_store_on_start = config.wipe_store_on_start,
+        effective_wipe = store_config.wipe_on_start,
+        store_path = %config.store_path,
+        mode = if store_config.wipe_on_start { "wipe+replay" } else { "reopen-live" },
+        "opening RocksDB state store",
+    );
+    let store = CohortStore::open(&store_config)?;
+    let restore = match boot {
+        BootStore::Restored(pending) => {
+            pending.reset_slices(&store)?;
+            Some(*pending)
+        }
+        BootStore::Reopened | BootStore::Created => None,
+    };
+    Ok((store, restore))
+}
+
+/// Retries [`prepare_store`] with backoff until the boot has a store, and positions the follower
+/// groups of a restore before returning it.
+///
+/// The restore runs on a blocking thread: staging, validation and the Kafka position calls block,
+/// and the health server must keep answering meanwhile. A SIGTERM here kills the process; staging
+/// survives a kill.
+async fn restore_until_ready(
+    config: Config,
+    lineage: Option<CheckpointLineage>,
+    groups: Arc<InputGroups>,
+) -> BootStore {
+    let runtime = tokio::runtime::Handle::current();
+    let restore = tokio::task::spawn_blocking(move || {
+        runtime.block_on(async {
+            let mut rejected = HashSet::new();
+            let mut backoff = RETRY_START;
+            loop {
+                let attempt = match prepare_store(&config, lineage, &mut rejected).await {
+                    Ok(BootStore::Restored(pending)) => pending
+                        .position_followers(&groups)
+                        .map(|()| BootStore::Restored(pending))
+                        .map_err(RestoreBlocked::Positions),
+                    other => other,
+                };
+                match attempt {
+                    Ok(store) => {
+                        gauge!(CHECKPOINT_RESTORE_BLOCKED).set(0.0);
+                        return store;
+                    }
+                    Err(blocked) => {
+                        gauge!(CHECKPOINT_RESTORE_BLOCKED).set(1.0);
+                        error!(
+                            error = format!("{:#}", anyhow::Error::new(blocked)),
+                            retry_in_secs = backoff.as_secs(),
+                            "boot restore blocked; fix the cause, or set CHECKPOINT_ENABLED=false to \
+                             create the store behind the coverage fence",
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(RETRY_MAX);
+                    }
+                }
+            }
+        })
+    });
+    match restore.await {
+        Ok(store) => store,
+        Err(err) => std::panic::resume_unwind(err.into_panic()),
+    }
+}
+
+/// Decide where the live store comes from, and materialize it for a restore. `rejected` holds the
+/// candidates that failed validation after their download, so a later round fails them without
+/// downloading them again.
+///
+/// Blocks on file and Kafka I/O; see [`restore_until_ready`].
+async fn prepare_store(
+    config: &Config,
+    lineage: Option<CheckpointLineage>,
+    rejected: &mut HashSet<Rejected>,
+) -> Result<BootStore, RestoreBlocked> {
+    let started = Instant::now();
+    let live = PathBuf::from(&config.store_path);
+    let stage = staging_path(&live);
+    remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
+
+    if !config.effective_wipe_on_start() && live_store_is_intact(&live) {
+        match PendingRestore::resume(&live, config.partition_count()) {
+            Ok(Some(pending)) => {
+                return Ok(prepared(
+                    BootStore::Restored(Box::new(pending)),
+                    "pending",
+                    started,
+                ))
+            }
+            Ok(None) => return Ok(prepared(BootStore::Reopened, "reopened", started)),
+            Err(ResumeError::Undecodable(err)) => {
+                warn!(
+                    error = %err,
+                    store = %live.display(),
+                    "the pending restore's marker is unreadable, so its positions are unknown; \
+                     deleting the store and restoring again",
+                );
+                // Renamed first, because a deletion cut short could leave `CURRENT` without the
+                // marker, which would reopen at the broker's old offsets. The next boot deletes a
+                // leftover stage.
+                std::fs::rename(&live, &stage).map_err(RestoreBlocked::Local)?;
+                remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
+            }
+            Err(ResumeError::Io(err)) => return Err(RestoreBlocked::Local(err)),
+        }
+    }
+
+    let Some(lineage) = lineage else {
+        return Ok(prepared(BootStore::Created, "created", started));
+    };
+    // A store directory without `CURRENT` is a torn leftover; the rename that publishes a restore
+    // needs the path free.
+    remove_dir_if_present(&live).map_err(RestoreBlocked::Local)?;
+
+    let durability = config.durability_config();
+    let local_dir = lineage.local_dir(Path::new(&durability.local_checkpoint_dir));
+    let mut restore = Restore {
+        live: &live,
+        stage,
+        lineage,
+        partition_count: config.partition_count(),
+        wipe_on_schema_mismatch: config.cohort_wipe_on_schema_mismatch,
+        rejected,
+    };
+    let mut search = Search::default();
+
+    let local =
+        newest_fresh_local_checkpoint(&local_dir, durability.local_checkpoint_max_staleness);
+    if let Some(attempt) = local {
+        if let ControlFlow::Break(pending) = search.record(restore.local(attempt)?) {
+            return Ok(prepared(BootStore::Restored(pending), "local", started));
+        }
+    }
+
+    let downloader = S3Downloader::new(&durability, lineage)
+        .await
+        .map_err(RestoreBlocked::Listing)?;
+    let importer =
+        CheckpointImporter::new(Box::new(downloader), durability.checkpoint_import_timeout);
+    if let ControlFlow::Break(pending) = restore
+        .search_s3(
+            &importer,
+            durability.checkpoint_import_attempt_depth,
+            &mut search,
+        )
+        .await?
+    {
+        return Ok(prepared(BootStore::Restored(pending), "s3", started));
+    }
+    search
+        .conclude()
+        .map(|store| prepared(store, "created", started))
+}
+
+fn prepared(store: BootStore, source: &'static str, started: Instant) -> BootStore {
+    counter!(CHECKPOINT_RESTORE_TOTAL, "source" => source).increment(1);
+    histogram!(CHECKPOINT_RESTORE_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+    info!(
+        source,
+        elapsed_secs = started.elapsed().as_secs_f64(),
+        "boot store prepared"
+    );
+    store
+}
+
+/// A complete local checkpoint attempt: both its manifest and its `metadata.json`, which the
+/// sweeper writes last, decode.
+struct LocalAttempt {
+    dir: PathBuf,
+    manifest: OffsetManifest,
+    metadata: CheckpointMetadata,
+}
+
+/// One round's restore of candidates into the staging directory.
+struct Restore<'a> {
+    live: &'a Path,
+    stage: PathBuf,
+    lineage: CheckpointLineage,
+    partition_count: u16,
+    wipe_on_schema_mismatch: bool,
+    rejected: &'a mut HashSet<Rejected>,
+}
+
+impl Restore<'_> {
+    fn local(&mut self, attempt: LocalAttempt) -> Result<Verdict, RestoreBlocked> {
+        let LocalAttempt {
+            dir,
+            manifest,
+            metadata,
+        } = attempt;
+        let source = RestoredFrom::Local {
+            checkpoint_id: metadata.id.clone(),
+        };
+        if self.rejected.contains(&Rejected::of(&source)) {
+            return Ok(failed(
+                &metadata.id,
+                "failed validation earlier in this process",
+            ));
+        }
+        if let Some(verdict) = self.admit(&metadata.id, metadata.store_schema, &manifest) {
+            return Ok(verdict);
+        }
+
+        let guard = DirCleanupGuard::new(self.stage.clone());
+        link_checkpoint(&dir, &self.stage).map_err(RestoreBlocked::Local)?;
+        self.publish(guard, source, manifest)
+    }
+
+    /// Tries the S3 candidates newest first, up to `depth` of them. An unfinished upload does not
+    /// count toward the depth, so a run of failed uploads cannot hide a complete one behind it.
+    async fn search_s3(
+        &mut self,
+        importer: &CheckpointImporter,
+        depth: usize,
+        search: &mut Search,
+    ) -> Result<ControlFlow<Box<PendingRestore>>, RestoreBlocked> {
+        let candidates = importer
+            .candidates()
+            .await
+            .map_err(RestoreBlocked::Listing)?;
+        let mut tried = 0;
+        for metadata_key in &candidates {
+            if tried == depth {
+                break;
+            }
+            let verdict = self.s3(importer, metadata_key).await?;
+            if !matches!(verdict, Verdict::Unusable(Unusable::Unfinished)) {
+                tried += 1;
+            }
+            if let ControlFlow::Break(pending) = search.record(verdict) {
+                return Ok(ControlFlow::Break(pending));
+            }
+        }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    async fn s3(
+        &mut self,
+        importer: &CheckpointImporter,
+        metadata_key: &str,
+    ) -> Result<Verdict, RestoreBlocked> {
+        let checkpoint_id = metadata_key.rsplit('/').nth(1).unwrap_or(metadata_key);
+        if self
+            .rejected
+            .contains(&Rejected::S3(checkpoint_id.to_owned()))
+        {
+            return Ok(failed(
+                checkpoint_id,
+                "failed validation earlier in this process",
+            ));
+        }
+        let metadata = match importer.metadata(metadata_key).await {
+            Ok(metadata) => metadata,
+            Err(ImportError::Unfinished) => return Ok(Verdict::Unusable(Unusable::Unfinished)),
+            Err(ImportError::Metadata(MetadataError::UnsupportedFormat { found })) => {
+                return Ok(Verdict::Unusable(Unusable::MetadataFormat { found }))
+            }
+            Err(err) => return Ok(failed(checkpoint_id, err)),
+        };
+        let manifest = match importer.manifest(&metadata).await {
+            Ok(manifest) => manifest,
+            Err(ImportError::Manifest(ManifestError::UnsupportedFormat { found })) => {
+                return Ok(Verdict::Unusable(Unusable::ManifestFormat { found }))
+            }
+            Err(err) => return Ok(failed(checkpoint_id, err)),
+        };
+        if let Some(verdict) = self.admit(checkpoint_id, metadata.store_schema, &manifest) {
+            return Ok(verdict);
+        }
+
+        std::fs::create_dir(&self.stage).map_err(RestoreBlocked::Local)?;
+        let guard = DirCleanupGuard::new(self.stage.clone());
+        if let Err(err) = importer.fetch_files(&metadata, &self.stage).await {
+            return Ok(failed(checkpoint_id, err));
+        }
+        self.publish(
+            guard,
+            RestoredFrom::S3 {
+                candidate: metadata,
+            },
+            manifest,
+        )
+    }
+
+    /// The checks that run before a candidate's bulk download. `Some` is the candidate's verdict.
+    fn admit(
+        &self,
+        checkpoint_id: &str,
+        store_schema: u32,
+        manifest: &OffsetManifest,
+    ) -> Option<Verdict> {
+        if store_schema != STORE_SCHEMA_VERSION {
+            return Some(schema_mismatch(
+                checkpoint_id,
+                store_schema,
+                self.wipe_on_schema_mismatch,
+            ));
+        }
+        if manifest.ordinal() != self.lineage.ordinal() {
+            return Some(failed(
+                checkpoint_id,
+                format_args!(
+                    "its manifest belongs to ordinal {}, not {}",
+                    manifest.ordinal(),
+                    self.lineage.ordinal()
+                ),
+            ));
+        }
+        None
+    }
+
+    fn publish(
+        &mut self,
+        guard: DirCleanupGuard,
+        source: RestoredFrom,
+        manifest: OffsetManifest,
+    ) -> Result<Verdict, RestoreBlocked> {
+        let checkpoint_id = source.checkpoint_id().to_owned();
+        let rejected = Rejected::of(&source);
+        let staged = match ValidatedStage::validate(self.stage.clone(), source) {
+            Ok(staged) => staged,
+            Err(err) => {
+                self.rejected.insert(rejected);
+                return Ok(failed(&checkpoint_id, err));
+            }
+        };
+        let plan = RestorePlan::check(&manifest, self.partition_count);
+        let pending = staged
+            .publish(manifest, plan, self.live)
+            .map_err(RestoreBlocked::Local)?;
+        guard.defuse();
+        info!(
+            checkpoint = %checkpoint_id,
+            source = pending.source().label(),
+            resets = pending.plan().resets().count(),
+            "checkpoint restore published",
+        );
+        Ok(Verdict::Published(pending))
+    }
+}
+
+/// True when `path` is an opened RocksDB store: the directory holds `CURRENT`, RocksDB's manifest
+/// pointer. A directory without it is torn and never reopens.
 fn live_store_is_intact(path: &Path) -> bool {
     path.is_dir() && path.join("CURRENT").is_file()
 }
 
-/// Decide the restore source. Runs before `CohortStore::open`. Touches the filesystem.
-///
-/// `checkpoint_enabled == false` is the inert default: it can only return `ReopenLive` (intact live
-/// store) or `ColdStart` (no live store), never `PvcCheckpoint`/`S3`. When the live store is intact
-/// and not slated for a wipe, reopen-live always wins (it takes precedence even over a fresh PVC
-/// checkpoint).
-pub fn decide_restore_source(config: &Config) -> RestoreSource {
-    let store_path = PathBuf::from(&config.store_path);
-
-    // `effective_wipe_on_start()` is `false` exactly when durable restore is on and a store exists;
-    // paired with an intact on-disk store, that means reopen-live is safe.
-    if !config.effective_wipe_on_start() && live_store_is_intact(&store_path) {
-        return RestoreSource::ReopenLive;
+fn remove_dir_if_present(path: &Path) -> io::Result<()> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => {
+            info!(path = %path.display(), "removed a leftover directory before choosing the store");
+            Ok(())
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
     }
-
-    if !config.checkpoint_enabled {
-        return RestoreSource::ColdStart;
-    }
-
-    if let Some(dir) = newest_fresh_local_checkpoint(config) {
-        return RestoreSource::PvcCheckpoint(dir);
-    }
-
-    // Return S3 here; `run_boot_restore` downgrades to cold if no S3 checkpoint is found, keeping
-    // the network-free `decide_restore_source` cheap.
-    RestoreSource::S3
 }
 
-/// Scan `checkpoint_local_dir` for the newest checkpoint attempt directory that (a) carries a
-/// readable `offsets.json` and (b) was captured within `checkpoint_local_max_staleness`. A
-/// manifest-less directory is unusable (we cannot align offsets) and is skipped; a too-old directory
-/// is distrusted (another pod likely advanced the partitions while we were down) and falls through to
-/// S3.
-fn newest_fresh_local_checkpoint(config: &Config) -> Option<PathBuf> {
-    let base = PathBuf::from(&config.checkpoint_local_dir);
-    let max_staleness = config.checkpoint_local_max_staleness();
+/// The newest complete attempt under `lineage_dir` whose manifest was captured within
+/// `max_staleness`. An older one is distrusted, because the broker has likely moved past what it
+/// would replay. An attempt cut short before its `metadata.json` is passed over for the one before.
+fn newest_fresh_local_checkpoint(
+    lineage_dir: &Path,
+    max_staleness: Duration,
+) -> Option<LocalAttempt> {
     let now = Utc::now();
-
-    let mut best: Option<(chrono::DateTime<Utc>, PathBuf)> = None;
-    for dir in checkpoint_attempt_dirs(&base) {
-        // The manifest is authoritative for the capture instant and is required for the seek; a dir
-        // without a readable, version-matching one is unusable.
-        let Ok(manifest) = OffsetManifest::load_from_dir(&dir) else {
-            continue;
-        };
-        let age = now.signed_duration_since(manifest.captured_at);
-        // A future-dated capture (clock skew) maps to a negative duration, which is treated as 0 → fresh.
-        let within_bound = age
-            .to_std()
-            .map(|elapsed| elapsed <= max_staleness)
-            .unwrap_or(true);
-        if !within_bound {
-            continue;
-        }
-        match &best {
-            Some((best_at, _)) if *best_at >= manifest.captured_at => {}
-            _ => best = Some((manifest.captured_at, dir)),
-        }
-    }
-    best.map(|(_, dir)| dir)
-}
-
-/// Enumerate candidate checkpoint attempt directories under `base`. A checkpoint attempt dir is the
-/// leaf that holds the RocksDB files + `metadata.json` + `offsets.json`; the planner lays them out as
-/// `<base>/<topic>/<partition>/<checkpoint_id>`, so the candidates are the directories that contain a
-/// `metadata.json`. Walks defensively: any unreadable level yields no candidates rather than erroring.
-fn checkpoint_attempt_dirs(base: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![base.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        // A dir that directly holds metadata.json is an attempt leaf; otherwise descend.
-        if dir.join(METADATA_FILENAME).is_file() {
-            out.push(dir);
-            continue;
-        }
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            }
-        }
-    }
-    out
-}
-
-/// Materialize `store_path` from the decided source and return the outcome (source + manifest).
-///
-/// - `ReopenLive` → no-op (store already in place), `manifest: None`.
-/// - `PvcCheckpoint(dir)` → recursive-copy `dir` into `store_path`, read `offsets.json`.
-/// - `S3` → import the newest S3 checkpoint into `store_path`, read the downloaded `offsets.json`;
-///   if no S3 checkpoint is usable, downgrade to a cold start.
-/// - `ColdStart` → no-op, `manifest: None`.
-///
-/// Always emits `CHECKPOINT_RESTORE_TOTAL{source}` + `CHECKPOINT_RESTORE_DURATION_SECONDS` and a
-/// one-line boot summary.
-pub async fn run_boot_restore(config: &Config, store_path: &Path) -> RestoreOutcome {
-    let started = Instant::now();
-    let decided = decide_restore_source(config);
-
-    let outcome = match decided {
-        RestoreSource::ReopenLive => RestoreOutcome {
-            source: RestoreSource::ReopenLive,
-            manifest: None,
-        },
-        RestoreSource::ColdStart => RestoreOutcome {
-            source: RestoreSource::ColdStart,
-            manifest: None,
-        },
-        RestoreSource::PvcCheckpoint(dir) => restore_from_pvc(&dir, store_path),
-        RestoreSource::S3 => restore_from_s3(config, store_path).await,
-    };
-
-    let label = outcome.source.metric_label();
-    metrics::counter!(CHECKPOINT_RESTORE_TOTAL, "source" => label).increment(1);
-    metrics::histogram!(CHECKPOINT_RESTORE_DURATION_SECONDS)
-        .record(started.elapsed().as_secs_f64());
-
-    info!(
-        source = label,
-        store_path = %store_path.display(),
-        seek_topics = outcome
-            .manifest
-            .as_ref()
-            .map_or(0, |m| m.topics.len()),
-        elapsed_secs = started.elapsed().as_secs_f64(),
-        "boot restore decided",
-    );
-
-    outcome
-}
-
-/// Recursive-copy a local PVC checkpoint into `store_path`, then read its manifest. On any copy or
-/// manifest failure, downgrade to a cold start (the wipe+replay path is always safe).
-fn restore_from_pvc(checkpoint_dir: &Path, store_path: &Path) -> RestoreOutcome {
-    // Remove any partial store before copying so the restored DB is the only content.
-    if store_path.exists() {
-        if let Err(e) = std::fs::remove_dir_all(store_path) {
-            warn!(error = %e, store_path = %store_path.display(), "failed to clear store before PVC restore; cold start");
-            return cold_downgrade();
-        }
-    }
-
-    // `copy_dir_recursive` is non-atomic: a mid-copy failure (disk full, transient I/O) leaves a
-    // half-written dir at `store_path`. Without cleanup the next boot would keep it (the wipe is
-    // skipped once the dir exists) and `decide_restore_source` would pick ReopenLive over a fresh
-    // restore — silently empty if `CURRENT` was missed, crash-looping if its SSTs were. The guard
-    // wipes the partial dir on every early return so a cold-start *outcome* actually starts cold.
-    //
-    // Residual: a SIGKILL *mid-copy* runs no Rust code, so the guard cannot fire; closing that needs
-    // a crash-safe copy (temp dir + atomic rename, or copy `CURRENT` last). Deferred follow-up.
-    let guard = DirCleanupGuard::new(store_path.to_path_buf());
-
-    if let Err(e) = copy_dir_recursive(checkpoint_dir, store_path) {
-        warn!(error = %e, from = %checkpoint_dir.display(), "PVC checkpoint copy failed; cold start");
-        return cold_downgrade();
-    }
-    match OffsetManifest::load_from_dir(store_path) {
-        Ok(manifest) => {
-            guard.defuse();
-            RestoreOutcome {
-                source: RestoreSource::PvcCheckpoint(checkpoint_dir.to_path_buf()),
-                manifest: Some(manifest),
-            }
-        }
-        Err(e) => {
-            warn!(error = %e, "PVC checkpoint manifest unreadable after copy; cold start");
-            cold_downgrade()
-        }
-    }
-}
-
-/// Import the newest usable S3 checkpoint directly into `store_path`, then read the downloaded
-/// manifest. On any failure (no S3 config, no usable checkpoint, unreadable manifest), downgrade to a
-/// cold start.
-async fn restore_from_s3(config: &Config, store_path: &Path) -> RestoreOutcome {
-    let durability = config.durability_config();
-    let downloader = match S3Downloader::new(&durability).await {
-        Ok(downloader) => downloader,
-        Err(e) => {
-            warn!(error = %e, "S3 downloader unavailable; cold start");
-            return cold_downgrade();
-        }
-    };
-    let importer = CheckpointImporter::new(
-        Box::new(downloader),
-        durability.checkpoint_import_attempt_depth,
-        durability.checkpoint_import_timeout,
-    );
-
-    match importer.import_checkpoint(store_path).await {
-        Ok(_imported_path) => match OffsetManifest::load_from_dir(store_path) {
-            Ok(manifest) => RestoreOutcome {
-                source: RestoreSource::S3,
-                manifest: Some(manifest),
-            },
-            Err(e) => {
-                warn!(error = %e, "S3 checkpoint imported but {MANIFEST_FILENAME} unreadable; cold start");
-                cold_downgrade()
-            }
-        },
-        Err(e) => {
-            warn!(error = %e, "no usable S3 checkpoint to restore; cold start");
-            cold_downgrade()
-        }
-    }
-}
-
-/// A failed disaster-restore path falls back to a cold start: no manifest, wipe+replay takes over.
-fn cold_downgrade() -> RestoreOutcome {
-    RestoreOutcome {
-        source: RestoreSource::ColdStart,
-        manifest: None,
-    }
-}
-
-/// Recursively copy `from` into `to` (creating `to`).
-fn copy_dir_recursive(from: &Path, to: &Path) -> Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let src = entry.path();
-        let dst = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir_recursive(&src, &dst)?;
-        } else {
-            std::fs::copy(&src, &dst)?;
-        }
-    }
-    Ok(())
+    std::fs::read_dir(lineage_dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .filter_map(|dir| {
+            let manifest = OffsetManifest::load_from_dir(&dir).ok()?;
+            let metadata = CheckpointMetadata::load(&dir.join(METADATA_FILENAME)).ok()?;
+            // A future-dated capture (clock skew) has no positive age and counts as fresh.
+            let fresh = now
+                .signed_duration_since(manifest.captured_at())
+                .to_std()
+                .map_or(true, |age| age <= max_staleness);
+            fresh.then_some(LocalAttempt {
+                dir,
+                manifest,
+                metadata,
+            })
+        })
+        .max_by_key(|attempt| attempt.manifest.captured_at())
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
-    use crate::store::durability::{CheckpointMetadata, STORE_PARTITION, STORE_TOPIC};
-    use chrono::Duration as ChronoDuration;
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    use async_trait::async_trait;
     use envconfig::Envconfig;
-    use std::collections::BTreeMap;
     use tempfile::TempDir;
+    use tokio_util::sync::CancellationToken;
 
-    fn config_with(checkpoint_enabled: bool, store_path: &Path, checkpoint_dir: &Path) -> Config {
-        let mut config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
-        config.checkpoint_enabled = checkpoint_enabled;
-        // Durable restore must be on for reopen-live to ever beat a wipe (effective_wipe folds it in).
-        config.durable_restore_enabled = true;
-        config.wipe_store_on_start = true;
-        config.store_path = store_path.to_string_lossy().into_owned();
-        config.checkpoint_local_dir = checkpoint_dir.to_string_lossy().into_owned();
-        config
-    }
+    use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
+    use crate::store::durability::lineage::PodOrdinal;
+    use crate::store::durability::stage::MARKER_FILENAME;
+    use crate::store::durability::{CheckpointDownloader, CheckpointInfo};
+    use crate::store::StoreConfig;
 
-    fn make_live_store(path: &Path) {
-        std::fs::create_dir_all(path).unwrap();
-        std::fs::write(path.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
-    }
+    const EVENTS: &str = "cohort_stream_events";
 
-    fn make_local_checkpoint(base: &Path, id: &str, age: ChronoDuration) -> PathBuf {
-        let attempt = base
-            .join(STORE_TOPIC)
-            .join(STORE_PARTITION.to_string())
-            .join(id);
-        std::fs::create_dir_all(&attempt).unwrap();
-        let metadata = CheckpointMetadata::new(
-            STORE_TOPIC.to_string(),
-            STORE_PARTITION,
-            Utc::now(),
-            1,
-            0,
-            0,
-        );
-        let json = metadata.to_json().unwrap();
-        std::fs::write(attempt.join(METADATA_FILENAME), json).unwrap();
-        let mut topics = BTreeMap::new();
-        topics.insert(
-            "cohort_stream_events".to_string(),
-            BTreeMap::from([(0, 42)]),
-        );
-        let manifest = OffsetManifest {
-            version: super::super::manifest::MANIFEST_VERSION,
-            captured_at: Utc::now() - age,
-            topics,
-        };
-        manifest.write_to_dir(&attempt).unwrap();
-        attempt
+    fn failure() -> Verdict {
+        failed("2026-10-09T16-00-00-000Z", "download failed")
     }
 
     #[test]
-    fn reopen_live_takes_precedence_over_a_fresh_checkpoint() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
-        make_live_store(&store_path);
-        make_local_checkpoint(
-            &checkpoint_dir,
-            "2026-06-17T00-00-00Z",
-            ChronoDuration::minutes(1),
-        );
-
-        let config = config_with(true, &store_path, &checkpoint_dir);
-        assert_eq!(decide_restore_source(&config), RestoreSource::ReopenLive);
+    fn only_unusable_candidates_or_none_create_the_store_and_any_failure_blocks() {
+        let cases: [(&str, Vec<Verdict>, bool); 6] = [
+            ("no candidate", vec![], true),
+            (
+                "only unusable",
+                vec![
+                    Verdict::Unusable(Unusable::Unfinished),
+                    Verdict::Unusable(Unusable::ManifestFormat { found: 1 }),
+                ],
+                true,
+            ),
+            (
+                "a failure among unusable ones",
+                vec![
+                    Verdict::Unusable(Unusable::Unfinished),
+                    failure(),
+                    Verdict::Unusable(Unusable::MetadataFormat { found: 0 }),
+                ],
+                false,
+            ),
+            ("one failure", vec![failure()], false),
+            (
+                "a schema mismatch the operator lets the boot wipe",
+                vec![schema_mismatch("id", STORE_SCHEMA_VERSION - 1, true)],
+                true,
+            ),
+            (
+                "a schema mismatch without the wipe flag",
+                vec![schema_mismatch("id", STORE_SCHEMA_VERSION - 1, false)],
+                false,
+            ),
+        ];
+        for (name, verdicts, creates) in cases {
+            let mut search = Search::default();
+            for verdict in verdicts {
+                assert!(search.record(verdict).is_continue(), "{name}");
+            }
+            match search.conclude() {
+                Ok(BootStore::Created) => assert!(creates, "{name}"),
+                Err(RestoreBlocked::Candidates(failures)) => {
+                    assert!(!creates, "{name}");
+                    assert!(!failures.is_empty(), "{name}");
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+        }
     }
 
-    #[test]
-    fn pvc_checkpoint_chosen_when_live_store_is_gone() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
-        let attempt = make_local_checkpoint(
-            &checkpoint_dir,
-            "2026-06-17T00-00-00Z",
-            ChronoDuration::minutes(5),
-        );
-
-        let config = config_with(true, &store_path, &checkpoint_dir);
-        assert_eq!(
-            decide_restore_source(&config),
-            RestoreSource::PvcCheckpoint(attempt),
-        );
+    struct Boot {
+        root: TempDir,
+        config: Config,
     }
 
-    #[test]
-    fn the_newest_fresh_checkpoint_is_chosen() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
-        let _older = make_local_checkpoint(
-            &checkpoint_dir,
-            "2026-06-17T00-00-00Z",
-            ChronoDuration::minutes(30),
-        );
-        let newer = make_local_checkpoint(
-            &checkpoint_dir,
-            "2026-06-17T01-00-00Z",
-            ChronoDuration::minutes(2),
-        );
+    impl Boot {
+        fn new() -> Self {
+            let root = TempDir::new().unwrap();
+            let mut config = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+            config.checkpoint_enabled = true;
+            config.durable_restore_enabled = true;
+            config.wipe_store_on_start = true;
+            config.cohort_partition_count = 1;
+            config.store_path = root.path().join("store").to_string_lossy().into_owned();
+            config.checkpoint_local_dir = root.path().join("ckpt").to_string_lossy().into_owned();
+            Self { root, config }
+        }
 
-        let config = config_with(true, &store_path, &checkpoint_dir);
-        assert_eq!(
-            decide_restore_source(&config),
-            RestoreSource::PvcCheckpoint(newer),
-        );
+        fn live(&self) -> PathBuf {
+            PathBuf::from(&self.config.store_path)
+        }
+
+        fn lineage_dir(&self) -> PathBuf {
+            CheckpointLineage::new(PodOrdinal::STANDALONE)
+                .local_dir(Path::new(&self.config.checkpoint_local_dir))
+        }
+
+        /// A fresh checkpoint attempt under `parent`, laid out as the sweeper lays it out: the
+        /// RocksDB files, `offsets.json`, then `metadata.json`. Returns its metadata.
+        fn checkpoint_attempt(&self, parent: &Path) -> CheckpointMetadata {
+            let store = CohortStore::open(&StoreConfig {
+                path: self.root.path().join("source"),
+                ..StoreConfig::default()
+            })
+            .unwrap();
+            std::fs::create_dir_all(parent).unwrap();
+            let metadata = CheckpointMetadata::new(PodOrdinal::STANDALONE, Utc::now());
+            let dir = parent.join(&metadata.id);
+            store.create_checkpoint(&dir).unwrap();
+            OffsetManifest::capture(
+                PodOrdinal::STANDALONE,
+                &BTreeSet::from([0]),
+                vec![InputPositions::new(
+                    InputTopic::new(EVENTS),
+                    BTreeMap::from([(0, ResumeOffset::try_from(42).unwrap())]),
+                )],
+            )
+            .unwrap()
+            .write_to_dir(&dir)
+            .unwrap();
+            metadata.save(&dir.join(METADATA_FILENAME)).unwrap();
+            metadata
+        }
+
+        fn local_checkpoint(&self) -> CheckpointMetadata {
+            self.checkpoint_attempt(&self.lineage_dir())
+        }
+
+        /// An uploaded checkpoint, listed after a newer attempt whose upload never finished.
+        fn uploaded_checkpoint(&self) -> (FakeS3, String) {
+            let parent = self.root.path().join("uploaded");
+            let mut metadata = self.checkpoint_attempt(&parent);
+            let dir = parent.join(&metadata.id);
+            let mut info = CheckpointInfo::new(metadata.clone(), "checkpoints".to_string());
+            let mut objects = HashMap::new();
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if name != METADATA_FILENAME {
+                    info.metadata
+                        .track_file(info.get_file_key(&name), String::new());
+                    objects.insert(info.get_file_key(&name), path);
+                }
+            }
+            metadata.files = info.metadata.files.clone();
+            let metadata_file = parent.join("uploaded-metadata.json");
+            metadata.save(&metadata_file).unwrap();
+            objects.insert(info.get_metadata_key(), metadata_file);
+
+            let unfinished = CheckpointInfo::new(
+                CheckpointMetadata::new(
+                    PodOrdinal::STANDALONE,
+                    metadata.attempt_timestamp + chrono::Duration::minutes(15),
+                ),
+                "checkpoints".to_string(),
+            );
+            let listing = vec![unfinished.get_metadata_key(), info.get_metadata_key()];
+            (FakeS3 { listing, objects }, metadata.id)
+        }
+
+        fn restore<'a>(&'a self, rejected: &'a mut HashSet<Rejected>) -> Restore<'a> {
+            Restore {
+                live: Path::new(&self.config.store_path),
+                stage: staging_path(Path::new(&self.config.store_path)),
+                lineage: CheckpointLineage::new(PodOrdinal::STANDALONE),
+                partition_count: 1,
+                wipe_on_schema_mismatch: false,
+                rejected,
+            }
+        }
+
+        async fn prepare(&self) -> Result<BootStore, RestoreBlocked> {
+            prepare_store(
+                &self.config,
+                Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                &mut HashSet::new(),
+            )
+            .await
+        }
     }
 
-    #[test]
-    fn a_stale_checkpoint_falls_through_to_s3() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let max_staleness_secs = 7200;
-
-        let stale_dir = tmp.path().join("ckpt_stale");
-        make_local_checkpoint(
-            &stale_dir,
-            "2026-06-17T00-00-00Z",
-            ChronoDuration::seconds(max_staleness_secs as i64 + 60),
-        );
-        let mut config = config_with(true, &store_path, &stale_dir);
-        config.checkpoint_local_max_staleness_secs = max_staleness_secs;
-        assert_eq!(
-            decide_restore_source(&config),
-            RestoreSource::S3,
-            "a checkpoint older than max_staleness must not be trusted",
-        );
-
-        let fresh_dir = tmp.path().join("ckpt_fresh");
-        let fresh = make_local_checkpoint(
-            &fresh_dir,
-            "2026-06-17T00-30-00Z",
-            ChronoDuration::seconds(max_staleness_secs as i64 - 60),
-        );
-        config.checkpoint_local_dir = fresh_dir.to_string_lossy().into_owned();
-        assert_eq!(
-            decide_restore_source(&config),
-            RestoreSource::PvcCheckpoint(fresh),
-        );
+    /// S3 at its boundary: a listing, and objects read from local files.
+    #[derive(Debug)]
+    struct FakeS3 {
+        listing: Vec<String>,
+        objects: HashMap<String, PathBuf>,
     }
 
-    #[test]
-    fn a_manifest_less_checkpoint_dir_is_skipped() {
-        // A dir with metadata.json but no offsets.json cannot align offsets → unusable.
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
-        let attempt = checkpoint_dir
-            .join(STORE_TOPIC)
-            .join(STORE_PARTITION.to_string())
-            .join("2026-06-17T00-00-00Z");
-        std::fs::create_dir_all(&attempt).unwrap();
-        let metadata = CheckpointMetadata::new(
-            STORE_TOPIC.to_string(),
-            STORE_PARTITION,
-            Utc::now(),
-            1,
-            0,
-            0,
-        );
-        std::fs::write(attempt.join(METADATA_FILENAME), metadata.to_json().unwrap()).unwrap();
-        // offsets.json intentionally absent
+    #[async_trait]
+    impl CheckpointDownloader for FakeS3 {
+        async fn list_recent_checkpoints(&self) -> anyhow::Result<Vec<String>> {
+            Ok(self.listing.clone())
+        }
 
-        let config = config_with(true, &store_path, &checkpoint_dir);
-        assert_eq!(decide_restore_source(&config), RestoreSource::S3);
-    }
+        async fn download_file(&self, remote_key: &str) -> anyhow::Result<Vec<u8>> {
+            match self.objects.get(remote_key) {
+                Some(path) => Ok(std::fs::read(path)?),
+                // Wrapped in context as the real downloader wraps it.
+                None => Err(anyhow::Error::new(object_store::Error::NotFound {
+                    path: remote_key.to_owned(),
+                    source: "no such key".into(),
+                })
+                .context(format!("Failed to get object: {remote_key}"))),
+            }
+        }
 
-    #[test]
-    fn cold_start_when_no_store_no_checkpoint_and_gate_on() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
+        async fn download_and_store_file_cancellable(
+            &self,
+            remote_key: &str,
+            local_filepath: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> anyhow::Result<()> {
+            std::fs::write(local_filepath, self.download_file(remote_key).await?)?;
+            Ok(())
+        }
 
-        let config = config_with(true, &store_path, &checkpoint_dir);
-        // Gate on but no live store or local checkpoint → S3 (importer downgrades to cold if empty).
-        assert_eq!(decide_restore_source(&config), RestoreSource::S3);
-    }
+        async fn download_files_cancellable(
+            &self,
+            remote_keys: &[String],
+            local_base_path: &Path,
+            _cancel_token: Option<&CancellationToken>,
+        ) -> anyhow::Result<()> {
+            for key in remote_keys {
+                let name = key.rsplit('/').next().unwrap_or(key);
+                self.download_and_store_file_cancellable(key, &local_base_path.join(name), None)
+                    .await?;
+            }
+            Ok(())
+        }
 
-    #[test]
-    fn gate_off_never_picks_a_disaster_path() {
-        let tmp = TempDir::new().unwrap();
-        let checkpoint_dir = tmp.path().join("ckpt");
-        make_local_checkpoint(
-            &checkpoint_dir,
-            "2026-06-17T00-00-00Z",
-            ChronoDuration::minutes(1),
-        );
-
-        let absent = tmp.path().join("absent");
-        let config_absent = config_with(false, &absent, &checkpoint_dir);
-        assert_eq!(
-            decide_restore_source(&config_absent),
-            RestoreSource::ColdStart
-        );
-
-        let present = tmp.path().join("present");
-        make_live_store(&present);
-        let config_present = config_with(false, &present, &checkpoint_dir);
-        assert_eq!(
-            decide_restore_source(&config_present),
-            RestoreSource::ReopenLive
-        );
+        async fn is_available(&self) -> bool {
+            true
+        }
     }
 
     #[tokio::test]
-    async fn run_boot_restore_reopen_live_is_a_noop_with_no_manifest() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
-        make_live_store(&store_path);
-        let config = config_with(true, &store_path, &checkpoint_dir);
+    async fn an_unfinished_upload_does_not_count_toward_the_depth_and_a_local_rejection_spares_the_s3_copy(
+    ) {
+        let boot = Boot::new();
+        let (s3, checkpoint_id) = boot.uploaded_checkpoint();
+        let importer = CheckpointImporter::new(Box::new(s3), Duration::from_secs(60));
+        let mut rejected = HashSet::from([Rejected::Local(checkpoint_id.clone())]);
+        let mut search = Search::default();
 
-        let outcome = run_boot_restore(&config, &store_path).await;
-        assert_eq!(outcome.source, RestoreSource::ReopenLive);
-        assert!(
-            outcome.manifest.is_none(),
-            "reopen-live needs no manifest (resume-from-committed)",
-        );
-        assert!(store_path.join("CURRENT").is_file());
+        let outcome = boot
+            .restore(&mut rejected)
+            .search_s3(&importer, 1, &mut search)
+            .await
+            .unwrap();
+
+        let ControlFlow::Break(pending) = outcome else {
+            panic!("the complete upload behind the unfinished one restores");
+        };
+        assert_eq!(pending.source().label(), "s3");
+        assert_eq!(pending.source().checkpoint_id(), checkpoint_id);
+        assert!(search.failed.is_empty(), "{:?}", search.failed);
     }
 
     #[tokio::test]
-    async fn run_boot_restore_copies_a_pvc_checkpoint_into_the_store_path() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        let checkpoint_dir = tmp.path().join("ckpt");
-        let attempt = make_local_checkpoint(
-            &checkpoint_dir,
-            "2026-06-17T00-00-00Z",
-            ChronoDuration::minutes(3),
-        );
-        std::fs::write(attempt.join("000001.sst"), b"sst-bytes").unwrap();
+    async fn a_leftover_stage_is_deleted_and_an_intact_store_reopens() {
+        let boot = Boot::new();
+        drop(CohortStore::open(&StoreConfig {
+            path: boot.live(),
+            ..StoreConfig::default()
+        }));
+        let stage = staging_path(&boot.live());
+        std::fs::create_dir(&stage).unwrap();
+        std::fs::write(stage.join("000001.sst"), b"torn").unwrap();
 
-        let config = config_with(true, &store_path, &checkpoint_dir);
-        let outcome = run_boot_restore(&config, &store_path).await;
-
-        assert!(matches!(outcome.source, RestoreSource::PvcCheckpoint(_)));
-        let manifest = outcome.manifest.expect("PVC restore yields a manifest");
-        assert_eq!(manifest.offset_for("cohort_stream_events", 0), Some(42));
-        assert!(store_path.join("000001.sst").is_file());
-        assert!(store_path.join(MANIFEST_FILENAME).is_file());
+        assert!(matches!(boot.prepare().await, Ok(BootStore::Reopened)));
+        assert!(!stage.exists());
     }
 
-    #[test]
-    fn restore_from_pvc_wipes_a_partial_store_when_the_copy_fails() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        // A leftover partial store from a prior torn restore that the copy must not preserve.
-        std::fs::create_dir_all(&store_path).unwrap();
-        std::fs::write(store_path.join("000001.sst"), b"torn").unwrap();
+    #[tokio::test]
+    async fn a_local_checkpoint_publishes_and_stays_pending_on_the_next_boot() {
+        let boot = Boot::new();
+        boot.local_checkpoint();
 
-        // A non-existent checkpoint dir makes `copy_dir_recursive`'s `read_dir` fail mid-restore.
-        let missing = tmp.path().join("nonexistent_checkpoint");
+        let Ok(BootStore::Restored(published)) = boot.prepare().await else {
+            panic!("a fresh local checkpoint restores");
+        };
+        assert_eq!(published.source().label(), "local");
+        assert!(boot.live().join(MARKER_FILENAME).is_file());
 
-        let outcome = restore_from_pvc(&missing, &store_path);
-        assert_eq!(outcome.source, RestoreSource::ColdStart);
-        assert!(
-            !store_path.exists(),
-            "the guard must wipe the partial store so the cold-start outcome actually starts cold",
-        );
+        let Ok(BootStore::Restored(resumed)) = boot.prepare().await else {
+            panic!("a store with a marker resumes its restore instead of reopening");
+        };
+        assert_eq!(resumed.plan(), published.plan());
     }
 
-    #[test]
-    fn restore_from_pvc_wipes_the_store_when_the_manifest_is_unreadable() {
-        let tmp = TempDir::new().unwrap();
-        let store_path = tmp.path().join("store");
-        // A checkpoint dir that copies cleanly but carries no offsets.json → manifest load fails.
-        let checkpoint_dir = tmp.path().join("ckpt");
-        std::fs::create_dir_all(&checkpoint_dir).unwrap();
-        std::fs::write(checkpoint_dir.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
+    #[tokio::test]
+    async fn an_unreadable_marker_deletes_the_store_and_restores_again() {
+        let boot = Boot::new();
+        boot.local_checkpoint();
+        drop(CohortStore::open(&StoreConfig {
+            path: boot.live(),
+            ..StoreConfig::default()
+        }));
+        std::fs::write(boot.live().join(MARKER_FILENAME), b"{\"version\": 1").unwrap();
 
-        let outcome = restore_from_pvc(&checkpoint_dir, &store_path);
-        assert_eq!(outcome.source, RestoreSource::ColdStart);
-        assert!(
-            !store_path.exists(),
-            "an unreadable manifest after copy must leave no partial store behind",
-        );
+        let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
+            panic!("the store with an unreadable marker is replaced by a restore");
+        };
+        assert_eq!(pending.source().label(), "local");
+        PendingRestore::resume(&boot.live(), 1)
+            .unwrap()
+            .expect("the new restore carries a readable marker");
     }
 
-    #[test]
-    fn manifest_is_none_for_reopen_live_and_cold_some_for_disaster_paths() {
-        let reopen = RestoreOutcome {
-            source: RestoreSource::ReopenLive,
-            manifest: None,
+    #[tokio::test]
+    async fn a_local_attempt_cut_short_before_its_metadata_gives_way_to_the_one_before() {
+        let boot = Boot::new();
+        let complete = boot.local_checkpoint();
+        let torn = boot.local_checkpoint();
+        std::fs::remove_file(boot.lineage_dir().join(&torn.id).join(METADATA_FILENAME)).unwrap();
+
+        let Ok(BootStore::Restored(pending)) = boot.prepare().await else {
+            panic!("the complete attempt restores");
         };
-        let cold = RestoreOutcome {
-            source: RestoreSource::ColdStart,
-            manifest: None,
-        };
-        let pvc = RestoreOutcome {
-            source: RestoreSource::PvcCheckpoint(PathBuf::from("/x")),
-            manifest: Some(OffsetManifest {
-                version: super::super::manifest::MANIFEST_VERSION,
-                captured_at: Utc::now(),
-                topics: BTreeMap::new(),
-            }),
-        };
-        assert!(reopen.manifest.is_none());
-        assert!(cold.manifest.is_none());
-        assert!(pvc.manifest.is_some());
+        assert_eq!(pending.source().checkpoint_id(), complete.id);
     }
 }

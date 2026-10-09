@@ -52,9 +52,9 @@ use crate::observability::metrics::{
 /// by `open_cf_descriptors` (see [`CohortStore::open_inner`]).
 ///
 /// The same version is also stamped into checkpoint `metadata.json` and checked on restore
-/// (`store/durability/import.rs`), which has *different* failure semantics: a mismatched checkpoint is
-/// silently skipped (falling through to the next candidate, then to a cold start), never a hard fail.
-/// A future bump must keep both guards in mind.
+/// (`store/durability/recovery.rs`) with the live store's rule: a mismatched checkpoint blocks the
+/// boot, unless `wipe_on_schema_mismatch` lets the restore pass over it as unusable. A future bump
+/// must keep both guards in mind.
 pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 const OP_OPEN: &str = "open";
@@ -63,6 +63,7 @@ const OP_GET: &str = "get";
 const OP_MULTI_GET: &str = "multi_get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
+const OP_RESET_SLICES: &str = "reset_slices";
 const OP_FLUSH: &str = "flush";
 const OP_FLUSH_WAL: &str = "flush_wal";
 const OP_SCAN: &str = "scan";
@@ -393,13 +394,47 @@ impl CohortStore {
             }
         })?;
 
-        Ok(Self {
+        Ok(Self::from_db(db, db_opts, config))
+    }
+
+    fn from_db(
+        db: DBWithThreadMode<SingleThreaded>,
+        db_opts: &Options,
+        config: &StoreConfig,
+    ) -> Self {
+        Self {
             db: Arc::new(db),
             db_opts: Arc::new(db_opts.clone()),
             // Floor at 1: `next % ratio` must not divide by zero.
             read_sample_ratio: config.read_sample_ratio.max(1),
             dirty_tracking: Arc::new(Stage2DirtyTracking::default()),
-        })
+        }
+    }
+
+    /// Check that the store at `path` is whole and of this build's schema, without writing to it: it
+    /// opens read-only with this build's column families and carries [`STORE_SCHEMA_VERSION`]. The
+    /// open's consistency check, on under RocksDB's default `paranoid_checks`, refuses a store
+    /// missing any SST its MANIFEST names or holding one at another size.
+    pub fn validate_read_only(path: &Path) -> Result<(), StoreError> {
+        let config = StoreConfig {
+            path: path.to_path_buf(),
+            ..StoreConfig::default()
+        };
+        let db_opts = db_options(&config);
+        let cache = Cache::new_lru_cache(config.block_cache_bytes);
+        let db = DBWithThreadMode::<SingleThreaded>::open_cf_descriptors_read_only(
+            &db_opts,
+            path,
+            column_families::descriptors(&config, &cache),
+            false,
+        )
+        .map_err(|source| StoreError::Open {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let store = Self::from_db(db, &db_opts, &config);
+        store.check_schema(true, false)?;
+        Ok(())
     }
 
     /// Compare the `cf_meta` schema stamp against [`STORE_SCHEMA_VERSION`]. A fresh store (one that
@@ -1057,16 +1092,40 @@ impl CohortStore {
     /// their short literal keys collide with an arbitrary partition's byte range, so a range delete
     /// would wipe store-wide guards like the schema stamp.
     pub fn delete_partition(&self, partition_id: u16) -> Result<(), StoreError> {
-        let (start, end) = keys::partition_range(partition_id);
         let mut batch = WriteBatch::default();
+        self.delete_partition_ranges(&mut batch, partition_id)?;
+        self.commit(batch, OP_DELETE_PARTITION)
+    }
+
+    /// Delete the slices a checkpoint restore cannot replay, with their coverage records, so each
+    /// begins again behind the coverage fence. The fsync makes the deletes outlive a crash: a
+    /// restore ends by deleting its marker, and a reset still in the async WAL would come back with
+    /// a `Complete` coverage record and positions past the events it lost.
+    pub fn reset_slices(
+        &self,
+        partitions: impl IntoIterator<Item = u16>,
+    ) -> Result<(), StoreError> {
+        let mut batch = WriteBatch::default();
+        for partition_id in partitions {
+            self.delete_partition_ranges(&mut batch, partition_id)?;
+        }
+        self.commit(batch, OP_RESET_SLICES)?;
+        self.flush_wal_sync()
+    }
+
+    fn delete_partition_ranges(
+        &self,
+        batch: &mut WriteBatch,
+        partition_id: u16,
+    ) -> Result<(), StoreError> {
+        let (start, end) = keys::partition_range(partition_id);
         for cf in Cf::ALL {
             if !cf.partitioned() {
                 continue;
             }
-            let handle = self.cf(cf)?;
-            batch.delete_range_cf(handle, start.as_slice(), end.as_slice());
+            batch.delete_range_cf(self.cf(cf)?, start.as_slice(), end.as_slice());
         }
-        self.commit(batch, OP_DELETE_PARTITION)
+        Ok(())
     }
 
     /// Flush all CF memtables to SST. Checkpoint path and tests only.
@@ -2795,6 +2854,52 @@ mod tests {
                 .as_deref(),
             Some(STORE_SCHEMA_VERSION.to_be_bytes().as_slice()),
             "cf_meta is exempt from the partition wipe, so the schema guard survives a rebalance",
+        );
+    }
+
+    #[test]
+    fn reset_slices_deletes_each_slice_and_its_coverage_record_durably() {
+        let dir = TempDir::new().unwrap();
+        let config = StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        };
+        let start = CoverageStartMs(1_791_547_200_000);
+        {
+            let store = CohortStore::open(&config).unwrap();
+            for partition in [4, 5, 6] {
+                store
+                    .write_batch(|b| {
+                        b.put::<Behavioral>(&behavioral_key_for(partition, 1), b"state")
+                    })
+                    .unwrap();
+                store.resume_or_begin_slice(partition, start).unwrap();
+            }
+            store.reset_slices([4, 6]).unwrap();
+        }
+
+        let reopened = CohortStore::open(&config).unwrap();
+        for partition in [4, 6] {
+            assert_eq!(
+                reopened
+                    .get_behavioral(&behavioral_key_for(partition, 1))
+                    .unwrap(),
+                None,
+                "partition {partition}",
+            );
+            assert_eq!(
+                reopened.slice_coverage(partition).unwrap(),
+                None,
+                "partition {partition}",
+            );
+        }
+        assert!(reopened
+            .get_behavioral(&behavioral_key_for(5, 1))
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            reopened.slice_coverage(5).unwrap(),
+            Some(SliceCoverage::Since(start)),
         );
     }
 
