@@ -1193,8 +1193,8 @@ def _cleaned_select_list(
     # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
     # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
     # second because _timestamp is second-precision while the marker is microsecond-precision.
-    # A plain MergeTree such as flag_evaluations keeps the original value, because there _timestamp
-    # is the Kafka message time that flag_evaluations_backfill reads as the consumer position.
+    # On flag_evaluations the bump also moves the Kafka position that flag_evaluations_backfill reads
+    # from _timestamp (see _KAFKA_POSITION_QUERY there).
     if "ReplacingMergeTree" in engine:
         replacements["_timestamp"] = "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1"
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
@@ -1559,7 +1559,7 @@ def reingest_property_removal_shard(
 
         # A failed earlier attempt may have inserted a month on another replica of this shard. Without
         # that part here, the leftover count below misses those rows and the insert adds them a second
-        # time, which a plain MergeTree such as flag_evaluations never merges away.
+        # time.
         _sync_replica(client, target, log)
         for month, expected in sorted(copied["months"].items()):
             if f"{_REINGESTED}_{month}" in steps:

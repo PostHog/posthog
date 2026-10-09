@@ -140,14 +140,12 @@ def _truncate_writable_events(client: Client) -> None:
 
 
 def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client, **row_values: object) -> None:
-    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at[, _timestamp]).
+    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at).
     # Each keyword in row_values sets that column to the same value on every row. The event name is
     # stamped here because a property-removal request narrows on it. inserted_at is set explicitly
     # rather than left to its `DEFAULT timestamp` so a test can place a row before or after the removal
     # marker, which is what the marker-bounded gate keys on.
     columns = "team_id, distinct_id, properties, uuid, timestamp, inserted_at"
-    if rows and len(rows[0]) == 7:
-        columns += ", _timestamp"
     stamped = {"event": FLAG_EVALUATIONS_SOURCE_EVENT, **row_values}
     client.execute(
         f"INSERT INTO writable_flag_evaluations ({columns}, {', '.join(stamped)}) VALUES",
@@ -2735,13 +2733,9 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
 ) -> None:
     now = timezone.now()
     ingested = now - timedelta(hours=1)
-    kafka_time = ingested.replace(microsecond=0)
     stored = {"$feature_flag": "beta", "$session_id": "s1", "keep": "yes"}
-    replayed_uuid, single_uuid = str(uuid4()), str(uuid4())
-    rows = [
-        (PROP_TEAM_ID, "someone", json.dumps(stored), uuid, ingested, ingested, kafka_time)
-        for uuid in (replayed_uuid, replayed_uuid, single_uuid)
-    ]
+    uuids = sorted(str(uuid4()) for _ in range(2))
+    rows = [(PROP_TEAM_ID, "someone", json.dumps(stored), uuid, ingested, ingested) for uuid in uuids]
     cluster.any_host(_truncate_flag_evaluations).result()
     # Non-default values, so a copy that reset the person columns would fail the comparison below.
     cluster.any_host(
@@ -2770,12 +2764,16 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
     )
     assert result.success
     assert count_remaining_for_request(request) == 0
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    marker = request.property_removal_marker
+    assert marker is not None
 
     cleaned = {key: value for key, value in stored.items() if key not in properties}
     cleaned_person = (
         None if stored_person is None else {k: v for k, v in stored_person.items() if k not in person_properties}
     )
-    # _timestamp keeps the Kafka message time, which flag_evaluations_backfill reads as the consumer position.
+    # Cleaned rows carry a _timestamp version past the original's, so a merge with a surviving original keeps them.
     expected = [
         (
             uuid,
@@ -2785,13 +2783,11 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
             "propertyless",
             cleaned.get("$feature_flag", ""),
             cleaned.get("$session_id", ""),
-            int(kafka_time.timestamp()),
+            int(marker.timestamp()) + 1,
         )
-        for uuid in sorted((replayed_uuid, replayed_uuid, single_uuid))
+        for uuid in uuids
     ]
     assert cluster.any_host(partial(_flag_evaluation_rows, PROP_TEAM_ID)).result() == expected
-    request.refresh_from_db()
-    assert request.status == RequestStatus.COMPLETED
 
     cluster.any_host(_truncate_flag_evaluations).result()
 
