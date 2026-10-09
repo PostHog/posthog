@@ -472,6 +472,15 @@ export function getCurrentVisualizationQuery(
     return {
         ...visualizationQuery,
         source: { ...visualizationQuery.source, query: queryInput ?? visualizationQuery.source.query },
+        // Save the time format the user sees, even when they never touched the toggle
+        ...(mountedVisualizationLogic
+            ? {
+                  tableSettings: {
+                      ...visualizationQuery.tableSettings,
+                      showAbsoluteTime: mountedVisualizationLogic.values.showAbsoluteTime,
+                  },
+              }
+            : {}),
     }
 }
 

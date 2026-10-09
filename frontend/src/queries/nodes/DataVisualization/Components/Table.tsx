@@ -5,9 +5,10 @@ import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import type { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
@@ -170,8 +171,16 @@ export const Table = (props: TableProps): JSX.Element => {
         hogVm,
         hogVmLoadFailed,
         showAbsoluteTime,
+        tableSorting,
     } = useValues(dataVisualizationLogic)
-    const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
+    const { toggleColumnPin, setTableSorted, setTableSorting, setShowAbsoluteTime } = useActions(dataVisualizationLogic)
+
+    const sortTable = (sorting: Sorting | null): void => {
+        setTableSorting(sorting)
+        if (sorting) {
+            setTableSorted()
+        }
+    }
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
@@ -256,6 +265,43 @@ export const Table = (props: TableProps): JSX.Element => {
                 // Sorting reorders rows, which doesn't make sense once the table is transposed
                 // (rows become the original columns), so only offer it in the normal orientation.
                 sorter: isTransposed ? undefined : (a, b) => compareTableCells(a[index], b[index]),
+                more: isTransposed ? undefined : (
+                    <>
+                        <div className="px-2 py-1 max-w-md font-mono font-bold truncate">
+                            {fullColumnTitle ?? column.name}
+                        </div>
+                        {column.type.name === 'DATETIME' && (
+                            <>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    data-attr="data-viz-toggle-absolute-time"
+                                    onClick={() => setShowAbsoluteTime(!showAbsoluteTime)}
+                                >
+                                    {showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
+                                </LemonButton>
+                            </>
+                        )}
+                        <LemonDivider />
+                        <LemonButton
+                            fullWidth
+                            data-attr="data-viz-sort-asc"
+                            onClick={() => sortTable({ columnKey: column.name, order: 1 })}
+                        >
+                            Sort ascending
+                        </LemonButton>
+                        <LemonButton
+                            fullWidth
+                            data-attr="data-viz-sort-desc"
+                            onClick={() => sortTable({ columnKey: column.name, order: -1 })}
+                        >
+                            Sort descending
+                        </LemonButton>
+                        <LemonButton fullWidth data-attr="data-viz-reset-sort" onClick={() => sortTable(null)}>
+                            Reset sorting
+                        </LemonButton>
+                    </>
+                ),
                 title: (
                     <ColumnHeaderTitle formattedTitle={formattedTitle} fullTitle={fullColumnTitle}>
                         {isPinningEnabled && (
@@ -388,11 +434,9 @@ export const Table = (props: TableProps): JSX.Element => {
                 pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
                 loading={responseLoading}
                 useURLForSorting={false}
-                onSort={(newSorting) => {
-                    if (newSorting) {
-                        setTableSorted()
-                    }
-                }}
+                sorting={tableSorting}
+                onSort={sortTable}
+                hideSortingIndicatorWhenInactive
                 pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
                 maxHeaderWidth="15rem"
                 emptyState={

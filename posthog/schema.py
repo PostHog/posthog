@@ -8463,7 +8463,7 @@ class TableSettings(BaseModel):
     pinnedColumns: list[str] | None = None
     showAbsoluteTime: bool | None = Field(
         default=None,
-        description=("Show date and datetime values as absolute timestamps instead of relative time"),
+        description=("Show datetime values as absolute timestamps instead of relative time"),
     )
     transpose: bool | None = None
 

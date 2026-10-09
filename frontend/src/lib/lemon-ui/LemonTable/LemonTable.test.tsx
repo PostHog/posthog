@@ -53,6 +53,21 @@ describe('LemonTable', () => {
         expect(renderedOrder()).toEqual(expectedOrder)
     })
 
+    it('stops sorting when a controlled sort is cleared', () => {
+        const { rerender } = render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                columns={COLUMNS}
+                useURLForSorting={false}
+                sorting={{ columnKey: 'value', order: 1 }}
+            />
+        )
+        expect(renderedOrder()).toEqual(['beta', 'gamma', 'alpha'])
+
+        rerender(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} useURLForSorting={false} sorting={null} />)
+        expect(renderedOrder()).toEqual(['alpha', 'beta', 'gamma'])
+    })
     it('resizes columns and locks sibling widths', () => {
         const onResize = jest.fn()
         const onSecondColumnResize = jest.fn()

@@ -235,6 +235,7 @@ export function SQLEditor({
         dashboardId: undefined,
         dataNodeCollectionId: dataLogicKey,
         editMode: true,
+        sqlEditor: true,
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,

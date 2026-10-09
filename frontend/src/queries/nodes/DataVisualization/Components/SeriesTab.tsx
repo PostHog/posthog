@@ -45,14 +45,12 @@ export const SeriesTab = (): JSX.Element => {
         showTableSettings,
         sourceTabularColumns,
         isTransposed,
-        showAbsoluteTime,
-        hasDateTimeColumns,
         selectedXAxis,
         selectedYAxis,
         dataVisualizationProps,
         effectiveVisualizationType,
     } = useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults, setShowAbsoluteTime } =
+    const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults } =
         useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
     const { selectedSeriesBreakdownColumn, showSeriesBreakdown, seriesBreakdownData } = useValues(breakdownLogic)
@@ -94,16 +92,6 @@ export const SeriesTab = (): JSX.Element => {
                         checked={isTransposed}
                         onChange={setTransposeResults}
                         tooltip="Rotate the table so rows become columns and columns become rows."
-                    />
-                )}
-                {hasDateTimeColumns && (
-                    <LemonSwitch
-                        className="flex-1 w-full"
-                        label="Show absolute time"
-                        checked={showAbsoluteTime}
-                        onChange={setShowAbsoluteTime}
-                        tooltip="Show dates and times as timestamps instead of relative time, like 3 days ago."
-                        data-attr="data-viz-toggle-absolute-time"
                     />
                 )}
                 <div>
