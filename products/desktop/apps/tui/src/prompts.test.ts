@@ -35,15 +35,72 @@ const acp: AgentPrompt = {
   },
 };
 
+const question: AgentPrompt = {
+  kind: "acp",
+  request: {
+    taskRunId: "local-1",
+    toolCallId: "q1",
+    title: "Which channel?",
+    options: [
+      { optionId: "option_0", name: "npm", kind: "allow_once" },
+      { optionId: "option_1", name: "Homebrew", kind: "allow_once" },
+    ],
+    questions: [
+      {
+        question: "Which channel?",
+        header: "Channel",
+        options: [
+          { label: "npm", description: "Needs Node" },
+          { label: "Homebrew", description: "Needs a tap" },
+        ],
+      },
+      {
+        question: "How often?",
+        options: [{ label: "On merge" }, { label: "By hand" }],
+      },
+    ],
+  },
+};
+
 describe("promptSheet", () => {
   it("offers a Claude Code permission's own options", () => {
     const sheet = promptSheet(acp);
     expect(sheet.title).toBe("Run pnpm test");
     expect(sheet.items.map((item) => item.label)).toEqual(["Allow", "Reject"]);
   });
+
+  it("asks a Claude Code question one step at a time, with each option's description", () => {
+    const first = promptSheet(question, 0);
+    expect(first.title).toBe("Which channel?");
+    expect(first.items).toEqual([
+      { label: "npm", detail: "Needs Node" },
+      { label: "Homebrew", detail: "Needs a tap" },
+    ]);
+    expect(first.footer).toContain("1 of 2");
+    expect(promptSheet(question, 1).title).toBe("How often?");
+  });
 });
 
 describe("promptReply", () => {
+  it("answers a Claude Code question with every question's picked label", () => {
+    const partial = promptReply(question, 1, {});
+    expect(partial).toMatchObject({
+      answers: { "Which channel?": "Homebrew" },
+    });
+    const reply = promptReply(
+      question,
+      0,
+      partial.kind === "acp" ? partial.answers : undefined,
+    );
+    expect(reply).toEqual({
+      kind: "acp",
+      taskRunId: "local-1",
+      toolCallId: "q1",
+      optionId: "option_1",
+      answers: { "Which channel?": "Homebrew", "How often?": "On merge" },
+    });
+  });
+
   it.each([
     ["the chosen option", 0, "allow"],
     ["the first rejecting option when dismissed", null, "reject"],

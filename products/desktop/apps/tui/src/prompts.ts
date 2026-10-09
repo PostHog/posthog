@@ -20,6 +20,14 @@ export interface AcpPermissionRequest {
   toolCallId: string;
   title: string;
   options: PermissionOption[];
+  // Claude Code's AskUserQuestion: the options only cover the first question, so each is asked in turn.
+  questions?: AcpQuestion[];
+}
+
+export interface AcpQuestion {
+  question: string;
+  header?: string;
+  options: { label: string; description?: string }[];
 }
 
 export type PromptReply =
@@ -29,7 +37,14 @@ export type PromptReply =
       requestId: string;
       decision: McpToolPermissionDecision;
     }
-  | { kind: "acp"; taskRunId: string; toolCallId: string; optionId: string };
+  | {
+      kind: "acp";
+      taskRunId: string;
+      toolCallId: string;
+      optionId: string;
+      // Each question's picked label, by question; the tool reads these, not the option id.
+      answers?: Record<string, string>;
+    };
 
 const PERMISSIONS: { label: string; decision: McpToolPermissionDecision }[] = [
   { label: "Allow once", decision: "allow" },
@@ -51,7 +66,25 @@ export const takesText = (prompt: AgentPrompt): boolean =>
   prompt.kind === "dialog" &&
   (prompt.request.method === "input" || prompt.request.method === "editor");
 
-export function promptSheet(prompt: AgentPrompt): Sheet {
+// The questions a Claude Code prompt asks, or none for a plain permission.
+export const questionsOf = (prompt: AgentPrompt): AcpQuestion[] =>
+  prompt.kind === "acp" ? (prompt.request.questions ?? []) : [];
+
+// `step` is the question being asked, for a prompt with several.
+export function promptSheet(prompt: AgentPrompt, step = 0): Sheet {
+  const questions = questionsOf(prompt);
+  const question = questions[step];
+  if (question)
+    return {
+      title: question.question,
+      items: question.options.map(({ label, description }) => ({
+        label,
+        ...(description && { detail: description }),
+      })),
+      footer: `Enter to choose · Esc to skip${
+        questions.length > 1 ? ` · ${step + 1} of ${questions.length}` : ""
+      }`,
+    };
   if (prompt.kind === "acp")
     return {
       title: prompt.request.title,
@@ -89,13 +122,34 @@ export function promptSheet(prompt: AgentPrompt): Sheet {
   };
 }
 
-// The answer is a chosen item's index, typed text, or null when the user dismissed the prompt.
+// The answer is a chosen item's index, typed text, or null when the user dismissed the prompt. A question
+// prompt's `answered` holds the questions picked so far; the reply carries them all, the next one included.
 export function promptReply(
   prompt: AgentPrompt,
   answer: number | string | null,
+  answered: Record<string, string> = {},
 ): PromptReply {
   if (prompt.kind === "acp") {
     const { taskRunId, toolCallId, options } = prompt.request;
+    const questions = questionsOf(prompt);
+    const question = questions[Object.keys(answered).length];
+    if (question && typeof answer === "number") {
+      const answers = {
+        ...answered,
+        [question.question]: question.options[answer]?.label ?? "",
+      };
+      // The option ids only name the first question's choices.
+      const first = questions[0].options.findIndex(
+        ({ label }) => label === answers[questions[0].question],
+      );
+      return {
+        kind: "acp",
+        taskRunId,
+        toolCallId,
+        optionId: `option_${Math.max(0, first)}`,
+        answers,
+      };
+    }
     const chosen =
       typeof answer === "number"
         ? options[answer]

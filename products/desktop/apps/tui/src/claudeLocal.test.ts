@@ -211,8 +211,48 @@ describe("ClaudeLocalSession", () => {
       "local-1",
       "tc1",
       "allow",
+      undefined,
+      undefined,
     );
     expect(lists.at(-1)).toEqual([]);
+  });
+
+  it("carries a question's list through the prompt and its answers back to the agent", async () => {
+    const agent = fakeAgent();
+    const session = new ClaudeLocalSession(
+      agent as never,
+      input,
+      async () => true,
+    );
+    const lists: AgentPrompt[][] = [];
+    session.watchPrompts((list) => lists.push(list));
+    await session.start();
+    const questions = [{ question: "Which?", options: [{ label: "A" }] }];
+    agent.emit("permission-request", {
+      taskRunId: "local-1",
+      toolCall: {
+        toolCallId: "q1",
+        title: "Which?",
+        _meta: { codeToolKind: "question", questions },
+      },
+      options: [{ optionId: "option_0", name: "A", kind: "allow_once" }],
+    });
+    const prompt = lists.at(-1)?.[0];
+    expect(prompt).toMatchObject({ kind: "acp", request: { questions } });
+    await session.answer(prompt as AgentPrompt, {
+      kind: "acp",
+      taskRunId: "local-1",
+      toolCallId: "q1",
+      optionId: "option_0",
+      answers: { "Which?": "A" },
+    });
+    expect(agent.respondToPermission).toHaveBeenCalledWith(
+      "local-1",
+      "q1",
+      "option_0",
+      undefined,
+      { "Which?": "A" },
+    );
   });
 
   it("lists Claude's modes and switches one", async () => {
