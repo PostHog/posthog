@@ -17,6 +17,7 @@ import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -1768,6 +1769,68 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+    @pytest.mark.parametrize(
+        "clickhouse_message,expects_delayed_retry",
+        [
+            (
+                "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
+                "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)",
+                True,
+            ),
+            ("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)", False),
+        ],
+    )
+    async def test_delta_kernel_read_error_retries_after_a_delay(
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        ajob,
+        bucket_name,
+        adag,
+        clickhouse_message,
+        expects_delayed_retry,
+    ):
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+
+            async def async_generator():
+                raise ClickHouseError(clickhouse_message)
+                yield  # makes this an async generator
+
+            return async_generator()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(Exception) as raised:
+                await activity_environment.run(materialize_view_activity, inputs)
+
+        error = raised.value
+        assert clickhouse_message in str(error)
+        if expects_delayed_retry:
+            assert isinstance(error, ApplicationError)
+            assert error.type == "ClickHouseError"
+            assert not error.non_retryable
+            assert error.next_retry_delay is not None
+            assert error.next_retry_delay >= dt.timedelta(minutes=1)
+        else:
+            assert type(error) is ClickHouseError
 
 
 class _EmptyArrowClient:
