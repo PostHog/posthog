@@ -54,7 +54,7 @@ DEFAULT_DATE_FROM = "-24h"
 
 
 def metrics_query_date_range(team: "Team", date_range: DateRange | None) -> QueryDateRange:
-    """Resolve a metrics node's date range to exact bounds; the facade picks and aligns the bucket interval."""
+    # The facade picks and aligns the bucket interval, so this passes interval=None.
     # With interval=None, QueryDateRange falls back to day. exact_timerange stops it truncating a
     # relative date_from to midnight (so "-30M" would read the whole day), and explicitDate stops it
     # rounding an explicit date_to up to the end of the day.
