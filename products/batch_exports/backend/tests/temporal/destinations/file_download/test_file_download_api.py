@@ -1045,7 +1045,6 @@ class TestFileDownloadHogQL:
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"count": expected_count}
 
-    # `formatDateTime` gets the query timezone as its last argument, so `%z` shows which timezone the count ran in.
     @pytest.mark.parametrize(
         "hogql_modifiers,expected_count",
         [(None, 10), ({"convertToProjectTimezone": True}, 0)],
@@ -1056,6 +1055,16 @@ class TestFileDownloadHogQL:
     async def test_count_rows_uses_the_export_timezone(
         self, async_client: AsyncClient, team, user, hogql_modifiers, expected_count
     ):
+        """Count rows in the timezone the export runs in, which can differ from the project timezone.
+
+        The project is in Asia/Tokyo, and the query keeps rows whose timestamp formats with a `+0000` offset.
+        HogQL passes the query timezone to `formatDateTime` as its last argument, so `%z` gives the offset of
+        the timezone the count ran in: `+0000` in UTC and `+0900` in Tokyo.
+
+        With no modifier, the count runs in UTC like the export, so it keeps all 10 rows. With
+        `convertToProjectTimezone` set to true, it runs in Tokyo and keeps none. If the count ignored the
+        export default, the first case would count 0 rows while the download exports 10.
+        """
         team.timezone = "Asia/Tokyo"
         await team.asave()
         await async_client.aforce_login(user)
