@@ -4893,7 +4893,8 @@
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
       `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-      `service_name` LowCardinality(String)
+      `service_name` LowCardinality(String),
+      `metric_types` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   )
   AS SELECT
       team_id,
@@ -4901,7 +4902,8 @@
       toStartOfHour(timestamp) AS time_bucket,
       toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
       maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
-      service_name
+      service_name,
+      groupUniqArrayArraySimpleState([toString(metric_type)]) AS metric_types
   FROM posthog_test.metrics4_input AS input
   WHERE has_labels
   GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
@@ -5031,7 +5033,9 @@
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
       `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-      `service_name` LowCardinality(String)
+      `service_name` LowCardinality(String),
+      `metric_types` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      `metric_type` String ALIAS metric_types[1]
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_names', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
@@ -10562,7 +10566,8 @@
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
       `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-      `service_name` LowCardinality(String)
+      `service_name` LowCardinality(String),
+      `metric_types` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   )
   ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics4_names')
   
@@ -12539,7 +12544,9 @@
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
       `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
-      `service_name` LowCardinality(String)
+      `service_name` LowCardinality(String),
+      `metric_types` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+      `metric_type` String ALIAS metric_types[1]
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_names', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)

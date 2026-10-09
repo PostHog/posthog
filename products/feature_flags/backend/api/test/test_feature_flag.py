@@ -22,6 +22,7 @@ from django.utils.timezone import now
 
 import grpc
 import requests
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -31,7 +32,11 @@ from rest_framework.response import Response
 from posthog.hogql.database.database import Database
 
 from posthog import redis
-from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
+from posthog.api.cohort import (
+    BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS,
+    PersonFlagEvaluationError,
+    get_cohort_actors_for_feature_flag,
+)
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
@@ -9507,8 +9512,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self._create_flag()
         cohort = self._create_static_cohort()
 
-        # The final flush is unconditional precisely so a zero-match run still recomputes
-        # count to 0 and clears is_calculating, instead of leaving the cohort stuck.
+        # A zero-match run inserts nobody and still records a count of 0 instead of leaving it unset.
         mock_batch_evaluate.return_value = self._page([])
 
         get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
@@ -9593,6 +9597,29 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         history = CohortCalculationHistory.objects.get(cohort=cohort)
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
         self.assertEqual(history.error, get_friendly_error_message(CohortErrorCode.UNKNOWN))
+
+    @parameterized.expand(
+        [
+            ("soft_time_limit", SoftTimeLimitExceeded()),
+            # SystemExit is not an Exception, so this case fails if the orchestrator catches only Exception.
+            ("worker_shutdown", SystemExit()),
+        ]
+    )
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_interrupted_run_is_recorded_as_failure(self, _name, interruption, mock_batch_evaluate):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
+        mock_batch_evaluate.side_effect = interruption
+
+        with self.assertRaises(type(interruption)):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual((cohort.is_calculating, cohort.errors_calculating), (False, 1))
+        self.assertEqual(CohortCalculationHistory.objects.get(cohort=cohort).error_code, CohortErrorCode.UNKNOWN)
 
     @patch("posthog.api.cohort.time.sleep")
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
@@ -9744,19 +9771,38 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
-    def test_per_person_eval_errors_do_not_fail_the_run(self, mock_batch_evaluate):
+    def test_per_person_eval_errors_fail_the_run_and_keep_matched_persons(self, mock_batch_evaluate):
         self._create_flag()
-        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        persons = [
+            _create_person(team=self.team, distinct_ids=[f"person{i}"], properties={"key": "value"}, immediate=True)
+            for i in range(2)
+        ]
         flush_persons_and_events()
         cohort = self._create_static_cohort()
 
-        mock_batch_evaluate.return_value = self._page([str(person.uuid)], errors_count=5)
+        # The errors are on the first page, so this test fails if the run checks only the last page's count.
+        mock_batch_evaluate.side_effect = [
+            self._page([str(persons[0].uuid)], next_cursor=50, errors_count=5),
+            self._page([str(persons[1].uuid)], next_cursor=None),
+        ]
 
-        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+        success_before = self._metric("cohort_flag_generation_completed_total", outcome="success")
+        failed_before = self._metric("cohort_flag_generation_completed_total", outcome="flag_evaluation_failed")
+
+        with self.assertRaises(PersonFlagEvaluationError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(self._metric("cohort_flag_generation_completed_total", outcome="success"), success_before)
+        self.assertEqual(
+            self._metric("cohort_flag_generation_completed_total", outcome="flag_evaluation_failed"),
+            failed_before + 1,
+        )
 
         cohort.refresh_from_db()
-        self.assertEqual(cohort.count, 1)
-        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual((cohort.count, cohort.is_calculating, cohort.errors_calculating), (2, False, 1))
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.FLAG_EVALUATION_FAILED)
+        self.assertEqual(history.error, get_friendly_error_message(history.error_code, will_retry=False))
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_insert_batching_flushes_mid_run(self, mock_batch_evaluate):
@@ -9769,28 +9815,38 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
         flush_persons_and_events()
         cohort = self._create_static_cohort()
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
 
         mock_batch_evaluate.side_effect = [
             self._page([str(persons[0].uuid), str(persons[1].uuid)], next_cursor=50),
             self._page([str(persons[2].uuid)], next_cursor=None),
         ]
 
-        with patch.object(
-            Cohort, "insert_users_list_by_uuid", autospec=True, side_effect=Cohort.insert_users_list_by_uuid
-        ) as mock_insert:
+        # A cohort that reads as finished before the run ends lets a caller act on a partial
+        # member list, so no flush may clear is_calculating.
+        insert = Cohort.insert_users_list_by_uuid
+        is_calculating_after_each_flush: list[bool] = []
+
+        def insert_then_read_state(self_: Cohort, *args: Any, **kwargs: Any) -> int:
+            batches = insert(self_, *args, **kwargs)
+            is_calculating_after_each_flush.append(Cohort.objects.get(pk=cohort.pk).is_calculating)
+            return batches
+
+        with patch.object(Cohort, "insert_users_list_by_uuid", autospec=True, side_effect=insert_then_read_state):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk, batchsize=2)
 
         # One mid-run flush (buffer hit batchsize) + the final flush
-        self.assertEqual(mock_insert.call_count, 2)
+        self.assertEqual(is_calculating_after_each_flush, [True, True])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.count, 3)
+        self.assertEqual((cohort.count, cohort.is_calculating), (3, False))
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_insert_failure_is_recorded_as_failure_not_success(self, mock_batch_evaluate):
         # A DB/ClickHouse failure while inserting matched persons must surface as a failed
-        # generation (the insert runs with raise_on_error=True), not be swallowed and
+        # generation (the insert runs with save_state=False, which re-raises), not be swallowed and
         # counted as success. DEBUG is forced off so the production swallow path is what
-        # would run without raise_on_error.
+        # would run without save_state=False.
         self._create_flag()
         person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
         flush_persons_and_events()

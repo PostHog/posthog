@@ -1,7 +1,8 @@
 """Payloads for the DORA deploy-metrics read."""
 
 from rest_framework import serializers
-from rest_framework_dataclasses.serializers import DataclassSerializer
+
+from posthog.api.dataclass_serializers import LabeledChoicesDataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     DeploymentFrequencyBucket,
@@ -20,7 +21,7 @@ class DoraEnvironmentQuerySerializer(serializers.Serializer):
     )
 
 
-class DeploymentFrequencyBucketSerializer(DataclassSerializer):
+class DeploymentFrequencyBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = DeploymentFrequencyBucket
         extra_kwargs = {
@@ -34,7 +35,7 @@ class DeploymentFrequencyBucketSerializer(DataclassSerializer):
         }
 
 
-class LeadTimeBucketSerializer(DataclassSerializer):
+class LeadTimeBucketSerializer(LabeledChoicesDataclassSerializer):
     class Meta:
         dataclass = LeadTimeBucket
         extra_kwargs = {
@@ -84,7 +85,7 @@ class LeadTimeBucketSerializer(DataclassSerializer):
         }
 
 
-class DoraOverviewSerializer(DataclassSerializer):
+class DoraOverviewSerializer(LabeledChoicesDataclassSerializer):
     deployment_frequency_series = DeploymentFrequencyBucketSerializer(
         many=True,
         help_text="Successful deployments per bucket across the window, oldest first, zero-filled, "

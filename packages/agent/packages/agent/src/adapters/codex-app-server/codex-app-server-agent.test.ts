@@ -9,7 +9,7 @@ import type {
   PromptRequest,
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AppServerClientHandlers,
   AppServerRpc,
@@ -20,6 +20,11 @@ import {
   shouldAutoAcceptLocalApproval,
 } from "./codex-app-server-agent";
 import { sandboxPolicyFor } from "./session-config";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof fs>();
+  return { ...actual, existsSync: vi.fn(actual.existsSync) };
+});
 
 // Required-field invariants the native codex app-server enforces on each request.
 const REQUIRED_FIELDS: Record<string, string[]> = {
@@ -39,6 +44,11 @@ function requiredFieldMissing(
     (f) => p[f] === undefined || p[f] === null || p[f] === "",
   );
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.mocked(fs.existsSync).mockReset();
+});
 
 function makeStubRpc(responses: Record<string, unknown>) {
   let handlers: AppServerClientHandlers | undefined;
@@ -5338,7 +5348,33 @@ describe("CodexAppServerAgent", () => {
   });
 
   it("refresh_session rebinds mcp_servers on the live thread, keeping local tools", async () => {
+    vi.stubEnv("POSTHOG_TASK_RUN_ID", "run-1");
+    const actualFs = await vi.importActual<typeof fs>("node:fs");
+    vi.mocked(fs.existsSync).mockImplementation(
+      (path) =>
+        String(path).endsWith(
+          "/adapters/codex-app-server/local-tools-mcp-server.js",
+        ) || actualFs.existsSync(path),
+    );
     const stub = makeStubRpc({
+      "hooks/list": {
+        data: [
+          {
+            hooks: [
+              {
+                key: "session:pre_tool_use:0:0",
+                currentHash: "memory-hash",
+                source: "sessionFlags",
+                eventName: "preToolUse",
+                matcher: "Bash|Agent",
+                handlerType: "mcpTool",
+                server: "posthog-code-tools",
+                tool: "sandbox_memory_hook",
+              },
+            ],
+          },
+        ],
+      },
       "thread/start": { thread: { id: "t" } },
       "thread/resume": { thread: { id: "t" } },
     });
@@ -5378,6 +5414,17 @@ describe("CodexAppServerAgent", () => {
       )?.config?.mcp_servers ?? {};
     const resume = stub.requests.find((r) => r.method === "thread/resume");
     expect(resume?.params).toMatchObject({ threadId: "t" });
+    for (const method of ["thread/start", "thread/resume"]) {
+      expect(
+        stub.requests.find((r) => r.method === method)?.params,
+      ).toMatchObject({
+        config: {
+          "hooks.state": {
+            "session:pre_tool_use:0:0": { trusted_hash: "memory-hash" },
+          },
+        },
+      });
+    }
     expect(mcpServersFor("thread/resume").posthog).toMatchObject({
       http_headers: { Authorization: "Bearer fresh" },
     });

@@ -9,10 +9,15 @@ from posthog.schema import (
     BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
+    ExperimentExposureHealthFinding,
+    ExperimentExposureHealthFindingActionKind,
+    ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
     IntervalType,
+    MultipleVariantHandling,
     SampleRatioMismatch,
 )
 
@@ -28,6 +33,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
+from products.experiments.backend.health.context import ExposureTotals, load_health_context
+from products.experiments.backend.health.registry import (
+    EXPOSURE_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -254,7 +264,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             p_value=float(p_value),
         )
 
-    def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
+    def _evaluate_bias_risk(
+        self, total_exposures: dict[str, int], multiple_variant_handling: MultipleVariantHandling
+    ) -> BiasRisk | None:
         # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
         # uneven-split check on data collected under the original split. The warning also has
         # no action after the experiment stops, because both of its CTAs only apply while it runs.
@@ -264,14 +276,31 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return None
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         flag_variants = multivariate_data.get("variants") or []
-        exposure_params = get_exposure_config_params_for_builder(
-            self.exposure_criteria, self.team, self.experiment.start_date
-        )
         return evaluate_bias_risk(
             rollout_percentages=[variant.get("rollout_percentage", 0) for variant in flag_variants],
-            multiple_variant_handling=exposure_params.multiple_variant_handling,
+            multiple_variant_handling=multiple_variant_handling,
             total_exposures=total_exposures,
         )
+
+    def _hours_since_launch(self) -> float | None:
+        start_date = self.experiment.start_date
+        return (datetime.now(UTC) - start_date).total_seconds() / 3600 if start_date else None
+
+    def _evaluate_health(self, exposures: ExposureTotals) -> list[ExperimentExposureHealthFinding]:
+        findings = evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
+        return [
+            ExperimentExposureHealthFinding(
+                code=ExperimentExposureHealthFindingCode(finding.code.value),
+                subcode=finding.subcode,
+                severity=ExperimentExposureHealthFindingSeverity(finding.severity.value),
+                title=finding.title,
+                detail=finding.detail,
+                evidence=dict(finding.evidence),
+                actions=[ExperimentExposureHealthFindingActionKind(action.value) for action in finding.actions],
+                diagnostic_ref=finding.diagnostic_ref,
+            )
+            for finding in findings
+        ]
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
@@ -337,8 +366,19 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         for variant, series in variant_series.items():
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
+        multiple_variant_handling = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        ).multiple_variant_handling
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
-        bias_risk = self._evaluate_bias_risk(total_exposures)
+        bias_risk = self._evaluate_bias_risk(total_exposures, multiple_variant_handling)
+        health_findings = self._evaluate_health(
+            ExposureTotals(
+                total_exposures=total_exposures,
+                multiple_variant_handling=multiple_variant_handling,
+                sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
+                hours_since_launch=self._hours_since_launch(),
+            )
+        )
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -346,6 +386,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
+            health_findings=health_findings,
         )
 
     def to_query(self) -> ast.SelectQuery:
