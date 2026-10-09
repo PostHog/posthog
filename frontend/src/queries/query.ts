@@ -184,7 +184,8 @@ export async function pollForResults(
         activeElapsedMs += performance.now() - iterationStart
 
         try {
-            const statusResponse = (await runRequest(() => api.queryStatus.get(queryId, true))).query_status
+            const statusResponse = (await runRequest(() => api.queryStatus.get(queryId, true, methodOptions)))
+                .query_status
             if (statusResponse.complete) {
                 return statusResponse
             }
@@ -192,6 +193,9 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
+            if (isAbortError(e)) {
+                throw e
+            }
             // Parse error message to extract clean message and code if present
             const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
