@@ -111,6 +111,9 @@ tools:
             public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with
             error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear
             previous TipTap JSON so the thread falls back to the markdown message.
+    conversations-tickets-remove-cc-participant-create:
+        operation: conversations_tickets_remove_cc_participant_create
+        enabled: false
     conversations-tickets-reply-create:
         operation: conversations_tickets_reply_create
         enabled: true

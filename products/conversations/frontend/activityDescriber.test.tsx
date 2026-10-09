@@ -136,4 +136,29 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('snooze expired')
         expect(text).not.toContain('reopened')
     })
+
+    it('names the address an agent removed from Cc', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'changed',
+                            field: 'cc_participants',
+                            before: ['support@example.com', 'teammate@example.com'],
+                            after: ['teammate@example.com'],
+                        },
+                    ],
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('removed support@example.com from Cc')
+        expect(text).not.toContain('teammate@example.com')
+    })
 })

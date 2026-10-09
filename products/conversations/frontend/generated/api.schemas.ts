@@ -550,6 +550,14 @@ export interface PatchedTicketNoteUpdateRequestApi {
     rich_content?: unknown
 }
 
+export interface TicketRemoveCcParticipantRequestApi {
+    /**
+     * Cc address to remove from the ticket. Replies stop copying it. Matching ignores case.
+     * @maxLength 254
+     */
+    email: string
+}
+
 /**
  * Payload for posting a reply or internal note to a ticket.
  */

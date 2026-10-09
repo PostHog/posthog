@@ -207,6 +207,20 @@ export const ConversationsTicketsNotesPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Payload for updating a private note on a ticket.')
 
 /**
+ * Remove an address from the ticket's Cc participants, so later replies do not copy it.
+ *
+ * Removing an address that is not a participant changes nothing and returns the ticket.
+ */
+export const conversationsTicketsRemoveCcParticipantCreateBodyEmailMax = 254
+
+export const ConversationsTicketsRemoveCcParticipantCreateBody = /* @__PURE__ */ zod.object({
+    email: zod
+        .email()
+        .max(conversationsTicketsRemoveCcParticipantCreateBodyEmailMax)
+        .describe('Cc address to remove from the ticket. Replies stop copying it. Matching ignores case.'),
+})
+
+/**
  * Post a reply or internal note to a ticket.
  *
  * With is_private=false, the reply is delivered to the customer via the
