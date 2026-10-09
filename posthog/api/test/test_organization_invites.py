@@ -417,25 +417,50 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
-        email = "xx@posthog.com"
+    @parameterized.expand(
+        [
+            (subject, most_specific, bulk)
+            for subject in ["default", "default_role", "member"]
+            for most_specific in [False, True]
+            for bulk in [False, True]
+        ]
+    )
+    def test_invite_fails_if_inviter_does_not_have_access_to_team(
+        self, subject: str, most_specific: bool, bulk: bool
+    ) -> None:
+        email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
         private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.available_product_features.append({"key": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        role = None
+        if subject == "default_role":
+            role = Role.objects.create(name="Restricted role", organization=self.organization)
+            self.organization.default_role = role
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        self.organization.save()
 
-        # Set up new access control system - restrict project to no default access
         AccessControl.objects.create(
             team=private_team,
             access_level="none",
             resource="project",
             resource_id=str(private_team.id),
+            role=role,
+            organization_member=self.organization_membership if subject == "member" else None,
         )
+        denied_response = self.client.get(f"/api/projects/{private_team.id}/")
+        self.assertEqual(denied_response.status_code, status.HTTP_404_NOT_FOUND)
+        payload = {
+            "target_email": email,
+            "level": OrganizationMembership.Level.MEMBER,
+            "private_project_access": [{"id": private_team.id, "level": "admin"}],
+        }
         response = self.client.post(
-            "/api/organizations/@current/invites/",
-            {
-                "target_email": email,
-                "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": "admin"}],
-            },
+            "/api/organizations/@current/invites/bulk/" if bulk else "/api/organizations/@current/invites/",
+            [{"target_email": "other-invitee@example.com"}, payload] if bulk else payload,
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
@@ -494,24 +519,33 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
-        """
-        Regression test: when a project's default access_level is "member" (not "none"),
-        a standard member must still be prevented from requesting admin access.
-        """
-        email = "escalation@posthog.com"
+    @parameterized.expand(
+        [(subject, most_specific) for subject in ["default", "role", "member"] for most_specific in [False, True]]
+    )
+    def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(
+        self, subject: str, most_specific: bool
+    ) -> None:
+        email = "invitee@example.com"
         count = OrganizationInvite.objects.count()
         restricted_team = Team.objects.create(organization=self.organization, name="Member-Restricted Team")
         organization_membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         organization_membership.level = OrganizationMembership.Level.MEMBER
         organization_membership.save()
 
-        # Restrict the project with default access level "member" (not "none")
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.available_product_features.append({"key": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.save()
+        role = None
+        if subject == "role":
+            role = Role.objects.create(name="Member role", organization=self.organization)
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=organization_membership)
         AccessControl.objects.create(
             team=restricted_team,
             access_level="member",
             resource="project",
             resource_id=str(restricted_team.id),
+            role=role,
+            organization_member=organization_membership if subject == "member" else None,
         )
         response = self.client.post(
             "/api/organizations/@current/invites/",
