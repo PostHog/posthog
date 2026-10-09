@@ -5079,6 +5079,7 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
         choices=[
             "heartbeat",
             "awaiting_input",
+            "permission_requested",
             "turn_failed",
             "command_dispatched",
             "agent_activity",
@@ -5088,7 +5089,9 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
+            "interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a "
+            "'needs your input' push when an interactive run waits on a permission request or a question. "
+            "'turn_failed' fails "
             "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
             "and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. "
             "'process_killed' captures a sandbox memory watchdog kill."
@@ -5132,7 +5135,15 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     sequence = serializers.IntegerField(
         required=False,
         min_value=1,
-        help_text="Event sequence used to deduplicate a budget steer or a process kill.",
+        help_text=(
+            "Event sequence used to deduplicate a budget steer or a process kill. "
+            "Also sent with 'permission_requested' to identify the event."
+        ),
+    )
+    request_id = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="ID of the pending permission request that 'permission_requested' reports.",
     )
     timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
     stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")

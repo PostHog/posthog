@@ -20,7 +20,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import agent_plan_steps, phase_for_tool_call, tool_call_from_acp_update
-from products.tasks.backend import push_dispatcher
+from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.agent_command import (
@@ -1081,7 +1081,7 @@ def _broker_permission_request(task_run: TaskRunModel, permission_request: dict)
         if not settings.TEST:
             close_old_connections()
         if not try_auto_respond_permission_request(task_run, permission_request):
-            push_dispatcher.notify_task_run_awaiting_input(task_run)
+            dispatch_awaiting_input(task_run)
     except Exception:
         logger.warning(
             "relay_sandbox_events_permission_broker_failed",

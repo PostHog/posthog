@@ -19,7 +19,7 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
-from products.tasks.backend import push_dispatcher
+from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
@@ -697,7 +697,7 @@ def _notify_awaiting_input(run_id: str) -> None:
         logger.warning("task_run_event_ingest_awaiting_input_lookup_failed", run_id=run_id, exc_info=True)
         return
 
-    push_dispatcher.notify_task_run_awaiting_input(task_run)
+    dispatch_awaiting_input(task_run)
 
 
 async def _dispatch_turn_failed(run_id: str) -> None:
