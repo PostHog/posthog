@@ -715,6 +715,7 @@ export interface dataVisualizationLogicValues {
     selectedYAxis: (SelectedYAxis | null)[] | null
     showEditingUI: boolean
     showResultControls: boolean
+    showAbsoluteTime: boolean
     showTableSettings: boolean
     sourceFeatures: Set<QueryFeature>
     sourceTabularColumns: AxisSeries<any>[]
@@ -795,6 +796,9 @@ export interface dataVisualizationLogicActions {
     }
     setTransposeResults: (transpose: boolean) => {
         transpose: boolean
+    }
+    setShowAbsoluteTime: (showAbsoluteTime: boolean) => {
+        showAbsoluteTime: boolean
     }
     setVisualizationType: (visualizationType: ChartDisplayType) => {
         node: VisualizationNode
@@ -901,6 +905,7 @@ export interface dataVisualizationLogicMeta {
         sourceFeatures: (query: VisualizationNode) => Set<QueryFeature>
         isShowingCachedResults: (arg: any) => boolean
         isTransposed: (query: VisualizationNode) => boolean
+        showAbsoluteTime: (query: VisualizationNode) => boolean
         yData: (
             selectedYAxis: (SelectedYAxis | null)[] | null,
             response: AnyResponseType | null,
@@ -1066,6 +1071,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         toggleColumnPin: (columnName: string) => ({ columnName }),
         setTableSorted: true,
         setTransposeResults: (transpose: boolean) => ({ transpose }),
+        setShowAbsoluteTime: (showAbsoluteTime: boolean) => ({ showAbsoluteTime }),
         _setQuery: (node: VisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
@@ -1479,6 +1485,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         isTransposed: [
             (s) => [s.query],
             (query: VisualizationNode): boolean => query.tableSettings?.transpose ?? false,
+        ],
+        showAbsoluteTime: [
+            (s) => [s.query],
+            (query: VisualizationNode): boolean => query.tableSettings?.showAbsoluteTime ?? false,
         ],
         yData: [
             (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
@@ -2008,6 +2018,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 tableSettings: {
                     ...query.tableSettings,
                     transpose,
+                },
+            }))
+        },
+        setShowAbsoluteTime: ({ showAbsoluteTime }) => {
+            actions.setQuery((query) => ({
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    showAbsoluteTime,
                 },
             }))
         },

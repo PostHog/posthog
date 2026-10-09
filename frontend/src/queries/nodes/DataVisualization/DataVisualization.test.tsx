@@ -1,4 +1,6 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +11,8 @@ import { DataTableVisualization } from './DataVisualization'
 type LemonTableMockProps = {
     embedded?: boolean
     allowContentScroll?: boolean
+    dataSource?: unknown[]
+    columns?: { render: (value: unknown, record: unknown, index: number, rowCount: number) => JSX.Element }[]
 }
 
 let mockLatestLemonTableProps: LemonTableMockProps | null = null
@@ -79,6 +83,43 @@ describe('DataTableVisualization', () => {
             }
             expect(mockLatestLemonTableProps.embedded).toBe(embedded)
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
+        }
+    )
+
+    test.each([
+        { showAbsoluteTime: true, expectedText: /January 15, 2020/ },
+        { showAbsoluteTime: false, expectedText: /ago$/ },
+    ])(
+        'renders datetime cells matching $expectedText when showAbsoluteTime is $showAbsoluteTime',
+        async ({ showAbsoluteTime, expectedText }) => {
+            render(
+                <DataTableVisualization
+                    uniqueKey={`data-visualization-absolute-time-${showAbsoluteTime}`}
+                    query={{
+                        ...query,
+                        source: { kind: NodeKind.HogQLQuery, query: 'select created_at from events' },
+                        tableSettings: { showAbsoluteTime },
+                    }}
+                    setQuery={jest.fn()}
+                    cachedResults={{
+                        results: [['2020-01-15T12:00:00Z']],
+                        columns: ['created_at'],
+                        types: [['created_at', "DateTime64(6, 'UTC')"]],
+                    }}
+                    readOnly
+                />
+            )
+
+            await waitFor(() => {
+                if (!mockLatestLemonTableProps?.dataSource?.length) {
+                    throw new Error('Expected LemonTable to render with rows')
+                }
+            })
+
+            const { columns, dataSource } = mockLatestLemonTableProps as Required<LemonTableMockProps>
+            render(columns[0].render(undefined, dataSource[0], 0, 1))
+
+            expect(screen.getByText(expectedText)).toBeInTheDocument()
         }
     )
 })

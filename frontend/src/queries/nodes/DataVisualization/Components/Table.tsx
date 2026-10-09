@@ -169,6 +169,7 @@ export const Table = (props: TableProps): JSX.Element => {
         hasMoreData,
         hogVm,
         hogVmLoadFailed,
+        showAbsoluteTime,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
@@ -343,6 +344,7 @@ export const Table = (props: TableProps): JSX.Element => {
                                 {
                                     kind: NodeKind.DataTableNode,
                                     source: props.query.source,
+                                    showAbsoluteTime,
                                 }
                             )}
                         </div>
