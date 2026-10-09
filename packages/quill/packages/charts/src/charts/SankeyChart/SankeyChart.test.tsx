@@ -82,6 +82,19 @@ describe('SankeyChart', () => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
             expect(getHogChartTooltip()?.textContent).toContain('Tool A')
         })
+
+        rerender(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={{ ...THEME, colors: [...THEME.colors] }}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+            />
+        )
+        expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+        expect(onHoverChange).not.toHaveBeenLastCalledWith(null)
+
         onNodeClick.mockClear()
         rerender(
             <SankeyChart
