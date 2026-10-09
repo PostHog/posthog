@@ -64,26 +64,33 @@ export class RecipientPreferencesService {
         ) {
             return false
         }
-        const { max_messages, window_days } = await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(
-            invocation.teamId
-        )
-        if (!max_messages || !window_days) {
+        try {
+            const { max_messages, window_days } = await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(
+                invocation.teamId
+            )
+            if (!max_messages || !window_days) {
+                return false
+            }
+            const capped = await this.frequencyCap.redis.useClient(
+                { name: 'workflows-frequency-cap', failOpen: true },
+                (client) =>
+                    client.eval(
+                        FREQUENCY_CAP_SCRIPT,
+                        1,
+                        `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
+                        Date.now(),
+                        window_days * 24 * 60 * 60 * 1000,
+                        max_messages,
+                        workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
+                    ) as Promise<number>
+            )
+            return capped === 1
+        } catch (error) {
+            // Fail open: a config or Redis pool error must never block a send. failOpen above only
+            // covers errors inside the Redis callback.
+            logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
             return false
         }
-        const capped = await this.frequencyCap.redis.useClient(
-            { name: 'workflows-frequency-cap', failOpen: true },
-            (client) =>
-                client.eval(
-                    FREQUENCY_CAP_SCRIPT,
-                    1,
-                    `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
-                    Date.now(),
-                    window_days * 24 * 60 * 60 * 1000,
-                    max_messages,
-                    workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
-                ) as Promise<number>
-        )
-        return capped === 1
     }
 
     public async shouldSkipAction(
