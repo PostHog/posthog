@@ -21,6 +21,7 @@ import { z } from 'zod'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
@@ -635,6 +636,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     pinnedFilters: UniversalFiltersGroup | undefined
     pinnedRecordings: SessionRecordingType[]
     pinnedRecordingsLoading: boolean
+    recordingIdsToDelete: string[]
     recordings: SessionRecordingType[]
     recordingsCount: number
     selectedRecordingId: SessionRecordingType['id'] | null
@@ -899,6 +901,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => {
         id: string | null
     }
+    setRecordingIdsToDelete: (recordingIds: string[]) => {
+        recordingIds: string[]
+    }
     setSelectedRecordingsIds: (recordingsIds: string[]) => {
         recordingsIds: string[]
     }
@@ -1080,6 +1085,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             isDeletingSelectedRecordings,
         }),
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
+        setRecordingIdsToDelete: (recordingIds: string[]) => ({ recordingIds }),
         setIsAddToCollectionModalOpen: (isAddToCollectionModalOpen: boolean) => ({ isAddToCollectionModalOpen }),
         setAddToCollectionSearch: (addToCollectionSearch: string) => ({ addToCollectionSearch }),
         setIsCreatingNewCollectionInModal: (isCreatingNewCollectionInModal: boolean) => ({
@@ -1505,6 +1511,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 setIsDeleteSelectedRecordingsDialogOpen: (_, { isDeleteSelectedRecordingsDialogOpen }) =>
                     isDeleteSelectedRecordingsDialogOpen,
+            },
+        ],
+        // The selection can shrink when the list reloads, so the confirm dialog keeps its own copy.
+        // The dialog count and the delete request both come from this copy.
+        recordingIdsToDelete: [
+            [] as string[],
+            {
+                setRecordingIdsToDelete: (_, { recordingIds }) => recordingIds,
             },
         ],
         deleteConfirmationText: [
@@ -1959,18 +1973,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     actions.setSelectedRecordingsIds([])
                 }
             },
+            setIsDeleteSelectedRecordingsDialogOpen: ({ isDeleteSelectedRecordingsDialogOpen }) => {
+                actions.setRecordingIdsToDelete(
+                    isDeleteSelectedRecordingsDialogOpen ? [...values.selectedRecordingsIds] : []
+                )
+            },
             handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
-                if (values.isDeletingSelectedRecordings) {
+                const idsToDelete = values.recordingIdsToDelete
+                if (values.isDeletingSelectedRecordings || idsToDelete.length === 0) {
                     return
                 }
 
-                const idsToDelete = [...values.selectedRecordingsIds]
                 const deleteCount = idsToDelete.length
+                const toastOptions = { toastId: 'bulk-delete-recordings' }
                 actions.setIsDeletingSelectedRecordings(true)
 
                 try {
                     const result = await api.recordings.bulkDeleteRecordings(idsToDelete, values.filters.date_from)
-                    const deletedIds = idsToDelete.filter((id) => !(result.failed_ids ?? []).includes(id))
+                    const failedIds = result.failed_ids ?? []
+                    const deletedIds = idsToDelete.filter((id) => !failedIds.includes(id))
                     actions.addDeletedRecordings(deletedIds)
                     actions.setSelectedRecordingsIds([])
                     actions.setDeleteConfirmationText('')
@@ -1980,16 +2001,33 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         handleLoadCollectionRecordings(shortId)
                     }
 
-                    const actualCount = deletedIds.length
-                    if (actualCount < deleteCount) {
+                    // Recordings the backend did not find, or that the user cannot edit, are
+                    // neither deleted nor failed, so only `deleted_count` gives the true count.
+                    const actualCount = result.deleted_count
+                    if (actualCount === 0 && failedIds.length > 0) {
+                        lemonToast.error(
+                            "Couldn't delete the recordings. The recording service didn't respond. Try again in a few minutes.",
+                            toastOptions
+                        )
+                    } else if (actualCount < deleteCount) {
                         lemonToast.warning(
-                            `${actualCount} of ${deleteCount} recording${deleteCount > 1 ? 's' : ''} deleted. ${deleteCount - actualCount} failed.`
+                            `${actualCount} of ${deleteCount} recording${deleteCount > 1 ? 's' : ''} deleted. ${deleteCount - actualCount} could not be deleted.`,
+                            toastOptions
                         )
                     } else {
-                        lemonToast.success(`${actualCount} recording${actualCount > 1 ? 's' : ''} deleted!`)
+                        lemonToast.success(
+                            `${actualCount} recording${actualCount > 1 ? 's' : ''} deleted!`,
+                            toastOptions
+                        )
                     }
                 } catch (e) {
-                    lemonToast.error('Failed to delete recordings!')
+                    const status = e instanceof ApiError ? e.status : undefined
+                    lemonToast.error(
+                        status === 502 || status === 504
+                            ? 'The delete request timed out. Some recordings may already be deleted. Reload the list, then try again.'
+                            : 'Failed to delete recordings!',
+                        toastOptions
+                    )
                     posthog.captureException(e)
                 } finally {
                     actions.setIsDeletingSelectedRecordings(false)
@@ -2018,10 +2056,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadCollectionsForBulkAdd(null)
             },
             handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
-                await lemonToast.promise(
-                    (async () => {
-                        try {
-                            await api.recordings.bulkViewedRecordings(values.selectedRecordingsIds)
+                const ids = values.selectedRecordingsIds
+                const countLabel = `${ids.length} recording${ids.length > 1 ? 's' : ''}`
+                try {
+                    await lemonToast.promise(
+                        (async () => {
+                            await api.recordings.bulkViewedRecordings(ids)
                             actions.setSelectedRecordingsIds([])
 
                             // If it was a collection then we need to reload it, otherwise we need to reload the recordings
@@ -2032,26 +2072,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 // returns do, so re-read even when an identical request is in flight.
                                 actions.loadSessionRecordings(undefined, undefined, true)
                             }
-                        } catch (e) {
-                            posthog.captureException(e)
-                        }
-                    })(),
-                    {
-                        success: `${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        } marked as viewed!`,
-                        error: 'Failed to mark as viewed!',
-                        pending: `Marking ${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        }...`,
-                    }
-                )
+                        })(),
+                        {
+                            success: `${countLabel} marked as viewed!`,
+                            error: 'Failed to mark as viewed!',
+                            pending: `Marking ${countLabel}...`,
+                        },
+                        { toastId: 'bulk-mark-as-viewed' }
+                    )
+                } catch (e) {
+                    posthog.captureException(e)
+                }
             },
             handleBulkMarkAsNotViewed: async ({ shortId }: { shortId?: string }) => {
-                await lemonToast.promise(
-                    (async () => {
-                        try {
-                            await api.recordings.bulkNotViewedRecordings(values.selectedRecordingsIds)
+                const ids = values.selectedRecordingsIds
+                const countLabel = `${ids.length} recording${ids.length > 1 ? 's' : ''}`
+                try {
+                    await lemonToast.promise(
+                        (async () => {
+                            await api.recordings.bulkNotViewedRecordings(ids)
                             actions.setSelectedRecordingsIds([])
 
                             // If it was a collection then we need to reload it, otherwise we need to reload the recordings
@@ -2062,20 +2101,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 // returns do, so re-read even when an identical request is in flight.
                                 actions.loadSessionRecordings(undefined, undefined, true)
                             }
-                        } catch (e) {
-                            posthog.captureException(e)
-                        }
-                    })(),
-                    {
-                        success: `${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        } marked as not viewed!`,
-                        error: 'Failed to mark as not viewed!',
-                        pending: `Marking ${values.selectedRecordingsIds.length} recording${
-                            values.selectedRecordingsIds.length > 1 ? 's' : ''
-                        }...`,
-                    }
-                )
+                        })(),
+                        {
+                            success: `${countLabel} marked as not viewed!`,
+                            error: 'Failed to mark as not viewed!',
+                            pending: `Marking ${countLabel}...`,
+                        },
+                        { toastId: 'bulk-mark-as-not-viewed' }
+                    )
+                } catch (e) {
+                    posthog.captureException(e)
+                }
             },
         }
     }),

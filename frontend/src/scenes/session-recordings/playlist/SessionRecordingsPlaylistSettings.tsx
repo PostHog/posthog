@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import {
     IconCheck,
@@ -326,14 +327,16 @@ function RecommendedOnlyFilter({
 
 function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
     const {
-        selectedRecordingsIds,
+        recordingIdsToDelete,
         isDeleteSelectedRecordingsDialogOpen,
         deleteConfirmationText,
         isDeletingSelectedRecordings,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { setIsDeleteSelectedRecordingsDialogOpen, setDeleteConfirmationText, handleDeleteSelectedRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
+    const [showMismatchError, setShowMismatchError] = useState(false)
 
+    const deleteCount = recordingIdsToDelete.length
     const isConfirmationValid = matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
 
     const handleClose = (): void => {
@@ -342,6 +345,17 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
         }
         setIsDeleteSelectedRecordingsDialogOpen(false)
         setDeleteConfirmationText('')
+        setShowMismatchError(false)
+    }
+
+    const handleSubmit = (): void => {
+        if (!isConfirmationValid) {
+            setShowMismatchError(true)
+            return
+        }
+        if (deleteCount > 0) {
+            handleDeleteSelectedRecordings(shortId)
+        }
     }
 
     return (
@@ -353,8 +367,8 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
         >
             <div className="space-y-4">
                 <h4>
-                    Are you sure you want to delete {selectedRecordingsIds.length} recording
-                    {selectedRecordingsIds.length > 1 ? 's' : ''}?
+                    Are you sure you want to delete {deleteCount} recording
+                    {deleteCount > 1 ? 's' : ''}?
                 </h4>
                 <div className="space-y-2">
                     <label className="text-sm">
@@ -363,12 +377,14 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                     <LemonInput
                         value={deleteConfirmationText}
                         onChange={setDeleteConfirmationText}
+                        onBlur={() => setShowMismatchError(deleteConfirmationText.length > 0)}
+                        onPressEnter={handleSubmit}
                         placeholder={DELETE_CONFIRMATION_TEXT}
                         className="w-full"
                         disabled={isDeletingSelectedRecordings}
                         autoFocus
                     />
-                    {deleteConfirmationText.length > 0 && !isConfirmationValid && (
+                    {showMismatchError && !isConfirmationValid && (
                         <p className="text-danger text-sm mb-0">
                             That doesn't match. Please type "{DELETE_CONFIRMATION_TEXT}" to confirm.
                         </p>
@@ -392,8 +408,14 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                     type="primary"
                     status="danger"
                     loading={isDeletingSelectedRecordings}
-                    disabledReason={!isConfirmationValid ? 'Please type the correct confirmation text' : undefined}
-                    onClick={() => handleDeleteSelectedRecordings(shortId)}
+                    disabledReason={
+                        deleteCount === 0
+                            ? 'No recordings are selected'
+                            : !isConfirmationValid
+                              ? 'Please type the correct confirmation text'
+                              : undefined
+                    }
+                    onClick={handleSubmit}
                 >
                     Delete
                 </LemonButton>
