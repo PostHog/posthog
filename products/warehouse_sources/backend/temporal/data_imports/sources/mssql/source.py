@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
     MSSQL_METADATA_TIMEOUT_ERROR,
+    MSSQL_ROW_READ_TIMEOUT_ERROR,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLImplementation,
     MSSQLMetadataTimeoutError,
@@ -120,6 +121,10 @@ class MSSQLSource(
             # catalog or on the table. The lock belongs to the customer's own workload and goes
             # away when that transaction ends.
             "Lock request time out period exceeded",
+            # The client-side limit on the wait for one batch of rows. The server was reachable
+            # and then sent nothing, so the next attempt, which continues from the last
+            # checkpoint where the read has one, can succeed.
+            MSSQL_ROW_READ_TIMEOUT_ERROR,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

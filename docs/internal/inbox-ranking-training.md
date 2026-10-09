@@ -165,11 +165,10 @@ A pooled line over several versions uses the frozen threshold of each version, s
 After deployment and a new training and scoring run, check that the candidate events carry numeric `holdout_` fields and `refit_classification_threshold`, and that the unseen events carry `classification_threshold`.
 Check the mature grades as each head's horizon becomes available.
 
-## Served-model classification metrics
+## Online classification metrics
 
-The unseen grades rescore the newborn pool with the day's candidate and champion.
-They are not the scores the inbox served.
-The served grade closes that gap.
+The online grade reads the scores the scoring sweep wrote, for every model key the serving manifest names.
+No asset rescores the newborn pool offline.
 
 ### Score events
 
@@ -182,26 +181,27 @@ Each `inbox_ranking_report_scored` event carries the served threshold of its mod
 A head without a saved threshold has no `threshold_` or `predicted_` property.
 Models trained before thresholds existed have none, and no other value stands in for one.
 
-### The served grade
+### The online grade
 
-`inbox_ranking_served_scores` writes `inbox_ranking_served_scores/v1/dt=D/` in the unseen scores schema.
+`inbox_ranking_served_scores` writes `inbox_ranking_served_scores/v1/dt=D/` in the scores schema.
 
-- Population: D's newborn pool, the same reports the unseen grade covers.
-- Score: the earliest scored event in D with the `served` role and this deployment's `environment`.
+- Population: D's newborn pool.
+- Score: per report and model key, the earliest scored event in D with this deployment's `environment`.
+- `model_role`: `served` when the event's roles hold it, else the first role (`daily_candidate`, `cross_family`, `pinned`), else `candidate`.
 - `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
-- Asset metadata: `served_pool_coverage`, rows per model version, and the heads without a threshold.
+- Asset metadata: `served_pool_coverage`, `pool_coverage_by_model`, rows per model version, and the heads without a threshold.
 
-`inbox_ranking_unseen_graded` reads the served object next to the unseen object for each scoring partition.
-Its events then carry `model_role = 'served'`, with no new event type.
-A missing served object is a skip in the asset metadata, not a failure.
+`inbox_ranking_unseen_graded` reads this object for each scoring partition.
+Its events carry the row's `model_role`, with no new event type.
+A missing object is a skip in the asset metadata, not a failure.
 
 Caveats:
 
-- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
-- A report first scored after D ends, for example when its vector arrived late, is not in D's served rows. `served_pool_coverage` shows this. A later score never fills it in.
-- The sweep scores with the vector current at scoring time. The unseen grade uses the end-of-day vector. Served and candidate grades of one day are two reads, not one paired number.
+- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions, and one report can hold a row for each. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. `pool_coverage_by_model` shows how much of the pool each key covered.
+- A report first scored after D ends, for example when its vector arrived late, is not in D's rows. `served_pool_coverage` shows this for the served model. A later score never fills it in.
+- The sweep scores with the vector current at scoring time, so two keys that scored one report at different times did not always read the same vector.
 - A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.
 
-After deployment, check the new properties on a live sweep's events.
-Check the first `model_role = 'served'` early grades the next day, and the mature grades as each head's horizon passes.
-Until a model trained with thresholds is served, the events have no threshold properties and the served grades have null classification fields.
+After deployment, check that `inbox_ranking_unseen_head_evaluated` holds more than one model key for one scoring day, each with its `model_role`.
+Until a model trained with thresholds is served, the events have no threshold properties and the grades have null classification fields.

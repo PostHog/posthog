@@ -39,6 +39,7 @@ import {
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportHogQLQueryEditor } from './BatchExportHogQLQueryEditor'
+import { BatchExportQueryTimezoneSelector } from './BatchExportQueryTimezoneSelector'
 import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -404,6 +405,9 @@ export function BatchExportConfiguration(): JSX.Element {
                                 <p className="text-secondary text-xs mb-0">
                                     Write the SQL query whose results each run exports. Run it here to preview the data.
                                 </p>
+                            </div>
+                            <div className="max-w-160 mb-2">
+                                <BatchExportQueryTimezoneSelector />
                             </div>
                             <LemonField name="hogql_query">
                                 <BatchExportHogQLQueryEditor />

@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tests.cont
     STALL_BUDGET,
     TIMEOUT,
     Scenario,
+    ScenarioResponder,
     SourceStatus,
     StartExtraction,
     check_extraction,
@@ -238,7 +239,7 @@ def test_retry_waits_reach_the_fake_clock_after_a_test_replaced_them(monkeypatch
     # verdict of a source must not depend on whether such a test ran earlier in the same process.
     controller = cast(Any, _retried_call).retry
     monkeypatch.setattr(controller, "sleep", lambda *_: None)
-    with fake_environment(Scenario(mode="stall")):
+    with fake_environment(ScenarioResponder(Scenario(mode="stall"))):
         assert controller.sleep is time.sleep
     assert controller.sleep is not time.sleep
 

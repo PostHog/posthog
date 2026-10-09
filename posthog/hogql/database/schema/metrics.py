@@ -227,6 +227,16 @@ class MetricNamesTable(Table):
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the metric."
         ),
+        "metric_types": StringArrayDatabaseField(
+            name="metric_types",
+            nullable=False,
+            description="Every OTel metric type (gauge, sum, histogram, summary, exponential_histogram) the service sent the name as in that hour. Empty on rows written before types were recorded.",
+        ),
+        "metric_type": StringDatabaseField(
+            name="metric_type",
+            nullable=False,
+            description="The first entry of `metric_types`, or empty. A name sent as more than one type in the hour has only one of them here, so filter on `metric_types` to find every type.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):
