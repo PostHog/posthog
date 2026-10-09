@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -22,6 +22,7 @@ import { suggestionActionLogic } from 'products/posthog_ai/frontend/logics/sugge
 import { SUGGESTION_FRAMES } from 'products/posthog_ai/frontend/utils/turnSuggestionFixtures'
 
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { NewWorkflowModal } from './NewWorkflowModal'
 import { WorkflowSuggestionProvider } from './WorkflowSuggestionProvider'
 
 jest.mock('products/posthog_ai/frontend/generated/api', () => ({
@@ -33,7 +34,6 @@ describe('workflow suggestion destination eligibility', () => {
     beforeEach(() => {
         useMocks(maxMocks)
         initKeaTests()
-        newWorkflowLogic.mount()
         sessionStorage.clear()
         jest.mocked(turnSuggestionsResolveCreate).mockClear()
     })
@@ -45,6 +45,7 @@ describe('workflow suggestion destination eligibility', () => {
         { view: 'new' as const, sandboxEnabled: false, available: false },
         { view: 'new' as const, sandboxEnabled: true, available: true },
     ])('only offers an accessible builder with $view view and sandbox=$sandboxEnabled', async (testCase) => {
+        newWorkflowLogic.mount()
         const flags: string[] = [FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW, FEATURE_FLAGS.PHAI_SCENE_AUTO_OPEN]
         if (testCase.sandboxEnabled) {
             flags.push(FEATURE_FLAGS.PHAI_SANDBOX_MODE)
@@ -83,10 +84,10 @@ describe('workflow suggestion destination eligibility', () => {
             expect(consumeWorkflowDraftBrief(projectLogic.values.currentProjectId!)).toBeNull()
             action.unmount()
         } else {
-            fireEvent.change(screen.getByRole('textbox', { name: 'Workflow brief' }), {
+            fireEvent.change(screen.getByLabelText('Workflow brief'), {
                 target: { value: 'Draft a disabled signed_up workflow with a two-day delay.' },
             })
-            fireEvent.click(screen.getByRole('button', { name: 'Open workflow builder' }))
+            fireEvent.click(screen.getByText('Open workflow builder'))
             await waitFor(() => expect(router.values.location.pathname).toBe('/project/997/workflows/new/workflow'))
             expect(router.values.searchParams).toEqual({ mode: 'ai' })
             expect(consumeWorkflowDraftBrief(projectLogic.values.currentProjectId!)).toEqual({
@@ -100,5 +101,29 @@ describe('workflow suggestion destination eligibility', () => {
             })
         }
         stream.unmount()
+    })
+
+    it('returns to workflows with the creation dialog closed after leaving the scene', async () => {
+        const { rerender } = render(
+            <WorkflowSuggestionProvider>
+                <NewWorkflowModal />
+            </WorkflowSuggestionProvider>
+        )
+        await act(async () => {
+            await expectLogic(newWorkflowLogic, () =>
+                newWorkflowLogic.actions.showNewWorkflowModal()
+            ).toFinishAllListeners()
+        })
+        expect(screen.getByText('Create a workflow')).toBeInTheDocument()
+
+        rerender(<WorkflowSuggestionProvider>{null}</WorkflowSuggestionProvider>)
+        act(() => router.actions.push('/insights', {}, {}))
+        act(() => router.actions.push('/workflows', {}, {}))
+        rerender(
+            <WorkflowSuggestionProvider>
+                <NewWorkflowModal />
+            </WorkflowSuggestionProvider>
+        )
+        expect(screen.queryByText('Create a workflow')).not.toBeInTheDocument()
     })
 })
