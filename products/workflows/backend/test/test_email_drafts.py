@@ -112,6 +112,7 @@ class TestEmailDrafts(APIBaseTest):
             ("invalid_output", {"reply": "Sure! Here is your email."}),
             ("invalid_output", {"reply": {"subject": "Hi {{ person.name }}", "paragraphs": ["Hi there,"]}}),
             ("invalid_output", {"reply": {"subject": "x" * 121, "paragraphs": ["Hi there,"]}}),
+            ("invalid_output", {"reply": '{"subject": ' + "[" * 100_000 + "]" * 100_000 + "}"}),
             ("rate_limited", {"denied": True}),
         ]
     )
