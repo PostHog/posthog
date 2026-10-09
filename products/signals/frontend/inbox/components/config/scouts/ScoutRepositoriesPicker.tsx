@@ -67,7 +67,8 @@ export function ScoutRepositoriesPicker(props: ScoutRepositoriesPickerProps): JS
 
 function Picker({ integrationId, ...props }: ScoutRepositoriesPickerProps & { integrationId: number }): JSX.Element {
     const { selectedRepositories, onChange, compact, disabledReason } = props
-    const { options, loading } = useRepositories(integrationId, { valueKey: 'full_name' })
+    const { searchQuery, selectProps } = useRepositories(integrationId, { valueKey: 'full_name' })
+    const { options, loading } = selectProps
     // Plain `organization/repo` rows, not the shared hook's metadata row: a pin can hold ten
     // repositories, and a multi-line row per selected value would make the control taller than the
     // form around it. The row's "No write access" warning would also mislead here, since a scout
@@ -77,12 +78,15 @@ function Picker({ integrationId, ...props }: ScoutRepositoriesPickerProps & { in
     // casing. Compared as-is, a selected pin reads as absent and shows up twice.
     //
     // A pin can predate the current repository cache, so keep it as an option too. Opening the
-    // picker must never silently drop a repository the scout is already using.
+    // picker must never silently drop a repository the scout is already using. The server filters
+    // the other options, so pins are matched against the search text here.
     const repositoryOptions = options.map(({ key, label }) => ({ key: key.toLowerCase(), label }))
+    const query = searchQuery.trim().toLowerCase()
     const allOptions = [
         ...repositoryOptions,
         ...selectedRepositories
             .filter((repository) => !repositoryOptions.some((option) => option.key === repository))
+            .filter((repository) => repository.includes(query))
             .map((repository) => ({ key: repository, label: repository })),
     ]
 
@@ -93,6 +97,7 @@ function Picker({ integrationId, ...props }: ScoutRepositoriesPickerProps & { in
             summary={<ScoutRepositoriesSummary loading={loading} repositories={selectedRepositories} connected />}
         >
             <LemonInputSelect
+                {...selectProps}
                 mode="multiple"
                 value={selectedRepositories}
                 onChange={onChange}

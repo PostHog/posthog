@@ -34,7 +34,7 @@ export interface visualReviewSettingsSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     editingRepo: RepoApi | null
     editingRepoId: string | null
-    existingRepoIds: Set<number>
+    isRepoAddable: (repository: GitHubRepoApi) => boolean
     formValues: RepoFormValues
     hasChanges: boolean
     repos: RepoApi[]
@@ -85,7 +85,7 @@ export interface visualReviewSettingsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         editingRepo: (repos: RepoApi[], editingRepoId: string | null) => RepoApi | null
         hasChanges: (formValues: RepoFormValues, editingRepo: RepoApi | null) => boolean
-        existingRepoIds: (repos: RepoApi[]) => Set<number>
+        isRepoAddable: (repos: RepoApi[]) => (repository: GitHubRepoApi) => boolean
     }
 }
 
@@ -174,9 +174,12 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 )
             },
         ],
-        existingRepoIds: [
+        isRepoAddable: [
             (s) => [s.repos],
-            (repos: RepoApi[]): Set<number> => new Set(repos.map((r) => r.repo_external_id)),
+            (repos: RepoApi[]) => {
+                const addedIds = new Set(repos.map((r) => r.repo_external_id))
+                return (repository: GitHubRepoApi): boolean => !addedIds.has(repository.id)
+            },
         ],
         breadcrumbs: [
             () => [],

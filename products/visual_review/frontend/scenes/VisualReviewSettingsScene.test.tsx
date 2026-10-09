@@ -75,8 +75,7 @@ describe('VisualReviewSettingsScene', () => {
             </Provider>
         )
 
-        await userEvent.click(await screen.findByText('Add a repository...'))
-        await userEvent.type(await screen.findByPlaceholderText('Search repositories'), 'repo-150')
+        await userEvent.type(await screen.findByPlaceholderText('Add a repository...'), 'repo-150')
         await userEvent.click(await screen.findByText('example-org/repo-150'))
 
         await waitFor(() =>

@@ -245,9 +245,8 @@ function RepoEditForm(): JSX.Element {
 
 export function VisualReviewSettingsScene(): JSX.Element {
     const { repos, reposLoading } = useValues(visualReviewSettingsSceneLogic)
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
-    const githubIntegrations = integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
     const hasGitHub = githubIntegrations.length > 0
 
     if (reposLoading) {
