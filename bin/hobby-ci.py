@@ -821,8 +821,9 @@ runcmd:
 
         return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
 
+    @staticmethod
     def _smoke_test_feature_flag(
-        self, base_url: str, project_api_token: str, headers: dict[str, str], timeout_seconds: int, poll_interval: int
+        base_url: str, project_api_token: str, headers: dict[str, str], timeout_seconds: int, poll_interval: int
     ) -> str | None:
         flag_key = f"hobby-ci-smoke-test-{time.time_ns()}"
         distinct_id = f"hobby-ci-flags-{uuid.uuid4()}"

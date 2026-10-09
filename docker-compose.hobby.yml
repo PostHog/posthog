@@ -670,8 +670,7 @@ services:
             file: docker-compose.base.yml
             service: hypercache-server
         logging: *default-logging
-        environment:
-            <<: *hypercache-s3
+        environment: *hypercache-s3
         depends_on:
             redis7:
                 condition: service_started
