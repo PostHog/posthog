@@ -4,7 +4,6 @@ import {
   ANONYMOUS_AUTH_STATE,
   useAuthStore,
 } from "@posthog/ui/features/auth/store";
-import type { FeatureFlags } from "@posthog/ui/features/feature-flags/identifiers";
 import { registerRendererStateStorage } from "@posthog/ui/shell/rendererStorage";
 import { describe, expect, it, vi } from "vitest";
 import { ServerTaskDefaultsContribution } from "./serverTaskDefaults.contribution";
@@ -22,11 +21,6 @@ const setMyTaskDefaults = vi.fn().mockResolvedValue(undefined);
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   createAuthenticatedClient: () => ({ getMyTaskRunConfig, setMyTaskDefaults }),
 }));
-
-const flags = {
-  isEnabled: () => true,
-  onFlagsLoaded: () => () => {},
-} as unknown as FeatureFlags;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -70,7 +64,7 @@ describe("ServerTaskDefaultsContribution", () => {
     );
     openProject(1);
 
-    new ServerTaskDefaultsContribution({} as HostTrpcClient, flags).start();
+    new ServerTaskDefaultsContribution({} as HostTrpcClient).start();
     openProject(2);
     await flush();
     // Project 1 was changed on web while its request ran.
