@@ -54,7 +54,7 @@ use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
-use crate::partitions::{read_watermarks, InputTopic};
+use crate::partitions::{list_offsets, InputTopic};
 use crate::producer::MembershipSink;
 use crate::store::durability::{FinishError, PendingRestore};
 use crate::store::StoreHandle;
@@ -1281,12 +1281,8 @@ impl CohortStreamEventsConsumer {
         }
 
         if let Some(pending) = &restore {
-            let watermarks = |topic: &InputTopic, partitions: &[u16]| {
-                read_watermarks(
-                    self.consumer.as_ref(),
-                    topic.as_str(),
-                    partitions.iter().copied(),
-                )
+            let low_watermarks = |partitions: &[(&InputTopic, u16)]| {
+                list_offsets(self.consumer.as_ref(), partitions, Offset::Beginning)
             };
             let commit_events = || match &seek_list {
                 Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
@@ -1295,7 +1291,9 @@ impl CohortStreamEventsConsumer {
             // A sync commit waits until the group coordinator answers. `block_in_place` hands this
             // worker's other tasks to another thread meanwhile, so a runtime with one worker still
             // serves the health server.
-            match tokio::task::block_in_place(|| pending.finish(&owned, watermarks, commit_events)) {
+            match tokio::task::block_in_place(|| {
+                pending.finish(&owned, low_watermarks, commit_events)
+            }) {
                 Ok(()) => {
                     gauge!(CHECKPOINT_RESTORE_BLOCKED).set(0.0);
                     info!(
