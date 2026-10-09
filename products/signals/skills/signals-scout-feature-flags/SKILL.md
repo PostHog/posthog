@@ -252,13 +252,16 @@ ORDER BY c.calls_14d DESC
 LIMIT 25
 ```
 
+A fixed `LIMIT` returns the same leaders on every run, so the flags below them never reach the queue. Before you run the scan, add `AND f.id NOT IN (<ids>)` with the ids that `pattern:feature-flags:stale-queue` records as reported, covered, or rejected. Leave the clause out when that list is empty.
+
 The SQL returns a superset. `system.feature_flags` has no `active` column, and a multivariate, group-aggregated, or holdout flag can match it and still serve more than one result. Confirm each shortlisted row before it joins the fallback bundle:
 
 - `feature-flags-status-retrieve {id}` returns `rollout.effectively_full_rollout: true`;
 - `feature-flag-get-definition` shows the flag active, an `updated_at` more than 30 days old, an empty `experiment_set`, an empty `filters.payloads`, and no remote configuration. A flag moved to 100% this week is still in its soak, not finished;
+- the definition has no setting that decides the result before the release conditions or outside them. `filters` carries no `holdout`, `holdout_groups`, `super_groups`, `early_exit`, or `feature_enrollment`, neither `filters` nor any group sets `aggregation_group_type_index`, and `bucketing_identifier` is not `device_id`. `effectively_full_rollout` ignores these settings, so a holdout flag still serves a second result that the bundle must not call the retained behavior;
 - `feature-flags-dependent-flags-retrieve` returns no dependents.
 
-Shortlist at most ~3 per run from the top of the volume ranking. A project can carry hundreds of these flags, and the high-volume ones are the strongest evidence of a live code path and the largest evaluation cost. Keep the rest ranked in `pattern:feature-flags:stale-queue` next to the `STALE` candidates, and name the class on each. Every fallback rule above applies to these candidates: they go into the one bundled P3 fallback finding, they are `requires_human_input` at most, and a flag that holds a dismissed or resolved health issue row stays out. For each candidate, the bundle names the key, the `id`, and the retained behavior from the direction rules above.
+Shortlist at most ~3 per run from the top of the volume ranking. A project can carry hundreds of these flags, and the high-volume ones are the strongest evidence of a live code path and the largest evaluation cost. Keep the rest ranked in `pattern:feature-flags:stale-queue` next to the `STALE` candidates, and name the class on each. Record the id of each flag that fails a check above as rejected in the same entry, so the next scan skips it and moves down the ranking. Every fallback rule above applies to these candidates: they go into the one bundled P3 fallback finding, they are `requires_human_input` at most, and a flag that holds a dismissed or resolved health issue row stays out. For each candidate, the bundle names the key, the `id`, and the retained behavior from the direction rules above.
 
 #### Dead checks still shipped (P3 bundle)
 
