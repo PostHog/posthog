@@ -7,6 +7,7 @@ Keep task functions thin - only call facade methods.
 
 from celery import shared_task
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import with_team_scope
 from posthog.tasks.utils import CeleryQueue
 
@@ -24,4 +25,5 @@ HARD_TIME_LIMIT_GRACE_SECONDS = 60
 )
 @with_team_scope()
 def finalize_metrics_dashboard_import(team_id: int, import_id: str) -> None:
-    api.finalize_dashboard_import(team_id=team_id, import_id=import_id)
+    with tags_context(product=Product.METRICS, feature=Feature.QUERY, team_id=team_id):
+        api.finalize_dashboard_import(team_id=team_id, import_id=import_id)
