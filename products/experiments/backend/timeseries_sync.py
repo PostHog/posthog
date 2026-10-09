@@ -21,8 +21,8 @@ import structlog
 
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan
 from products.experiments.backend.metric_resolution import is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -63,14 +63,14 @@ def sync_timeseries_recalculation(
 
         store = MetricResultStore(experiment_id=experiment.id)
         metric_uuids: list[str] = []
-        points: dict[str, tuple[CalculationSpec, ExperimentMetricResult]] = {}
-        for spec in plan(experiment):
-            if not is_daily_timeseries_metric(spec.definition):
+        points: dict[str, tuple[MetricCalculationConfig, ExperimentMetricResult]] = {}
+        for calculation_config in build_calculation_configs(experiment):
+            if not is_daily_timeseries_metric(calculation_config.definition):
                 continue
-            metric_uuids.append(spec.metric_id)
-            row = store.latest_daily_point(spec, since=run_started_at, until=now)
+            metric_uuids.append(calculation_config.metric_id)
+            row = store.latest_daily_point(calculation_config, since=run_started_at, until=now)
             if row is not None:
-                points[spec.metric_id] = (spec, row)
+                points[calculation_config.metric_id] = (calculation_config, row)
 
         if not points:
             return None

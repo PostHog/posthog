@@ -13,8 +13,8 @@ from django.utils import timezone
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -47,8 +47,8 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
             }
         ],
     )
-    spec = plan_metric(experiment, "m1")
-    assert spec is not None
+    calculation_config = get_metric_calculation_config(experiment, "m1")
+    assert calculation_config is not None
     stale = ExperimentMetricsRecalculation.objects.for_team(team.id).create(
         team=team,
         experiment=experiment,
@@ -71,7 +71,7 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
                 worker_pid.put(cursor.fetchone()[0])
                 MetricResultStore(experiment_id=experiment.id).record_run_failure(
                     str(stale.id),
-                    spec,
+                    calculation_config,
                     window=query_to,
                     query_from=query_from,
                     error_message="abandoned calculation failed",

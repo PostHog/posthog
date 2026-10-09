@@ -9,8 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -71,9 +71,9 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         return exp
 
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
-        spec = plan_metric(exp, metric_uuid)
-        assert spec is not None
-        return spec.calculation_key()
+        calculation_config = get_metric_calculation_config(exp, metric_uuid)
+        assert calculation_config is not None
+        return calculation_config.calculation_key()
 
     def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict) -> None:
         assert exp.start_date is not None
