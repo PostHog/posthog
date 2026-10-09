@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'kea-forms'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
@@ -27,9 +27,9 @@ function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<
                         }
                         // Access takes all free width, so a wrapping name shrinks this column to one word
                         return (
-                            <span className="block max-w-60 truncate font-medium" title={entry.role_name}>
-                                {entry.role_name}
-                            </span>
+                            <Tooltip title={entry.role_name}>
+                                <span className="block max-w-60 truncate font-medium">{entry.role_name}</span>
+                            </Tooltip>
                         )
                     },
                 },
