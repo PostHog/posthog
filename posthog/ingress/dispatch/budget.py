@@ -11,6 +11,8 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_DELIVERY_BUDGET_SECONDS = 8.0
 
+BEFORE_DISPATCH = "before_dispatch"
+
 
 def delivery_budget_seconds() -> float:
     """Seconds one delivery may spend in consumers, read per delivery so it can be tuned live.
@@ -39,6 +41,26 @@ class DeliveryBudget:
 
     def __init__(self, seconds: float) -> None:
         self._deadline = time.monotonic() + seconds
+        self._seconds_by_consumer: dict[str, float] = {}
+        self._last_consumer = BEFORE_DISPATCH
 
     def is_spent(self) -> bool:
         return time.monotonic() >= self._deadline
+
+    def record_run(self, consumer: str, seconds: float) -> None:
+        self._seconds_by_consumer[consumer] = self._seconds_by_consumer.get(consumer, 0.0) + seconds
+        self._last_consumer = consumer
+
+    @property
+    def exhausted_by(self) -> str:
+        """The consumer whose run crossed the deadline, which is the last one to run in the request.
+
+        The budget spans every delivery of the request, so that consumer can belong to an earlier
+        delivery. It is `BEFORE_DISPATCH` when no consumer ran at all, because the ownership lookups
+        and the forward draw from the same budget before dispatch starts.
+        """
+        return self._last_consumer
+
+    @property
+    def seconds_by_consumer(self) -> dict[str, float]:
+        return dict(self._seconds_by_consumer)
