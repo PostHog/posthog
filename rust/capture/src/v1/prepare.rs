@@ -1,6 +1,6 @@
 //! Hoisted, CaptureMode-agnostic serialize step.
 //!
-//! `serialize_batch` turns a batch of [`Event`]s into the outputs layer's
+//! `serialize_batch` turns a batch of [`Publishable`] events into the outputs layer's
 //! [`PreparedEvent`]s (owned, addressed, storage-agnostic), which
 //! `OutputRegistry::publish_prepared` takes. Every capture mode (analytics,
 //! replay, AI) shares this one CPU-bound step.
@@ -24,7 +24,7 @@ use crate::v1::constants::{
     CAPTURE_V1_SERIALIZE_PANIC_TOTAL,
 };
 use crate::v1::context::RequestContext;
-use crate::v1::types::Event;
+use crate::v1::types::Publishable;
 
 /// Default scatter-gather threshold; overridden by `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
 pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
@@ -50,7 +50,10 @@ enum Slot {
 
 /// Serialize one event, honoring `should_publish`. Pure and panic-free at this
 /// layer — panic isolation is the caller's (`run_one`) job.
-fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<PreparedEvent>> {
+fn prepare_one<E: Publishable>(
+    ev: &E,
+    ctx: &RequestContext,
+) -> anyhow::Result<Option<PreparedEvent>> {
     if !ev.should_publish() {
         return Ok(None);
     }
@@ -71,7 +74,7 @@ fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<
 /// Run `prepare_one` with panic isolation so a single misbehaving event (e.g. a
 /// `serialize` impl that panics) is recorded as a failure instead of aborting
 /// the batch / poisoning the worker.
-fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
+fn run_one<E: Publishable>(ev: &E, ctx: &RequestContext) -> Slot {
     let uuid = ev.uuid();
     match catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
         Ok(Ok(Some(prepared))) => Slot::Prepared(prepared),
@@ -94,7 +97,7 @@ pub async fn serialize_batch<E>(
     scatter_gather_threshold: usize,
 ) -> (Vec<E>, SerializedBatch)
 where
-    E: Event + 'static,
+    E: Publishable + 'static,
 {
     let start = Instant::now();
     let n = events.len();
@@ -306,7 +309,7 @@ mod tests {
         }
     }
 
-    impl Event for FakeEvent {
+    impl Publishable for FakeEvent {
         fn uuid(&self) -> Uuid {
             self.uuid
         }

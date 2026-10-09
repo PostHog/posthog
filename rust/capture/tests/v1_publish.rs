@@ -25,7 +25,7 @@ use capture::sinks::registry::OutputTable;
 use capture::sinks::sink::Outcome;
 use capture::v1::context::RequestContext;
 use capture::v1::test_utils::{self, prepared, WrappedEventMut};
-use capture::v1::types::Event;
+use capture::v1::types::Publishable;
 
 fn v1_test_context() -> RequestContext {
     let mut ctx = test_utils::test_context();
@@ -58,7 +58,7 @@ async fn v1_single_pageview_round_trip() -> Result<()> {
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
 
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
 
@@ -99,7 +99,7 @@ async fn v1_batch_round_trip() -> Result<()> {
     let ctx = v1_test_context();
 
     let batch = test_utils::realistic_batch();
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
 
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
 
@@ -140,7 +140,7 @@ async fn v1_kafka_headers_round_trip() -> Result<()> {
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-headers");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
 
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert!(matches!(results[0].outcome, Outcome::Published));
@@ -174,7 +174,7 @@ async fn v1_partition_key_round_trip() -> Result<()> {
     let ctx = v1_test_context();
 
     let wrapped = test_utils::realistic_pageview("integ-user-pkey");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
 
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert!(matches!(results[0].outcome, Outcome::Published));
@@ -203,7 +203,7 @@ async fn v1_dropped_event_not_published() -> Result<()> {
         capture::v1::analytics::types::EventResult::Drop,
         Some("rate_limited"),
     );
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
 
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert!(results.is_empty());
@@ -230,7 +230,7 @@ async fn v1_exception_event_round_trip() -> Result<()> {
     wrapped.event.uuid = uuid.to_string();
     wrapped.destination = capture::v1::types::Destination::ExceptionErrorTracking;
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0].outcome, Outcome::Published));
@@ -263,7 +263,7 @@ async fn v1_cookieless_mode_partition_key() -> Result<()> {
     wrapped.event.uuid = uuid.to_string();
     wrapped.options.cookieless_mode = Some(true);
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert!(matches!(results[0].outcome, Outcome::Published));
 
@@ -301,7 +301,7 @@ async fn v1_all_options_property_injection() -> Result<()> {
     wrapped.event.session_id = Some("sess-opt-test".to_string());
     wrapped.event.window_id = Some("win-opt-test".to_string());
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert!(matches!(results[0].outcome, Outcome::Published));
 
@@ -344,7 +344,7 @@ async fn v1_empty_options_no_injection() -> Result<()> {
     wrapped.event.session_id = None;
     wrapped.event.window_id = None;
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert!(matches!(results[0].outcome, Outcome::Published));
 
@@ -380,7 +380,7 @@ async fn v1_multi_destination_batch() -> Result<()> {
     let overflow_ev = test_utils::realistic_pageview("integ-dest-overflow")
         .with_destination(capture::v1::types::Destination::Overflow);
 
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
     let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
     assert_eq!(results.len(), 3);
     for r in &results {

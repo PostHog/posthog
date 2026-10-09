@@ -33,7 +33,7 @@ use crate::router;
 use crate::sinks::sink::{Outcome, SinkResult};
 use crate::v1::context::RequestContext;
 use crate::v1::prepare::{serialize_batch, SerializationFailure};
-use crate::v1::types::{Destination, Event as SinkEvent};
+use crate::v1::types::{Destination, Publishable};
 use crate::v1::Error;
 use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningType, CAPTURE_V1_ANALYTICS, CAPTURE_V1_RATE_LIMIT,

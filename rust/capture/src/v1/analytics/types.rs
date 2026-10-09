@@ -26,7 +26,7 @@ impl io::Write for StringWriter<'_> {
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
-use crate::v1::types::{Destination, Event as SinkEvent};
+use crate::v1::types::{Destination, Publishable};
 
 fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
@@ -361,7 +361,7 @@ impl WrappedEvent {
     }
 }
 
-impl SinkEvent for WrappedEvent {
+impl Publishable for WrappedEvent {
     // Pre-parsed UUID for result correlation. By the Sink stage,
     // we know ALL well-formed incoming events have a valid UUID.
     fn uuid(&self) -> Uuid {
@@ -1273,10 +1273,10 @@ mod tests {
         }
     }
 
-    // --- SinkEvent impl for WrappedEvent ---
+    // --- Publishable impl for WrappedEvent ---
 
     use crate::v1::test_utils;
-    use crate::v1::types::{Destination, Event as SinkEventTrait};
+    use crate::v1::types::{Destination, Publishable};
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {

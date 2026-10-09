@@ -150,7 +150,7 @@ impl Destination {
 /// Transport-agnostic trait declaring an event's identity, routing intent,
 /// metadata, and serialization. The [`Sink`](super::sink::Sink) implementation
 /// resolves `destination()` to a concrete backend target using its own config.
-pub trait Event: Send + Sync {
+pub trait Publishable: Send + Sync {
     /// Pre-parsed UUID for result correlation.
     fn uuid(&self) -> Uuid;
 
@@ -171,13 +171,13 @@ pub trait Event: Send + Sync {
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
 
     /// Return the partition key for this event. Whether the sink actually uses
-    /// it is decided by [`Event::ordering`], not by inspecting headers.
+    /// it is decided by [`Publishable::ordering`], not by inspecting headers.
     fn partition_key(&self, ctx: &RequestContext) -> String;
 
     /// The ordering guarantee this event's destination must preserve. The sink
     /// realizes [`OrderingGuarantee::None`] by publishing without a partition
     /// key so the broker round-robins; every other guarantee uses
-    /// [`Event::partition_key`], which supplies the value that preserves it.
+    /// [`Publishable::partition_key`], which supplies the value that preserves it.
     fn ordering(&self) -> OrderingGuarantee;
 
     /// Serialize the event payload and return the raw bytes. `Bytes` (not
