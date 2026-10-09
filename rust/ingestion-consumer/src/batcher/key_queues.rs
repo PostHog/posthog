@@ -529,6 +529,29 @@ impl KeyQueues {
 }
 
 #[cfg(test)]
+impl KeyQueues {
+    /// Queues `messages` the way a failed request hands them back, so they
+    /// are ready as a replay. `routing_key` must have nothing queued.
+    pub fn push_replay(
+        &mut self,
+        routing_key: Arc<str>,
+        assignment_epoch: u64,
+        messages: Vec<SerializedKafkaMessage>,
+        now: Instant,
+    ) {
+        assert!(
+            !self.keys.contains_key(&routing_key),
+            "{routing_key} already has queued messages"
+        );
+        self.push(Arc::clone(&routing_key), assignment_epoch, messages, now);
+        self.ready_keys.retain(|key| *key != routing_key);
+        let sent = self.claim(Arc::clone(&routing_key));
+        self.settle(&routing_key, sent.run.messages, None, now)
+            .expect("a claimed key");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
