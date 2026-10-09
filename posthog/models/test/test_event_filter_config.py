@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models.event_filter_config import (
+    MAX_COMMENT_LENGTH,
     MAX_CONDITIONS,
     MAX_TREE_DEPTH,
     EventFilterConfig,
@@ -43,6 +44,7 @@ class TestValidateFilterTree(SimpleTestCase):
             ("or_two_conditions", _or(_cond(), _cond(operator="contains", value="view"))),
             ("not_condition", _not(_cond())),
             ("nested_and_or", _and(_or(_cond(), _cond(value="click")), _cond(field="distinct_id", value="u"))),
+            ("commented_nodes", {**_or({**_cond(), "comment": "Bot traffic"}), "comment": "x" * MAX_COMMENT_LENGTH}),
         ]
     )
     def test_valid_trees(self, _name: str, tree: dict):
@@ -54,6 +56,8 @@ class TestValidateFilterTree(SimpleTestCase):
             ("list_node", [1, 2], "must be an object"),
             ("invalid_type", {"type": "xor"}, "type must be one of"),
             ("missing_type", {}, "type must be one of"),
+            ("non_string_comment", {**_or(), "comment": 123}, "comment must be a string"),
+            ("comment_too_long", {**_cond(), "comment": "x" * (MAX_COMMENT_LENGTH + 1)}, "comment exceeds maximum"),
         ]
     )
     def test_invalid_node_type(self, _name: str, tree: object, expected_msg: str):
@@ -166,6 +170,11 @@ class TestPruneFilterTree(SimpleTestCase):
 
     def test_preserves_valid_tree(self):
         tree = _and(_cond(), _cond(value="click"))
+        self.assertEqual(prune_filter_tree(tree), tree)
+
+    def test_keeps_commented_single_child_group(self):
+        group = {**_and(_cond()), "comment": "Drop internal test events"}
+        tree = _or(group, _cond(value="keep"))
         self.assertEqual(prune_filter_tree(tree), tree)
 
     def test_collapses_nested_single_child_groups(self):

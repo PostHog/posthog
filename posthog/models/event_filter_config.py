@@ -11,6 +11,7 @@ NODE_TYPES = {"and", "or", "not", "condition"}
 EXPECTED_RESULTS = {"drop", "ingest"}
 MAX_TREE_DEPTH = 5
 MAX_CONDITIONS = 20
+MAX_COMMENT_LENGTH = 500
 
 DEFAULT_FILTER_TREE = {"type": "or", "children": []}
 
@@ -117,7 +118,8 @@ def _prune_node(node: dict) -> dict | None:
                 children.append(pruned_child)
         if len(children) == 0:
             return None
-        if len(children) == 1:
+        # Keep a commented group even with one child, so that its comment is not lost.
+        if len(children) == 1 and not node.get("comment"):
             return children[0]
         return {**node, "children": children}
 
@@ -157,6 +159,15 @@ def _validate_node(node: object, path: str = "root") -> None:
         raise ValidationError(
             {"filter_tree": f"Node at {path}: type must be one of {sorted(NODE_TYPES)}, got '{node_type}'."}
         )
+
+    comment = node.get("comment")
+    if comment is not None:
+        if not isinstance(comment, str):
+            raise ValidationError({"filter_tree": f"Node at {path}: comment must be a string."})
+        if len(comment) > MAX_COMMENT_LENGTH:
+            raise ValidationError(
+                {"filter_tree": f"Node at {path}: comment exceeds maximum of {MAX_COMMENT_LENGTH} characters."}
+            )
 
     if node_type == "condition":
         _validate_condition(node, path)
