@@ -1,7 +1,6 @@
 import logging
 from typing import cast
 
-from django.conf import settings
 from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
@@ -15,6 +14,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
+from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
 from products.review_hog.backend.preferences import (
     PREFERENCE_KEYS,
@@ -27,11 +27,6 @@ from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_toler
 from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
-
-
-def has_internal_features(team_id: int) -> bool:
-    """Whether a project gets Flash and the automation settings: only the first configured ReviewHog team."""
-    return bool(settings.REVIEWHOG_TEAM_IDS and team_id == settings.REVIEWHOG_TEAM_IDS[0])
 
 
 def _source_field(key: str) -> serializers.ChoiceField:
@@ -109,9 +104,6 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         source="project",
         help_text="The project defaults the Full review preferences fall back to.",
     )
-    show_internal_features = serializers.SerializerMethodField(
-        help_text="Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews.",
-    )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
         "false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it "
@@ -120,10 +112,6 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
 
     def _team_id(self) -> int:
         return self.context["team_id"]
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_show_internal_features(self, instance: ReviewPreferences) -> bool:
-        return has_internal_features(self._team_id())
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewPreferences) -> bool:

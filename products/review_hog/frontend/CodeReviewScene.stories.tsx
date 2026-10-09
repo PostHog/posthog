@@ -33,7 +33,6 @@ const defaultSettings: ReviewUserSettingsApi = {
         stamphog_review_inbox_prs: 'default',
     },
     project_defaults: { urgency_threshold: 'consider', celebrate_clean_reviews: true },
-    show_internal_features: false,
     stamphog_connected: false,
 }
 
@@ -53,8 +52,6 @@ const meta: Meta<typeof CodeReviewScene> = {
         (Story, context): JSX.Element => {
             let settings: ReviewUserSettingsApi = {
                 ...defaultSettings,
-                show_internal_features: context.parameters.showInternalFeatures ?? false,
-                stamphog_connected: context.parameters.showInternalFeatures ?? false,
                 ...context.parameters.savedSettings,
             }
             return mswDecorator({
@@ -105,12 +102,14 @@ export const Default: Story = {
 }
 
 export const InternalFeatures: Story = {
-    parameters: { showInternalFeatures: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
+        savedSettings: { stamphog_connected: true },
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByLabelText('Review all your Inbox PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Let Stamphog review your Inbox PRs')).toBeVisible()
-        await expect(canvas.getByLabelText('Review all your PRs with the reviewhog label')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs in Flash mode')).toBeVisible()
     },
 }

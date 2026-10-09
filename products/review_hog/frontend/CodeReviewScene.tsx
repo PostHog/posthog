@@ -686,7 +686,9 @@ function RecentReviewsSection(): JSX.Element | null {
  * actions are the per-run variants (review without resolving / resolve only / flash).
  */
 function TriggerReviewSection(): JSX.Element {
-    const { settings, triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
+    const { triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showInternalFeatures = !!featureFlags[FEATURE_FLAGS.REVIEW_HOG_INTERNAL]
     const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
 
     const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
@@ -743,7 +745,7 @@ function TriggerReviewSection(): JSX.Element {
                                     >
                                         Only resolve existing comments
                                     </LemonButton>
-                                    {settings?.show_internal_features && (
+                                    {showInternalFeatures && (
                                         <LemonButton
                                             fullWidth
                                             onClick={() =>
@@ -1145,6 +1147,8 @@ function ReviewDetailDrawer(): JSX.Element {
 
 function TriggersSection(): JSX.Element {
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showInternalFeatures = !!featureFlags[FEATURE_FLAGS.REVIEW_HOG_INTERNAL]
     const { updateSettings } = useActions(reviewHogSettingsLogic)
 
     const switchDisabledReason = settings === null ? 'Loading…' : settingsLoading ? 'Saving…' : undefined
@@ -1152,14 +1156,14 @@ function TriggersSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconFilter />} title="What gets reviewed">
-                {settings?.show_internal_features
+                {showInternalFeatures
                     ? 'Choose which pull requests PostHog Review picks up automatically, and whether reviews also resolve the comment threads on them.'
                     : 'Choose whether reviews also resolve comment threads and how clean reviews appear on your pull requests.'}
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 {/* Inbox reviews start in any project with a saved opt-in, so a switch that is on stays visible
                 and the user can turn it off. */}
-                {(settings?.show_internal_features || settings?.review_inbox_prs) && (
+                {(showInternalFeatures || settings?.review_inbox_prs) && (
                     <div className="flex items-center gap-4 p-4">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
                             <Logomark />
@@ -1179,7 +1183,7 @@ function TriggersSection(): JSX.Element {
                         />
                     </div>
                 )}
-                {(settings?.show_internal_features || settings?.stamphog_review_inbox_prs) && (
+                {(showInternalFeatures || settings?.stamphog_review_inbox_prs) && (
                     <div className="flex items-center gap-4 p-4">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
                             <IconStamphog className="size-5" />
@@ -1243,7 +1247,7 @@ function TriggersSection(): JSX.Element {
                     />
                 </div>
             </LemonCard>
-            {settings?.show_internal_features && (
+            {showInternalFeatures && (
                 <>
                     <div className="mt-2">
                         <h4 className="mb-1 text-sm font-semibold">ReviewHog Flash - Experimental</h4>

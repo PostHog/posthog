@@ -5,14 +5,18 @@ from posthog.test.base import BaseTest
 
 from django.db import connection
 from django.db.migrations.loader import MigrationLoader
-from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.integration import Integration
 
-from products.review_hog.backend.models import ReviewInstallationClaim, ReviewRepository, ReviewUserSettings
+from products.review_hog.backend.models import (
+    ReviewInstallationClaim,
+    ReviewReport,
+    ReviewRepository,
+    ReviewUserSettings,
+)
 
 seed_migration = importlib.import_module("products.review_hog.backend.migrations.0035_seed_review_repositories")
 
@@ -28,9 +32,8 @@ class TestSeedReviewSettingsMigration(BaseTest):
         historical_apps = (
             MigrationLoader(connection).project_state(("review_hog", "0035_seed_review_repositories")).apps
         )
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            seed_migration.seed_review_settings(historical_apps, None)
-            seed_migration.seed_review_settings(historical_apps, None)
+        seed_migration.seed_review_settings(historical_apps, None)
+        seed_migration.seed_review_settings(historical_apps, None)
 
     def test_columns_move_into_sparse_preferences_and_empty_rows_go(self) -> None:
         flash = self._settings("flash@example.com", review_authored_prs=True, urgency_threshold="must_fix")
@@ -52,6 +55,7 @@ class TestSeedReviewSettingsMigration(BaseTest):
         [
             (
                 "cached_list_names_the_repositories",
+                True,
                 {},
                 [
                     {"id": 11, "name": "posthog", "full_name": "PostHog/posthog"},
@@ -62,16 +66,26 @@ class TestSeedReviewSettingsMigration(BaseTest):
             ),
             (
                 "account_name_without_a_cached_list",
+                True,
                 {"account": {"name": "posthog"}},
                 [],
                 [("PostHog/posthog", None), ("PostHog/ai-gateway", None)],
             ),
-            ("another_account", {"account": {"name": "example-org"}}, [], []),
+            ("another_account", True, {"account": {"name": "example-org"}}, [], []),
+            ("never_ran_automatic_reviews", False, {"account": {"name": "posthog"}}, [], []),
         ]
     )
-    def test_the_first_team_selects_the_repositories_the_allowlists_covered(
-        self, _name: str, config: dict, repository_cache: list, expected_rows: list
+    def test_the_automatic_review_project_selects_the_repositories_the_allowlists_covered(
+        self, _name: str, ran_automatic_reviews: bool, config: dict, repository_cache: list, expected_rows: list
     ) -> None:
+        ReviewReport.objects.for_team(self.team.id).create(
+            team=self.team,
+            repository="PostHog/posthog",
+            pr_number=1,
+            head_branch="feature",
+            base_branch="master",
+            automatic_reviewed_head_sha="a" * 40 if ran_automatic_reviews else None,
+        )
         Integration.objects.create(
             team=self.team, kind="github", integration_id="1001", config=config, repository_cache=repository_cache
         )
