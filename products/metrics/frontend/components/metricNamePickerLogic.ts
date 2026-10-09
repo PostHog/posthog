@@ -48,6 +48,7 @@ export interface metricNamePickerLogicValues {
     fullItemsLoading: boolean
     items: MetricNameItem[]
     itemsComplete: boolean
+    scopeLoading: boolean
     search: string
     searchedItems: MetricNameItem[]
     searchedItemsLoading: boolean
@@ -182,13 +183,21 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
         }
     }),
     reducers({
-        // A new scope starts empty rather than showing the old scope's names while it loads.
-        fullItems: { setServices: () => [] },
         searchedItems: { setServices: () => [] },
+        // The old scope's names stay in `items` until the new list arrives, so the viewer can still
+        // read the type of a name picked as the scope changes. The dropdown hides them meanwhile.
+        scopeLoading: [
+            false,
+            { setServices: () => true, loadItemsSuccess: () => false, loadItemsFailure: () => false },
+        ],
     }),
     selectors({
         items: [(s) => [s.fullItems, s.searchedItems], mergeMetricNames],
-        filteredItems: [(s) => [s.items, s.search], filterMetricNames],
+        filteredItems: [
+            (s) => [s.items, s.search, s.scopeLoading],
+            (items: MetricNameItem[], search: string, scopeLoading: boolean): MetricNameItem[] =>
+                scopeLoading ? [] : filterMetricNames(items, search),
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         primeItems: () => {

@@ -88,7 +88,8 @@ function MetricNameFilterInner({
     disabled?: boolean
     disabledReason?: string | null
 }): JSX.Element {
-    const { items, filteredItems, fullItemsLoading, searchedItemsLoading, search } = useValues(metricNamePickerLogic)
+    const { items, filteredItems, fullItemsLoading, searchedItemsLoading, scopeLoading, search } =
+        useValues(metricNamePickerLogic)
     const { setSearch, openPicker } = useActions(metricNamePickerLogic)
 
     const onPick = useCallback(
@@ -160,7 +161,7 @@ function MetricNameFilterInner({
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronDown />}
-                loading={fullItemsLoading && !value && items.length === 0}
+                loading={fullItemsLoading && !value && (items.length === 0 || scopeLoading)}
                 disabled={disabled}
                 disabledReason={disabledReason}
             >

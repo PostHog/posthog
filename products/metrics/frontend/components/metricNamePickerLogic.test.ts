@@ -170,13 +170,26 @@ describe('metricNamePickerLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setServices(['api'])
         })
-            .toMatchValues({ items: [] })
+            .toMatchValues({ filteredItems: [], items: ITEMS })
             .toDispatchActions(['loadItemsSuccess'])
-            .toMatchValues({ items: [ITEMS[2]] })
+            .toMatchValues({ filteredItems: [ITEMS[2]], items: [ITEMS[2]] })
         expect(metricsNamesRetrieve).toHaveBeenLastCalledWith(
             expect.any(String),
             expect.objectContaining({ value: '', service: 'api' })
         )
+    })
+
+    it('shows the old list again when the new scope fails to load', async () => {
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+
+        jest.mocked(metricsNamesRetrieve).mockRejectedValueOnce(new Error('timeout'))
+        await expectLogic(logic, () => {
+            logic.actions.setServices(['api'])
+        }).toDispatchActions(['loadItemsFailure'])
+
+        expect(logic.values.filteredItems).toEqual(ITEMS)
     })
 
     it('drops a search that finishes after the service scope changes', async () => {

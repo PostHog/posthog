@@ -448,6 +448,12 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
+    it('keeps the type of a metric picked while the service scope reloads', () => {
+        metricNamePickerLogic.actions.setServices(['web'])
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.selectedMetricType).toBe('histogram')
+    })
+
     it('backfills the metric type when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
