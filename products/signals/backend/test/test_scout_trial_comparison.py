@@ -240,28 +240,36 @@ class TestScoutTrialComparisonSerializer(SimpleTestCase):
 
 
 class TestScoutTrialComparisonStorage(SimpleTestCase):
-    @parameterized.expand(["empty", "populated", "failure"])
+    @parameterized.expand(["empty", "populated", "next_page", "invalid_page", "failure"])
     def test_history_listing_is_bounded_and_does_not_hide_storage_failures(self, scenario: str) -> None:
         prefix = "signals/scout-trials/2/comparison-history/17/example/"
+        start_after = prefix + "example.json" if scenario in {"next_page", "invalid_page"} else None
         client = MagicMock()
         client.list_objects_v2.return_value = (
-            {"Contents": [{"Key": prefix + "example.json"}]} if scenario == "populated" else {}
+            {"Contents": [{"Key": prefix + "example.json"}]} if scenario in {"populated", "invalid_page"} else {}
         )
+        if scenario == "next_page":
+            client.list_objects_v2.return_value = {"Contents": [{"Key": prefix + "next.json"}]}
         if scenario == "failure":
             client.list_objects_v2.side_effect = RuntimeError("Synthetic private storage failure")
         with patch.object(object_storage, "object_storage_client", return_value=object_storage.ObjectStorage(client)):
-            if scenario == "failure":
+            if scenario in {"failure", "invalid_page"}:
                 with self.assertRaisesMessage(
                     object_storage.ObjectStorageError, "history could not be loaded"
                 ) as failure:
-                    list_comparison_history_keys(prefix, 10)
+                    list_comparison_history_keys(prefix, 10, start_after=start_after)
                 assert "private" not in str(failure.exception)
             else:
-                assert list_comparison_history_keys(prefix, 10) == (
-                    [prefix + "example.json"] if scenario == "populated" else []
+                assert list_comparison_history_keys(prefix, 10, start_after=start_after) == (
+                    [prefix + "example.json"]
+                    if scenario == "populated"
+                    else [prefix + "next.json"]
+                    if scenario == "next_page"
+                    else []
                 )
         assert client.list_objects_v2.call_args.kwargs["MaxKeys"] == 11
         assert client.list_objects_v2.call_args.kwargs["Prefix"] == prefix
+        assert client.list_objects_v2.call_args.kwargs.get("StartAfter") == start_after
 
     @parameterized.expand(["comparison", "evaluation"])
     def test_manual_and_automatic_evaluations_cannot_claim_the_same_identity(self, first_kind: str) -> None:
