@@ -43,6 +43,7 @@ from products.signals.backend.scout_harness.limits import (
     FINISHED_ORPHAN_RECENT_RUNS,
     SCOUT_RUN_REAPED_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
+    TRIAL_ACTIVITY_TIMEOUT_S,
     TRIAL_MAX_RUNTIME_S,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
@@ -958,6 +959,7 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
+        sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id

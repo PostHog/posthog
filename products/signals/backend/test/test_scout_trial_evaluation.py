@@ -1206,7 +1206,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
             policy = options["retry_policy"]
             assert isinstance(policy, RetryPolicy) and policy.maximum_attempts == 1
             timeout = options["start_to_close_timeout"]
-            assert isinstance(timeout, timedelta) and timeout >= timedelta(minutes=32)
+            assert isinstance(timeout, timedelta) and timeout >= timedelta(minutes=37)
             active += 1
             highest_active = max(highest_active, active)
             if active == 3:
@@ -1256,7 +1256,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
         with patch(f"{WORKFLOW_MODULE}.async_connect", AsyncMock(return_value=client)):
             start_trial_evaluation(2, evaluation_id)
         timeout = client.start_workflow.call_args.kwargs["execution_timeout"]
-        assert timeout >= timedelta(minutes=-(-MAX_TRIAL_RUNS // 3) * 32 + 2)
+        assert timeout >= timedelta(minutes=-(-MAX_TRIAL_RUNS // 3) * 37 + 2)
         assert client.start_workflow.call_args.args[1] == TrialEvaluationInput(
             team_id=2, evaluation_id=str(evaluation_id)
         )

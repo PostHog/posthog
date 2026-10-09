@@ -41,7 +41,7 @@ class TestSandboxJudgeLifecycle(SimpleTestCase):
 
         async def start(**kwargs):
             self.assertEqual(kwargs["max_poll_seconds"], 30 * 60)
-            self.assertEqual(kwargs["context"].sandbox_timeout_seconds, 32 * 60)
+            self.assertEqual(kwargs["context"].sandbox_timeout_seconds, 37 * 60)
             kwargs["before_task_dispatch"](run.id)
             if outcome == "cancelled":
                 raise asyncio.CancelledError
@@ -50,6 +50,7 @@ class TestSandboxJudgeLifecycle(SimpleTestCase):
             return session, output
 
         with (
+            patch(f"{MODULE}.asyncio.timeout", wraps=asyncio.timeout) as timeout_guard,
             patch(f"{MODULE}._assert_scout_available"),
             patch(f"{MODULE}.read_trial_evidence_sources", return_value=evidence.sources),
             patch(f"{MODULE}.tasks_facade.get_task_by_origin_key", return_value=None),
@@ -77,6 +78,7 @@ class TestSandboxJudgeLifecycle(SimpleTestCase):
                 self.assertEqual(update_run.call_args.kwargs["validated_data"]["status"], "failed")
                 if outcome == "invalid_result":
                     self.assertEqual(session.end.call_args.kwargs["status"], "failed")
+        timeout_guard.assert_called_once_with(36 * 60)
 
     @parameterized.expand(["missing_evidence", "existing_judge"])
     async def test_unavailable_input_and_existing_judge_do_not_start_a_paid_run(self, failure: str) -> None:

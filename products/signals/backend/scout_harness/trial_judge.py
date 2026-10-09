@@ -12,6 +12,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend import trial_judging
 from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.scout_harness.limits import TRIAL_ACTIVITY_TIMEOUT_S
 from products.signals.backend.scout_harness.trial_evaluation import (
     read_trial_evidence_sources,
     trial_evidence_storage_key,
@@ -185,10 +186,10 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
                 reasoning_effort="high",
                 initial_permission_mode="full-access",
                 github_read_access=False,
-                sandbox_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS + 120,
+                sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60,
             )
             judge_run = _JudgeRun(snapshot=snapshot, evidence=evidence, prompt=prompt)
-            async with asyncio.timeout(JUDGE_MAX_RUNTIME_SECONDS + 60):
+            async with asyncio.timeout(TRIAL_ACTIVITY_TIMEOUT_S):
                 session, output = await MultiTurnSession.start(
                     prompt=prompt,
                     context=context,

@@ -30,8 +30,7 @@ from products.signals.backend.quota import (
     self_driving_quota_gate,
 )
 from products.signals.backend.scout_harness.limits import (
-    ACTIVITY_SLACK_S,
-    TRIAL_MAX_RUNTIME_S,
+    TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
@@ -266,9 +265,7 @@ class RunSignalsScoutWorkflow:
                 run_signals_scout_activity,
                 input,
                 start_to_close_timeout=timedelta(
-                    seconds=TRIAL_MAX_RUNTIME_S + ACTIVITY_SLACK_S
-                    if input.trial_launch_id is not None
-                    else WORKFLOW_HARD_CEILING_S
+                    seconds=TRIAL_ACTIVITY_TIMEOUT_S if input.trial_launch_id is not None else WORKFLOW_HARD_CEILING_S
                 ),
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=1),
