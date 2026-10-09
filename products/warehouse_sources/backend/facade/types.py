@@ -567,6 +567,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SQUARESPACE = "Squarespace", "Squarespace"
     STATSIG = "Statsig", "Statsig"
     STATUSPAGE = "Statuspage", "Statuspage"
+    STEAM = "Steam", "Steam"
     STIGG = "Stigg", "Stigg"
     STRAVA = "Strava", "Strava"
     SURVEYSPARROW = "SurveySparrow", "SurveySparrow"
@@ -1435,6 +1436,17 @@ class ExternalDataSourceType(LabeledStrEnum):
     GOOGLEBUSINESSPROFILE = "GoogleBusinessProfile", "GoogleBusinessProfile"
     LEDYER = "Ledyer", "Ledyer"
     SUPERMETRICS = "Supermetrics", "Supermetrics"
+    SQLITE = "SQLite", "SQLite"
+    MODAL = "Modal", "Modal"
+    VIMEO = "Vimeo", "Vimeo"
+    SCRUNCH = "Scrunch", "Scrunch"
+    LOOM = "Loom", "Loom"
+    ARCADE = "Arcade", "Arcade"
+    NEO4J = "Neo4j", "Neo4j"
+    TESTDINO = "TestDino", "TestDino"
+    CHESSCOM = "ChessCom", "ChessCom"
+    USERBACK = "Userback", "Userback"
+    REWARDFUL = "Rewardful", "Rewardful"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

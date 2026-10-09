@@ -53,6 +53,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "services": "Services associated with the deployment.",
         },
     },
+    "incidents": {
+        "description": "Incidents reported to LinearB, used to compute change failure rate and MTTR.",
+        "docs_url": "https://docs.linearb.io/api-incidents/",
+        "columns": {
+            "provider_id": "Unique identifier of the incident in the incident management provider.",
+            "http_url": "URL that opens the incident in the incident management provider.",
+            "title": "Incident title.",
+            "issued_at": "When the incident was logged and officially opened.",
+            "started_at": "When work on the incident started.",
+            "ended_at": "When the incident was resolved.",
+            "git_ref": "Git reference (commit SHA or tag) of the release that caused the incident.",
+            "teams": "LinearB teams related to the incident.",
+            "services": "LinearB services related to the incident.",
+            "repositories": "Repositories related to the incident.",
+            "status": "Incident status: open, in-progress, closed, or deleted.",
+        },
+    },
     "measurements": {
         "description": "Organization-level Git/DORA metrics computed by LinearB, rolled up daily.",
         "docs_url": "https://docs.linearb.io/api-measurements-v2/",

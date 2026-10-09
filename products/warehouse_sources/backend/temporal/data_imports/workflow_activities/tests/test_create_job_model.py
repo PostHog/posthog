@@ -15,13 +15,22 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSourceDestination,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NO_ACTIVE_DESTINATIONS_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     SourceOrSchemaDeletedError,
+    V2PipelineRemovedError,
     V3PipelineLockLostError,
     _build_schema_snapshot,
     _create_job,
@@ -238,7 +247,7 @@ class TestCreateJob:
                 team_id=team.id,
                 source_id=schema.source_id,
                 schema_id=schema.id,
-                pipeline_version=ExternalDataJob.PipelineVersion.V2,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
                 billable=True,
                 schema_snapshot={},
             )
@@ -255,8 +264,9 @@ class TestCreateJobActivityStatusOrdering:
     # job behind it can never be finalized, so it stays stuck on Running forever and blocks cancel.
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}._create_job", side_effect=OperationalError("insert failed"))
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
     def test_schema_not_left_running_when_job_creation_fails(
-        self, _mock_create: MagicMock, _mock_close_connections: MagicMock
+        self, _mock_verify_lock: MagicMock, _mock_create: MagicMock, _mock_close_connections: MagicMock
     ) -> None:
         team = _team()
         schema = _schema(team, None)
@@ -275,6 +285,22 @@ class TestCreateJobActivityStatusOrdering:
 
         schema.refresh_from_db()
         assert schema.status == ExternalDataSchema.Status.FAILED
+
+    # A replayed pre-patch history can still ask for a V2 job. The V2 pipeline is gone, so the
+    # run must fail before it creates a job row that no pipeline can run.
+    @patch(f"{MODULE}.close_old_connections")
+    def test_a_v2_request_fails_without_creating_a_job(self, _mock_close_connections: MagicMock) -> None:
+        team = _team()
+        schema = _schema(team, None)
+
+        with pytest.raises(V2PipelineRemovedError):
+            create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=False
+                )
+            )
+
+        assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
 
     @parameterized.expand([("broken", "cdc_broken"), ("paused", "cdc_extraction_paused")])
     @patch(f"{MODULE}.close_old_connections")
@@ -299,6 +325,56 @@ class TestCreateJobActivityStatusOrdering:
         schema.refresh_from_db()
         assert ExternalDataJob.objects.filter(schema_id=schema.id).exists()
         assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_outputs_carry_the_schemas_failure_streak(
+        self, mock_activity: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.sync_type_config = {
+            "failure_streak": {"runs": 4, "last_failed_at": (timezone.now() - dt.timedelta(minutes=5)).isoformat()}
+        }
+        schema.save()
+
+        outputs = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True
+            )
+        )
+
+        assert outputs.failed_runs_in_a_row == 4
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
+    @patch(f"{MODULE}.is_multi_destination_enabled", return_value=True)
+    def test_a_table_whose_every_destination_is_paused_fails_before_the_job_exists(
+        self, _mock_flag: MagicMock, _mock_lock: MagicMock, mock_activity: MagicMock, _mock_close: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        destination = ExternalDataDestination.objects.for_team(team.id).create(
+            team_id=team.id, type=ExternalDataDestination.Type.REDSHIFT, name="paused"
+        )
+        ExternalDataSourceDestination.objects.for_team(team.id).create(
+            team_id=team.id, source=schema.source, destination=destination, enabled=False
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=True
+                )
+            )
+
+        assert str(exc_info.value.cause) == NO_ACTIVE_DESTINATIONS_MESSAGE
+        assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
 
 
 @pytest.mark.django_db
@@ -435,8 +511,10 @@ class TestCreateJobActivityDeletedSourceOrSchema:
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.delete_external_data_schedule")
     @patch(f"{MODULE}._create_job")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
     def test_integrity_error_on_insert_is_treated_as_the_same_race(
         self,
+        _mock_verify_lock: MagicMock,
         mock_create_job: MagicMock,
         mock_delete_schedule: MagicMock,
         _mock_close_connections: MagicMock,

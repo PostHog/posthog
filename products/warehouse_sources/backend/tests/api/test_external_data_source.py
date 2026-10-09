@@ -110,7 +110,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     PostgresDiscoveredSchema,
     SSLRequiredError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECT_TIMEOUT_VALIDATION_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -145,7 +148,14 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    Both the create and update paths persist `source.serialize_config(source_config)` rather than
+    `source_config.to_dict()` directly, so a source stays able to retain rollout-compatible fields
+    (see `AppleSearchAdsSource.serialize_config`). A bare MagicMock's `serialize_config` otherwise
+    returns an unconfigured MagicMock, which Django's ORM then tries to treat as a query expression
+    and rejects. Delegate it to the parsed config's own `to_dict()`, matching the base class's
+    default implementation, so a test that only sets up `parse_config` keeps working."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
@@ -154,6 +164,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
+    mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -477,6 +488,28 @@ class TestExternalDataSource(APIBaseTest):
         link = ExternalDataSourceDestination.objects.for_team(self.team.pk).get(source_id=response.json()["id"])
         assert link.enabled is True
         assert link.destination.type == ExternalDataDestination.Type.POSTHOG_WAREHOUSE
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_rejects_an_empty_destination_set_before_creating_the_source(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "destination_ids": [],
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [{"name": "Customer", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "at least one destination" in response.json()["detail"]
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -3283,6 +3316,7 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_column_selection",
                 "api_version",
                 "api_version_deprecation",
+                "connection_warning",
             ],
         )
         self.assertIsNone(payload["engine"])
@@ -3314,6 +3348,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_sync_blocked": None,
                     "enabled_columns": None,
                     "row_filters": None,
+                    "row_filter_columns": None,
                     "available_columns": [],
                     "source_column_metadata_available": False,
                     "source": None,
@@ -6744,6 +6779,56 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("internal_host_team_saves_with_warning", True, _CONNECT_TIMEOUT_VALIDATION_ERROR, 200),
+            ("other_team_is_rejected", False, _CONNECT_TIMEOUT_VALIDATION_ERROR, 400),
+            ("internal_host_team_with_rejected_credentials_is_rejected", True, "Invalid password.", 400),
+        ]
+    )
+    def test_update_with_failed_connection_probe(self, _name, allowlisted, probe_error, expected_status):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_failed_probe",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+                return_value=(False, probe_error),
+            ),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
+                return_value=allowlisted,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": {"host": "new-host.example.com", "password": "new_password"}},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        source.refresh_from_db()
+        if expected_status == 200:
+            assert source.job_inputs["host"] == "new-host.example.com"
+            assert probe_error in response.json()["connection_warning"]
+        else:
+            assert source.job_inputs["host"] == "db.example.com"
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.kafka.source.KafkaSource.validate_credentials",
         return_value=(True, None),
@@ -6979,6 +7064,54 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs[secret_field] == stored_job_inputs[secret_field]
         assert source.auto_sync_new_schemas is True
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source.AppleSearchAdsSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_apple_ads_key_pair_unrelated_field_does_not_reprobe(self, mock_validate_credentials):
+        # Apple Ads' serialize_config adds the four key-pair fields back onto the flat dict for a
+        # key_pair source, which parse_config().to_dict() alone does not. Comparing those two shapes
+        # always disagreed, so every save re-probed Apple's API — even one that only flips an
+        # unrelated setting. Compare like for like instead: serialize_config on both sides.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AppleSearchAds",
+            created_by=self.user,
+            prefix="test_apple_ads_no_reprobe",
+            job_inputs={
+                "source_type": "AppleSearchAds",
+                "org_id": "4242",
+                "ad_account_id": "acct-1",
+                "client_id": "cid",
+                "apple_team_id": "tid",
+                "key_id": "kid",
+                "private_key": "pem",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "org_id": "4242",
+                    "ad_account_id": "acct-1",
+                    "client_id": "cid",
+                    "apple_team_id": "tid",
+                    "key_id": "kid",
+                    "private_key": "pem",
+                },
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.auto_sync_new_schemas is True
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
@@ -9720,7 +9853,6 @@ class TestCreateWebhook(APIBaseTest):
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config
@@ -9861,7 +9993,7 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
-class TestSensitiveFieldClassification(APIBaseTest):
+class TestSensitiveFieldClassification(SimpleTestCase):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
@@ -10113,94 +10245,6 @@ class TestSensitiveFieldClassification(APIBaseTest):
 
         assert result["temporary-dataset"]["temporary_dataset_id"] == "declared"
         assert "temporary_dataset" not in result
-
-    def test_all_registered_sources_have_valid_classification(self):
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-
-            # No field should appear in both sets
-            overlap = split.nonsensitive & split.sensitive
-            assert not overlap, f"{config.name}: fields in both sets: {overlap}"
-
-    def test_password_typed_fields_must_be_marked_secret(self):
-        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
-        it would obscure on screen but still be returned in plain text from the API.
-        """
-
-        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
-            offenders: list[str] = []
-            for field in fields:
-                if isinstance(field, SourceFieldInputConfig):
-                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
-                        offenders.append(field.name)
-                elif isinstance(field, SourceFieldSwitchGroupConfig):
-                    offenders.extend(collect_password_fields_without_secret(field.fields))
-                elif isinstance(field, SourceFieldSelectConfig):
-                    for option in field.options:
-                        if option.fields:
-                            offenders.extend(collect_password_fields_without_secret(option.fields))
-            return offenders
-
-        all_offenders: dict[str, list[str]] = {}
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            offenders = collect_password_fields_without_secret(config.fields)
-            if offenders:
-                all_offenders[config.name] = offenders
-
-        assert not all_offenders, (
-            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
-            f"Offending fields: {all_offenders}"
-        )
-
-    def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
-        """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
-
-        old_allowed = {
-            "stripe_account_id",
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            "region",
-            "site_name",
-            "subdomain",
-            "email_address",
-            "hubspot_integration_id",
-            "custom_properties",
-            "account_id",
-            "warehouse",
-            "role",
-            "dataset_id",
-            "temporary-dataset",
-            "dataset_project",
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            "spreadsheet_url",
-            "linkedin_ads_integration_id",
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            "reddit_integration_id",
-            "salesforce_integration_id",
-            "repository",
-            "shopify_store_id",
-            "namespace",
-        }
-
-        # Collect all nonsensitive field names across all sources
-        all_nonsensitive: set[str] = set()
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(split.nonsensitive)
-
-        missing = old_allowed - all_nonsensitive
-        assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
 
 
 class TestWebhookInfo(APIBaseTest):

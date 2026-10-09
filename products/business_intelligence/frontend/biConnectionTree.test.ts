@@ -104,6 +104,20 @@ describe('BI connections', () => {
         }
     )
 
+    it('keeps native property groups searchable without treating warehouse JSON as PostHog properties', () => {
+        const catalog = {
+            ...tables,
+            persons: table('persons', [field('properties', 'json'), field('email', 'string')]),
+        }
+        for (const rootSource of [{ table: 'events' }, source]) {
+            const connections = buildBIConnections(rootSource, catalog, ['["person"]'], {}, true)
+            const filtered = filterBIConnections(connections, '$browser')
+            expect(filtered.flatMap((connection) => connection.fields.dimensions.map((field) => field.name))).toEqual(
+                rootSource.connectionId ? [] : ['person.properties']
+            )
+        }
+    })
+
     it('uses the PostHog table ID for hydration and status', () => {
         const catalog = { ...tables, persons: { ...table('persons', []), id: 'person-table-id' } }
         const expanded = ['["person"]']

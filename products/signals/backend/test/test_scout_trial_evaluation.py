@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -23,8 +24,7 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
-from products.signals.backend.facade.api import is_scout_trial_judge_context
-from products.signals.backend.facade.rubrics import default_criteria
+from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext, default_criteria
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.limits import MAX_TRIAL_RUNS
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
@@ -63,7 +63,11 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialRunEvidence,
     TrialRunJudgment,
 )
-from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
+from products.signals.backend.scout_harness.trial_judge import (
+    TrialJudgeExecutionError,
+    judge_trial_run,
+    parse_trial_judgment,
+)
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     ScoutTrialsDisabled,
@@ -83,9 +87,8 @@ from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
 )
 from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
+from products.signals.backend.trial_judging import TrialJudgeInput, build_trial_judge_prompt
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run  # tach-ignore
 
 if TYPE_CHECKING:
     pass
@@ -289,7 +292,12 @@ class TestScoutTrialEvaluation(BaseTest):
                 self._save("launches", launch_id, self.launch.model_copy(update={"id": launch_id}))
 
         def evidence(
-            launch: TrialLaunch, context: TrialContext, variant_id: UUID, *, evaluation_id: UUID
+            launch: TrialLaunch,
+            context: TrialContext,
+            variant_id: UUID,
+            *,
+            evaluation_id: UUID,
+            rubric_reference_context: ScoutRubricReferenceContext,
         ) -> TrialRunEvidence:
             return template.model_copy(update={"launch_id": launch.id, "variant_id": variant_id})
 
@@ -418,6 +426,23 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_saved_requirements_ignore_source_edits_candidates_and_unaccepted_suggestions(self) -> None:
         rubric = self.config.rubrics
         assert isinstance(rubric, dict)
+        reference_paths = [f"references/checkout-{index}.md" for index in range(3)]
+        self.reference = ScoutRubricReferenceContext.model_validate(
+            {
+                **self.reference.model_dump(mode="json"),
+                "reference_files": reference_paths,
+                "reference_texts": [
+                    {
+                        "path": path,
+                        "content_type": "text/markdown",
+                        "content": "A synthetic checkout must include the terminal result.\n" * 14_000,
+                    }
+                    for path in reference_paths
+                ],
+            }
+        )
+        assert len(self.reference.model_dump_json().encode()) > 2 * 1024 * 1024
+        rubric["reference_context"] = self.reference.model_dump(mode="json")
         self.skill.is_latest = False
         self.skill.save(update_fields=["is_latest"])
         LLMSkill.objects.create(
@@ -446,11 +471,36 @@ class TestScoutTrialEvaluation(BaseTest):
             ).model_dump(mode="json"),
         }
         self.config.save(update_fields=["rubrics"])
-        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        with patch(f"{MODULE}.MAX_EVALUATION_BYTES", 4 * 1024 * 1024):
+            prepared = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+            assert read_trial_evaluation(self.team.id, prepared.evaluation_id) == prepared
+            snapshot = _read_trial_judge_input(self.team.id, prepared.evaluation_id, self.launch.id)
+            assert snapshot is not None
+            assert (
+                finish_trial_evaluation(self.team.id, prepared.evaluation_id).rubric_reference_context == self.reference
+            )
+        self.config.refresh_from_db()
+        assert self.config.rubrics == rubric
         assert snapshot.rubric_reference_context == self.reference
         assert snapshot.rubric_reference_generation_id == rubric["reference_generation_id"]
         assert {criterion.id for criterion in snapshot.criteria} == {criterion.id for criterion in default_criteria()}
-        assert next(source.text for source in self._sources(snapshot) if source.id == "instructions") == "Do no work."
+        sources = self._sources(snapshot)
+        assert next(source.text for source in sources if source.id == "instructions") == "Do no work."
+        reference = next(source for source in sources if source.id == "rubric-reference")
+        assert reference.kind == "instructions"
+        assert json.loads(reference.text) == self.reference.model_dump(mode="json")
+        prompt = build_trial_judge_prompt(
+            TrialJudgeInput(
+                criteria=snapshot.criteria,
+                rubric_reference_context=snapshot.rubric_reference_context.model_dump(mode="json"),
+                judge_model=snapshot.judge_model,
+                judge_prompt_version=snapshot.judge_prompt_version,
+            ),
+            snapshot.runs[0],
+        )
+        assert "rubric-reference.txt" in prompt
+        assert self.reference.instructions not in prompt
+        assert len(prompt.encode()) < 256 * 1024
 
     @parameterized.expand(["pass", "fail", "not_applicable"])
     def test_launch_note_alone_cannot_support_a_conclusive_verdict(self, verdict: str) -> None:
@@ -534,89 +584,32 @@ class TestScoutTrialEvaluation(BaseTest):
             prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
 
     @parameterized.expand(
-        [
-            "valid",
-            "evaluation_id",
-            "launch_id",
-            "context_id",
-            "source_task_id",
-            "source_task_run_id",
-            "source_scout_run_id",
-            "user_id",
-            "caller_user",
-            "caller_team",
-            "source_origin",
-            "source_state",
-            "source_status",
-            "source_deleted",
-            "source_invalidated",
-            "operator_revoked",
-        ]
+        ["source_origin", "source_state", "excluded_evidence", "unfinished_evidence", "foreign_evidence"]
     )
-    def test_judge_credentials_require_the_exact_saved_evaluation_and_private_source(self, mismatch: str) -> None:
+    def test_changed_source_or_ineligible_evidence_cannot_dispatch_a_judge(self, invalid: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         evidence = snapshot.runs[0]
-        marker: dict[str, str | int] = {
-            "version": 1,
-            "evaluation_id": str(snapshot.evaluation_id),
-            "launch_id": str(evidence.launch_id),
-            "context_id": str(snapshot.context_id),
-            "user_id": snapshot.user_id,
-            "source_task_id": str(evidence.task_id),
-            "source_task_run_id": str(evidence.task_run_id),
-            "source_scout_run_id": str(evidence.run_id),
-        }
-        team_id, user_id = self.team.id, self.user.id
-        if mismatch == "user_id":
-            marker["user_id"] = user_id + 1
-        elif mismatch in marker:
-            marker[mismatch] = str(uuid4())
-        elif mismatch == "caller_team":
-            team_id += 1
-        elif mismatch == "caller_user":
-            user_id += 1
-        elif mismatch == "source_origin":
+        if invalid == "source_origin":
             task = self.scout_run.task_run.task
             task.origin_key = "ordinary-task"
             task.save(update_fields=["origin_key"])
-        elif mismatch == "source_state":
-            self.scout_run.task_run.state["scout_trial"] = {}
-            self.scout_run.task_run.save(update_fields=["state"])
-        elif mismatch == "source_status":
-            self.scout_run.task_run.status = "failed"
-            self.scout_run.task_run.save(update_fields=["status"])
-        elif mismatch == "source_deleted":
-            task = self.scout_run.task_run.task
-            task.deleted = True
-            task.save(update_fields=["deleted"])
-        elif mismatch == "source_invalidated":
-            ScoutTrialStore(self.scout_run).invalidate("Synthetic invalidation", allow_terminal=True)
-        elif mismatch == "operator_revoked":
-            self.user.is_staff = False
-            self.user.save(update_fields=["is_staff"])
-            with self.assertRaises(TrialEvaluationError):
-                is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker)
-            return
-        assert is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker) is (mismatch == "valid")
-        if mismatch == "valid":
-            judge_task = Task.objects.create(
-                team=self.team,
-                created_by=self.user,
-                title="Synthetic trial judge",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
-                origin_key=f"scout-trial-judge:{snapshot.evaluation_id}:{evidence.launch_id}",
-            )
-            judge_run = judge_task.create_run(extra_state={"scout_trial_judge": marker, "use_dedicated_stream": False})
-            with patch(
-                "products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user",
-                return_value="synthetic-judge-token",
-            ) as mint:
-                assert (
-                    create_oauth_access_token_for_run(judge_task, judge_run.state, scopes="full")
-                    == "synthetic-judge-token"
-                )
-            assert mint.call_args.kwargs["scopes"] == "signals_scout_judge"
-            assert mint.call_args.kwargs["sandbox_task_id"] == judge_task.id
+        elif invalid == "source_state":
+            assert self.scout_run.metadata is not None
+            self.scout_run.metadata["scout_trial"] = {}
+            self.scout_run.save(update_fields=["metadata"])
+        elif invalid == "excluded_evidence":
+            evidence = evidence.model_copy(update={"exclusion_reason": "Synthetic excluded run."})
+            snapshot = snapshot.model_copy(update={"runs": [evidence]})
+        elif invalid == "unfinished_evidence":
+            evidence = evidence.model_copy(update={"execution_status": "failed"})
+            snapshot = snapshot.model_copy(update={"runs": [evidence]})
+        else:
+            evidence = evidence.model_copy(update={"launch_id": uuid4()})
+
+        with patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start:
+            with self.assertRaises(TrialJudgeExecutionError):
+                async_to_sync(judge_trial_run)(snapshot, evidence)
+        start.assert_not_awaited()
 
     @parameterized.expand(
         [(bound, status, None) for bound in (False, True) for status in ("pending", "unknown", "not_started")]
@@ -716,10 +709,8 @@ class TestScoutTrialEvaluation(BaseTest):
             TrialReport(id=f"synthetic-report-{index}", document={"summary": f"Finding {index}. " * 3000})
             for index in range(4)
         ]
-        self.scout_run.task_run.state["scout_trial_private"] = {
-            "reports": {report.id: report.model_dump(mode="json") for report in reports}
-        }
-        self.scout_run.task_run.save(update_fields=["state"])
+        self.scout_run.trial_state = {"reports": {report.id: report.model_dump(mode="json") for report in reports}}
+        self.scout_run.save(update_fields=["trial_state"])
         log = json.dumps(
             {
                 "notification": {
@@ -749,8 +740,24 @@ class TestScoutTrialEvaluation(BaseTest):
             source.kind == "trace" and "The final saved measurement was read back." in source.text for source in sources
         )
 
-    @parameterized.expand(["duplicated", "edited"])
-    def test_full_logs_and_reports_are_saved_as_files_outside_the_snapshot(self, report_kind: str) -> None:
+    @parameterized.expand([("duplicated", 0), ("edited", 2000)])
+    def test_full_logs_and_reports_are_saved_as_files_outside_the_snapshot(
+        self, report_kind: str, memory_entry_count: int
+    ) -> None:
+        if memory_entry_count:
+            self.context = self.context.model_copy(
+                update={
+                    "memory": [
+                        {
+                            "key": f"finding:synthetic-{index}",
+                            "content": f"Synthetic observation {index}. " + "a" * 44_000,
+                        }
+                        for index in range(memory_entry_count)
+                    ]
+                }
+            )
+            self._save("contexts", self.context.id, self.context)
+            assert len(self.context.model_dump_json().encode()) > 80 * 1024 * 1024
         self.scout_run.summary = "Synthetic finding. " * 12000
         self.scout_run.save(update_fields=["summary"])
         final_summary = "Synthetic authored finding. " * 320
@@ -763,10 +770,8 @@ class TestScoutTrialEvaluation(BaseTest):
             operator_metadata={"skipped_automatic_repository_selection": False},
             artefacts=[{"type": "note", "content": "Synthetic diagnostic detail. " * 250}],
         )
-        self.scout_run.task_run.state["scout_trial_private"] = {
-            "reports": {captured_report.id: captured_report.model_dump(mode="json")}
-        }
-        self.scout_run.task_run.save(update_fields=["state"])
+        self.scout_run.trial_state = {"reports": {captured_report.id: captured_report.model_dump(mode="json")}}
+        self.scout_run.save(update_fields=["trial_state"])
         log = (
             "\n".join(
                 json.dumps(
@@ -801,6 +806,15 @@ class TestScoutTrialEvaluation(BaseTest):
         sources = self._sources(snapshot)
         assert next(source.text for source in sources if source.kind == "summary") == self.scout_run.summary
         assert next(source.text for source in sources if source.kind == "trace") == log
+        saved_context = next(source.text for source in sources if source.kind == "context")
+        assert json.loads(saved_context) == {
+            "memory": self.context.memory,
+            "notes": self.context.notes,
+            "recent_runs": self.context.recent_runs,
+        }
+        context_file = next(file for file in snapshot.runs[0].files if file.kind == "context")
+        assert context_file.size_bytes == len(saved_context.encode())
+        assert context_file.sha256 == hashlib.sha256(saved_context.encode()).hexdigest()
         report = next(source for source in sources if source.kind == "report")
         packed = json.loads(report.text)["report"]
         assert packed["document"] == captured_report.document
@@ -873,17 +887,66 @@ class TestScoutTrialEvaluation(BaseTest):
                 report.runs[0].error or ""
             )
 
-    def test_worker_rechecks_operator_access_before_judging(self) -> None:
+    @parameterized.expand(
+        [
+            "staff_revoked",
+            "inactive",
+            "membership_revoked",
+            "project_revoked",
+            "historical_skill_removed",
+            "source_skill",
+            "source_config_team",
+            "source_invalidated",
+        ]
+    )
+    def test_worker_rechecks_source_and_operator_access_before_judging(self, revoked: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        self.user.is_staff = False
-        self.user.save(update_fields=["is_staff"])
-        judge = AsyncMock()
-        with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
+        if revoked == "staff_revoked":
+            self.user.is_staff = False
+            self.user.save(update_fields=["is_staff"])
+        elif revoked == "inactive":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif revoked == "membership_revoked":
+            self.user.organization_memberships.filter(organization_id=self.organization.id).delete()
+        elif revoked == "project_revoked":
+            self.enterContext(
+                patch(
+                    "products.access_control.backend.facade.user_access_control.UserAccessControl.has_project_access",
+                    new_callable=PropertyMock,
+                    return_value=False,
+                )
+            )
+        elif revoked == "historical_skill_removed":
+            self.skill.delete()
+            LLMSkill.objects.create(
+                team=self.team,
+                name=self.skill.name,
+                version=2,
+                body="Updated synthetic instructions.",
+                allowed_tools=["emit_report"],
+            )
+        elif revoked == "source_skill":
+            self.scout_run.skill_name = "signals-scout-other"
+            self.scout_run.save(update_fields=["skill_name"])
+        elif revoked == "source_config_team":
+            self.config.team = Team.objects.create(organization=self.organization, name="Other synthetic project")
+            self.config.save(update_fields=["team"])
+        else:
+            ScoutTrialStore(self.scout_run).invalidate("Synthetic invalidation", allow_terminal=True)
+
+        with (
+            patch(f"{JUDGE_MODULE}.get_or_create_signals_sandbox_env", return_value=None),
+            patch(f"{JUDGE_MODULE}.MultiTurnSession.start", new_callable=AsyncMock) as start,
+        ):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
-        judge.assert_not_called()
-        self.user.is_staff = True
-        self.user.save(update_fields=["is_staff"])
-        assert finish_trial_evaluation(self.team.id, snapshot.evaluation_id).runs[0].status == "judge_error"
+        start.assert_not_awaited()
+        judgment = TrialRunJudgment.model_validate_json(
+            self.documents[
+                f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/runs/{self.launch.id}.json"
+            ]
+        )
+        assert judgment.status == "judge_error"
 
     @parameterized.expand(["before_start", "during_judging"])
     def test_flag_disable_preserves_unstarted_attempts_and_active_results(self, timing: str) -> None:

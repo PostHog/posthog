@@ -75,6 +75,7 @@
     'posthog.tasks.email.send_two_factor_auth_disabled_email',
     'posthog.tasks.email.send_two_factor_auth_enabled_email',
     'posthog.tasks.email.send_two_factor_reset_email',
+    'posthog.tasks.email.send_warehouse_destination_paused',
     'posthog.tasks.email.send_wizard_pr_ready_email',
     'posthog.tasks.email.send_workflow_email_sending_paused',
     'posthog.tasks.email.send_workflow_email_sending_warning',

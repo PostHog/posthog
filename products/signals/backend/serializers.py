@@ -28,7 +28,7 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     scope_ids_problem,
 )
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, SourceSuggestion, priority_from_judgment
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
@@ -71,6 +71,7 @@ from .models import (
     SignalUserAutonomyConfig,
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
+from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
@@ -1141,6 +1142,16 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
 
 
+class ReportSourceSuggestionSerializer(serializers.Serializer):
+    product = serializers.ChoiceField(
+        choices=SuggestedSourceProduct.choices,
+        help_text="The product the team does not use and could turn on to give reports like this one better evidence.",
+    )
+    reason = serializers.CharField(
+        help_text="One sentence on what the product would have shown for this report.",
+    )
+
+
 class ReportRankingSerializer(serializers.Serializer):
     served_key = serializers.CharField(
         help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
@@ -1163,6 +1174,12 @@ class ReportRankingSerializer(serializers.Serializer):
     readable_heads = serializers.ListField(
         child=serializers.CharField(),
         help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+    )
+    stale = serializers.BooleanField(
+        help_text=(
+            "True when the report's title or summary was edited after the text this score read. The score "
+            "describes the old text: the inbox hides its lift and the model sort treats the report as unscored."
+        ),
     )
 
 
@@ -1294,6 +1311,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "other users, and null when the report has no score."
         ),
     )
+    source_suggestion = serializers.SerializerMethodField(
+        help_text=(
+            "A product the team does not use that would have given this report better evidence, from the "
+            "latest source suggestion artefact. Null when there is none, or when the team now uses the "
+            "product. Always null in list responses, because its in-use check can query ClickHouse."
+        ),
+    )
     collapsed_note_count = serializers.SerializerMethodField(
         help_text=(
             "How many scout notes this report received beyond the few its work log keeps as entries. "
@@ -1320,6 +1344,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "charts",
             "metrics",
             "suggested_prompts",
+            "source_suggestion",
             "priority",
             "actionability",
             "already_addressed",
@@ -1480,6 +1505,16 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
+        prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
+        if prefetched_edits is not None:
+            latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
+        else:
+            latest_edit_at = (
+                obj.artefacts.filter(type__in=EDIT_ARTEFACT_TYPES)
+                .order_by("-created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
@@ -1501,6 +1536,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "scores": served.scores,
             "lifts": lifts,
             "readable_heads": readable_heads,
+            "stale": is_stale_score(score, latest_edit_at),
         }
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
@@ -1611,6 +1647,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if report_id not in claims:
             claims[report_id] = get_active_claim(team_id=obj.team_id, report_id=report_id)
         return claims[report_id]
+
+    @extend_schema_field(ReportSourceSuggestionSerializer(allow_null=True))
+    def get_source_suggestion(self, obj: SignalReport) -> dict | None:
+        suggestions_map: dict[str, SourceSuggestion | None] = self.context.get("source_suggestions_map", {})
+        suggestion = suggestions_map.get(str(obj.id))
+        return suggestion.model_dump(mode="json") if suggestion else None
 
     def get_collapsed_note_count(self, obj: SignalReport) -> int:
         return max(0, (obj.corroboration_count or 0) - MAX_SCOUT_REPORT_NOTES)
@@ -2439,7 +2481,7 @@ _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
     + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
-    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new "
+    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."
 )
 

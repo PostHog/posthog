@@ -52,7 +52,7 @@ class JobNimbusSource(ResumableSource[JobNimbusSourceConfig, JobNimbusResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your JobNimbus API key to pull your CRM data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API** in [JobNimbus](https://app.jobnimbus.com). The key grants access to your contacts, jobs, tasks, activities, estimates, payments, users, and account settings.
+You can create an API key under **Settings → API** in [JobNimbus](https://app.jobnimbus.com). The key grants access to your contacts, jobs, tasks, activities, estimates, invoices, payments, budgets, products, users, groups, and account settings.
 """,
             iconPath="/static/services/jobnimbus.png",
             docsUrl="https://posthog.com/docs/cdp/sources/jobnimbus",

@@ -21,6 +21,7 @@ import {
     HogQLFilters,
     HogQLQuery,
     HogQLVariable,
+    MetricsQuery,
     Node,
     NodeKind,
     ProductItemCategory,
@@ -49,6 +50,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import {
     ActionType,
     AnnotationType,
+    AnyPropertyFilter,
     DashboardType,
     FileSystemIconColor,
     InsightSceneSource,
@@ -65,7 +67,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
-    '/ai-gateway': ['AIGateway', 'aiGateway'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
@@ -106,13 +107,17 @@ export const productRoutes: Record<string, [string, string]> = {
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
     '/alerts': ['Alerts', 'alerts'],
+    '/platform-alerts': ['PlatformAlerts', 'platformAlerts'],
+    '/platform-alerts/:id': ['PlatformAlert', 'platformAlert'],
     '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
-    '/bi': ['BusinessIntelligence', 'businessIntelligence'],
+    '/bi': ['BusinessIntelligenceHome', 'businessIntelligence'],
+    '/bi/new': ['BusinessIntelligence', 'businessIntelligenceNew'],
+    '/bi/:insightShortId': ['BusinessIntelligence', 'businessIntelligenceWorksheet'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
@@ -254,11 +259,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
     '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
-    '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
     '/inbox': ['Inbox', 'inbox'],
-    '/scout-trials': ['ScoutTrials', 'scoutTrials'],
+    '/inbox/scout-trials': ['ScoutTrials', 'scoutTrials'],
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
     '/inbox/scouts/findings': ['Inbox', 'inbox'],
@@ -492,8 +496,9 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
-    '/replay-vision/templates': '/replay-vision/new/template',
     '/replay/vision': '/replay-vision',
+    '/scout-trials': (_params, searchParams, hashParams) =>
+        combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
@@ -518,13 +523,6 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
-    AIGateway: {
-        projectBased: true,
-        name: 'AI gateway',
-        description: 'Every major LLM through one endpoint, billed at cost \u2014 usage tracked per project.',
-        layout: 'app-container',
-        iconType: 'ai_gateway',
-    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -646,6 +644,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
+    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
         name: 'Precompute debug',
@@ -668,6 +668,7 @@ export const productConfiguration: Record<string, any> = {
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
     AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
+    BusinessIntelligenceHome: { name: 'Worksheets', projectBased: true, iconType: 'business_intelligence' },
     BusinessIntelligence: {
         name: 'Business intelligence',
         projectBased: true,
@@ -1227,7 +1228,6 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
-    aiGateway: (): string => '/ai-gateway',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
@@ -1313,12 +1313,16 @@ export const productUrls = {
         `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
     alerts: (): string => '/alerts',
+    platformAlerts: (): string => '/platform-alerts',
+    platformAlert: (id: string): string => `/platform-alerts/${id}`,
     precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
+    businessIntelligenceNew: (): string => '/bi/new',
+    businessIntelligenceWorksheet: (insightShortId: string): string => `/bi/${encodeURIComponent(insightShortId)}`,
     businessIntelligence: ({
         insightShortId,
         viewId,
@@ -1390,6 +1394,7 @@ export const productUrls = {
     warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
         `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
     dashboards: (): string => '/dashboard',
+    dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
@@ -1567,12 +1572,14 @@ export const productUrls = {
         template,
         intent,
         format,
+        properties,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
+        properties?: AnyPropertyFilter[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1589,6 +1596,9 @@ export const productUrls = {
         }
         if (format) {
             params.set('format', format)
+        }
+        if (properties?.length) {
+            params.set('properties', JSON.stringify(properties))
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -1748,7 +1758,6 @@ export const productUrls = {
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
-    replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
@@ -1761,7 +1770,7 @@ export const productUrls = {
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
     inboxRuns: (): string => '/inbox/scouts/runs',
-    inboxScoutTrials: (): string => '/scout-trials',
+    inboxScoutTrials: (): string => '/inbox/scout-trials',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1915,6 +1924,13 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.insightView(ref as InsightShortId),
         listHref: () => urls.savedInsights(),
         iconColor: ['var(--color-product-product-analytics-light)'],
+        filterKey: 'insight',
+    },
+    'insight/bi': {
+        name: 'Worksheet',
+        iconType: 'business_intelligence',
+        href: (ref: string) => urls.businessIntelligenceWorksheet(ref),
+        listHref: () => urls.businessIntelligence(),
         filterKey: 'insight',
     },
     notebook: {
@@ -2082,6 +2098,17 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/Metrics`,
+        type: 'insight',
+        href: urls.insightNew({
+            query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
+        }),
+        flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
+        iconType: 'metrics',
+        visualOrder: INSIGHT_VISUAL_ORDER.metrics,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Retention`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.RETENTION }),
@@ -2141,11 +2168,18 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconType: 'survey',
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
+    {
+        path: 'Worksheet',
+        type: 'insight',
+        iconType: 'business_intelligence',
+        href: `${urls.businessIntelligenceNew()}#q=`,
+        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
+        sceneKeys: ['BusinessIntelligence', 'BusinessIntelligenceHome'],
+    },
 ]
 
 /** This const is auto-generated, as is the whole file */
 export type ProductTreePath =
-    | 'AI gateway'
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
@@ -2199,19 +2233,6 @@ export type ProductTreePath =
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
-        path: 'AI gateway',
-        intents: [ProductKey.AI_GATEWAY],
-        category: ProductItemCategory.AI_ENGINEERING,
-        type: 'ai_gateway',
-        iconType: 'ai_gateway' as FileSystemIconType,
-        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
-        href: urls.aiGateway(),
-        flag: FEATURE_FLAGS.AI_GATEWAY,
-        tags: ['alpha'],
-        sceneKey: 'AIGateway',
-        sceneKeys: ['AIGateway'],
-    },
-    {
         path: 'Apps',
         intents: [ProductKey.STREAMLIT_APPS],
         href: urls.streamlitApps(),
@@ -2258,7 +2279,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.businessIntelligence(),
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
-        sceneKeys: ['BusinessIntelligence'],
+        sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
     },
     {
         path: 'Business knowledge',
@@ -2365,7 +2386,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Relationships', href: urls.dataCatalog('relationships') },
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
-        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
@@ -3122,7 +3142,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_modeling',
         iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
         href: urls.models(),
-        searchKeywords: ['materialized views', 'materialization'],
+        searchKeywords: ['materialized views', 'materialization', 'data modeling'],
         searchTabs: [
             { name: 'Lineage', href: urls.models('lineage') },
             {

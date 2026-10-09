@@ -1029,6 +1029,7 @@ export interface featureFlagLogicValues {
     >
     featureFlagHasErrors: boolean
     featureFlagKey: string
+    featureFlagLoadFailed: boolean
     featureFlagLoading: boolean
     featureFlagManualErrors: Record<string, any>
     featureFlagMissing: boolean
@@ -1685,6 +1686,9 @@ export interface featureFlagLogicActions {
         errors: any
         filters: FeatureFlagFilters
     }
+    setFeatureFlagLoadFailed: () => {
+        value: true
+    }
     setFeatureFlagManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -2312,6 +2316,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFeatureFlagFilters: (filters: FeatureFlagFilters, errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
+        setFeatureFlagLoadFailed: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         // The rules v2 editor keeps its draft in its own logic; this mirrors whether it has unsaved edits.
@@ -2711,7 +2716,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setSelectedTab: (_, { tab }) => tab,
             },
         ],
-        featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
+        featureFlagMissing: [false, { setFeatureFlagMissing: () => true, loadFeatureFlagSuccess: () => false }],
+        // A retry does not clear this, so the retry banner stays mounted and shows its spinner.
+        featureFlagLoadFailed: [
+            false,
+            {
+                setFeatureFlagLoadFailed: () => true,
+                setFeatureFlagMissing: () => false,
+                setAccessDeniedToFeatureFlag: () => false,
+                loadFeatureFlagSuccess: () => false,
+            },
+        ],
         isEditingFlag: [
             false,
             {
@@ -3097,13 +3112,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
 
+                // Only a 404 means the flag is gone. Any other failure says nothing about whether the
+                // flag exists, so a page with no server state yet gets a retry banner instead.
+                const getFlag = async (fetchFlag: () => Promise<FeatureFlagType>): Promise<FeatureFlagType> => {
+                    try {
+                        return await fetchFlag()
+                    } catch (e: any) {
+                        if (isAccessDeniedError(e)) {
+                            actions.setAccessDeniedToFeatureFlag()
+                        } else if (e?.status === 404) {
+                            actions.setFeatureFlagMissing()
+                        } else if (!values.originalFeatureFlag) {
+                            actions.setFeatureFlagLoadFailed()
+                        }
+                        throw e
+                    }
+                }
+
                 // Used when "duplicating a feature flag". This populates the form with the source flag's data.
                 const sourceFlag =
                     props.id === 'new' && sourceId
-                        ? ((await featureFlagsRetrieve(
-                              String(values.currentProjectId),
-                              Number(sourceId)
-                          )) as unknown as FeatureFlagType)
+                        ? await getFlag(
+                              async () =>
+                                  (await featureFlagsRetrieve(
+                                      String(values.currentProjectId),
+                                      Number(sourceId)
+                                  )) as unknown as FeatureFlagType
+                          )
                         : null
                 if (sourceFlag && !isV1FeatureFlagConfig(sourceFlag.filters)) {
                     // The form edits only v1 documents, so a duplicate link to another version starts a blank flag.
@@ -3141,30 +3176,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
 
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
-                    try {
-                        // Get the flag first to check if it has an experiment
-                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
+                    // Get the flag first to check if it has an experiment
+                    const flagId = props.id
+                    const retrievedFlag = await getFlag(
+                        async () =>
+                            (await featureFlagsRetrieve(
+                                String(values.currentProjectId),
+                                flagId
+                            )) as unknown as FeatureFlagType
+                    )
 
-                        // If there's an experiment, load it concurrently before returning to prevent UI flicker
-                        if (retrievedFlag.experiment_set && retrievedFlag.experiment_set.length > 0) {
-                            try {
-                                const experiment = await api.experiments.get(retrievedFlag.experiment_set[0])
-                                actions.loadExperimentSuccess(experiment)
-                            } catch (error) {
-                                // If experiment load fails, don't block the flag from loading
-                                console.warn('Failed to load experiment:', error)
-                            }
+                    // If there's an experiment, load it concurrently before returning to prevent UI flicker
+                    if (retrievedFlag.experiment_set && retrievedFlag.experiment_set.length > 0) {
+                        try {
+                            const experiment = await api.experiments.get(retrievedFlag.experiment_set[0])
+                            actions.loadExperimentSuccess(experiment)
+                        } catch (error) {
+                            // If experiment load fails, don't block the flag from loading
+                            console.warn('Failed to load experiment:', error)
                         }
-
-                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch (e: any) {
-                        if (isAccessDeniedError(e)) {
-                            actions.setAccessDeniedToFeatureFlag()
-                        } else {
-                            actions.setFeatureFlagMissing()
-                        }
-                        throw e
                     }
+
+                    return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                 }
                 // For new flags, load default evaluation contexts and set default tags
                 if (props.id === 'new') {
@@ -3194,6 +3227,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                     ),
                                 },
                             }
+                        }
+                    }
+
+                    const prefilledProperties = router.values.searchParams.properties
+                    if (Array.isArray(prefilledProperties) && prefilledProperties.length > 0) {
+                        baseFlagConfig = {
+                            ...baseFlagConfig,
+                            filters: {
+                                ...baseFlagConfig.filters,
+                                groups: [{ properties: prefilledProperties, rollout_percentage: 100, variant: null }],
+                                aggregation_group_type_index: null,
+                            },
                         }
                     }
 
@@ -4062,6 +4107,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
 
+            // initKea only toasts errors that carry a status, so a request that never reached the
+            // server needs its own toast.
+            if (errorObject?.status === undefined) {
+                posthog.capture('feature flag save failed', { reason: errorObject?.name ?? null })
+                // A form save retries through the form, so edits made after this failure are saved too.
+                // Other saves (sidebar tags) are not in the working copy, so they resend their payload.
+                const isFormSave = values.isEditingFlag || props.id === 'new'
+                const failedPayload = cache.lastSaveAttempt
+                lemonToast.error("We couldn't save this feature flag. Your changes are still here.", {
+                    button: {
+                        label: 'Try again',
+                        action: () =>
+                            isFormSave ? actions.submitFeatureFlag() : actions.saveFeatureFlag(failedPayload),
+                    },
+                })
+                return
+            }
+
             if (errorObject?.code !== 'unique' || errorObject?.attr !== 'key') {
                 return
             }
@@ -4215,9 +4278,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             toast.dismiss(agentChangeToastId(props.id))
             cache.agentRefreshFailedAttempt = (cache.agentRefreshFailedAttempt ?? 0) + 1
             cache.agentRefreshFailedToastId = agentRefreshFailedToastId(props.id, cache.agentRefreshFailedAttempt)
-            // The button retries this refresh rather than running the full loader, which marks the
-            // flag missing on any error except access denied. Nothing resets that state, so the scene
-            // would show Not Found over the flag and any unsaved edits until it remounts.
+            // The button retries this refresh rather than running the full loader, because the full
+            // loader replaces the working copy and discards any unsaved edits.
             lemonToast.error(
                 'PostHog AI changed this flag, but the page could not load the new values. It still shows the old ones.',
                 {
@@ -4302,6 +4364,41 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } else {
                 actions.setMultivariateOptions(null)
             }
+        },
+        loadFeatureFlagFailure: ({ errorObject }) => {
+            // Count each dead end once per mount, because a retry that fails again is the same dead end.
+            if (values.featureFlagMissing) {
+                if (!cache.hasCapturedFlagMissing) {
+                    cache.hasCapturedFlagMissing = true
+                    posthog.capture('feature flag not found')
+                }
+                return
+            }
+            if (values.featureFlagLoadFailed) {
+                if (!cache.hasCapturedFlagLoadFailure) {
+                    cache.hasCapturedFlagLoadFailure = true
+                    // `status` separates a transport failure (no status) from a server one.
+                    posthog.capture('feature flag load failed', { status: errorObject?.status ?? null })
+                }
+                return
+            }
+            if (values.accessDeniedToFeatureFlag) {
+                return
+            }
+            // A reload of a flag already on screen failed, and initKea does not toast this action.
+            // kea-loaders keeps the previous working copy, so after Cancel it still shows the
+            // discarded edits as if they were saved.
+            lemonToast.error("We couldn't reload this feature flag. The page may not show its saved version.", {
+                toastId: `feature-flag-reload-failed-${props.id}`,
+                button: {
+                    label: 'Try again',
+                    action: () => actions.loadFeatureFlag(),
+                },
+            })
+        },
+        // The payload a non-form save retries with. Read in saveFeatureFlagFailure.
+        saveFeatureFlag: (updatedFlag) => {
+            cache.lastSaveAttempt = updatedFlag
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
             dismissAgentNotices(props.id, cache)
@@ -5377,6 +5474,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
+                    // When there are properties, we load the feature flag (for prefilling a release condition)
+                    if (props.id === 'new' && searchParams.properties != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
                     // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
                     if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
                         return
@@ -5414,7 +5516,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (router.values.searchParams.sourceId ||
                 router.values.searchParams.type ||
                 router.values.searchParams.template ||
-                router.values.searchParams.intent)
+                router.values.searchParams.intent ||
+                router.values.searchParams.properties)
         ) {
             actions.loadFeatureFlag()
             return

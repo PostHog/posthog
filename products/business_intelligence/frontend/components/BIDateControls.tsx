@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -24,7 +24,7 @@ export function BIDateControls(): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1" data-attr="bi-editor-date-controls">
             <LemonSelect
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 value={dateField?.expression ?? null}
                 options={[
@@ -40,7 +40,7 @@ export function BIDateControls(): JSX.Element {
                 data-attr="bi-editor-date-field"
             />
             <DateFilter
-                size="small"
+                size="xsmall"
                 type="tertiary"
                 dateFrom={config.dateRange?.date_from ?? 'all'}
                 dateTo={config.dateRange?.date_to ?? null}
@@ -59,7 +59,15 @@ export function BIDateControls(): JSX.Element {
                     </>
                 )}
             />
+            <LemonSwitch
+                label="Compare previous period"
+                checked={!!config.compareFilter?.compare && !config.compareFilter.compare_to}
+                onChange={(compare) => setCompareFilter({ compare })}
+                disabledReason={getBIComparisonDisabledReason(config)}
+                size="small"
+            />
             <CompareFilter
+                size="xsmall"
                 compareFilter={config.compareFilter}
                 updateCompareFilter={setCompareFilter}
                 disableReason={getBIComparisonDisabledReason(config)}

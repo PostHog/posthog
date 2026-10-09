@@ -1726,8 +1726,29 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
             OpenApiParameter(
                 name="insight",
-                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "JOURNEYS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
-                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+                enum=[
+                    "TRENDS",
+                    "FUNNELS",
+                    "RETENTION",
+                    "PATHS",
+                    "JOURNEYS",
+                    "STICKINESS",
+                    "LIFECYCLE",
+                    "JSON",
+                    "SQL",
+                    "BI",
+                ],
+                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.",
+            ),
+            OpenApiParameter(
+                name="exclude_bi",
+                type=OpenApiTypes.BOOL,
+                description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="order",
+                type=OpenApiTypes.STR,
+                description="Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.",
             ),
             OpenApiParameter(
                 name="date_from",
@@ -2084,6 +2105,9 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "exclude_bi":
+                if str_to_bool(request.GET["exclude_bi"]):
+                    queryset = queryset.exclude(query__kind="BIVisualizationNode")
             elif key == "hide_feature_flag_insights":
                 if str_to_bool(request.GET["hide_feature_flag_insights"]):
                     from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
@@ -2109,7 +2133,9 @@ class InsightViewSet(
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }
-                if insight == "JSON":
+                if insight == "BI":
+                    queryset = queryset.filter(query__kind="BIVisualizationNode")
+                elif insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
                     queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                     queryset = queryset.exclude(

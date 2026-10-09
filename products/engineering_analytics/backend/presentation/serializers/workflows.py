@@ -26,17 +26,16 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
-    ci_engine_field,
 )
 
 
 class WorkflowRunDetailSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
     class Meta:
         dataclass = WorkflowRunDetail
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
             "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
             "id": {"help_text": "Integer run id; unique only together with ci_engine."},
@@ -81,11 +80,10 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
 
 
 class WorkflowRunActivityPointSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Integer run id; unique only together with ci_engine."},
             "conclusion": {
                 "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
@@ -123,11 +121,10 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
 
 
 class WorkflowJobSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "native_attempt_id": {"help_text": "Source-native attempt id; use with ci_engine for identity."},
             "native_job_id": {"help_text": "Source-native job id; use with ci_engine for identity."},
             "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
@@ -194,7 +191,6 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
 
 
 class WorkflowHealthItemSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
     buckets = WorkflowHealthBucketSerializer(
         many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
@@ -203,6 +199,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = WorkflowHealthItem
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
             "run_count": {"help_text": "Total runs started in the window."},
             "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
@@ -668,12 +665,12 @@ class CurrentBranchHealthSerializer(DataclassSerializer):
 
 
 class MasterFailureGroupSerializer(DataclassSerializer):
-    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
 
     class Meta:
         dataclass = MasterFailureGroup
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
             "failed_job": {
                 "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure "
@@ -688,7 +685,6 @@ class MasterFailureGroupSerializer(DataclassSerializer):
 
 
 class RunFailureLogsSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
     )
@@ -696,6 +692,7 @@ class RunFailureLogsSerializer(DataclassSerializer):
     class Meta:
         dataclass = RunFailureLogs
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Workflow run id the failure logs are for."},
             "logs_available": {
                 "help_text": "False when no failure logs were found: the run didn't fail, or its logs aged out of "

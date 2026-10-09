@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import RowFilterColumn
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
@@ -211,6 +212,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         return self.history_lookback
 
+    def row_filter_columns_for_schema(self, schema_name: str) -> tuple["RowFilterColumn", ...] | None:
+        """The columns a row filter on one schema may use, or None for every column of the table.
+
+        Override in a source whose API filters on a fixed set of fields. An empty tuple means the
+        schema accepts no row filter. Only read when `supports_row_filters` is True.
+        """
+        return None
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -388,6 +397,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(job_inputs)
 
+    def serialize_config(self, config: ConfigType) -> dict[str, Any]:
+        """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
+        return config.to_dict()
+
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         return None
@@ -434,6 +447,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    def is_unreachable_validation_error(self, error: str) -> bool:
+        """Whether a ``validate_credentials`` message means only that the host could not be reached
+        over the network. The update serializer may then save the change with a warning for a team
+        that uses internal hosts, because the API can lack a network path that the workers have. A
+        message that reports rejected credentials or a rejected config must return ``False``.
+        Default: no message qualifies."""
+        return False
 
     def server_managed_job_input_fields(
         self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]

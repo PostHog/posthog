@@ -359,6 +359,34 @@ export interface ReportMetricListApi {
     minimum_data_points?: number | null
 }
 
+/**
+ * * `logs` - Logs
+ * * `session_replay` - Session replay
+ * * `error_tracking` - Error tracking
+ * * `llm_analytics` - AI observability
+ */
+export type SuggestedSourceProductEnumApi =
+    (typeof SuggestedSourceProductEnumApi)[keyof typeof SuggestedSourceProductEnumApi]
+
+export const SuggestedSourceProductEnumApi = {
+    Logs: 'logs',
+    SessionReplay: 'session_replay',
+    ErrorTracking: 'error_tracking',
+    LlmAnalytics: 'llm_analytics',
+} as const
+
+export interface ReportSourceSuggestionApi {
+    /** The product the team does not use and could turn on to give reports like this one better evidence.
+     *
+     * * `logs` - Logs
+     * * `session_replay` - Session replay
+     * * `error_tracking` - Error tracking
+     * * `llm_analytics` - AI observability */
+    product: SuggestedSourceProductEnumApi
+    /** One sentence on what the product would have shown for this report. */
+    reason: string
+}
+
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -605,6 +633,8 @@ export interface ReportRankingApi {
     lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
+    /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+    stale: boolean
 }
 
 export interface SignalReportListApi {
@@ -630,6 +660,8 @@ export interface SignalReportListApi {
     readonly metrics: readonly ReportMetricListApi[]
     /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
     readonly suggested_prompts: readonly string[]
+    /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
+    readonly source_suggestion: ReportSourceSuggestionApi | null
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
@@ -849,6 +881,8 @@ export interface SignalReportApi {
     readonly metrics: readonly ReportMetricApi[]
     /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
     readonly suggested_prompts: readonly string[]
+    /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
+    readonly source_suggestion: ReportSourceSuggestionApi | null
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
@@ -2599,6 +2633,7 @@ export interface SignalReportStateRequestApi {
  * * `implementation_handover` - Implementation Handover
  * * `ranking_score` - Ranking Score
  * * `impact_measurement_plan` - Impact Measurement Plan
+ * * `source_suggestion` - Source Suggestion
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2636,6 +2671,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     ImplementationHandover: 'implementation_handover',
     RankingScore: 'ranking_score',
     ImpactMeasurementPlan: 'impact_measurement_plan',
+    SourceSuggestion: 'source_suggestion',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
@@ -2692,7 +2728,7 @@ export interface PaginatedSignalReportArtefactListApi {
 export interface SignalReportArtefactLogCreateApi {
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -5659,21 +5695,21 @@ export const ScoutRubricReportChannelEnumApi = {
 } as const
 
 export interface ScoutRubricReferenceTextDocumentApi {
-    /** Path of the reference supplied to the generator. */
+    /** Path of the captured reference file. */
     path: string
-    /** Content type of the supplied reference. */
+    /** Content type of the captured reference file. */
     content_type: string
-    /** Exact reference text supplied to the generator. */
+    /** Saved reference text used for judging. */
     content: string
 }
 
 export interface ScoutRubricReferenceLimitsDocumentApi {
     /**
-     * Number of reference files not supplied.
+     * Number of files missing from the saved reference.
      * @minimum 0
      */
     omitted_files: number
-    /** Reference paths whose supplied content was truncated. */
+    /** Paths of files truncated in the saved reference. */
     truncated_files: string[]
 }
 
@@ -5686,11 +5722,11 @@ export interface ScoutRubricReferenceContextDocumentApi {
     skill_name: string
     /** Skill version used for generation. */
     skill_version: number
-    /** Scout description supplied to the generator. */
+    /** Scout description captured for this reference. */
     description: string
-    /** Exact instructions supplied to the generator. */
+    /** Saved scout instructions used for judging. */
     instructions: string
-    /** Whether the supplied instructions were truncated. */
+    /** Whether the saved instructions were truncated. */
     instructions_truncated: boolean
     /** Report capabilities used to select the source rules.
      *
@@ -5699,15 +5735,15 @@ export interface ScoutRubricReferenceContextDocumentApi {
      * * `edit` - Edit
      * * `both` - Both */
     report_channel: ScoutRubricReportChannelEnumApi
-    /** Exact report-disposition rules supplied to the generator. */
+    /** Report-disposition rules captured for this reference. */
     report_disposition_instructions: string
-    /** Reference-file inventory supplied to the generator. */
+    /** Reference-file inventory captured for this reference. */
     reference_files: string[]
     /** Whether the reference-file inventory was truncated. */
     reference_files_truncated: boolean
-    /** Reference texts supplied to the generator. */
+    /** Saved reference texts used for judging. */
     reference_texts: ScoutRubricReferenceTextDocumentApi[]
-    /** Limits on the supplied reference texts. */
+    /** Missing or truncated text in the saved reference. */
     reference_limits: ScoutRubricReferenceLimitsDocumentApi
 }
 

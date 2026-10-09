@@ -2,7 +2,7 @@ import { CSSProperties, useMemo } from 'react'
 import { List } from 'react-window'
 
 import { IconChevronDown, IconChevronRight, IconMinusSmall, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -32,6 +32,8 @@ interface FacetProps {
     dimZeroCounts?: boolean
     /** The facet's latest fetch failed — show an inline error instead of pretending the list is fresh (suppresses emptyLabel). */
     error?: boolean
+    /** Renders a Retry link next to the error message. */
+    onRetry?: () => void
     /** When set, renders a remove control in the header — for user-added custom facets only. */
     onRemove?: () => void
     /** Disables the remove control (with this explanation) while a custom-facet update is in flight. */
@@ -67,10 +69,12 @@ export function Facet({
     maxHeight,
     dimZeroCounts = false,
     error = false,
+    onRetry,
     onRemove,
     removeDisabledReason,
 }: FacetProps): JSX.Element {
     const slug = slugify(title)
+    const errorMessage = options.length > 0 ? "Couldn't refresh values." : "Couldn't load values."
 
     const rowProps = useMemo<FacetValueRowProps>(
         () => ({ options, selected, excluded, slug, onToggle, dimZeroCounts }),
@@ -89,12 +93,12 @@ export function Facet({
                 >
                     {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     <span className="truncate">{title}</span>
+                    {error && !loading && (
+                        <Tooltip title={collapsed ? `${errorMessage} Expand to retry.` : errorMessage}>
+                            <IconWarning className="shrink-0 text-xs text-danger" />
+                        </Tooltip>
+                    )}
                 </button>
-                {error && !loading && (
-                    <Tooltip title="Couldn't load values. Change the filters or expand the facet to retry.">
-                        <IconWarning className="text-danger shrink-0" />
-                    </Tooltip>
-                )}
                 {onRemove && (
                     <LemonButton
                         size="small"
@@ -120,8 +124,13 @@ export function Facet({
             )}
             {/* A failed fetch shows inline (options may be stale-but-usable below) rather than blanking the facet. */}
             {!collapsed && error && !loading && (
-                <div className="px-1 pb-1 text-xs text-danger" data-attr={`tracing-facet-${slug}-error`}>
-                    Couldn't load values
+                <div className="px-1 pb-1 text-xs text-secondary" data-attr={`tracing-facet-${slug}-error`}>
+                    {errorMessage}{' '}
+                    {onRetry && (
+                        <Link onClick={onRetry} data-attr={`tracing-facet-${slug}-retry`}>
+                            Retry
+                        </Link>
+                    )}
                 </div>
             )}
             {!collapsed &&

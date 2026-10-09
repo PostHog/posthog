@@ -130,6 +130,7 @@ class Scd2DeltaWriter:
                 storage_options=storage_options,
                 configuration=DELTA_TABLE_PROPERTIES,
             )
+            self._table.adopt_created_table(delta_table)
 
         await asyncio.to_thread(
             deltalake.write_deltalake,

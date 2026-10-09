@@ -48,7 +48,7 @@ class LinodeSource(ResumableSource[LinodeSourceConfig, LinodeResumeConfig]):
             caption="""Enter your Linode (Akamai Connected Cloud) personal access token to pull your account data into the PostHog Data warehouse.
 
 Create a personal access token in the [Linode Cloud Manager](https://cloud.linode.com/profile/tokens). Grant **read-only** access to the resources you want to sync:
-- Account (invoices, payments, events, users)
+- Account (invoices, invoice items, payments, network transfer, events, users)
 - Linodes
 - Volumes
 - NodeBalancers

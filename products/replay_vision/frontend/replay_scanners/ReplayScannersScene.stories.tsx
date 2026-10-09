@@ -71,7 +71,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
-        created_at: '2026-05-12T00:00:00Z',
+        // Older than the Overview's 14-day default, so its range matches the 14 days in the trend mock.
+        created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
         credits_this_month: 0,
@@ -415,6 +416,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             signals_count: 0,
         },
         prompt_question: null,
+        prompt_valence: null,
         triggered_by: 'schedule',
         triggered_by_user: null,
         distinct_id: 'user_8f3k2j',
@@ -431,9 +433,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
                 id: '00000000-0000-0000-0000-0000000000f1',
                 kind: 'thumbnail',
                 asset_id: 4001,
-                description: null,
                 video_start_ms: 24000,
-                video_end_ms: null,
             },
         ],
         ...overrides,
@@ -558,6 +558,7 @@ const observationDetail = observation({
 // keep the one-paragraph reasoning most scans produce.
 const monitorObservationDetail = observation({
     prompt_question: 'Did the user struggle to complete checkout?',
+    prompt_valence: 'bad',
     id: '00000000-0000-0000-0000-0000000000d2',
     session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
     recording_subject_email: 'bob@example.com',
@@ -1073,7 +1074,9 @@ const meta: Meta = {
 }
 export default meta
 
-export const ScannersList: StoryObj = {}
+export const ScannersList: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+}
 
 // A project that has never created a scanner: the surface of the empty-state experiment.
 const emptyProjectDecorators = [
@@ -1098,39 +1101,19 @@ const emptyProjectDecorators = [
 
 export const ScannersListEmpty: StoryObj = {
     decorators: emptyProjectDecorators,
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
 }
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home-redesign experiment's test arm lands on the What to watch feed.
-export const HomeWatchFeed: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
-}
+// The home page lands on the What to watch feed.
+export const HomeWatchFeed: StoryObj = {}
 
-const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
-
-// The same feed as thumbnail cards, each closing with why the recording was picked.
-export const HomeWatchFeedGrid: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
-    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
-    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
-    // later feed story renders as a grid too.
-    beforeEach: () => {
-        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
-        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
-    },
-}
-
-// The jev ranker arm serves the simplified card: the scan's own sentence plus a scanner chip and
-// person line, with the question and verdict behind the chip's tooltip. The first card leads with
-// the scan's notability sentence, the second falls back to the derived headline, and the filler
-// row reads muted with no finding claim.
+// The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
+// first row leads with the scan's notability sentence, the second falls back to the derived headline,
+// and the filler row reads muted with no finding claim or reason.
 export const HomeWatchFeedJevArm: StoryObj = {
     decorators: [
         mswDecorator({
@@ -1169,6 +1152,7 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 jev_probability: 0.91,
                                 notability_reason:
                                     'The card form rejected a valid card three times before the user abandoned the checkout.',
+                                watch_reason: 'visible_error',
                             },
                         },
                         {
@@ -1196,7 +1180,7 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 },
                                 viewed: true,
                             }),
-                            reason: { kind: 'jev_watchable', jev_probability: 0.48 },
+                            reason: { kind: 'jev_watchable', jev_probability: 0.48, watch_reason: 'success' },
                         },
                         {
                             observation: observation({ id: '00000000-0000-0000-0000-0000000000e3' }),
@@ -1207,9 +1191,6 @@ export const HomeWatchFeedJevArm: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
@@ -1227,9 +1208,6 @@ export const HomeWatchFeedOnlyNewest: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const HomeWatchFeedEmpty: StoryObj = {
@@ -1238,9 +1216,6 @@ export const HomeWatchFeedEmpty: StoryObj = {
             get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const SummarizerOverview: StoryObj = {
@@ -1478,21 +1453,24 @@ const classifierObservationDetail = observationDetailFor(
     'Which friction patterns appear in this session?'
 )
 
-const scorerObservationDetail = observationDetailFor(
-    {
-        ...scorerOverviewScanner,
-        scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
-    },
-    '00000000-0000-0000-0000-0000000000d5',
-    {
-        score: 8.5,
-        label: 'buying intent',
-        confidence: 0.41,
-        reasoning:
-            'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
-    },
-    'How strong is the buying intent in this session?'
-)
+const scorerObservationDetail: ReplayObservationApi = {
+    ...observationDetailFor(
+        {
+            ...scorerOverviewScanner,
+            scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
+        },
+        '00000000-0000-0000-0000-0000000000d5',
+        {
+            score: 8.5,
+            label: 'buying intent',
+            confidence: 0.41,
+            reasoning:
+                'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
+        },
+        'How strong is the buying intent in this session?'
+    ),
+    prompt_valence: 'good',
+}
 
 const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
     parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
@@ -1807,6 +1785,16 @@ export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
 
+// The experiment shows as the first condition of the filters, so a scanner with no filters of its own
+// does not read as scanning every recording.
+export const ScannerEditorTriggersExperiment: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTriggers(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
+}
+
 export const ScannerEditorBudget: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
@@ -1896,6 +1884,7 @@ export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inli
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
         mswDecorator({
             get: {
@@ -2114,12 +2103,29 @@ export const ObservationDetailTimeline: StoryObj = {
     },
 }
 
+// The experiment scanner's variant analysis scout, so the Variants tab offers Run now.
+const variantAnalysisScoutMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/scout/configs/': [
+            {
+                ...digestScoutConfig,
+                id: '00000000-0000-0000-0000-0000000000c9',
+                skill_name: 'signals-scout-post-exposure-friction-variant-analysis',
+                display_name: 'Post-exposure friction / variant analysis',
+                description: 'Compares what users in each experiment variant do.',
+                source_id: experimentScanner.id,
+                tags: ['replay-vision-variant-analysis'],
+            },
+        ],
+    },
+})
+
 export const ExperimentVariants: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(experimentScanner.id),
         featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
-    decorators: [variantsDecorator(variantsReadout())],
+    decorators: [variantsDecorator(variantsReadout()), variantAnalysisScoutMocks],
 }
 
 // No variant analysis scout yet: the counts show, and the comparison offers to set one up.
@@ -2138,6 +2144,34 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+        variantAnalysisScoutMocks,
+    ],
+}
+
+// Before the first observation: each variant shows where its themes and observations will go.
+export const ExperimentVariantsWaitingForObservations: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            withoutAnalysis(
+                variantsReadout({
+                    analysis: { ...readyAnalysis, recorded_at: null },
+                    window: { total_observations: 0, first_observation_at: null, last_observation_at: null },
+                    unattributed_count: 0,
+                    variants: variantsReadout().variants.map((variant) => ({
+                        ...variant,
+                        observations: 0,
+                        distinct_people: 0,
+                        median_session_duration_s: null,
+                        sampling_rate: null,
+                        latest_observations: [],
+                    })),
+                })
+            )
+        ),
     ],
 }
 

@@ -18,9 +18,11 @@ from products.autoresearch.backend.facade.contracts import (
     AutoresearchConflict,
     Iteration,
     IterationTrailEntry,
+    LiveTrainingRun,
     Model,
     Pipeline,
     PipelineWrite,
+    RealizedAucPoint,
     Run,
     Suggestion,
     TrainingRun,
@@ -485,6 +487,35 @@ class MetricsBundleField(serializers.JSONField):
 # ── Core serializers ------------------------------------------------------
 
 
+@extend_schema_serializer(component_name="AutoresearchLiveTrainingRun")
+class LiveTrainingRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of the live training run.")
+    iteration_budget = serializers.IntegerField(read_only=True, help_text="Maximum experiments allowed for this run.")
+    experiment_count = serializers.IntegerField(
+        read_only=True, help_text="Experiments the agent has recorded so far in this run."
+    )
+    best_holdout_score = serializers.FloatField(
+        read_only=True, allow_null=True, help_text="Best holdout AUC so far in this run. Null before any is recorded."
+    )
+    latest_agent_description = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="The agent's rationale for its newest experiment."
+    )
+
+    class Meta:
+        dataclass = LiveTrainingRun
+        fields = ["id", "iteration_budget", "experiment_count", "best_holdout_score", "latest_agent_description"]
+
+
+@extend_schema_serializer(component_name="AutoresearchRealizedAucPoint")
+class RealizedAucPointSerializer(DataclassSerializer):
+    prediction_date = serializers.DateField(read_only=True, help_text="Validated prediction date.")
+    realized_auc = serializers.FloatField(read_only=True, help_text="Realized AUC on that date.")
+
+    class Meta:
+        dataclass = RealizedAucPoint
+        fields = ["prediction_date", "realized_auc"]
+
+
 @extend_schema_serializer(component_name="AutoresearchPipeline")
 # Read representation of a pipeline. Every field is declared explicitly so the generated
 # AutoresearchPipeline component keeps the shape it had when this was a ModelSerializer.
@@ -569,6 +600,35 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Realized online AUC of the current champion model, computed from mature predictions against actual outcomes.",
     )
+    champion_lift_at_10 = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Lift in the top 10% of scores for the current champion model, from its latest validated prediction date. 2.0 means the top 10% converts at twice the average rate.",
+    )
+    champion_is_preliminary = serializers.BooleanField(
+        read_only=True,
+        allow_null=True,
+        help_text="True while the current champion model has no realized AUC yet. Null when the pipeline has no champion.",
+    )
+    champion_realized_auc_trend = RealizedAucPointSerializer(
+        many=True,
+        read_only=True,
+        help_text="Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first.",
+    )
+    people_scored = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="People scored by the most recent completed inference run. Null before the first scoring run.",
+    )
+    training_run_count = serializers.IntegerField(read_only=True, help_text="Training runs started for this pipeline.")
+    experiment_count = serializers.IntegerField(
+        read_only=True, help_text="Experiments (iterations) recorded across every training run."
+    )
+    live_training_run = LiveTrainingRunSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Progress of the pending or running training run. Null when no run is live.",
+    )
 
     class Meta:
         dataclass = Pipeline
@@ -595,6 +655,13 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "last_scored_at",
             "champion_holdout_auc",
             "champion_realized_auc",
+            "champion_lift_at_10",
+            "champion_is_preliminary",
+            "champion_realized_auc_trend",
+            "people_scored",
+            "training_run_count",
+            "experiment_count",
+            "live_training_run",
         ]
 
 
@@ -846,7 +913,11 @@ class AutoresearchModelSerializer(DataclassSerializer):
     )
     metrics = MetricsBundleField(
         required=False,
-        help_text="Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.",
+        help_text=(
+            "Extended metrics bundle. Holds the holdout AUC from training, and under 'realized' the newest "
+            "validated date's online metrics: realized AUC, Brier score, calibration error and bins, lift@k, "
+            "average precision, confusion counts at top 10%, top 20% and Likely, base rate, and row counts."
+        ),
     )
     source_training_run = serializers.UUIDField(
         read_only=True,
@@ -1202,6 +1273,37 @@ class CalibrationBinSerializer(serializers.Serializer):
     )
 
 
+class ConfusionCountsSerializer(serializers.Serializer):
+    tp = serializers.IntegerField(help_text="True positives: flagged users who did the target event.")
+    fp = serializers.IntegerField(help_text="False positives: flagged users who did not do the target event.")
+    fn = serializers.IntegerField(help_text="False negatives: users not flagged who did the target event.")
+    tn = serializers.IntegerField(help_text="True negatives: users not flagged who did not do the target event.")
+    n_flagged = serializers.IntegerField(
+        help_text=(
+            "Number of users the cutoff flagged (tp + fp). Top-k cutoffs flag every user tied at the "
+            "boundary score, so this can be a little above k."
+        )
+    )
+    precision = serializers.FloatField(
+        allow_null=True,
+        help_text="tp / n_flagged: share of flagged users who did the target event. Null when no user was flagged.",
+    )
+    recall = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "tp / (tp + fn): share of users who did the target event that the cutoff flagged. Null when no user did it."
+        ),
+    )
+
+
+class ConfusionByCutoffSerializer(serializers.Serializer):
+    top_10 = ConfusionCountsSerializer(help_text="Counts when the top 10% of users by score are flagged.")
+    top_20 = ConfusionCountsSerializer(help_text="Counts when the top 20% of users by score are flagged.")
+    likely = ConfusionCountsSerializer(
+        help_text=f"Counts when users with a score of {api.LIKELY_THRESHOLD} or higher (the Likely segment) are flagged."
+    )
+
+
 class OnlinePerformanceRowSerializer(serializers.Serializer):
     validation_run_id = serializers.UUIDField(help_text="UUID of the validation run that recorded these metrics.")
     prediction_date = serializers.DateField(help_text="Date the predictions were made for (UTC).")
@@ -1251,6 +1353,21 @@ class OnlinePerformanceRowSerializer(serializers.Serializer):
     )
     lift_at_20 = serializers.FloatField(
         allow_null=True, help_text="Positives in the top 20% by score, relative to a random 20%."
+    )
+    average_precision = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Average precision: area under the precision-recall curve. Higher is better, and a random model "
+            "scores about base_rate. Null when no scored user did the target event, or for dates validated "
+            "before this metric existed."
+        ),
+    )
+    confusion = ConfusionByCutoffSerializer(
+        allow_null=True,
+        help_text=(
+            "Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. "
+            "Null for dates validated before this metric existed."
+        ),
     )
     calibration_bins = CalibrationBinSerializer(
         many=True,

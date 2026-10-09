@@ -77,11 +77,15 @@ const RATE_LIMIT_PATTERNS = [
 export type GatewayLimitCause =
   | "model_gate"
   | "model_unavailable"
-  | "org_limit";
+  | "org_limit"
+  | "user_limit";
 
 const MODEL_GATE_CODE_REGEX = /"code"\s*:\s*"model_gate"/;
 const AI_GATEWAY_MODEL_GATE_REGEX =
   /\b(?:model_not_allowed|effort_not_allowed)\b/i;
+// A per-user or per-org spend window: temporary, so never a billing action.
+// The Anthropic dialect drops the code and keeps only the detail text.
+const AI_GATEWAY_USER_LIMIT_REGEX = /\buser[_ ]limit[_ ]exceeded\b/i;
 const AI_GATEWAY_ORG_LIMIT_REGEX =
   /\b(?:cap_exceeded|token_cap_exceeded|insufficient_credits|credit_bucket_exhausted|budget_exceeded)\b/i;
 // Go writes these phrases for outages and auth failures too, so they count
@@ -199,6 +203,9 @@ export function classifyGatewayLimitError(
     matchesRegex(AI_GATEWAY_ROUTER_REFUSAL_REGEX)
   ) {
     return "model_gate";
+  }
+  if (matchesRegex(AI_GATEWAY_USER_LIMIT_REGEX)) {
+    return "user_limit";
   }
   if (
     matches(ORG_LIMIT_PATTERNS) ||
