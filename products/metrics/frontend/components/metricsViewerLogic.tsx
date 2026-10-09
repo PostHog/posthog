@@ -512,17 +512,17 @@ export interface metricsViewerLogicValues {
 export interface metricsViewerLogicActions {
     loadItemsSuccess: (
         fullItems: _MetricPickerNameApi[],
-        payload?: any
+        payload?: void | undefined
     ) => {
         fullItems: _MetricPickerNameApi[]
-        payload?: any
+        payload?: void | undefined
     } // metricNamePickerLogic
     searchItemsSuccess: (
         searchedItems: _MetricPickerNameApi[],
-        payload?: any
+        payload?: void | undefined
     ) => {
+        payload?: void | undefined
         searchedItems: _MetricPickerNameApi[]
-        payload?: any
     } // metricNamePickerLogic
     setServices: (services: string[]) => {
         services: string[]
