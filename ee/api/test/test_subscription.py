@@ -2816,11 +2816,15 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         )
         start = datetime(2026, 1, 1, tzinfo=UTC)
 
-        def delivery(key: str, days: int, subscription: Subscription | None = None, **kwargs) -> SubscriptionDelivery:
+        def delivery(
+            key: str, days: int, subscription: Subscription | None = None, insight: Insight | None = None, **kwargs
+        ) -> SubscriptionDelivery:
+            subscription = subscription or self.subscription
+            sent_for = insight or subscription.insight
             row = self._create_delivery(
                 idempotency_key=key,
-                subscription=subscription or self.subscription,
-                content_snapshot={"insights": []},
+                subscription=subscription,
+                content_snapshot={"insights": [{"id": sent_for.id}]},
                 **kwargs,
             )
             SubscriptionDelivery.objects.filter(pk=row.pk).update(created_at=start + timedelta(days=days))
@@ -2834,6 +2838,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         other_channel = delivery("second-sub", 5, subscription=second_subscription, change_summary="Slack summary")
         delivery("deleted-sub", 6, subscription=deleted_subscription, change_summary="Deleted summary")
         delivery("other-insight", 6, subscription=other_subscription, change_summary="Other summary")
+        delivery("sent-before-source-change", 1, insight=other_insight, change_summary="Previous source summary")
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/subscriptions/summaries/", {"insight": self.insight.id}
@@ -4263,8 +4268,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             target_type="email",
             target_value="owner@example.com",
             status=SubscriptionDelivery.Status.COMPLETED,
-            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
-            **overrides,
+            **{
+                "content_snapshot": {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+                **overrides,
+            },
         )
 
     def _rule(self, resource: str, *, obj=None, level: str = "none", for_member: bool = True, team=None) -> None:
@@ -4445,7 +4452,11 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     def test_summaries_hide_a_dashboard_delivery_that_renders_a_restricted_tile(self):
         dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
-        self._delivery_for(self._subscription_for(dashboard=dashboard), change_summary="Covers a private tile")
+        self._delivery_for(
+            self._subscription_for(dashboard=dashboard),
+            change_summary="Covers a private tile",
+            content_snapshot={"dashboard": {"id": dashboard.id}, "insights": []},
+        )
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/subscriptions/summaries/", {"dashboard": dashboard.id}

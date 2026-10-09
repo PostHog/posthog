@@ -1960,12 +1960,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             source: Insight | Dashboard = get_object_or_404(
                 Insight.objects.filter(team_id=self.team_id, deleted=False), pk=query.validated_data["insight"]
             )
-            source_filter = Q(subscription__insight_id=source.pk)
+            # A subscription can change its source, so also match the source in the delivery snapshot.
+            source_filter = Q(subscription__insight_id=source.pk, content_snapshot__insights__0__id=source.pk)
         else:
             source = get_object_or_404(
                 Dashboard.objects.filter(team_id=self.team_id), pk=query.validated_data["dashboard"]
             )
-            source_filter = Q(subscription__dashboard_id=source.pk)
+            source_filter = Q(subscription__dashboard_id=source.pk, content_snapshot__dashboard__id=source.pk)
         if not self.user_access_control.check_access_level_for_object(source, "viewer"):
             raise exceptions.PermissionDenied("You do not have access to this resource.")
 
