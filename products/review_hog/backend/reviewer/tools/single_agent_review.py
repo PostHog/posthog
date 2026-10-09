@@ -15,12 +15,14 @@ import logging
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENSES,
     FLASH_MUST_FIX_CAP_MULTIPLIER,
     FLASH_PROMPT_DIFF_MAX_CHARS,
@@ -489,6 +491,106 @@ def _raise_survivors(kept: list[Issue], duplicates: list[Duplicate]) -> dict[str
     return group_levels
 
 
+def _patch_missing(pr_file: PRFile) -> bool:
+    return not pr_file.changes and bool(pr_file.additions or pr_file.deletions)
+
+
+@frozen
+class _DiffLine:
+    kind: str
+    code: str
+    # The head line it sits on. A removed line has none, so it takes the head line where it used to be.
+    head_line: int
+
+
+def _diff_sequence(pr_file: PRFile) -> list[_DiffLine]:
+    sequence: list[_DiffLine] = []
+    removal_point = 1
+    for change in pr_file.changes:
+        code_lines = change.code.split("\n")
+        if change.type == "deletion":
+            sequence.extend(_DiffLine(kind=change.type, code=code, head_line=removal_point) for code in code_lines)
+            continue
+        start = change.new_start_line
+        if start is None:
+            continue
+        sequence.extend(
+            _DiffLine(kind=change.type, code=code, head_line=start + offset) for offset, code in enumerate(code_lines)
+        )
+        removal_point = start + len(code_lines)
+    return sequence
+
+
+def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
+    """The head lines of the file's changes that the earlier diff did not have.
+
+    The two diffs are matched as sequences of lines with their context, so code that a base merge or a rebase
+    only moved stays old, and a repeated line matches the occurrence in the same place.
+    """
+    current = _diff_sequence(pr_file)
+    before = _diff_sequence(earlier) if earlier is not None else []
+    # The default junk heuristic keeps a repetitive patch from making the match quadratic. It can only
+    # leave lines unmatched, which marks them as changed.
+    matcher = SequenceMatcher(
+        None, [(line.kind, line.code) for line in before], [(line.kind, line.code) for line in current]
+    )
+    new_lines: set[int] = set()
+    for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        # Context lines count too, so a statement moved into new surroundings is changed code.
+        new_lines.update(line.head_line for line in current[current_start:current_end])
+        # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
+        if any(line.kind != "context" for line in before[before_start:before_end]):
+            new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])
+    return new_lines
+
+
+@frozen
+class ChangedSinceReview:
+    """The lines of the head that changed since an earlier reviewed head, per file."""
+
+    lines: dict[str, set[int]]
+    files_without_patch: set[str]
+
+    @classmethod
+    def between(cls, earlier_files: list[PRFile], current_files: list[PRFile]) -> "ChangedSinceReview":
+        earlier_by_name = {pr_file.filename: pr_file for pr_file in earlier_files}
+        lines: dict[str, set[int]] = {}
+        files_without_patch: set[str] = set()
+        for pr_file in current_files:
+            earlier = earlier_by_name.get(pr_file.filename)
+            if _patch_missing(pr_file) or (earlier is not None and _patch_missing(earlier)):
+                files_without_patch.add(pr_file.filename)
+            else:
+                lines[pr_file.filename] = _lines_new_since(pr_file, earlier)
+        return cls(lines=lines, files_without_patch=files_without_patch)
+
+    def touches(self, issue: Issue) -> bool:
+        """Whether the finding sits on or near a changed line, or in a file whose lines cannot be compared."""
+        if not issue.lines or issue.file in self.files_without_patch:
+            return True
+        changed = self.lines.get(issue.file, set())
+        margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+        # The range comes from the model, so it is compared, never expanded line by line.
+        return any(
+            line_range.start - margin <= line <= (line_range.end or line_range.start) + margin
+            for line_range in issue.lines
+            for line in changed
+        )
+
+
+def _old_code_findings(issues: list[Issue], changed_since: ChangedSinceReview | None) -> list[Issue]:
+    """A follow-up turn's P2 and P3 findings on code that did not change since the last reviewed head.
+
+    Authors act on these about half as often as on first-turn findings, because the first review already
+    covered that code. A P0 or P1 still posts, since a new commit can break code it did not touch.
+    """
+    if changed_since is None:
+        return []
+    return [issue for issue in issues if issue.priority != IssuePriority.MUST_FIX and not changed_since.touches(issue)]
+
+
 async def dedupe_flash_findings(
     *,
     team_id: int,
@@ -502,6 +604,7 @@ async def dedupe_flash_findings(
     lens_part_count: int,
     workflow_id_prefix: str | None = None,
     fall_back_on_any_error: bool = False,
+    changed_since: ChangedSinceReview | None = None,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
@@ -511,9 +614,13 @@ async def dedupe_flash_findings(
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
+    On a follow-up turn, `changed_since` drops the P2 and P3 findings on unchanged code before dedup.
     """
-    main = [issue for issue in issues if issue.source_perspective == SINGLE_AGENT_SOURCE]
-    lens = [issue for issue in issues if issue.source_perspective != SINGLE_AGENT_SOURCE]
+    old_code = _old_code_findings(issues, changed_since)
+    old_code_ids = {issue.id for issue in old_code}
+    reviewed = [issue for issue in issues if issue.id not in old_code_ids]
+    main = [issue for issue in reviewed if issue.source_perspective == SINGLE_AGENT_SOURCE]
+    lens = [issue for issue in reviewed if issue.source_perspective != SINGLE_AGENT_SOURCE]
     main_outcome, lens_outcome = await asyncio.gather(
         deduplicate_issues(
             team_id=team_id,
@@ -559,13 +666,15 @@ async def dedupe_flash_findings(
         for removal in held
     ]
     logger.info(
-        "Flash keeps %s of %s main and %s lens finding(s) left after dedup",
+        "Flash keeps %s of %s main and %s lens finding(s) left after dedup, after %s on unchanged code",
         len(composed.kept),
         len(kept_main),
         len(kept_lens),
+        len(old_code),
     )
+    old_code_drops = [DroppedIssue(issue=issue, disposition="old_code") for issue in old_code]
     return replace(
         composed,
-        dropped=[*dedup_drops, *composed.dropped],
+        dropped=[*old_code_drops, *dedup_drops, *composed.dropped],
         dedup_fell_back=main_outcome.fell_back or lens_outcome.fell_back,
     )
