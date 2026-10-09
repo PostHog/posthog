@@ -1275,7 +1275,11 @@ class SignalReportViewSet(
 
     # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
     # actions) and is never a valid filter target either.
-    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+    # Monitoring has no supported lifecycle yet, so it is excluded from reads too.
+    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {
+        SignalReport.Status.DELETED,
+        SignalReport.Status.MONITORING,
+    }
     _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
