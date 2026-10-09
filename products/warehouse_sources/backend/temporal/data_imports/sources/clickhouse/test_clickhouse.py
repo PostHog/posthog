@@ -751,17 +751,19 @@ class TestDuplicateProbeTargetsMergeKey:
         assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
 
 
-def _failing_server(*_args, **_kwargs):
+def _failing_server(*_args: object, **_kwargs: object) -> MagicMock:
     raise ClickHouseError("timeout")
 
 
-def _readonly_server(*_args, settings=None, **_kwargs):
+def _readonly_server(*_args: object, settings: dict[str, object] | None = None, **_kwargs: object) -> MagicMock:
     if settings:
         raise ProgrammingError("Setting max_execution_time is unknown or readonly")
     return MagicMock(result_rows=[(42,)])
 
 
-def _readonly_server_that_times_out(*_args, settings=None, **_kwargs):
+def _readonly_server_that_times_out(
+    *_args: object, settings: dict[str, object] | None = None, **_kwargs: object
+) -> MagicMock:
     if settings:
         raise ProgrammingError("Setting max_execution_time is unknown or readonly")
     raise OperationalError("Read timed out")
@@ -779,7 +781,9 @@ class TestGetIncrementalRowCount:
             pytest.param(_readonly_server_that_times_out, None, id="server_refuses_settings_and_the_count_fails"),
         ],
     )
-    def test_counts_the_rows_after_the_cursor_or_gives_none(self, server, expected):
+    def test_counts_the_rows_after_the_cursor_or_gives_none(
+        self, server: Callable[..., MagicMock], expected: int | None
+    ) -> None:
         client = MagicMock()
         client.query.side_effect = server
         assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) == expected
