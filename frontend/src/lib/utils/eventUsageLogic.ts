@@ -1614,13 +1614,15 @@ export interface eventUsageLogicActions {
         queryDurations: {
             aggregate: number
             openEnded: number
-        }
+        },
+        timeToFirstResultsMs?: number
     ) => {
         queryDurations: {
             aggregate: number
             openEnded: number
         }
         survey: Survey
+        timeToFirstResultsMs: number | undefined
         totalDurationMs: number
     }
     reportSurveyCreated: (
@@ -2150,8 +2152,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyConsolidatedResultsQuery: (
             survey: Survey,
             totalDurationMs: number,
-            queryDurations: { aggregate: number; openEnded: number }
-        ) => ({ survey, totalDurationMs, queryDurations }),
+            queryDurations: { aggregate: number; openEnded: number },
+            timeToFirstResultsMs?: number
+        ) => ({ survey, totalDurationMs, queryDurations, timeToFirstResultsMs }),
         reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
@@ -3000,13 +3003,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 end_date: survey.end_date,
             })
         },
-        reportSurveyConsolidatedResultsQuery: ({ survey, totalDurationMs, queryDurations }) => {
+        reportSurveyConsolidatedResultsQuery: ({ survey, totalDurationMs, queryDurations, timeToFirstResultsMs }) => {
             posthog.capture('survey consolidated results query completed', {
                 name: survey.name,
                 id: survey.id,
                 duration: totalDurationMs,
                 aggregate_duration: queryDurations.aggregate,
                 open_ended_duration: queryDurations.openEnded,
+                time_to_first_results: timeToFirstResultsMs,
             })
         },
         reportProductTourViewed: ({ tour }) => {
