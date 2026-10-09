@@ -46531,6 +46531,20 @@ export namespace Schemas {
       S3: 'S3',
     } as const;
 
+    /**
+     * * `healthy` - Healthy
+     * * `failing` - Failing
+     * * `paused` - Paused
+     */
+    export type ExternalDataDestinationStatusEnum = typeof ExternalDataDestinationStatusEnum[keyof typeof ExternalDataDestinationStatusEnum];
+
+
+    export const ExternalDataDestinationStatusEnum = {
+      Healthy: 'healthy',
+      Failing: 'failing',
+      Paused: 'paused',
+    } as const;
+
     export interface ExternalDataDestination {
       readonly id: string;
       /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -46565,6 +46579,22 @@ export namespace Schemas {
       readonly updated_at: string | null;
       /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
       readonly synced_sources: readonly SyncedSource[];
+      /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+       *
+       * * `healthy` - Healthy
+       * * `failing` - Failing
+       * * `paused` - Paused */
+      readonly status: ExternalDataDestinationStatusEnum;
+      /**
+         * The last delivery error, safe to show to the user. Null if no delivery has failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /**
+         * When the last delivery error occurred.
+         * @nullable
+         */
+      readonly latest_error_at: string | null;
     }
 
     /**
@@ -75997,6 +76027,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly applied_version: number | null;
+      /** Why the person who rejected this suggestion rejected it, or empty when they gave no reason. */
+      readonly rejection_reason: string;
     }
 
     export interface PaginatedWorkflowProposalList {
@@ -78814,6 +78846,22 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       /** Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured. */
       readonly synced_sources?: readonly SyncedSource[];
+      /** Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.
+       *
+       * * `healthy` - Healthy
+       * * `failing` - Failing
+       * * `paused` - Paused */
+      readonly status?: ExternalDataDestinationStatusEnum;
+      /**
+         * The last delivery error, safe to show to the user. Null if no delivery has failed.
+         * @nullable
+         */
+      readonly latest_error?: string | null;
+      /**
+         * When the last delivery error occurred.
+         * @nullable
+         */
+      readonly latest_error_at?: string | null;
     }
 
     /**
@@ -111589,6 +111637,14 @@ export namespace Schemas {
       change_ended_at_version: number | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
+    }
+
+    export interface WorkflowProposalRejectRequest {
+      /**
+         * Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.
+         * @maxLength 2000
+         */
+      reason?: string;
     }
 
     export interface WorkflowRunActivityPoint {
