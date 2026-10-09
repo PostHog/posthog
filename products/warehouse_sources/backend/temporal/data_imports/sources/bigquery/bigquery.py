@@ -267,6 +267,11 @@ class BigQueryAuthResolutionError(Exception):
     """Carries a user-safe explanation of why a source's credentials could not be resolved."""
 
 
+def is_bigquery_auth_error(error: BaseException) -> bool:
+    """Whether `resolve_bigquery_auth` raised `error` with a message safe to show the user."""
+    return isinstance(error, BigQueryAuthResolutionError | BigQueryInvalidTokenUriError)
+
+
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
 # `jobs.getQueryResults` REST call as a 400 BadRequest whose message ends "The job encountered an
 # error during execution. Retrying the job may solve the problem.". The client's default job-retry

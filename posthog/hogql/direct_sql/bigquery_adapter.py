@@ -129,7 +129,7 @@ class BigQueryAdapter:
     def validate_source_config(
         self, source: ExternalDataSource, team: Team
     ) -> tuple[BigQuerySource, BigQuerySourceConfig]:
-        from products.warehouse_sources.backend.facade.source_management import BigQuerySource, SourceRegistry
+        from products.warehouse_sources.backend.facade.source_management import SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
         # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
@@ -141,7 +141,7 @@ class BigQueryAdapter:
         if not bigquery_direct_query_enabled(team):
             raise ExposedHogQLError("BigQuery direct queries are not enabled for this project.")
 
-        bigquery_source = cast(BigQuerySource, SourceRegistry.get_source(ExternalDataSourceType.BIGQUERY))
+        bigquery_source = cast("BigQuerySource", SourceRegistry.get_source(ExternalDataSourceType.BIGQUERY))
         config = parse_direct_source_config(bigquery_source, source)
 
         # No host/SSRF check needed: every request goes to Google's fixed API hosts, and the
@@ -163,9 +163,8 @@ class BigQueryAdapter:
         from google.cloud import bigquery
 
         from products.warehouse_sources.backend.facade.source_management import (
-            BigQueryAuthResolutionError,
-            BigQueryInvalidTokenUriError,
             bigquery_client,
+            is_bigquery_auth_error,
             resolve_bigquery_auth,
         )
 
@@ -199,14 +198,18 @@ class BigQueryAdapter:
                     )
                     results = _fetch_capped_bigquery_rows(row_iterator)
                     schema_fields = list(row_iterator.schema or [])
-        except (
-            futures.TimeoutError,
-            BigQueryAuthResolutionError,
-            BigQueryInvalidTokenUriError,
-            google_api_exceptions.GoogleAPIError,
-            google_auth_exceptions.GoogleAuthError,
-            ExposedHogQLError,
-        ) as error:
+        except Exception as error:
+            # The auth error classes stay inside warehouse_sources; the facade exposes a
+            # predicate for them instead.
+            handled = isinstance(
+                error,
+                futures.TimeoutError
+                | google_api_exceptions.GoogleAPIError
+                | google_auth_exceptions.GoogleAuthError
+                | ExposedHogQLError,
+            ) or is_bigquery_auth_error(error)
+            if not handled:
+                raise
             span.set_attribute("error_type", error.__class__.__name__)
             message = (
                 DIRECT_BIGQUERY_TIMEOUT_ERROR
