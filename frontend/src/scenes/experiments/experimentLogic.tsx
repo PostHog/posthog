@@ -411,13 +411,6 @@ export interface experimentLogicValues {
     launchExperimentLoading: boolean
     minimumDetectableEffect: number
     openDatePicker: 'end' | 'start' | null
-    orderedSecondaryMetricsWithResults: {
-        displayIndex: number
-        error: any
-        metric: ExperimentMetricUnion
-        metricIndex: number
-        result: any
-    }[]
     primaryMetricsLengthWithSharedMetrics: number
     props: any
     recommendedRunningTime: number
@@ -901,6 +894,9 @@ export interface experimentLogicActions {
         metric: ExperimentMetricUnion
         name: string | undefined
         uuid: string
+    }
+    setOpenDatePicker: (boundary: 'end' | 'start' | null) => {
+        boundary: 'end' | 'start' | null
     }
     setTrendsExposureMetric: ({
         uuid,
