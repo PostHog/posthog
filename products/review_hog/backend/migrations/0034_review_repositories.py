@@ -18,17 +18,17 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="reviewusersettings",
-            name="default_review_mode",
+            name="preferences",
+            field=models.JSONField(blank=True, db_default={}, default=dict),
+        ),
+        migrations.AlterField(
+            model_name="reviewusersettings",
+            name="urgency_threshold",
             field=models.CharField(
-                choices=[
-                    ("follow", "Follow repositories"),
-                    ("flash", "Flash"),
-                    ("full", "Full"),
-                    ("off", "Off"),
-                ],
-                db_default="follow",
-                default="follow",
-                max_length=10,
+                choices=[("consider", "Consider (all)"), ("should_fix", "Should fix"), ("must_fix", "Must fix")],
+                db_default="consider",
+                default="consider",
+                max_length=20,
             ),
         ),
         migrations.CreateModel(
@@ -36,27 +36,25 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=posthog.uuidt.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
+                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
                 ),
+                ("installation_id", models.CharField(max_length=64)),
+                ("github_repo_id", models.BigIntegerField(blank=True, null=True)),
                 ("full_name", models.CharField(max_length=200)),
+                ("selected", models.BooleanField(db_default=False, default=False)),
                 (
                     "flash_for",
                     models.CharField(
+                        blank=True,
                         choices=[
-                            ("everyone", "Everyone"),
-                            ("listed", "Only listed people"),
+                            ("everyone", "Automatic Flash for everyone"),
+                            ("listed", "Automatic Flash for these people"),
+                            ("off", "Automatic Flash opt-in only"),
                         ],
-                        db_default="everyone",
-                        default="everyone",
                         max_length=20,
+                        null=True,
                     ),
                 ),
-                ("exclude_bots", models.BooleanField(db_default=True, default=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
@@ -86,24 +84,15 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=posthog.uuidt.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
+                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
                 ),
-                (
-                    "kind",
-                    models.CharField(
-                        choices=[("listed", "Listed"), ("excepted", "Excepted")],
-                        max_length=20,
-                    ),
-                ),
+                ("kind", models.CharField(choices=[("listed", "Listed"), ("excepted", "Excepted")], max_length=20)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "repository",
                     models.ForeignKey(
+                        blank=True,
+                        null=True,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="review_hog.reviewrepository",
@@ -134,30 +123,14 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=posthog.uuidt.uuid7,
-                        editable=False,
-                        primary_key=True,
-                        serialize=False,
-                    ),
+                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
                 ),
-                (
-                    "mode",
-                    models.CharField(
-                        choices=[("flash", "Flash"), ("full", "Full"), ("off", "Off")],
-                        max_length=10,
-                    ),
-                ),
+                ("installation_id", models.CharField(max_length=64)),
+                ("github_repo_id", models.BigIntegerField(blank=True, null=True)),
+                ("full_name", models.CharField(max_length=200)),
+                ("mode", models.CharField(choices=[("flash", "Flash"), ("off", "Off")], max_length=10)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "repository",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="+",
-                        to="review_hog.reviewrepository",
-                    ),
-                ),
                 (
                     "team",
                     models.ForeignKey(
@@ -178,25 +151,142 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
+        migrations.CreateModel(
+            name="ReviewInstallationClaim",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
+                ),
+                ("installation_id", models.CharField(max_length=64)),
+                (
+                    "scope",
+                    models.CharField(
+                        choices=[("all", "All repositories"), ("selected", "Only selected repositories")], max_length=10
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
+                ),
+            ],
+            options={
+                "constraints": [
+                    models.UniqueConstraint(fields=("team", "installation_id"), name="uniq_review_installation_claim"),
+                    models.UniqueConstraint(
+                        condition=models.Q(("scope", "all")),
+                        fields=("installation_id",),
+                        name="uniq_review_installation_claim_all",
+                    ),
+                ],
+            },
+        ),
+        migrations.CreateModel(
+            name="ReviewProjectSettings",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(default=posthog.uuidt.uuid7, editable=False, primary_key=True, serialize=False),
+                ),
+                (
+                    "flash_for",
+                    models.CharField(
+                        choices=[
+                            ("everyone", "Automatic Flash for everyone"),
+                            ("listed", "Automatic Flash for these people"),
+                            ("off", "Automatic Flash opt-in only"),
+                        ],
+                        db_default="off",
+                        default="off",
+                        max_length=20,
+                    ),
+                ),
+                (
+                    "bot_prs",
+                    models.CharField(
+                        choices=[("skip", "Not reviewed"), ("run", "Automatic Flash")],
+                        db_default="skip",
+                        default="skip",
+                        max_length=10,
+                    ),
+                ),
+                ("preferences", models.JSONField(blank=True, db_default={}, default=dict)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
+                ),
+            ],
+            options={
+                "constraints": [
+                    models.UniqueConstraint(fields=("team",), name="uniq_review_project_settings_per_team")
+                ],
+            },
+        ),
         migrations.AddConstraint(
             model_name="reviewrepository",
             constraint=models.UniqueConstraint(
-                models.F("team"),
+                models.F("installation_id"),
                 django.db.models.functions.text.Lower("full_name"),
-                name="uniq_review_repository_per_team",
+                name="uniq_review_repository_name",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="reviewrepository",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("github_repo_id__isnull", False)),
+                fields=("github_repo_id",),
+                name="uniq_review_repository_github_id",
             ),
         ),
         migrations.AddConstraint(
             model_name="reviewrepositoryperson",
             constraint=models.UniqueConstraint(
+                condition=models.Q(("repository__isnull", False)),
                 fields=("repository", "user", "kind"),
                 name="uniq_review_repository_person",
             ),
         ),
         migrations.AddConstraint(
+            model_name="reviewrepositoryperson",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("repository__isnull", True)),
+                fields=("team", "user", "kind"),
+                name="uniq_review_project_person",
+            ),
+        ),
+        migrations.AddConstraint(
             model_name="reviewuserrepositorychoice",
             constraint=models.UniqueConstraint(
-                fields=("user", "repository"), name="uniq_review_user_repository_choice"
+                models.F("team"),
+                models.F("user"),
+                models.F("installation_id"),
+                django.db.models.functions.text.Lower("full_name"),
+                name="uniq_review_user_repository_choice",
             ),
         ),
     ]
