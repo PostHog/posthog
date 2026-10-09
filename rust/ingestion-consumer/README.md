@@ -63,14 +63,14 @@ Under `key_table`:
 | --- | --- | --- |
 | `INGESTION_PACK_TARGET_EVENTS` | `500` | Send a request to a free slot once this many events are ready. It also caps one key's run. `0` disables the event target and the cap. |
 | `INGESTION_PACK_TARGET_BYTES` | `0` | Send a request to a free slot once this many key-plus-value bytes are ready. It also caps one key's run. `0` disables the byte target and the cap. |
-| `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. |
+| `INGESTION_PACK_LATENCY_BUDGET_MS` | `0` | Once a slot is free, wait this long for ready events below the target to reach it. `0` waits for nothing: each free slot gets what is ready, packed up to the target. Replays never wait, because they already waited out a retry delay. |
 | `INGESTION_PARKED_RETRY_INTERVAL_MS` | `200` | The delay before a failed send retries, and how often a request with no routable worker tries again. |
 
 Metrics:
 
 - `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target.
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
-- `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|shutdown}` counts why the packer built each request: at the target, at the budget deadline, or at shutdown.
+- `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|replay|shutdown}` counts why the packer built each request: at the target, at the budget deadline, as a replay, or at shutdown.
 - The `ingestion_consumer_batcher_*` gauges report keys, queued messages and bytes, claimed and waiting keys, unplaced work, and in-flight requests.
 
 ## Debug API

@@ -36,6 +36,7 @@ impl PackTargets {
 enum PackReason {
     AtTarget,
     Deadline,
+    Replay,
     Shutdown,
 }
 
@@ -44,6 +45,7 @@ impl PackReason {
         match self {
             PackReason::AtTarget => "target",
             PackReason::Deadline => "deadline",
+            PackReason::Replay => "replay",
             PackReason::Shutdown => "shutdown",
         }
     }
@@ -78,6 +80,7 @@ impl Packer {
     /// hold. A class at the target goes out at once. Ready messages below
     /// the target wait for the latency budget, counted from the first action
     /// that finds a free slot for them, or go out at once when `draining`.
+    /// Replays go out at once, because they already waited out a retry delay.
     pub fn pack(
         &mut self,
         keys: &mut KeyQueues,
@@ -107,6 +110,14 @@ impl Packer {
     ) -> Option<(RequestClass, PackReason)> {
         if let Some(class) = self.class_at_target(keys) {
             return Some((class, PackReason::AtTarget));
+        }
+        if let Some(class) = keys
+            .ready_sizes()
+            .iter()
+            .map(|(class, _)| *class)
+            .find(|class| class.replay)
+        {
+            return Some((class, PackReason::Replay));
         }
         let class = keys.oldest_ready_class()?;
         if draining {
@@ -244,6 +255,29 @@ mod tests {
             .collect();
         assert_eq!(epochs, vec![1, 2]);
         assert_eq!(shapes(&sent), vec![vec!["a", "c"], vec!["b"]]);
+    }
+
+    #[test]
+    fn a_replay_below_the_target_goes_out_at_once_and_keeps_the_fresh_deadline() {
+        let now = Instant::now();
+        let mut keys = KeyQueues::default();
+        push(&mut keys, "r", 0, &[1], now);
+        let fresh = RequestClass {
+            assignment_epoch: 0,
+            replay: false,
+        };
+        let claimed = keys.take_runs(fresh, |taken| taken.messages > 0);
+        push(&mut keys, "a", 0, &[2], now);
+        let mut packer = Packer::new(targets(100));
+        assert!(packer.pack(&mut keys, now, 1, false).is_empty());
+
+        let run = claimed.into_iter().next().expect("a claimed run").run;
+        keys.settle(&run.routing_key, run.messages, None, now)
+            .expect("a claimed key");
+        let sent = packer.pack(&mut keys, now + BUDGET / 2, 1, false);
+        assert_eq!(shapes(&sent), vec![vec!["r"]]);
+        assert!(sent[0].class.replay);
+        assert_eq!(packer.deadline(), Some(now + BUDGET));
     }
 
     #[test]

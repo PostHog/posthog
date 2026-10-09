@@ -1199,6 +1199,21 @@ mod tests {
         let (batcher, effects) = batcher.on_wakeup(arrival + budget, &workers);
         assert!(matches!(batcher, BatcherStateMachine::Running(_)));
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+
+        // A failure does not move the stall clock, so a replay that waited
+        // the budget again would be due after the stall deadline.
+        let failed_at = arrival + budget + Duration::from_secs(1);
+        let (batcher, _) = batcher.on_request_failed(
+            failed_at,
+            &workers,
+            effects.sends[0].request,
+            FailureCause::Fault,
+            vec![message("a", 0, 1)],
+        );
+        let (batcher, effects) = batcher.on_wakeup(failed_at + FAULT_DELAY, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+        assert!(effects.sends[0].class.replay);
     }
 
     #[test]
