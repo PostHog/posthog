@@ -1656,6 +1656,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
     assert bridge.skill_name == "signals-scout-errors"
     assert bridge.skill_version == 1
     assert (bridge.metadata or {}).get("check_id") == check_id
+    assert bridge.trial_state is None
     # Agent close-out is persisted on the bridge row so future runs can dedupe
     # against non-emitting runs via the runs-list ILIKE filter.
     assert bridge.summary == "I would investigate /checkout 500s next."
@@ -1767,13 +1768,11 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         session.task_run.status = "in_progress"
         await database_sync_to_async(session.task_run.save)(update_fields=["state", "status"])
         initial_state = await database_sync_to_async(before_task_dispatch)(session.task_run.id)
-        assert initial_state is not None
-        session.task_run.state = {**session.task_run.state, **initial_state}
-        await database_sync_to_async(session.task_run.save)(update_fields=["state"])
+        assert initial_state is None
         persisted = await database_sync_to_async(type(session.task_run).objects.get)(pk=session.task_run.pk)
         assert persisted.state is not None
-        assert persisted.state["scout_trial"]["launch_id"] == str(launch.id)
-        assert "scout_trial_private" in persisted.state
+        assert "scout_trial" not in persisted.state
+        assert "scout_trial_private" not in persisted.state
         if task_cancelled or outcome_case == "task_failed_no_message":
             await database_sync_to_async(type(session.task_run).objects.filter(pk=session.task_run.pk).update)(
                 status="cancelled" if task_cancelled else "failed"
@@ -1872,6 +1871,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         assert outcome.task_run_id == replay.task_run_id == str(session.task_run.id)
     assert bridge.metadata is not None
     assert bridge.metadata["scout_trial"]["context_id"] == str(context.id)
+    assert bridge.trial_state is not None
     assert bridge.metadata["reasoning_effort"] == "high"
     export.assert_called_once()
     assert export.call_args.args[0] == f"signals/scout-trials/{ateam.id}/results/{bridge.id}.json"

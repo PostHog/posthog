@@ -1,7 +1,5 @@
 import logging
 
-from django.conf import settings
-
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -12,16 +10,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import PostHogFeatureFlagPermission
 
+from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
 from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
-
-
-def has_internal_features(team_id: int) -> bool:
-    """Whether a project gets Flash and the automation settings: only the first configured ReviewHog team."""
-    return bool(settings.REVIEWHOG_TEAM_IDS and team_id == settings.REVIEWHOG_TEAM_IDS[0])
 
 
 class ReviewUserSettingsSerializer(serializers.ModelSerializer):

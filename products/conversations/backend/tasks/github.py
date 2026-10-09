@@ -19,7 +19,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.models import GithubCommentMapping
 from products.conversations.backend.models.constants import Status
-from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.models.ticket import Ticket, deleted_ticket_holds_thread
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -44,15 +44,22 @@ def _find_github_ticket(team_id: int, repo: str, issue_number: int) -> Ticket | 
     ).first()
 
 
-def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, payload: dict[str, Any]) -> Ticket:
+def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, payload: dict[str, Any]) -> Ticket | None:
     """Find or create a ticket for a GitHub issue, safe against concurrent calls.
 
     Uses transaction.atomic() + the DB unique constraint
     posthog_con_github_issue_uniq to guarantee exactly one ticket per issue.
+    Returns None when a soft-deleted ticket still holds the issue, so a webhook
+    cannot open a second copy.
     """
     existing = _find_github_ticket(team.id, repo, issue_number)
     if existing:
         return existing
+    if deleted_ticket_holds_thread(team_id=team.id, github_repo=repo, github_issue_number=issue_number):
+        logger.info(
+            "github_inbound_deleted_ticket", team_id=team.id, github_repo=repo, github_issue_number=issue_number
+        )
+        return None
 
     issue = payload.get("issue", {})
     sender = payload.get("sender", {})
@@ -90,6 +97,11 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
         existing = _find_github_ticket(team.id, repo, issue_number)
         if existing:
             return existing
+        if deleted_ticket_holds_thread(team_id=team.id, github_repo=repo, github_issue_number=issue_number):
+            logger.info(
+                "github_inbound_deleted_ticket", team_id=team.id, github_repo=repo, github_issue_number=issue_number
+            )
+            return None
         raise
 
 
@@ -153,6 +165,8 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
             return
 
         ticket = _get_or_create_github_ticket(team, repo, issue_number, payload)
+        if ticket is None:
+            return
 
         # For "opened" events we have the full body — replace the title-only
         # comment that _get_or_create_github_ticket may have created with a
@@ -240,6 +254,8 @@ def _handle_github_comment_event(team: Team, repo: str, action: str, payload: di
     ticket = _find_github_ticket(team.id, repo, issue_number)
     if not ticket:
         ticket = _get_or_create_github_ticket(team, repo, issue_number, payload)
+    if ticket is None:
+        return
 
     comment_author = comment_data.get("user", {}).get("login", "")
     body = comment_data.get("body", "") or ""

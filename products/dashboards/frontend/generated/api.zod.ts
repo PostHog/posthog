@@ -227,15 +227,6 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
-    level: zod
-        .union([zod.literal(21), zod.literal(37)])
-        .describe(
-            '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
-        ),
-    user_uuid: zod.uuid(),
-})
-
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
@@ -570,6 +561,12 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe(
                             "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request."
+                        ),
+                    show_description: zod
+                        .boolean()
+                        .optional()
+                        .describe(
+                            "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard."
                         ),
                     widget: zod
                         .object({

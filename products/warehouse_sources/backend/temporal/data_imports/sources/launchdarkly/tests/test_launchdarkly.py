@@ -188,6 +188,96 @@ class TestGetRowsFanout:
         ]
 
 
+class TestGetRowsEnvironmentFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_iterates_environments_of_every_project_and_injects_both_keys(self, mock_session):
+        session = mock_session.return_value
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"key": "prod"}, {"key": "dev"}], None),
+                _response([{"key": "s1"}], "/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate"),
+                _response([{"key": "s2"}], None),
+                _response([{"key": "s3"}], None),
+            ],
+        )
+
+        rows = _rows(_source("segments", _make_manager()))
+
+        assert rows == [
+            {"key": "s1", "_environment_key": "prod", "_project_key": "proj1"},
+            {"key": "s2", "_environment_key": "prod", "_project_key": "proj1"},
+            {"key": "s3", "_environment_key": "dev", "_project_key": "proj1"},
+        ]
+        assert [snap["url"] for snap in snaps] == [
+            f"{BASE_URL}/projects",
+            f"{BASE_URL}/projects/proj1/environments",
+            f"{BASE_URL}/segments/proj1/prod",
+            f"{API_HOST}/api/v2/segments/proj1/prod?limit=20&offset=20&sort=creationDate",
+            f"{BASE_URL}/segments/proj1/dev",
+        ]
+        assert snaps[2]["params"] == {"limit": 20, "sort": "creationDate"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flag_statuses_take_flag_key_from_self_link(self, mock_session):
+        session = mock_session.return_value
+        status = {
+            "name": "inactive",
+            "_links": {
+                "parent": {"href": "/api/v2/flags/proj1/my-flag"},
+                "self": {"href": "/api/v2/flag-statuses/proj1/prod/my-flag"},
+            },
+        }
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"key": "prod"}], None),
+                _response([status], None),
+            ],
+        )
+
+        rows = _rows(_source("flag_statuses", _make_manager()))
+
+        assert [(row["_flag_key"], row["_project_key"], row["_environment_key"]) for row in rows] == [
+            ("my-flag", "proj1", "prod")
+        ]
+        assert snaps[2]["url"] == f"{BASE_URL}/flag-statuses/proj1/prod"
+        assert snaps[2]["params"] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_environments(self, mock_session):
+        session = mock_session.return_value
+        resume_url = f"{BASE_URL}/projects/proj1/environments/dev/holdouts?limit=20&offset=20"
+        snaps = _wire(
+            session,
+            [
+                _response([{"key": "proj1"}], None),
+                _response([{"key": "prod"}, {"key": "dev"}], None),
+                _response([{"_id": "h2"}], None),
+            ],
+        )
+        manager = _make_manager(
+            LaunchDarklyResumeConfig(
+                fanout_state={
+                    "completed": ["/projects/proj1/environments/prod/holdouts"],
+                    "current": "/projects/proj1/environments/dev/holdouts",
+                    "child_state": {"next_url": resume_url},
+                }
+            )
+        )
+
+        rows = _rows(_source("holdouts", manager))
+
+        assert rows == [{"_id": "h2", "_environment_key": "dev", "_project_key": "proj1"}]
+        assert [snap["url"] for snap in snaps] == [
+            f"{BASE_URL}/projects",
+            f"{BASE_URL}/projects/proj1/environments",
+            resume_url,
+        ]
+
+
 class TestRetryAndErrors:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_4xx_raises(self, mock_session):

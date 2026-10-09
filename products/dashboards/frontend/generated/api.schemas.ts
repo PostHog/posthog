@@ -638,16 +638,6 @@ export interface DashboardApi {
     _create_in_folder?: string
 }
 
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    level: RestrictionLevelEnumApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
-
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
  *
@@ -1217,6 +1207,8 @@ export interface DashboardPatchTileOpenApiApi {
     id?: number
     /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
     layouts?: _DashboardPatchTileLayoutsOpenApiApi
+    /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
+    show_description?: boolean
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
