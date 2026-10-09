@@ -1,5 +1,3 @@
-import { OrganizationMemberType, RoleType } from '~/types'
-
 import { AccessControlExportInput, AccessControlRule, generateAccessControlHCL } from './accessControlHclExporter'
 
 const ROLE_ID = '01a12045-1f02-0000-85fd-48fdffc811d0'
@@ -21,8 +19,8 @@ function exportRules(rules: Pick<AccessControlExportInput, 'projectRules' | 'res
     return generateAccessControlHCL({
         projectId: 73,
         organizationId: ORGANIZATION_ID,
-        roles: [{ id: ROLE_ID, name: 'Flag editors' } as RoleType],
-        members: [{ id: MEMBER_ID, user: { email: 'teammate@example.com' } } as OrganizationMemberType],
+        roles: [{ id: ROLE_ID, name: 'Flag editors' }],
+        members: [{ id: MEMBER_ID, user: { email: 'teammate@example.com' } }],
         ...rules,
     }).hcl
 }

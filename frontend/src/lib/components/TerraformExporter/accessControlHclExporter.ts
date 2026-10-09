@@ -1,6 +1,12 @@
 import { formatHclValue, sanitizeResourceName } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { AccessControlType, OrganizationMemberType, RoleType } from '~/types'
+import { AccessControlType } from '~/types'
+
+import type {
+    OrganizationMemberApi,
+    RoleApi,
+    UserBasicApi,
+} from 'products/platform_features/frontend/generated/api.schemas'
 
 import { HclExportResult, POSTHOG_PROVIDER_VERSION } from './hclExporter'
 
@@ -13,8 +19,8 @@ export interface AccessControlExportInput {
     projectRules: AccessControlRule[]
     /** Rules that apply to a whole resource type, such as every feature flag */
     resourceRules: AccessControlRule[]
-    roles: RoleType[]
-    members: OrganizationMemberType[]
+    roles: Pick<RoleApi, 'id' | 'name'>[]
+    members: (Pick<OrganizationMemberApi, 'id'> & { user: Pick<UserBasicApi, 'email'> })[]
 }
 
 export interface AccessControlExportResult extends HclExportResult {

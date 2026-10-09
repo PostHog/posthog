@@ -8,6 +8,7 @@ import { DashboardType, HogFunctionType, InsightModel } from '~/types'
 
 import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
 import { AlertType } from 'products/alerts/frontend/types'
+import { membersList, rolesList } from 'products/platform_features/frontend/generated/api'
 
 import api from '../../api'
 import { AccessControlExportResult, AccessControlRule, generateAccessControlHCL } from './accessControlHclExporter'
@@ -124,15 +125,28 @@ async function exportInsight(
     }
 }
 
+async function fetchAllPages<T>(
+    fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
+): Promise<T[]> {
+    const all: T[] = []
+    for (;;) {
+        const page = await fetchPage(all.length)
+        all.push(...page.results)
+        if (!page.next || page.results.length === 0) {
+            return all
+        }
+    }
+}
+
 async function exportAccessControl(
     { projectId, organizationId }: { projectId: number; organizationId: string },
     checkStale: () => boolean
 ): Promise<AccessControlExportResult> {
-    const [projectResponse, resourceResponse, rolesResponse, members] = await Promise.all([
+    const [projectResponse, resourceResponse, roles, members] = await Promise.all([
         api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/access_controls`),
         api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/resource_access_controls`),
-        api.roles.list(),
-        api.organizationMembers.listAll(),
+        fetchAllPages((offset) => rolesList(organizationId, { offset })),
+        fetchAllPages((offset) => membersList(organizationId, { offset })),
     ])
 
     if (checkStale()) {
@@ -144,7 +158,7 @@ async function exportAccessControl(
         organizationId,
         projectRules: projectResponse.access_controls,
         resourceRules: resourceResponse.access_controls,
-        roles: rolesResponse.results,
+        roles,
         members,
     })
 }
