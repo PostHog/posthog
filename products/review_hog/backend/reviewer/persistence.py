@@ -37,7 +37,6 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -53,7 +52,6 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
-    DEFAULT_REVIEW_ARM,
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
     ReviewArm,
@@ -134,7 +132,7 @@ def upsert_review_report(
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
                 "review_signal_priority": signal_priority.value if signal_priority is not None else None,
-                **_review_tier_fields(team_id, tier),
+                **_review_tier_fields(tier),
             }
             if trigger_source is not None:
                 create_kwargs["trigger_source"] = trigger_source
@@ -177,7 +175,7 @@ def upsert_review_report(
             # Accepted cost of the lift: this turn treats the cheap turn's findings as already
             # covered, the same as any re-turn. Rare enough (a person asking about an agent PR)
             # that quality for the person wins over a clean re-review.
-            updates.update(_review_tier_fields(team_id, ReviewTier.HUMAN))
+            updates.update(_review_tier_fields(ReviewTier.HUMAN))
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
 
@@ -216,18 +214,13 @@ def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_num
     persisted_tier = _parse_persisted_tier(report.review_tier)
     if persisted_tier is None or not is_below_human_tier(persisted_tier):
         return False
-    qs.filter(pk=report.pk).update(**_review_tier_fields(team_id, ReviewTier.HUMAN))
+    qs.filter(pk=report.pk).update(**_review_tier_fields(ReviewTier.HUMAN))
     return True
 
 
-def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
-    """The tier column plus the arm bundle a report placed in `tier` reviews on.
-
-    Tiered arms are rolled out per project through the `review-hog-internal` flag. Other projects
-    keep the single default arm but still record their tier, so the label stays truthful and the
-    tiers can be compared on their traffic before the rollout widens.
-    """
-    arm = REVIEW_ARMS_BY_TIER[tier] if has_internal_features(team_id) else DEFAULT_REVIEW_ARM
+def _review_tier_fields(tier: ReviewTier) -> dict[str, object]:
+    """The tier column plus the arm bundle a report placed in `tier` reviews on."""
+    arm = REVIEW_ARMS_BY_TIER[tier]
     return {
         "review_tier": tier.value,
         "review_runtime_adapter": arm.runtime_adapter.value,

@@ -11,7 +11,6 @@ from enum import StrEnum
 from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration
 
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, flash_refusal
@@ -104,13 +103,6 @@ def request_pr_review(
     Full review. Raises `GitHubRateLimitError` when GitHub rate-limits the App's token, so the
     caller can answer with the wait.
     """
-    # The scene hides these outside internal projects; this also stops API and MCP callers there.
-    if run_mode in (RUN_MODE_FLASH, RUN_MODE_RESOLVE_ONLY) and not has_internal_features(team_id):
-        return PRReviewRequestOutcome(
-            status=PRReviewRequestStatus.NOT_ALLOWED,
-            error="This run mode isn't available in this project. Start a regular review instead.",
-            refusal=ReviewRequestRefusal.INTERNAL_FEATURE,
-        )
     repository = f"{owner}/{repo}"
     # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
     # asynchronously the fetch activity would fail before the report row exists, showing nothing.

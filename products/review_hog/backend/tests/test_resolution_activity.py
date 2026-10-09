@@ -103,7 +103,7 @@ def _patch_open_branch_and_opted_in_owner(test: SimpleTestCase) -> Mock:
     test.enterContext(
         patch(
             f"{_RESOLUTION}.ResolutionGate.load",
-            return_value=ResolutionGate(owner_user_id=1, owner_opted_in=True, internal_features=True),
+            return_value=ResolutionGate(owner_user_id=1, owner_opted_in=True),
         )
     )
     return test.enterContext(
@@ -829,15 +829,14 @@ class TestFailedRunActivity(NonAtomicBaseTest):
 class TestResolutionOwnerGate(BaseTest):
     @parameterized.expand(
         [
-            ("owner_opted_in", "octocat", True, True, True),
-            ("owner_did_not_opt_in", "octocat", False, True, False),
-            ("internal_flag_off", "octocat", True, False, False),
+            ("owner_opted_in", "octocat", True, True),
+            ("owner_did_not_opt_in", "octocat", False, False),
             # The run user's opt-in never writes to a pull request nobody owns.
-            ("no_owner", "ghost", True, True, False),
+            ("no_owner", "ghost", True, False),
         ]
     )
     def test_resolution_writes_only_where_the_pr_owner_opted_in(
-        self, _name: str, author_login: str, opted_in: bool, internal: bool, prepared: bool
+        self, _name: str, author_login: str, opted_in: bool, prepared: bool
     ) -> None:
         sync_canonical_resolution(self.team)
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
@@ -851,7 +850,6 @@ class TestResolutionOwnerGate(BaseTest):
         )
         metadata = _pr_metadata().model_copy(update={"author": author_login})
         with (
-            patch("products.review_hog.backend.internal_features.posthog_feature_flag_enabled", return_value=internal),
             patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=metadata),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),

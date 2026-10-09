@@ -14,8 +14,6 @@ from products.review_hog.backend.temporal.activities import FetchPRDataInput, _f
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
 from products.signals.backend.models import SignalReport
 
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
-
 _MODULE = "products.review_hog.backend.temporal.activities"
 
 
@@ -131,43 +129,42 @@ class TestFetchDecidesTheTier(BaseTest):
             pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[], diff=""
         )
 
-        with patch(_INTERNAL_FLAG, return_value=True):
-            fetch_input = FetchPRDataInput(
-                team_id=self.team.id,
-                user_id=1,
-                repository="o/r",
-                owner="o",
-                repo="r",
-                pr_number=9,
-                pr_url="https://github.com/o/r/pull/9",
-                signal_report_id=str(signal_report.id),
-                trigger_source=TRIGGER_INBOX,
-                signal_priority="P3",
-            )
-            meta = _fetch_and_persist(fetch_input)
+        fetch_input = FetchPRDataInput(
+            team_id=self.team.id,
+            user_id=1,
+            repository="o/r",
+            owner="o",
+            repo="r",
+            pr_number=9,
+            pr_url="https://github.com/o/r/pull/9",
+            signal_report_id=str(signal_report.id),
+            trigger_source=TRIGGER_INBOX,
+            signal_priority="P3",
+        )
+        meta = _fetch_and_persist(fetch_input)
 
-            row = ReviewReport.objects.for_team(self.team.id).get(id=meta.report_id)
-            assert (row.review_tier, row.review_signal_priority, row.review_reasoning_effort) == (
-                "agent_p3_p4",
-                "P3",
-                "low",
-            )
-            original_arm = load_review_arm(team_id=self.team.id, report_id=meta.report_id)
+        row = ReviewReport.objects.for_team(self.team.id).get(id=meta.report_id)
+        assert (row.review_tier, row.review_signal_priority, row.review_reasoning_effort) == (
+            "agent_p3_p4",
+            "P3",
+            "low",
+        )
+        original_arm = load_review_arm(team_id=self.team.id, report_id=meta.report_id)
 
-            _fetch_and_persist(replace(fetch_input, trigger_source=TRIGGER_UI, review_mode=REVIEW_MODE_FLASH))
-            row.refresh_from_db()
-            assert (row.review_tier, row.review_signal_priority, row.review_reasoning_effort) == (
-                "agent_p3_p4",
-                "P3",
-                "low",
-            )
-            assert load_review_arm(team_id=self.team.id, report_id=meta.report_id) == original_arm
+        _fetch_and_persist(replace(fetch_input, trigger_source=TRIGGER_UI, review_mode=REVIEW_MODE_FLASH))
+        row.refresh_from_db()
+        assert (row.review_tier, row.review_signal_priority, row.review_reasoning_effort) == (
+            "agent_p3_p4",
+            "P3",
+            "low",
+        )
+        assert load_review_arm(team_id=self.team.id, report_id=meta.report_id) == original_arm
 
-            _fetch_and_persist(replace(fetch_input, trigger_source=TRIGGER_UI))
-            row.refresh_from_db()
-            assert (row.review_tier, row.review_signal_priority, row.review_reasoning_effort) == (
-                "human",
-                "P3",
-                "xhigh",
-            )
-            assert load_review_arm(team_id=self.team.id, report_id=meta.report_id) == DEFAULT_REVIEW_ARM
+        _fetch_and_persist(replace(fetch_input, trigger_source=TRIGGER_UI))
+        row.refresh_from_db()
+        assert (row.review_tier, row.review_signal_priority, row.review_reasoning_effort) == (
+            "human",
+            "P3",
+            "xhigh",
+        )
+        assert load_review_arm(team_id=self.team.id, report_id=meta.report_id) == DEFAULT_REVIEW_ARM

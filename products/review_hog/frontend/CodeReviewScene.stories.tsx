@@ -345,7 +345,6 @@ const meta: Meta<typeof CodeReviewScene> = {
     beforeEach: ({ parameters }) => {
         storyState.settings = {
             ...defaultSettings,
-            stamphog_connected: parameters.showInternalFeatures ?? false,
             ...parameters.savedSettings,
         }
         storyState.project = projectSettings(parameters.claimScope ?? 'all', parameters.canEdit ?? true)
@@ -567,21 +566,6 @@ export const SettingsForMember: Story = {
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
-    },
-}
-
-export const InternalFeatures: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
-        savedSettings: { stamphog_connected: true },
-        tab: 'settings',
-    },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await expect(
-            await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).toBeVisible()
-        await expect(canvas.getByLabelText('Let Stamphog review my Inbox PRs')).toBeVisible()
     },
 }
 
