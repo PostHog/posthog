@@ -267,10 +267,12 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         Used in arrayFold like: arrayMap(i -> {operation}, range(...))
         where acc[i] and x[i] are the two values to combine.
         """
+        # acc is Float64 and x can be an integer array. greatest/least reject Float64 mixed with
+        # (U)Int64, and accurateCast throws above 2^53, so `+ 0.0` promotes x instead.
         if self.series.math == "max":
-            return "greatest(acc[i], x[i])"
+            return "greatest(acc[i], x[i] + 0.0)"
         elif self.series.math == "min":
-            return "least(acc[i], x[i])"
+            return "least(acc[i], x[i] + 0.0)"
         elif self.series.math == "avg":
             # For avg, we'd need to track counts separately, so we fall back to sum for now
             # This is a known limitation - averaging averages is not statistically sound anyway

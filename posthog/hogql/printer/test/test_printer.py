@@ -1921,6 +1921,17 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("greatest", "greatest(1, 2)", "greatest(1, 2)"),
+            ("greatest_variadic", "greatest(1, 2, 3, 4)", "greatest(1, 2, 3, 4)"),
+            ("least_variadic", "least(1, 2, 3)", "least(1, 2, 3)"),
+            ("least_uppercase", "LEAST(1, 2, 3)", "least(1, 2, 3)"),
+        ]
+    )
+    def test_greatest_and_least_accept_any_number_of_arguments(self, _name: str, expr: str, expected: str) -> None:
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
             ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
             ("every", "every(uuid)", "accurateCastOrNull(min(events.uuid), 'Bool')"),
         ]
@@ -1954,6 +1965,7 @@ class TestPrinter(BaseTest):
             "Aggregation 'countIf' expects at most 2 arguments, found 3",
         )
         self._assert_expr_error("uniq()", "Aggregation 'uniq' expects at least 1 argument, found 0")
+        self._assert_expr_error("greatest(1)", "Function 'greatest' expects at least 2 arguments, found 1")
         self._assert_expr_error(
             "quantile(event)",
             "Aggregation 'quantile' requires parameters in addition to arguments",
