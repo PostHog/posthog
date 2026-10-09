@@ -148,6 +148,7 @@ class RunScoutTrialEvaluationWorkflow:
             schedule_to_close_timeout=timedelta(minutes=3),
         )
         judge_timeout = timedelta(minutes=TRIAL_JUDGE_TIMEOUT_MINUTES)
+        # Bound collectors; a timed-out collector can leave its Task running until its own deadline.
         semaphore = asyncio.Semaphore(TRIAL_JUDGE_CONCURRENCY)
         resumable_judges = workflow.patched("scout-trial-resumable-judges")
 

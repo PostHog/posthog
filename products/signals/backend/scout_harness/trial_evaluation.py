@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.trial_comparison_types import (
 from products.signals.backend.scout_harness.trial_evaluation_report import build_trial_comparison_report
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialComparisonReport,
+    TrialEvaluationAccess,
     TrialEvaluationCriterion,
     TrialEvaluationRequest,
     TrialEvaluationSnapshot,
@@ -232,7 +233,10 @@ def _read_trial_judge_input(team_id: int, evaluation_id: UUID, launch_id: UUID) 
 
 
 def _assert_context_access(
-    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan, *, config: SignalScoutConfig, user: User
+    context: TrialContext | TrialComparisonHistoryEntry | TrialComparisonPlan | TrialEvaluationAccess,
+    *,
+    config: SignalScoutConfig,
+    user: User,
 ) -> None:
     if (
         config.team_id != 2
@@ -260,7 +264,7 @@ def assert_evaluation_access(snapshot: TrialEvaluationSnapshot, *, config: Signa
     _assert_context_access(load_trial_context(snapshot.team_id, snapshot.context_id), config=config, user=user)
 
 
-def _assert_worker_access(snapshot: TrialEvaluationSnapshot) -> None:
+def _assert_worker_access(snapshot: TrialEvaluationSnapshot, *, use_saved_access: bool = False) -> None:
     assert_trial_environment_ready()
     config = (
         SignalScoutConfig.objects.for_team(snapshot.team_id)
@@ -271,6 +275,23 @@ def _assert_worker_access(snapshot: TrialEvaluationSnapshot) -> None:
     user = User.objects.filter(id=snapshot.user_id, is_active=True).first()
     if config is None or user is None:
         raise TrialEvaluationError("The evaluation is no longer available to this operator.")
+    access = (
+        _read_document(_key(snapshot.team_id, snapshot.evaluation_id, "access"), TrialEvaluationAccess)
+        if use_saved_access
+        else None
+    )
+    if access is not None:
+        if (
+            access.evaluation_id != snapshot.evaluation_id
+            or access.team_id != snapshot.team_id
+            or access.config_id != snapshot.config_id
+            or access.user_id != snapshot.user_id
+            or access.context_id != snapshot.context_id
+        ):
+            raise TrialEvaluationError("The saved source identity does not match this evaluation.")
+        # Polls only need the frozen source identity; current permissions are still checked every time.
+        _assert_context_access(access, config=config, user=user)
+        return
     assert_evaluation_access(snapshot, config=config, user=user)
 
 
@@ -641,6 +662,20 @@ def prepare_trial_evaluation(
     stored = _write_once(_key(config.team_id, request.evaluation_id, "snapshot"), snapshot)
     if stored.request_hash != request_hash:
         raise TrialEvaluationError("This evaluation ID was already used for a different request.")
+    if stored.context_id != context.id:
+        raise TrialEvaluationError("The saved evaluation uses a different starting context.")
+    access = TrialEvaluationAccess(
+        evaluation_id=stored.evaluation_id,
+        team_id=stored.team_id,
+        config_id=stored.config_id,
+        user_id=stored.user_id,
+        context_id=context.id,
+        skill_name=context.skill_name,
+        skill_version=context.skill_version,
+    )
+    saved_access = _write_once(_key(stored.team_id, stored.evaluation_id, "access"), access)
+    if saved_access != access:
+        raise TrialEvaluationError("The saved source identity does not match this evaluation.")
     _save_trial_judge_inputs(stored)
     return stored
 
@@ -699,7 +734,7 @@ async def run_evaluation_run(team_id: int, evaluation_id: UUID, launch_id: UUID)
         else:
             step = "access_check"
             try:
-                await database_sync_to_async(_assert_worker_access)(snapshot)
+                await database_sync_to_async(_assert_worker_access)(snapshot, use_saved_access=True)
                 step = "judge_execution"
                 collected_judgment = await judge_trial_run(snapshot, evidence)
                 if collected_judgment is None:

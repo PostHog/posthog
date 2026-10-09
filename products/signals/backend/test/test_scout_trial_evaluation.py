@@ -366,6 +366,11 @@ class TestScoutTrialEvaluation(BaseTest):
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         assert snapshot.judge_prompt_version == JUDGE_PROMPT_VERSION
         assert snapshot.judge_model == "gpt-6-astra"
+        saved = json.loads(
+            self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"]
+        )
+        assert "skill_name" not in saved
+        assert "skill_version" not in saved
         self.scout_run.summary = "A later edit must not change the evidence."
         self.scout_run.save(update_fields=["summary"])
         self.skill.body = "The current skill changed after capture."
@@ -396,6 +401,11 @@ class TestScoutTrialEvaluation(BaseTest):
             assert read_trial_evaluation_report(snapshot) == report
             with self.assertRaises(ScoutTrialLaunchError):
                 prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        self._save("contexts", self.context.id, self.context.model_copy(update={"user_id": self.user.id + 1}))
+        with self.assertRaises(TrialEvaluationError):
+            assert_evaluation_access(snapshot, config=self.config, user=self.user)
+        with self.assertRaises(TrialEvaluationError):
+            finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
 
     @parameterized.expand(
         [
@@ -863,9 +873,21 @@ class TestScoutTrialEvaluation(BaseTest):
             read_trial_evidence_sources(snapshot, evidence)
         assert "Different private content" not in str(error.exception)
 
-    @parameterized.expand(["pending", "worker_interruption", "result_save"])
-    def test_retries_collect_existing_judgments_without_finalizing_incomplete_runs(self, interrupted_at: str) -> None:
+    @parameterized.expand(
+        [
+            ("pending", False),
+            ("worker_interruption", False),
+            ("result_save", False),
+            ("pending", True),
+        ]
+    )
+    def test_retries_collect_existing_judgments_without_finalizing_incomplete_runs(
+        self, interrupted_at: str, legacy: bool
+    ) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        if legacy:
+            del self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/access.json"]
+        assert read_trial_evaluation(self.team.id, snapshot.evaluation_id) == snapshot
         judgment = TrialRunJudgment(
             launch_id=self.launch.id,
             variant_id=self.request.baseline_variant_id,
@@ -878,7 +900,10 @@ class TestScoutTrialEvaluation(BaseTest):
             judge.side_effect = [None, judgment]
         elif interrupted_at == "worker_interruption":
             judge.side_effect = [RuntimeError("Private synthetic failure detail"), judgment]
-        with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
+        with (
+            patch(f"{JUDGE_MODULE}.judge_trial_run", judge),
+            patch.object(object_storage, "read", wraps=object_storage.read) as read,
+        ):
             if interrupted_at == "pending":
                 assert not async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
             elif interrupted_at == "worker_interruption":
@@ -890,11 +915,16 @@ class TestScoutTrialEvaluation(BaseTest):
                 ):
                     with self.assertRaises(object_storage.ObjectStorageError):
                         async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            context_key = f"signals/scout-trials/{self.team.id}/contexts/{self.context.id}.json"
+            assert (context_key in [call.args[0] for call in read.call_args_list]) == legacy
             with self.assertRaises(TrialEvaluationNotReady):
                 finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+            assert context_key in [call.args[0] for call in read.call_args_list]
             assert read_trial_evaluation_report(snapshot) is None
+            read.reset_mock()
             assert async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
             assert async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
+            assert (context_key in [call.args[0] for call in read.call_args_list]) == legacy
         assert judge.await_count == 2
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
         assert report.runs[0].status == "judge_error"
@@ -906,14 +936,34 @@ class TestScoutTrialEvaluation(BaseTest):
             "inactive",
             "membership_revoked",
             "project_revoked",
+            "current_skill_removed",
             "historical_skill_removed",
             "source_skill",
             "source_config_team",
             "source_invalidated",
+            "saved_context",
+            "saved_evaluation",
         ]
     )
     def test_worker_rechecks_source_and_operator_access_before_judging(self, revoked: str) -> None:
+        runtime_skill = self.skill
+        if revoked == "historical_skill_removed":
+            self.skill.is_latest = False
+            self.skill.save(update_fields=["is_latest"])
+            runtime_skill = LLMSkill.objects.create(
+                team=self.team,
+                name=self.skill.name,
+                version=2,
+                body=self.skill.body,
+                allowed_tools=["emit_report"],
+            )
+            self.context = self.context.model_copy(update={"skill_version": runtime_skill.version})
+            self.launch = self.launch.model_copy(update={"skill_version": runtime_skill.version})
+            self._save("contexts", self.context.id, self.context)
+            self._save("launches", self.launch.id, self.launch)
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        with patch(f"{JUDGE_MODULE}.judge_trial_run", new_callable=AsyncMock, return_value=None):
+            assert not async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
         if revoked == "staff_revoked":
             self.user.is_staff = False
             self.user.save(update_fields=["is_staff"])
@@ -930,12 +980,14 @@ class TestScoutTrialEvaluation(BaseTest):
                     return_value=False,
                 )
             )
-        elif revoked == "historical_skill_removed":
+        elif revoked == "current_skill_removed":
             self.skill.delete()
+        elif revoked == "historical_skill_removed":
+            LLMSkill.objects.filter(pk=runtime_skill.id).delete()
             LLMSkill.objects.create(
                 team=self.team,
                 name=self.skill.name,
-                version=2,
+                version=3,
                 body="Updated synthetic instructions.",
                 allowed_tools=["emit_report"],
             )
@@ -945,6 +997,11 @@ class TestScoutTrialEvaluation(BaseTest):
         elif revoked == "source_config_team":
             self.config.team = Team.objects.create(organization=self.organization, name="Other synthetic project")
             self.config.save(update_fields=["team"])
+        elif revoked in {"saved_context", "saved_evaluation"}:
+            key = f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/access.json"
+            access = json.loads(self.documents[key])
+            access["context_id" if revoked == "saved_context" else "evaluation_id"] = str(uuid4())
+            self.documents[key] = json.dumps(access)
         else:
             ScoutTrialStore(self.scout_run).invalidate("Synthetic invalidation", allow_terminal=True)
 
