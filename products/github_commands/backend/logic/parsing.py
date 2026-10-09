@@ -31,8 +31,9 @@ _CONTAINER_OPEN = frozenset({"blockquote_open", "bullet_list_open", "ordered_lis
 _CONTAINER_CLOSE = frozenset({"blockquote_close", "bullet_list_close", "ordered_list_close", "list_item_close"})
 # A code span becomes a placeholder, so the text before a mention keeps it off the line start.
 _CODE_SPAN_PLACEHOLDER = "x"
-# GitHub shows the text inside these inline HTML tags as code, like a backtick span.
-_HTML_CODE_OPEN_RE = re.compile(r"^<(code|kbd|samp|var|tt)(?=[\s>/])", re.IGNORECASE)
+# GitHub's table parser accepts a delimiter row that markdown-it rejects, such as a header with no
+# pipe, so a paragraph holding one may be a table on GitHub.
+_TABLE_DELIMITER_ROW_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 # Paragraph lines carry no leading indentation, so the mention must be the first character.
 # The mention must stand alone: `@posthog-bot` and `@posthogx` are other accounts.
 _COMMAND_LINE_RE = re.compile(
@@ -97,31 +98,29 @@ def sanitize_argument(raw: str) -> str:
 
 def _paragraph_lines(inline: Token) -> list[str]:
     lines = [""]
-    # The closing tag of an open inline HTML code element. An unclosed one runs to the paragraph end.
-    html_code_close_tag: str | None = None
     for child in inline.children or []:
-        if html_code_close_tag is not None:
-            if child.type == "html_inline" and child.content.replace(" ", "").lower() == html_code_close_tag:
-                html_code_close_tag = None
-            continue
         if child.type == "html_inline":
-            html_code_match = _HTML_CODE_OPEN_RE.match(child.content)
-            if html_code_match is not None:
-                html_code_close_tag = f"</{html_code_match.group(1).lower()}>"
-                lines[-1] += _CODE_SPAN_PLACEHOLDER
-        elif child.type == "text":
+            # GitHub renders raw HTML by its own rules (unclosed tags, nesting, block tags mid-line),
+            # so the line holding it and the text after it are not reliably the person's plain words.
+            return lines[:-1]
+        if child.type == "text":
             lines[-1] += child.content
         elif child.type in ("softbreak", "hardbreak"):
             lines.append("")
-        elif child.type == "code_inline":
+        elif child.type in ("code_inline", "image"):
             lines[-1] += _CODE_SPAN_PLACEHOLDER
     return lines
+
+
+def _is_table_delimiter_row(line: str) -> bool:
+    # A plain "---" is a heading underline, which markdown-it already reads as a heading.
+    return ("|" in line or ":" in line) and _TABLE_DELIMITER_ROW_RE.match(line) is not None
 
 
 def _live_lines(body: str) -> list[str]:
     """Lines of the top-level paragraphs, the only text a person types as their own words.
 
-    GitHub shows everything else as code, a quote, a list item or an HTML block.
+    GitHub shows everything else as code, a quote, a list item, a table or an HTML block.
     """
     lines: list[str] = []
     container_depth = 0
@@ -136,5 +135,7 @@ def _live_lines(body: str) -> list[str]:
         elif token.type == "paragraph_close":
             in_live_paragraph = False
         elif token.type == "inline" and in_live_paragraph:
-            lines.extend(_paragraph_lines(token))
+            paragraph_lines = _paragraph_lines(token)
+            if not any(_is_table_delimiter_row(line) for line in paragraph_lines):
+                lines.extend(paragraph_lines)
     return lines

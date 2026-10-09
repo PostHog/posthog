@@ -86,13 +86,21 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
         ("- item\n\n@posthog stamp", ParsedCommand(verb="stamp", argument="")),
         # Bold text is still the person's own words.
         ("**@posthog stamp**", ParsedCommand(verb="stamp", argument="")),
-        # GitHub shows a table cell and inline HTML code as displayed text.
+        # GitHub shows a table cell as displayed text, including a header with no pipe.
         ("| cmd |\n| --- |\n| @posthog qa |", None),
         ("Example |\n--- |\n@posthog qa", None),
+        ("a\n| --- |\n@posthog stamp", None),
+        ("@posthog stamp\n| --- |", None),
+        # Text on a line with inline HTML, or after it, is not the person's plain words.
         ("<code>@posthog qa</code>", None),
         ("Try <kbd>@posthog qa</kbd> here", None),
         ("<CODE class='x'>\n@posthog qa", None),
-        ("<b>@posthog stamp</b>", ParsedCommand(verb="stamp", argument="")),
+        ("<b>@posthog stamp</b>", None),
+        ("x <code>a<code>b</code>\n@posthog stamp", None),
+        ("a <pre>\n@posthog stamp", None),
+        ("@posthog stamp\n<code>x</code>", ParsedCommand(verb="stamp", argument="")),
+        # An image keeps the mention off the start of its line.
+        ("![Example](https://example.com/image.png)@posthog qa", None),
     ],
 )
 def test_parse_command(body: str, expected: object) -> None:

@@ -66,7 +66,7 @@ Several commands start an agent, and a pull request is full of text other people
 The defenses do not depend on an agent ignoring instructions:
 
 - The parser reads only lines that start with the mention, and only in top-level paragraphs as the CommonMark reference parser reads them.
-  Text that GitHub shows as a quote, code, a list item, a table or an HTML block never counts, and neither does inline code, in backticks or in HTML tags such as `<code>`, so text that shows or repeats a command does not run it.
+  Text that GitHub shows as a quote, code, a list item, a table or an HTML block never counts, and neither do inline code, images, inline HTML with the text after it, or a paragraph with a table row, so text that shows or repeats a command does not run it.
   A comment longer than 10,000 characters is ignored, because a command comment is short.
 - The command's argument is the commenter's own words, cleaned of control and invisible characters and capped in length. It is treated as their instruction, because the run uses their access.
 - Handlers pass identifiers, never the pull request title, body or other comments. The product reads that content itself and treats it as untrusted.
