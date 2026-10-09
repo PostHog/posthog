@@ -11,6 +11,13 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
+## MCP setup recommendations
+
+The `marketing-analytics-setup-plan-mcp` feature flag controls whether the MCP server exposes the read-only `marketing-analytics-setup-plan` tool.
+The tool returns ranked source connection recommendations with evidence and confidence, alongside other setup improvements.
+It supports `refresh=true` for an explicit rescan and does not connect accounts or apply changes.
+Incomplete or truncated scan results must be presented as such.
+
 ## Search performance
 
 Spend and conversions require a synced ad platform source in the current search filters.
@@ -83,3 +90,5 @@ Table resolution uses schema metadata when available and otherwise recognizes so
 The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
 Source health polling refreshes metadata without forcing every dashboard query.
 Campaign reporting waits for all required schemas to complete their first sync.
+Source refresh failures retain the previous list and allow a later retry.
+Native source readiness checks include required schema failures and paused imports.
