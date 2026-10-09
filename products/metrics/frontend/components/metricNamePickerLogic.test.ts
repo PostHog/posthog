@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
@@ -30,6 +33,7 @@ describe('metricNamePickerLogic', () => {
             },
         } as AppContext
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
         jest.mocked(metricsNamesRetrieve).mockReset()
         jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: ITEMS } as any)
     })
