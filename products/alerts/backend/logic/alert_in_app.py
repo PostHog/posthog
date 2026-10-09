@@ -1,8 +1,9 @@
 """Who an insight alert notifies in the app, for the shared platform.
 
-The production check notifies subscribers in the app besides any HogFunction destinations. The
-recipients here are the ones production chooses for each kind, so a pilot alert reaches the same
-inboxes on both paths.
+An insight alert notifies its subscribers in the app besides any HogFunction destinations. Only
+subscribers who can still view the alert's insight receive one, because the notification inbox
+checks access to insights in general and not to one insight. The recipients are the email
+recipients, so a user who loses access to the insight stops receiving either.
 """
 
 from __future__ import annotations
@@ -23,29 +24,18 @@ from products.alerts_platform.backend.facade.contracts import (
 def insight_in_app_groups(
     alert: AlertConfiguration, *, event_ids: Collection[str], recipients_with_access: Collection[tuple[int, str]]
 ) -> list[AlertDestinationGroup]:
+    user_ids = [user_id for user_id, _ in recipients_with_access]
+    if not user_ids:
+        return []
     short_id = alert.insight.short_id
-    groups: list[AlertDestinationGroup] = []
-    if LEGACY_INSIGHT_ALERT_EVENT in event_ids:
-        # Production notifies every subscriber of a firing and leaves the access check to the
-        # inbox, which checks access to insights in general and not to this insight.
-        firing_user_ids = list(alert.subscribed_users.values_list("id", flat=True))
-        if firing_user_ids:
-            groups.append(
-                _group(
-                    user_ids=firing_user_ids,
-                    short_id=short_id,
-                    url=f"/project/{alert.team.project_id}/insights/{short_id}#alert={alert.id}",
-                )
-            )
-    if INSIGHT_ALERT_ERRORED_EVENT_ID in event_ids and recipients_with_access:
-        groups.append(
-            _group(
-                user_ids=[user_id for user_id, _ in recipients_with_access],
-                short_id=short_id,
-                url=f"/project/{alert.team_id}/insights/{short_id}?alert_id={alert.id}",
-            )
-        )
-    return groups
+    # Each kind links where the production notification for that kind links.
+    urls = {
+        LEGACY_INSIGHT_ALERT_EVENT: f"/project/{alert.team.project_id}/insights/{short_id}#alert={alert.id}",
+        INSIGHT_ALERT_ERRORED_EVENT_ID: f"/project/{alert.team_id}/insights/{short_id}?alert_id={alert.id}",
+    }
+    return [
+        _group(user_ids=user_ids, short_id=short_id, url=url) for event_id, url in urls.items() if event_id in event_ids
+    ]
 
 
 def _group(*, user_ids: list[int], short_id: str, url: str) -> AlertDestinationGroup:

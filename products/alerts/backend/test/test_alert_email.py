@@ -1,10 +1,12 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.destinations import list_alert_destination_groups, list_delivery_destination_groups
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
@@ -20,25 +22,30 @@ class TestInsightAlertEmailDestination(APIBaseTest):
         AlertSubscription.objects.create(user=user, alert_configuration=alert)
 
     @parameterized.expand([("firing", LEGACY_INSIGHT_ALERT_EVENT), ("errored", INSIGHT_ALERT_ERRORED_EVENT_ID)])
-    def test_the_platform_reaches_the_subscribers_production_reaches(self, _name: str, event_id: str) -> None:
+    def test_the_platform_reaches_only_subscribers_who_can_still_see_the_insight(
+        self, _name: str, event_id: str
+    ) -> None:
         alert = self._alert()
         self._subscribe(alert, self.user)
-        former_member = User.objects.create(email="former-member@example.com")
-        self._subscribe(alert, former_member)
+        self._subscribe(alert, User.objects.create(email="former-member@example.com"))
+        denied = User.objects.create_and_join(self.organization, "denied@example.com", None)
+        self._subscribe(alert, denied)
         firing = event_id == LEGACY_INSIGHT_ALERT_EVENT
         short_id = alert.insight.short_id
 
-        groups = list_delivery_destination_groups(
-            team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=[event_id]
-        )
+        def can_view(access_control: UserAccessControl, *_args: object) -> bool:
+            return access_control._user.id != denied.id
 
-        # Production notifies every subscriber in the app when an alert fires, and only those who
-        # can still see the alert when a check fails.
+        with patch.object(UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=can_view):
+            groups = list_delivery_destination_groups(
+                team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=[event_id]
+            )
+
         assert [group.data for group in groups] == [
             {"type": DestinationType.EMAIL, "email_addresses": [self.user.email]},
             {
                 "type": DestinationType.IN_APP,
-                "in_app_user_ids": sorted([self.user.id, former_member.id]) if firing else [self.user.id],
+                "in_app_user_ids": [self.user.id],
                 "in_app_resource_type": "insight",
                 "in_app_resource_id": short_id,
                 "in_app_url": f"/project/{self.team.project_id}/insights/{short_id}#alert={alert.id}"
