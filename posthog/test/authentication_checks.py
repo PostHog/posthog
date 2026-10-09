@@ -88,7 +88,7 @@ def _replay(authentication_class: type, request: Any, user: Any) -> None:
         return
     if authentication_class in _replayed_classes:
         return
-    _replayed_classes.add(authentication_class)
+    problems_before = len(_problems)
 
     with transaction.atomic():
         try:
@@ -110,3 +110,5 @@ def _replay(authentication_class: type, request: Any, user: Any) -> None:
         _problems.append(f"{name}.authenticate() accepted a blocked account.")
     elif isinstance(error, AuthenticationFailed) and error.get_codes() != "access_blocked":
         _problems.append(f"{name}.authenticate() refused a blocked account without the access_blocked code.")
+    if len(_problems) == problems_before:
+        _replayed_classes.add(authentication_class)
