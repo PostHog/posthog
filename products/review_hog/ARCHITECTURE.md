@@ -258,7 +258,7 @@ flowchart TD
 ### Single-agent Flash (the Flash default)
 
 A Flash turn runs one of two designs, picked by the fetch activity (`select_review_design`, `reviewer/constants.py`).
-The **single-agent design** (`reviewhog-flash-2-0`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
+The **single-agent design** (`reviewhog-flash-2-1`) replaces steps 4, 5, and 8 below with parallel Codex sandbox
 sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all returning `SingleAgentReview`:
 
 - **The main session** (`single_agent_review_activity`) reviews the whole PR. Its system prompt is `core.md` (the
@@ -286,7 +286,10 @@ the prompt tells the session to read those files at the head. There is no team s
 DevEx-owned prompts.
 
 Each session persists as one `perspective_result` under a reserved pass (`SINGLE_AGENT_PASS_NUMBER` 2000, lenses 2001
-and 2002) and its part. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
+and 2002) and its part. On a follow-up turn, a P2 or P3 finding more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+lines from any code that changed since `completed_head_sha` drops as `old_code` first (`ChangedSinceReview`). The two
+heads' PR snapshots are compared by line content per file, so lines a base merge only moved stay old. P0 and P1
+findings, files whose patch GitHub left out, a first review, and a re-run at the reviewed head skip the check. Step 7 then runs as two dedup calls in parallel (`dedupe_flash_findings`,
 `tools/single_agent_review.py`), both one-shot OpenAI calls on `FLASH_DEDUP_MODEL` (`gpt-6-luna` @ medium,
 `run_oneshot_openai_review`): the main findings against PR comments and earlier turns, and the lens findings against
 the same plus the main findings as anchors, so a lens finding can lose to a main finding but never the reverse.
@@ -313,7 +316,7 @@ optional `suggestion_code` is stored on the finding but never posted. A PR past 
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
-with its `reported_priority`, the session's pass and part, the `disposition` (`dedup_prior`, `dedup_comment`,
+with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,
 `dedup_anchor`, `dedup_sibling`, or `cap`), `duplicate_of` (an issue key, or `comment:<id>`), the
 rank in the composed order for a cut finding, the cap, and the lens part count. A retried turn replaces its rows by
 `run_index`. Only analysis reads them: publishing, the status comment, outcome classification, `load_prior_findings`,
@@ -457,7 +460,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Turn event IDs distinguish Full and Flash, and the single-agent design from the pipeline, while preserving the legacy Full and pipeline Flash IDs across deployments.
     Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
     After the skill sync, `record_turn_marker_activity` records the turn's version marker: a version id per review mode
-    and design (`reviewhog-flash-2-0`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
+    and design (`reviewhog-flash-2-1`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in
     `REVIEWHOG_VERSIONS`, `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
     Full, Flash pipeline, and Flash single agent evolve separately, so each bumps its own version.
     The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,

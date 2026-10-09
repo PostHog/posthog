@@ -100,7 +100,7 @@ class TestRecordTurnMarker(BaseTest):
         self._edit_single_agent_prompt(f"{prompt_name}.md")
         changed = self._record_single_agent(run_index=2)
 
-        assert original.version == "reviewhog-flash-2-0"
+        assert original.version == "reviewhog-flash-2-1"
         assert changed.fingerprint != original.fingerprint
 
     @parameterized.expand(

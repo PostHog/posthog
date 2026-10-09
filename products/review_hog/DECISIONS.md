@@ -198,6 +198,22 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
+
+- **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+  lines from any code that changed since the head the last completed turn reviewed drops as `old_code` before dedup.
+  P0 and P1 findings still post. The two heads' PR diffs are compared by line content per file
+  (`ChangedSinceReview`), so lines that a base merge or a rebase only moved stay old. A first review, a re-run at the
+  reviewed head, a missing snapshot, or a file whose patch GitHub left out skips the check.
+- **Why.** Each follow-up turn re-reviews the whole PR, and a fresh review picks different issues out of the same
+  code, so findings on code from the first commit trickled in push after push. An offline study of 12 PRs found that
+  51% of later-turn findings sat on code unchanged since the first review (66% on PRs with three or more posting
+  turns). Authors acted on 34% of those, against 70% of first-turn findings and 73% of later findings on new code,
+  which are often bugs in the author's fixes. Performance and security findings on old code: 0 of 8 acted on.
+- **Not chosen yet.** Reviewing only the changes since the last head (a delta prompt) or resuming the earlier session
+  would also save review cost, but neither is tested. The prompt does not mention the rule, so the sessions have no
+  reason to raise a level to get a finding posted.
+
 ### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
 
 - **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
