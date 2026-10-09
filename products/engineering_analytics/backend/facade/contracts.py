@@ -61,6 +61,8 @@ ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
 
 
+# The default labels would equal the choices of data_warehouse's backfill lifecycle state. Two classes with
+# identical choices get no class-derived OpenAPI name, so these labels must stay distinct.
 class CISignalsSyncStatus(LabeledStrEnum):
     RUNNING = "running", "Sync Running"
     COMPLETED = "completed", "Sync Completed"
