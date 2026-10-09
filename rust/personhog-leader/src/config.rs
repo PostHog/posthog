@@ -19,7 +19,7 @@ pub struct Config {
     /// by their stored properties plus a fixed per-entry overhead, so
     /// this bounds memory, not entry count. Sized against full
     /// ownership: a lone survivor owns every partition, so the worst-case
-    /// cache footprint is this value times the partition count — 16 MiB
+    /// cache footprint is this value times the partition count: 16 MiB
     /// × 16 partitions = 256 MiB.
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
@@ -27,7 +27,9 @@ pub struct Config {
     /// Compress cached person properties with a zstd dictionary that
     /// each pod trains from the first documents it caches. Fits more
     /// persons in `cache_memory_capacity_bytes` at the cost of CPU on
-    /// every cache read and write.
+    /// every cache read and write. The codec's own memory is outside that
+    /// bound: its training samples until the dictionary exists, the
+    /// dictionary, and one compression context per thread.
     #[envconfig(default = "false")]
     pub cache_properties_compression_enabled: bool,
 

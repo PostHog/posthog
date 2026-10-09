@@ -12,10 +12,10 @@ use super::persons::{CachedPerson, PersonCacheKey};
 const FOYER_RECORD_BOOKKEEPING_BYTES: usize = 96;
 
 /// The form a person takes inside the cache. It sits inline in foyer's
-/// record, so an entry is one allocation for the record plus one for the
-/// properties. `CachedPerson` costs two more: its own `Arc` and the uuid
-/// `String`. The properties box has no spare capacity, which a `Vec`
-/// filled by a serializer usually does.
+/// record, so an entry costs one allocation for the record and one for
+/// the properties. The uuid packs into the struct (see `StoredUuid`), and
+/// the properties box has no spare capacity, which a `Vec` filled by a
+/// serializer usually has.
 pub(super) struct StoredPerson {
     id: i64,
     team_id: i64,

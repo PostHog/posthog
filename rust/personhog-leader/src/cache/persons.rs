@@ -123,7 +123,7 @@ pub struct PersonCache {
 
 impl PersonCache {
     /// `capacity_bytes` bounds the cache by the entries' byte weights
-    /// (see `StoredPerson::weight`), not their count — person documents
+    /// (see `StoredPerson::weight`), not their count. Person documents
     /// vary by orders of magnitude and grow in place across writes, so
     /// an entry-count bound cannot bound memory.
     pub(super) fn new(capacity_bytes: usize, codec: Arc<PropertiesCodec>) -> Self {
@@ -146,9 +146,10 @@ impl PersonCache {
         person
     }
 
-    /// A read that skips the hit/miss counters — for bookkeeping passes
-    /// (the death-document settle), not serving. It still promotes the
-    /// entry's recency, which is harmless for those passes.
+    /// A read that skips the hit/miss counters, for bookkeeping passes
+    /// such as the death-document settle. It still promotes the entry's
+    /// recency, which is harmless for those passes. An entry that fails
+    /// to decode is dropped and reads as absent.
     pub fn peek(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
         let entry = self.inner.get(key)?;
         match entry.value().to_cached(&self.codec) {
@@ -184,7 +185,7 @@ impl PersonCache {
         self.inner.remove(key);
     }
 
-    /// Resident weight in bytes — the sum of entries' weights as foyer
+    /// Resident weight in bytes: the sum of entries' weights as foyer
     /// accounts it against the capacity.
     pub fn usage_bytes(&self) -> usize {
         self.inner.usage()
