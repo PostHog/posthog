@@ -276,8 +276,17 @@ def test_chunks_stream_reports_and_preserve_counts(active_orgs: int) -> None:
     assert manifest["chunk_keys"] == result.chunk_keys
 
 
-@pytest.mark.parametrize("failure", ["upload", "cancel"])
-def test_failed_chunk_run_does_not_publish_manifest(failure: str) -> None:
+@pytest.mark.parametrize(
+    "failure, report_count",
+    [
+        ("upload", 3),
+        # The third report trips the check between reports.
+        ("cancel", 3),
+        # Both reports fit in the first chunk, so only the check before the manifest can trip.
+        ("cancel", 2),
+    ],
+)
+def test_failed_chunk_run_does_not_publish_manifest(failure: str, report_count: int) -> None:
     written: list[str] = []
 
     def write(key: str, content: str | bytes, **kwargs: Any) -> None:
@@ -295,7 +304,7 @@ def test_failed_chunk_run_does_not_publish_manifest(failure: str) -> None:
     ):
         write_org_report_chunks(
             _ctx(),
-            (_empty_org_report(str(i), event_count_in_period=1) for i in range(3)),
+            (_empty_org_report(str(i), event_count_in_period=1) for i in range(report_count)),
             _instance_metadata(),
             chunk_size=2,
             version=2,
