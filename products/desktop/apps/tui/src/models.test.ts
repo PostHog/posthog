@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   modelSheet,
+  modeStatus,
   nextMode,
   parseSlash,
   piControl,
@@ -57,6 +58,21 @@ describe("nextMode", () => {
   });
   it("has nowhere to go with no modes", () => {
     expect(nextMode([], "auto", 1)).toBeUndefined();
+  });
+});
+
+describe("modeStatus", () => {
+  it.each([
+    ["auto", "Auto Mode", "⏵⏵ Auto Mode"],
+    ["acceptEdits", "Accept Edits", "⏵ Accept Edits"],
+    ["plan", "Plan Mode", "◯ Plan Mode"],
+    ["default", "Default", "■ Default"],
+    ["bypassPermissions", "Bypass Permissions", "⏭ Bypass Permissions"],
+    ["read-only", "Read only", "◌ Read only"],
+    ["full-access", "Full access", "⏭ Full access"],
+    ["something-new", "New", "⏵ New"],
+  ])("marks %s with its own glyph", (id, name, expected) => {
+    expect(modeStatus({ id, name })).toBe(expected);
   });
 });
 
