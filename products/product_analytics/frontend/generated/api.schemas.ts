@@ -3922,6 +3922,56 @@ export interface HogQLMetadataColumnApi {
     type: string
 }
 
+export type ScanEstimatePrecisionApi = (typeof ScanEstimatePrecisionApi)[keyof typeof ScanEstimatePrecisionApi]
+
+export const ScanEstimatePrecisionApi = {
+    Measured: 'measured',
+    SizeOnly: 'size_only',
+    Unknown: 'unknown',
+} as const
+
+export type ScanEstimateSourceApi = (typeof ScanEstimateSourceApi)[keyof typeof ScanEstimateSourceApi]
+
+export const ScanEstimateSourceApi = {
+    Events: 'events',
+    Clickhouse: 'clickhouse',
+    Warehouse: 'warehouse',
+    Direct: 'direct',
+    Static: 'static',
+} as const
+
+export type ScanEstimateTimeRangeApi = (typeof ScanEstimateTimeRangeApi)[keyof typeof ScanEstimateTimeRangeApi]
+
+export const ScanEstimateTimeRangeApi = {
+    Bounded: 'bounded',
+    Open: 'open',
+} as const
+
+export interface TableScanEstimateApi {
+    /** Absent when the source does not record a size in bytes. */
+    bytes?: number | null
+    /** Events only: length of the timestamp range the rows were scaled to, in days. */
+    days?: number | null
+    /** Events only: event names the estimate was narrowed to. Empty when the scan reads every event. */
+    events?: string[] | null
+    /** The table as the query names it. */
+    name: string
+    precision: ScanEstimatePrecisionApi
+    /** Absent when the precision is unknown, or when only the size is known. */
+    rows?: number | null
+    source: ScanEstimateSourceApi
+    /** Events only. */
+    time_range?: ScanEstimateTimeRangeApi | null
+}
+
+export interface ScanEstimateApi {
+    /** Sum of the rows of every table entry that has one. */
+    rows: number
+    tables: TableScanEstimateApi[]
+    /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table is measured. */
+    upper_bound: boolean
+}
+
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
@@ -3933,6 +3983,8 @@ export interface HogQLMetadataResponseApi {
     /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
     output_columns?: HogQLMetadataColumnApi[] | null
     query?: string | null
+    /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+    scan_estimate?: ScanEstimateApi | null
     table_names?: string[] | null
     warnings: HogQLNoticeApi[]
 }

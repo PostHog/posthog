@@ -2848,6 +2848,25 @@ class RoktAdsDefaultSources(StrEnum):
     ROKT_ADS = "rokt_ads"
 
 
+class ScanEstimatePrecision(StrEnum):
+    MEASURED = "measured"
+    SIZE_ONLY = "size_only"
+    UNKNOWN = "unknown"
+
+
+class ScanEstimateSource(StrEnum):
+    EVENTS = "events"
+    CLICKHOUSE = "clickhouse"
+    WAREHOUSE = "warehouse"
+    DIRECT = "direct"
+    STATIC = "static"
+
+
+class ScanEstimateTimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
+
+
 class XScale(StrEnum):
     LINEAR = "linear"
     LOGARITHMIC = "logarithmic"
