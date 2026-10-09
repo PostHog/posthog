@@ -2725,6 +2725,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
     # `created_at` anchors those.
     schedule_changed_at = models.DateTimeField(null=True, blank=True)
+    # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
+    # No rows skips the run, so a scout that watches something rare can run often and pay for a
+    # sandbox only when there is something new. `{since}` and `{now}` are bound as HogQL
+    # placeholders. Null turns the pre-check off.
+    precheck_query = models.TextField(null=True, blank=True)
+    # Whether a run the pre-check starts gets the pre-check rows in its prompt.
+    precheck_pass_rows = models.BooleanField(default=True, db_default=True)
+    # Run anyway when the last run that actually ran is at least this old, so baselines and
+    # scratchpad memory do not go stale. Null turns the backstop off.
+    precheck_max_quiet_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)

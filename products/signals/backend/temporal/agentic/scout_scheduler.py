@@ -36,6 +36,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_HARD_CEILING_S,
 )
+from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
 from products.signals.backend.temporal import metrics
 
 if TYPE_CHECKING:
@@ -117,6 +118,24 @@ def _resume_workflow_step(
 @close_db_connections
 def resume_signals_scout_workflow_step(input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
     _resume_workflow_step(input, output, raise_on_error=True)
+
+
+@frozen
+class EvaluateScoutPrecheckOutput:
+    should_run: bool
+    rows_text: str | None = None
+
+
+@temporalio.activity.defn
+@close_db_connections
+async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
+    """Evaluate the scout's pre-check query. A scout without one always runs."""
+    result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
+        input.team_id, input.skill_name
+    )
+    if result is None:
+        return EvaluateScoutPrecheckOutput(should_run=True)
+    return EvaluateScoutPrecheckOutput(should_run=result.should_run, rows_text=result.rows_text)
 
 
 @temporalio.activity.defn
@@ -259,6 +278,19 @@ class RunSignalsScoutWorkflow:
         managed_resume = bool(input.workflow_origin_key) and temporalio.workflow.patched("scout-workflow-step-resume")
         if managed_resume:
             input = replace(input, workflow_managed_resume=True)
+        if input.triggered_by == TRIGGERED_BY_SCHEDULE and temporalio.workflow.patched("scout-precheck"):
+            precheck = await self._evaluate_precheck(input)
+            if not precheck.should_run:
+                # No run row exists for a skipped run. The coordinator already advanced `last_run_at`.
+                return RunSignalsScoutOutput(
+                    run_id=None,
+                    task_run_id=None,
+                    status=None,
+                    runtime_s=0.0,
+                    skill_name=input.skill_name,
+                    skill_version=input.skill_version or 0,
+                    skip_reason="precheck_no_rows",
+                )
         try:
             output = await temporalio.workflow.execute_activity(
                 run_signals_scout_activity,
@@ -283,6 +315,22 @@ class RunSignalsScoutWorkflow:
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _evaluate_precheck(self, input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
+        try:
+            return await temporalio.workflow.execute_activity(
+                evaluate_signals_scout_precheck_activity,
+                input,
+                start_to_close_timeout=timedelta(seconds=PRECHECK_TIMEOUT_S + 20),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            # A pre-check that cannot finish must not turn the scout off.
+            temporalio.workflow.logger.warning(
+                "signals_scout: pre-check activity failed, running the scout",
+                extra={"team_id": input.team_id, "skill_name": input.skill_name},
+            )
+            return EvaluateScoutPrecheckOutput(should_run=True)
 
     async def _resume_step(self, input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
         await temporalio.workflow.execute_activity(
