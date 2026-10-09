@@ -1499,7 +1499,7 @@ class EnterpriseExperimentsViewSet(
         methods=["POST"],
         detail=False,
         url_path="check_warehouse_native_metric",
-        required_scopes=["experiment:read"],
+        required_scopes=["experiment:read", "query:read"],
     )
     def check_warehouse_native_metric(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         """Check a warehouse-native metric query before saving it.
