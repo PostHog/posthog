@@ -42,24 +42,25 @@ class DeliveryBudget:
     def __init__(self, seconds: float) -> None:
         self._deadline = time.monotonic() + seconds
         self._seconds_by_consumer: dict[str, float] = {}
-        self._last_consumer = BEFORE_DISPATCH
 
     def is_spent(self) -> bool:
         return time.monotonic() >= self._deadline
 
     def record_run(self, consumer: str, seconds: float) -> None:
         self._seconds_by_consumer[consumer] = self._seconds_by_consumer.get(consumer, 0.0) + seconds
-        self._last_consumer = consumer
 
     @property
     def exhausted_by(self) -> str:
-        """The consumer whose run crossed the deadline, which is the last one to run in the request.
+        """The consumer that spent the most of the budget, which is the one to fix.
 
+        The last consumer to run is not it: a fast consumer can cross a deadline a slow one used up.
         The budget spans every delivery of the request, so that consumer can belong to an earlier
         delivery. It is `BEFORE_DISPATCH` when no consumer ran at all, because the ownership lookups
         and the forward draw from the same budget before dispatch starts.
         """
-        return self._last_consumer
+        if not self._seconds_by_consumer:
+            return BEFORE_DISPATCH
+        return max(self._seconds_by_consumer, key=self._seconds_by_consumer.__getitem__)
 
     @property
     def seconds_by_consumer(self) -> dict[str, float]:

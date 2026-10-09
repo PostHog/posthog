@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -211,6 +212,28 @@ class TestWebhookDispatcher(SimpleTestCase):
         dispatcher_with_room = _dispatcher([_consumer("zulu", skipped)], budget_seconds=10)
         dispatcher_with_room.dispatch(_delivery())
         skipped.assert_called_once()
+
+    def test_exhaustion_is_charged_to_the_consumer_that_spent_most_not_the_last_to_run(self) -> None:
+        elapsed = {"seconds": 0.0}
+
+        def spend(seconds: float) -> Callable[[WebhookDelivery], None]:
+            def handler(delivery: WebhookDelivery) -> None:
+                elapsed["seconds"] += seconds
+
+            return handler
+
+        dispatcher = _dispatcher(
+            [_consumer("alpha", spend(7.5)), _consumer("bravo", spend(0.6)), _consumer("zulu", Mock())],
+            budget_seconds=8,
+        )
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+        ):
+            dispatcher.dispatch(_delivery())
+
+        exhausted.assert_called_once_with(provider="github", consumer="alpha")
 
     def test_a_slow_dedup_claim_is_charged_to_its_own_consumer(self) -> None:
         elapsed = {"seconds": 0.0}
