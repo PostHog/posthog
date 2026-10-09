@@ -1,4 +1,5 @@
 from copy import deepcopy
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -8,8 +9,8 @@ from parameterized import parameterized
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.unlayer import UnlayerRenderError
+from products.messaging.backend.facade.api import UnlayerRenderError
+from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
@@ -382,17 +383,17 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         super().setUp()
         sync_template_to_db(_email_function_template())
 
-    def _create_library_template(self, **overrides) -> MessageTemplate:
+    def _create_library_template(self, html: str = "<p>Library html</p>", deleted: bool = False) -> UUID:
         content = {
             "templating": "liquid",
             "email": {
                 "subject": "Library subject",
                 "text": "Library text",
-                "html": "<p>Library html</p>",
+                "html": html,
                 "design": _design(),
             },
         }
-        return MessageTemplate.objects.create(team=self.team, name="Welcome", content=content, **overrides)
+        return create_message_template_for_test(team_id=self.team.id, name="Welcome", content=content, deleted=deleted)
 
     def _post_flow(self, email_config: dict, mcp: bool = True):
         flow = {
@@ -413,11 +414,11 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         # The incremental authoring path: reference a saved template plus the two step-level
         # keys, get a complete email step, then iterate with the surgical patch endpoint —
         # previously the whole email object had to be authored in a single graph operation.
-        template = self._create_library_template()
+        template_id = self._create_library_template()
         response = self._post_flow(
             {
                 "template_id": "template-email",
-                "template_uuid": str(template.id),
+                "template_uuid": str(template_id),
                 "inputs": {"email": {"value": {"from": "noreply@example.com", "to": "{{ person.properties.email }}"}}},
             }
         )
@@ -430,7 +431,7 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert stored["design"] == _design()
         assert stored["from"] == "noreply@example.com"
         config = next(a for a in flow.actions if a["id"] == "email_1")["config"]
-        assert config["template_uuid"] == str(template.id)
+        assert config["template_uuid"] == str(template_id)
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow.pk}/actions/email_1/email",
@@ -443,10 +444,10 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         # The dominant authoring mistake puts the library UUID in template_id. The fixed-id
         # coercion moves it into template_uuid; materialization must run after that move so
         # the mistaken-but-resolvable reference still produces a complete step in one save.
-        template = self._create_library_template()
+        template_id = self._create_library_template()
         response = self._post_flow(
             {
-                "template_id": str(template.id),
+                "template_id": str(template_id),
                 "inputs": {"email": {"value": {"from": "noreply@example.com", "to": "{{ person.properties.email }}"}}},
             }
         )
@@ -456,18 +457,18 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
             "config"
         ]
         assert config["template_id"] == "template-email"
-        assert config["template_uuid"] == str(template.id)
+        assert config["template_uuid"] == str(template_id)
         assert config["inputs"]["email"]["value"]["subject"] == "Library subject"
 
     def test_falsy_body_placeholders_do_not_clobber_template_content(self):
         # Agents emit explicit null/empty placeholders for fields they aren't setting. The
         # materialization decision ignores falsy body keys, so the merge must too - otherwise
         # a subject: null placeholder erases the template's subject it just resolved.
-        template = self._create_library_template()
+        template_id = self._create_library_template()
         response = self._post_flow(
             {
                 "template_id": "template-email",
-                "template_uuid": str(template.id),
+                "template_uuid": str(template_id),
                 "inputs": {
                     "email": {
                         "value": {
@@ -489,11 +490,11 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
     def test_caller_authored_body_wins_over_template_reference(self):
         # Any caller-supplied body key means the caller owns the whole body; merging template
         # content underneath it would mix two different emails.
-        template = self._create_library_template()
+        template_id = self._create_library_template()
         response = self._post_flow(
             {
                 "template_id": "template-email",
-                "template_uuid": str(template.id),
+                "template_uuid": str(template_id),
                 "inputs": {
                     "email": {
                         "value": {
@@ -518,7 +519,7 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         deleted = self._create_library_template(deleted=True)
         for _name, template_uuid in [
             ("unknown", "0199aabb-ccdd-0000-1122-334455667788"),
-            ("deleted", str(deleted.id)),
+            ("deleted", str(deleted)),
             ("malformed", "not-a-uuid"),
         ]:
             response = self._post_flow(
@@ -534,8 +535,8 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
     def test_template_reference_still_requires_from_and_to(self):
         # The template supplies only the body; the step-level keys stay the caller's job and
         # the validator names exactly what's left to add.
-        template = self._create_library_template()
-        response = self._post_flow({"template_id": "template-email", "template_uuid": str(template.id)})
+        template_id = self._create_library_template()
+        response = self._post_flow({"template_id": "template-email", "template_uuid": str(template_id)})
 
         assert response.status_code == 400, response.json()
         assert "'from'" in response.json()["detail"], response.json()
@@ -553,12 +554,10 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         # Each body-less reference expands server-side, so without a cumulative cap a small
         # request with many steps referencing one large template amplifies into an oversized
         # write. Each step here is under the cap on its own; only the running total crosses it.
-        template = self._create_library_template()
-        template.content["email"]["html"] = "<p>" + "x" * 5000 + "</p>"
-        template.save()
+        template_id = self._create_library_template(html="<p>" + "x" * 5000 + "</p>")
         email_config = {
             "template_id": "template-email",
-            "template_uuid": str(template.id),
+            "template_uuid": str(template_id),
             "inputs": {"email": {"value": {"from": "a@b.com", "to": "c@d.com"}}},
         }
         flow = {

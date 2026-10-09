@@ -59,13 +59,13 @@ class ReviewResolutionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     handled identically at run time): the bar the resolution stage applies to each unresolved
     review thread ("worth implementing" / "safe to implement unattended"). The skill itself is
     team-level; this surface only controls **which one** applies when the stage runs on the
-    requesting user's PRs. Visibility is per-user: the menu shows the canonical plus the customs
-    the requesting user authored — a teammate's custom is neither listed nor selectable
+    requesting user's PRs. Visibility is per-user: the menu shows the canonicals (the default
+    criteria and its fix profiles) plus the customs the requesting user authored — a teammate's custom is neither listed nor selectable
     (`visible_skill_names`). Like validators (and unlike perspectives), a run applies exactly one,
     so this is a single-active selection: `list` shows the visible skills with the user's active
-    one flagged (the canonical auto-seeds active on first read); `partial_update` selects one by
-    skill name, flipping the user's others off in the same call. There is always a default (the
-    canonical), so no minimum floor is needed.
+    one flagged (only the default canonical auto-seeds active on first read; a fix profile is active
+    only once selected); `partial_update` selects one by skill name, flipping the user's others off
+    in the same call. There is always a default (the default canonical), so no minimum floor is needed.
     """
 
     # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_analytics RBAC

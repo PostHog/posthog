@@ -9,7 +9,6 @@ import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as autoresearch } from './autoresearch'
 import { GENERATED_TOOLS as batch_exports } from './batch_exports'
 import { GENERATED_TOOLS as billing } from './billing'
-import { GENERATED_TOOLS as billing_alerts } from './billing_alerts'
 import { GENERATED_TOOLS as business_knowledge } from './business_knowledge'
 import { GENERATED_TOOLS as canvas } from './canvas'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
@@ -79,7 +78,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...autoresearch,
     ...batch_exports,
     ...billing,
-    ...billing_alerts,
     ...business_knowledge,
     ...canvas,
     ...cdp_function_templates,

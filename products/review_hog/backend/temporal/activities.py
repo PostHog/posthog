@@ -146,6 +146,7 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
     prunable_perspectives,
 )
 from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    ChangedSinceReview,
     FlashSelection,
     FlashTurnStats,
     SingleAgentPrompt,
@@ -338,6 +339,7 @@ class SandboxStageInput:
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
     review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
+    dedupe_against_pr_comments: bool = field(default=False, kw_only=True)
 
 
 @dataclass
@@ -1407,6 +1409,27 @@ def _combine_and_clean(
     return clean_issues(raw_issues, pr_files)
 
 
+def _changed_since_last_review(
+    team_id: int, report_id: str, head_sha: str, current_files: list[PRFile]
+) -> ChangedSinceReview | None:
+    """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head.
+
+    Only a single-agent snapshot is a baseline: a Full turn at that head fetched a different file set, so the check
+    then does not run.
+    """
+    reviewed_head = (
+        ReviewReport.objects.for_team(team_id).filter(id=report_id).values_list("completed_head_sha", flat=True).first()
+    )
+    if reviewed_head is None or reviewed_head == head_sha:
+        return None
+    reviewed = load_pr_snapshot(
+        team_id=team_id, report_id=report_id, head_sha=reviewed_head, review_design=REVIEW_DESIGN_SINGLE_AGENT
+    )
+    if reviewed is None:
+        return None
+    return ChangedSinceReview.between(reviewed.pr_files, current_files)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1448,6 +1471,9 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if single_agent:
             lens_plan = plan_lens_chunks(snapshot.pr_files)
+            changed_since = await database_sync_to_async(_changed_since_last_review, thread_sensitive=False)(
+                input.team_id, input.report_id, input.head_sha, snapshot.pr_files
+            )
             flash_selection = await dedupe_flash_findings(
                 team_id=input.team_id,
                 user_id=input.user_id,
@@ -1460,6 +1486,8 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 lens_part_count=len(lens_plan.chunks),
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
+                changed_since=changed_since,
+                against_pr_comments=input.dedupe_against_pr_comments,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)

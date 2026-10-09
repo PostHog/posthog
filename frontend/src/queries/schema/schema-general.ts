@@ -6299,6 +6299,35 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+export type ExperimentExposureHealthFindingCode = 'zero_exposures' | 'srm' | 'bias_risk_multiple_excluded'
+
+export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
+
+export type ExperimentExposureHealthFindingActionKind =
+    | 'edit_exposure_criteria'
+    | 'adjust_distribution'
+    | 'use_first_seen_variant'
+
+/** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
+export interface ExperimentExposureHealthFinding {
+    /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
+    code: ExperimentExposureHealthFindingCode
+    /** The case within the code, when a code covers several. Null when the code has one case. */
+    subcode: string | null
+    /** How much the problem affects the results: critical, warning, or info. */
+    severity: ExperimentExposureHealthFindingSeverity
+    /** One-line summary of the problem. */
+    title: string
+    /** What is wrong, what it does to the experiment, and how to fix it. */
+    detail: string
+    /** The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code. */
+    evidence: Record<string, string | number | null>
+    /** The actions that fix the problem, in order of preference. */
+    actions: ExperimentExposureHealthFindingActionKind[]
+    /** The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none. */
+    diagnostic_ref: string | null
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -6306,6 +6335,8 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
+    health_findings?: ExperimentExposureHealthFinding[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

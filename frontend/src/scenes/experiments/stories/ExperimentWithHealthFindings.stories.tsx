@@ -34,6 +34,28 @@ const EXPOSURES_WITH_BIAS_RISK = {
     ...EXPOSURE_QUERY_RESULT,
     sample_ratio_mismatch: { expected: { control: 1000, 'test-1': 1000, 'test-2': 1000 }, p_value: 0.0001 },
     bias_risk: { multiple_variant_percentage: 4.2 },
+    health_findings: [
+        {
+            code: 'srm',
+            subcode: null,
+            severity: 'warning',
+            title: 'Users are not split across variants as configured',
+            detail: "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection.",
+            evidence: { p_value: 0.0001 },
+            actions: [],
+            diagnostic_ref: 'A2',
+        },
+        {
+            code: 'bias_risk_multiple_excluded',
+            subcode: null,
+            severity: 'warning',
+            title: 'Setup likely introduced bias',
+            detail: '4.2% of users were exposed to multiple variants. With an uneven variant split and the Exclude handling, these users were dropped more often from the smaller variant, so its metrics can be biased. Use an even split and control exposure with the overall rollout, or switch the handling to First seen.',
+            evidence: { multiple_variant_percentage: 4.2 },
+            actions: ['adjust_distribution', 'use_first_seen_variant'],
+            diagnostic_ref: 'A1',
+        },
+    ],
 }
 
 const meta: Meta = {
