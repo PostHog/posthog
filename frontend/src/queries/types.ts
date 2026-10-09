@@ -103,7 +103,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
      */
     includeHiddenEvents?: boolean
-    /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
+    /** Drop axis ticks and titles, for thumbnail-sized renders. */
     hideAxes?: boolean
     /** Hide or resize the visualization selector when the host provides its own chart picker. */
     chartTypeSelectorClassName?: string

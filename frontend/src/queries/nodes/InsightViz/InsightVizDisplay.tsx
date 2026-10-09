@@ -47,7 +47,6 @@ import {
     PropertyMathType,
 } from '~/types'
 
-import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -566,17 +565,7 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : (
-                    <InsightDisplayConfig
-                        chartTypeControl={
-                            <ChartAlternatives
-                                insightProps={insightProps}
-                                embedded={embedded}
-                                inSharedMode={inSharedMode}
-                            />
-                        }
-                    />
-                )}
+                {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
                         {!embedded &&

@@ -11,9 +11,9 @@ import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { ChartDisplayIcon } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon'
-import type { ChartDisplayOption } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
-import { getChartDisplayOptions } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
+import { ChartDisplayIcon } from 'products/product_analytics/frontend/insights/shared/ChartDisplayIcon'
+import type { ChartDisplayOption } from 'products/product_analytics/frontend/insights/shared/chartDisplayOptions'
+import { getChartDisplayOptions } from 'products/product_analytics/frontend/insights/shared/chartDisplayOptions'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
@@ -38,11 +38,9 @@ function chartDisplayOptionToSelectOption(option: ChartDisplayOption): LemonSele
 export function ChartFilter({
     fullWidth = false,
     disabledReason,
-    onOpen,
 }: {
     fullWidth?: boolean
     disabledReason?: string
-    onOpen?: () => void
 }): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display, compareFilter } = useValues(insightVizDataLogic(insightProps))
@@ -74,7 +72,6 @@ export function ChartFilter({
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
-            menu={{ onVisibilityChange: (visible) => visible && onOpen?.() }}
             options={options}
             size="small"
             fullWidth={fullWidth}
