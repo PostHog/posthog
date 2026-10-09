@@ -67,14 +67,7 @@ def rewrite_negated_person_filters(node: _T_AST, context: HogQLContext) -> _T_AS
         return None
     planner = _Planner()
     planner.visit(node)
-    # The exclusion reads `FROM persons`. A CTE with that name would replace the persons table in it.
-    if planner.defines_persons_cte:
-        return None
-    # The caller resolves the whole tree again. That drops the isolated scope of expanded expression fields such as
-    # `events.person_id`, so their unqualified inner fields become ambiguous in a SELECT that joins two tables.
-    if planner.joins_tables:
-        return None
-    if not planner.rewrites:
+    if planner.blocks_rewrite or not planner.rewrites:
         return None
     columns = _materialized_person_columns()
     rewrites = {
@@ -334,14 +327,16 @@ class _Planner(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.rewrites: dict[int, _Rewrite] = {}
-        self.defines_persons_cte = False
-        self.joins_tables = False
+        self.blocks_rewrite = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # The exclusion reads `FROM persons`. A CTE with that name would replace the persons table in it.
         if node.ctes and "persons" in node.ctes:
-            self.defines_persons_cte = True
+            self.blocks_rewrite = True
+        # The caller resolves the whole tree again. That drops the isolated scope of expanded expression fields such as
+        # `events.person_id`, so their unqualified inner fields become ambiguous in a SELECT that joins two tables.
         if node.select_from is not None and node.select_from.next_join is not None:
-            self.joins_tables = True
+            self.blocks_rewrite = True
         rewrite = _plan(node)
         if rewrite is not None:
             self.rewrites[id(node)] = rewrite

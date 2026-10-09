@@ -197,6 +197,7 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         self,
         query: str,
         placeholders: dict[str, ast.Expr] | None = None,
+        *,
         mode: PersonsOnEventsMode = JOINED,
         materialization_mode: MaterializationMode | None = None,
         team_on_context: bool = True,
@@ -257,9 +258,9 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
             sql = self._print(
                 f"{select} WHERE {{where}}",
                 {"where": property_to_expr(filters, self.team)},
-                mode,
-                materialization_mode,
-                team_on_context,
+                mode=mode,
+                materialization_mode=materialization_mode,
+                team_on_context=team_on_context,
             )
 
         assert "where_optimization" not in sql
