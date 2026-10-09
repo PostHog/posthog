@@ -1054,14 +1054,15 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # The nested pass has no stored row to merge a partial update with; validate_workflows_config
-        # re-runs this serializer bound to the row.
+        # As a nested field of the team serializer there is no stored row to merge a partial update with.
+        # validate_team_workflows_config runs this serializer again with the row, and that run does the check.
         if self.parent:
             return attrs
         cap_fields = ("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
         cap = {field: attrs[field] for field in cap_fields if field in attrs}
         if len(cap) == 1 and self.instance is not None:
-            # Read the row fresh: the `Team.workflows_config` accessor is cached per process and can be stale.
+            # Read the stored row, because `Team.workflows_config` is a cached_property on the Team instance
+            # and can hold values from before an earlier update.
             stored = TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values(*cap_fields).first() or {}
             cap = {**stored, **cap}
         # The worker treats either null as no cap, so a half-set cap would save but never apply.
