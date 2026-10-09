@@ -1388,6 +1388,49 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Send webhook" in detail, response.json()
         assert "Invalid template" in detail, response.json()
 
+    @parameterized.expand(
+        [
+            ("single_sender", lambda deleted_id, kept_id: {"integrationId": deleted_id}),
+            (
+                "sender_rotation",
+                lambda deleted_id, kept_id: {"integrationId": kept_id, "integrationIds": [kept_id, deleted_id]},
+            ),
+        ]
+    )
+    def test_activating_draft_whose_email_channel_was_deleted_is_refused(self, _name, build_from):
+        sync_template_to_db(_email_function_template())
+        deleted, kept = (
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                config={"email": f"{name}@example.com", "name": name, "domain": "example.com", "verified": True},
+            )
+            for name in ("deleted", "kept")
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = build_from(deleted.id, kept.id)
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = "function_email"
+        action["name"] = "Welcome email"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # The delete guard only covers active workflows, so a draft does not stop the channel delete
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        with patch("posthog.api.integration.EmailIntegration"):
+            delete_response = self.client.delete(f"/api/environments/{self.team.id}/integrations/{deleted.id}/")
+        assert delete_response.status_code == 204
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert "Welcome email" in detail, detail
+        assert "sender for this email step no longer exists" in detail, detail
+        assert HogFlow.objects.get(pk=flow_id).status == HogFlow.State.DRAFT
+
     def test_activating_refuses_a_step_input_that_reads_an_unavailable_global(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com/{distinct_id}"}}}

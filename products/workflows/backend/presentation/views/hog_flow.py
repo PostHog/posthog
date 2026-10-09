@@ -72,12 +72,18 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaItemSerializer,
+    InputsSerializer,
+    _sender_integration_ids,
+)
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.integration import Integration
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
@@ -1399,6 +1405,32 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
+    def _validate_email_senders_exist(self, inputs: dict) -> None:
+        """Reject an email step whose sender channel was deleted. The integration delete guard only
+        covers active workflows, so a draft can lose its sender and the send path then fails on every
+        run. This check runs on every strict save, which includes activation and draft publish."""
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+        email_value = (inputs.get("email") or {}).get("value")
+        from_value = email_value.get("from") if isinstance(email_value, dict) else None
+        if not isinstance(from_value, dict):
+            return
+        sender_ids = _sender_integration_ids(from_value)
+        if not sender_ids:
+            return
+        # Request-scoped because a drip sequence has many email steps that share the same senders.
+        known_ids = self.context.get("_team_email_integration_ids")
+        if known_ids is None:
+            known_ids = set(
+                Integration.objects.filter(team_id=get_team().id, kind="email").values_list("id", flat=True)
+            )
+            self.context["_team_email_integration_ids"] = known_ids
+        if not sender_ids <= known_ids:
+            raise serializers.ValidationError(
+                {"inputs": "The sender for this email step no longer exists. Select a different sender in the step."}
+            )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1665,6 +1697,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
+                if strict and data.get("type") == "function_email":
+                    self._validate_email_senders_exist(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
