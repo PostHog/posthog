@@ -92,7 +92,7 @@ mod tests {
 
         let tracker = OffsetTracker::new();
         tracker.mark_dispatched(0, 6);
-        let mut queue = ReconcileQueue::new(0, backlog, handle);
+        let mut queue = ReconcileQueue::new(0, backlog, handle, Arc::new(CatalogHandle::new()));
         queue.enqueue(
             ReconcileTile::new(
                 TeamId(7),

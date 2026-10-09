@@ -24,7 +24,9 @@ use tracing::{debug, info, warn};
 
 pub use cohort_core::events::CohortStreamEvent;
 
+use crate::consumers::boot::{boot_assignment_settled, BootPhase, ResumePoints};
 use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
+use crate::consumers::readiness::BootReadiness;
 use crate::consumers::seeds::ConsumedSeed;
 use crate::filters::manager::CatalogHandle;
 use crate::merge::transfer::PendingTransfer;
@@ -53,14 +55,14 @@ use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
 use crate::store::StoreHandle;
-use crate::workers::{EventNameGating, MergeWorkerDeps, Stage1Worker};
+use crate::workers::{EventNameGating, EvictionRestore, MergeWorkerDeps, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
 
-/// Timeout for the one-shot restore seek of the events topic. A local fetch-position reposition, so a
-/// few seconds is ample; a timeout is a seek failure and retries (never resumes from the broker offset).
-const RESTORE_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
+/// Timeout for the boot seek of the events topic. A local fetch-position reposition, so a few
+/// seconds is ample; a timeout is a seek failure and retries (never resumes from the broker offset).
+const BOOT_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Page size for the eager boot redrive's paginated scan of `cf_pending_transfers`. The outbox only
 /// ever holds transfers stranded by inline-retry exhaustion (rare), so this large page drains a
@@ -80,6 +82,23 @@ pub struct ConsumedEvent {
     /// Broker timestamp (CreateTime ≈ shuffler produce instant) — the seed fence's live-watermark
     /// input. `None` (`Timestamp::NotAvailable`) never advances the watermark.
     pub broker_ts_ms: Option<i64>,
+}
+
+/// The partitions this pod owned when its workers finished draining. Closing the events consumer
+/// revokes them from the live set, so followers commit against this snapshot instead. Only
+/// [`EventDispatcher::shutdown`] builds one.
+#[derive(Debug, Clone)]
+pub(crate) struct DrainedOwnership(HashSet<i32>);
+
+impl DrainedOwnership {
+    pub(crate) fn partitions(&self) -> &HashSet<i32> {
+        &self.0
+    }
+}
+
+pub(crate) enum DrainWait {
+    Drained(DrainedOwnership),
+    TimedOut,
 }
 
 /// A partition entry remains present while its old worker drains. That sentinel serializes worker
@@ -113,6 +132,10 @@ pub struct EventDispatcher {
     boot_assignment: OnceLock<HashSet<i32>>,
     /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
     event_name_gating: OnceLock<EventNameGating>,
+    /// `/_ready`'s gate. Every rebuilding worker this dispatcher spawns holds it closed.
+    readiness: Arc<BootReadiness>,
+    /// Set once the shutdown drain ends, for the followers' final commits.
+    drained: tokio::sync::SetOnce<DrainedOwnership>,
 }
 
 impl EventDispatcher {
@@ -130,6 +153,7 @@ impl EventDispatcher {
             workers: Arc::new(DashMap::new()),
             owned: Arc::new(DashSet::new()),
             handle,
+            readiness: BootReadiness::new(catalog.clone()),
             catalog,
             sink,
             merge,
@@ -137,7 +161,12 @@ impl EventDispatcher {
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
             event_name_gating: OnceLock::new(),
+            drained: tokio::sync::SetOnce::new(),
         }
+    }
+
+    pub fn readiness(&self) -> &Arc<BootReadiness> {
+        &self.readiness
     }
 
     /// Enable crash-restart durability. Must be called before any worker spawns.
@@ -505,6 +534,11 @@ impl EventDispatcher {
                 }
                 match self.router.add_partition(partition) {
                     Some(inbox) => {
+                        let restore = if self.durable_restore_enabled() {
+                            EvictionRestore::Rebuild(self.readiness.rebuild_started())
+                        } else {
+                            EvictionRestore::Skip
+                        };
                         let worker = Stage1Worker::spawn_with_gating(
                             partition as u16,
                             inbox,
@@ -513,7 +547,7 @@ impl EventDispatcher {
                             self.sink.clone(),
                             self.tracker.clone(),
                             self.merge.clone(),
-                            self.durable_restore_enabled(),
+                            restore,
                             self.event_name_gating(),
                         );
                         slot.insert(WorkerSlot::Running(worker));
@@ -542,6 +576,18 @@ impl EventDispatcher {
         self.owned.contains(&partition)
     }
 
+    /// End boot and open the readiness gate. Every owned partition gets its worker first, so the
+    /// gate already counts their eviction rebuilds when it opens, and an idle partition rebuilds
+    /// and sweeps from boot instead of from its first message. Returns the owned partition count.
+    pub(crate) fn finish_boot(&self) -> usize {
+        let owned = self.owned_set();
+        for &partition in &owned {
+            self.ensure_worker(partition);
+        }
+        self.readiness.mark_live();
+        owned.len()
+    }
+
     /// Snapshot of the partitions currently owned by this consumer.
     pub fn owned_partitions(&self) -> Vec<i32> {
         self.owned.iter().map(|entry| *entry).collect()
@@ -554,7 +600,14 @@ impl EventDispatcher {
     /// Route a sweep tick to each owned partition that has a live worker. Never spawns, so a revoked
     /// partition is not resurrected; a worker-less owned partition has no in-memory state to evict, so
     /// it is skipped rather than producing a `no_worker` drop.
+    ///
+    /// Routes nothing before the first catalog load. Every team is absent from the unloaded catalog,
+    /// and a sweep batch drops the keys it claims for an absent team without rescheduling them, so a
+    /// sweep then would lose every deadline the boot rebuild restored.
     pub async fn route_sweep(&self, due_before_ms: i64) {
+        if !self.catalog.is_loaded() {
+            return;
+        }
         self.route_to_owned(|| ShuffleMessage::Sweep { due_before_ms })
             .await;
     }
@@ -931,19 +984,44 @@ impl EventDispatcher {
             .collect()
     }
 
-    /// Drain all workers and return the tracker for the caller's final sync commit.
+    /// Drain all workers, publish the ownership they drained under for the followers' final
+    /// commits, and return the tracker for the caller's final sync commit. No consumer polls during
+    /// the drain, so no rebalance callback can change `owned` while it runs.
     async fn shutdown(&self) -> Arc<OffsetTracker> {
         self.draining.store(true, Ordering::SeqCst);
         self.router.clear();
+        let started = Instant::now();
         let partitions: Vec<i32> = self.workers.iter().map(|entry| *entry.key()).collect();
+        let mut workers = 0usize;
         for partition in partitions {
             if let Some((_, WorkerSlot::Running(worker))) = self.workers.remove(&partition) {
+                workers += 1;
                 if let Err(err) = worker.join().await {
                     warn!(partition, error = %err, "stage 1 worker panicked during shutdown drain");
                 }
             }
         }
+        info!(
+            workers,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "worker drain complete"
+        );
+        if self
+            .drained
+            .set(DrainedOwnership(self.owned_set()))
+            .is_err()
+        {
+            debug!("worker drain already published; keeping the first");
+        }
         self.tracker.clone()
+    }
+
+    /// Wait up to `budget` for [`Self::shutdown`] to finish draining the workers.
+    pub(crate) async fn wait_for_worker_drain(&self, budget: Duration) -> DrainWait {
+        match tokio::time::timeout(budget, self.drained.wait()).await {
+            Ok(drained) => DrainWait::Drained(drained.clone()),
+            Err(_) => DrainWait::TimedOut,
+        }
     }
 }
 
@@ -955,19 +1033,6 @@ struct DispatchStats {
 
 fn partition_to_store_id(partition: i32) -> Option<u16> {
     u16::try_from(partition).ok()
-}
-
-/// Returns `true` once the same non-empty assignment is seen on two consecutive polls. An empty or
-/// changing assignment is not yet settled; a cooperative-incremental assign re-baselines until stable.
-fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<i32>>) -> bool {
-    if assignment.is_empty() {
-        return false;
-    }
-    if prev.as_ref() != Some(assignment) {
-        *prev = Some(assignment.clone());
-        return false;
-    }
-    true
 }
 
 /// The `cohort_stream_events` group consumer: consume, route, commit.
@@ -990,8 +1055,8 @@ pub struct CohortStreamEventsConsumer {
     events_partitions: usize,
     #[allow(dead_code)]
     consumer_command_rx: ConsumerCommandReceiver,
-    /// Offset manifest from a disaster restore. When set, the consume loop runs a one-shot seek of
-    /// the events topic to the manifest positions once the boot assignment settles.
+    /// Offset manifest from a disaster restore. When set, boot also rewinds every owned partition
+    /// the manifest names to its manifest position.
     restore_manifest: Option<OffsetManifest>,
 }
 
@@ -1030,8 +1095,9 @@ impl CohortStreamEventsConsumer {
     ///
     /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
     /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
-    /// synchronous commit. Liveness is reported inline from the non-blocking backpressure cycle.
-    pub async fn process(self) {
+    /// synchronous commit. Liveness is reported after every poll without a transport error, in every
+    /// boot phase.
+    pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
@@ -1049,12 +1115,17 @@ impl CohortStreamEventsConsumer {
         let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
         let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
 
-        // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
-        let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
-        let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
-        let mut restore_seek_done = self.restore_manifest.is_none();
-        let mut prev_assignment: Option<HashSet<i32>> = None;
-        // Untouched until boot recovery completes below, so nothing pauses during boot.
+        let boot_started = Instant::now();
+        // `validate_startup` refuses a checkpoint restore without durable restore, so a manifest
+        // always comes with it. Without durable restore the store started empty: nothing to recover.
+        let mut phase = match (
+            self.dispatcher.durable_restore_enabled(),
+            self.restore_manifest.take(),
+        ) {
+            (false, None) => self.go_live(boot_started, 0),
+            (_, manifest) => BootPhase::settling(manifest),
+        };
+        // Untouched until boot recovery completes, so nothing pauses during boot.
         let mut backpressure = Backpressure::new();
         // Last paused target sent to the pauser task: lets us send only while backpressure is active
         // (plus the cycle it clears) and stay silent otherwise.
@@ -1068,36 +1139,46 @@ impl CohortStreamEventsConsumer {
                     break;
                 }
                 outcome = self.consume_batch() => {
-                    // Sweep before dispatching, so the reclaim never races a worker spawn.
-                    if !boot_sweep_done {
-                        boot_sweep_done =
-                            self.run_boot_staleness_sweep(&mut prev_assignment).await;
+                    let transport_error = outcome.transport_error;
+                    phase = match phase {
+                        BootPhase::Live => {
+                            self.dispatch_with_backpressure(
+                                outcome,
+                                &mut backpressure,
+                                &mut prev_paused_target,
+                                &pause_tx,
+                            );
+                            BootPhase::Live
+                        }
+                        BootPhase::Settling { mut previous, mut resume, manifest } => {
+                            resume.hold_back(&outcome.events);
+                            let assignment = self.assigned_partitions();
+                            if boot_assignment_settled(&assignment, &mut previous) {
+                                self.dispatcher
+                                    .reconcile_boot_assignment(&assignment, self.events_partitions)
+                                    .await;
+                                let owned = self.dispatcher.owned_set();
+                                self.dispatcher
+                                    .eager_redrive_pending_transfers_on_boot(&owned)
+                                    .await;
+                                if let Some(manifest) = &manifest {
+                                    resume.rewind_to(manifest, &self.topic, &owned);
+                                }
+                                self.rewind(resume, boot_started)
+                            } else {
+                                BootPhase::Settling { previous, resume, manifest }
+                            }
+                        }
+                        BootPhase::Rewinding { mut resume } => {
+                            resume.hold_back(&outcome.events);
+                            self.rewind(resume, boot_started)
+                        }
+                    };
+                    if transport_error {
+                        tokio::time::sleep(RECV_ERROR_BACKOFF).await;
+                    } else {
+                        self.handle.report_healthy();
                     }
-                    // Redrive after the boot sweep settles. Skip dispatching this batch so boot
-                    // recovery completes before any fold work.
-                    if !eager_redrive_done && boot_sweep_done {
-                        let owned: HashSet<i32> =
-                            self.dispatcher.owned_partitions().into_iter().collect();
-                        self.dispatcher
-                            .eager_redrive_pending_transfers_on_boot(&owned)
-                            .await;
-                        eager_redrive_done = true;
-                        continue;
-                    }
-                    // Seek after the boot sweep settles. Skip dispatching the pre-seek batch so no
-                    // ahead-of-seek event is folded first. Fail-stop: retry without dispatching on
-                    // failure; never fold from the broker-stored offset.
-                    if !restore_seek_done && boot_sweep_done {
-                        restore_seek_done = self.run_restore_seek();
-                        continue;
-                    }
-                    self.dispatch_with_backpressure(
-                        outcome,
-                        &mut backpressure,
-                        &mut prev_paused_target,
-                        &pause_tx,
-                    )
-                    .await;
                 }
             }
         }
@@ -1126,71 +1207,62 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
-    /// Returns `true` once the boot snapshot is reconciled, `false` while the assignment is unsettled.
-    async fn run_boot_staleness_sweep(&self, prev: &mut Option<HashSet<i32>>) -> bool {
-        let assignment = self.assigned_partitions();
-        if !boot_assignment_settled(&assignment, prev) {
-            return false;
-        }
-        self.dispatcher
-            .reconcile_boot_assignment(&assignment, self.events_partitions)
-            .await;
-        true
-    }
-
-    /// Seek the owned events partitions to the manifest's committed offsets. A no-op when
-    /// `restore_manifest` is `None`. Returns `true` only once every targeted partition is sought;
-    /// `false` on any failure so the caller retries without dispatching. A persistent failure stalls
-    /// and surfaces as consumer lag, never silent event loss.
-    fn run_restore_seek(&self) -> bool {
-        let Some(manifest) = self.restore_manifest.as_ref() else {
-            return true;
-        };
-        let owned = self.dispatcher.owned_partitions();
-        let Some((tpl, sought)) = restore_seek_tpl(&self.topic, &owned, manifest) else {
-            info!(
-                topic = %self.topic,
-                "restore seek: manifest carried no committed offset for any owned events partition; nothing to seek",
-            );
-            return true;
-        };
-
-        let result = match self.consumer.seek_partitions(tpl, RESTORE_SEEK_TIMEOUT) {
-            Ok(result) => result,
+    /// Seek every owned partition back to its resume point, then go live. Any failure keeps boot
+    /// in `Rewinding`, so the next poll retries the seek and nothing folds from the broker offset. A
+    /// persistent failure stalls and surfaces as consumer lag and a pod that never reads ready.
+    fn rewind(&self, resume: ResumePoints, boot_started: Instant) -> BootPhase {
+        let owned = self.dispatcher.owned_set();
+        let seek_list = match resume.seek_list(&self.topic, &owned) {
+            Ok(seek_list) => seek_list,
             Err(err) => {
                 warn!(
                     topic = %self.topic,
-                    offsets = ?sought,
                     error = %err,
-                    "restore seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                    "boot seek list rejected an offset; holding off dispatch and retrying",
                 );
-                return false;
+                return BootPhase::Rewinding { resume };
             }
         };
+        let Some(seek_list) = seek_list else {
+            return self.go_live(boot_started, 0);
+        };
+        let sought = seek_list.count();
 
-        let failed: Vec<i32> = result
-            .elements_for_topic(&self.topic)
-            .iter()
-            .filter(|elem| elem.error().is_err())
-            .map(|elem| elem.partition())
-            .collect();
+        let failed: Vec<i32> = match self.consumer.seek_partitions(seek_list, BOOT_SEEK_TIMEOUT) {
+            Ok(result) => result
+                .elements_for_topic(&self.topic)
+                .iter()
+                .filter(|elem| elem.error().is_err())
+                .map(|elem| elem.partition())
+                .collect(),
+            Err(err) => {
+                warn!(
+                    topic = %self.topic,
+                    partitions = sought,
+                    error = %err,
+                    "boot seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                );
+                return BootPhase::Rewinding { resume };
+            }
+        };
         if !failed.is_empty() {
             warn!(
                 topic = %self.topic,
                 failed_partitions = ?failed,
-                offsets = ?sought,
-                "restore seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
+                "boot seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
             );
-            return false;
+            return BootPhase::Rewinding { resume };
         }
+        self.go_live(boot_started, sought)
+    }
 
+    fn go_live(&self, boot_started: Instant, sought: usize) -> BootPhase {
+        let partitions = self.dispatcher.finish_boot();
         info!(
-            topic = %self.topic,
-            partitions = sought.len(),
-            offsets = ?sought,
-            "restore seek: sought owned events partitions to their committed manifest offsets",
+            elapsed_ms = boot_started.elapsed().as_millis() as u64,
+            partitions, sought, "events consumer boot complete",
         );
-        true
+        BootPhase::Live
     }
 
     fn assigned_partitions(&self) -> HashSet<i32> {
@@ -1201,7 +1273,7 @@ impl CohortStreamEventsConsumer {
                 .map(|elem| elem.partition())
                 .collect(),
             Err(err) => {
-                warn!(error = %err, "failed to read consumer assignment for the boot staleness sweep");
+                warn!(error = %err, "failed to read consumer assignment for boot recovery");
                 HashSet::new()
             }
         }
@@ -1209,8 +1281,8 @@ impl CohortStreamEventsConsumer {
 
     /// One steady-state cycle: prune revoked holdover, retry-flush held partitions, dispatch the polled
     /// batch, reconcile the paused set and hand its deltas to the pauser task. Every step is
-    /// non-blocking, so the heartbeat below fires each iteration regardless of downstream drain.
-    async fn dispatch_with_backpressure(
+    /// non-blocking, so the loop's heartbeat fires each iteration regardless of downstream drain.
+    fn dispatch_with_backpressure(
         &self,
         outcome: ConsumeOutcome,
         backpressure: &mut Backpressure,
@@ -1253,12 +1325,6 @@ impl CohortStreamEventsConsumer {
         }
         gauge!(PARTITIONS_PAUSED).set(backpressure.held_partition_count() as f64);
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
-
-        if outcome.transport_error {
-            tokio::time::sleep(RECV_ERROR_BACKOFF).await;
-        } else {
-            self.handle.report_healthy();
-        }
     }
 
     async fn consume_batch(&self) -> ConsumeOutcome {
@@ -1322,29 +1388,6 @@ struct ConsumeOutcome {
     deserialize_errors: u64,
     empty_payloads: u64,
     transport_error: bool,
-}
-
-/// Build the seek list for a disaster restore: owned partitions with a committed offset in
-/// `manifest`, at `Offset::Offset(next_offset)` (next-to-consume convention). Returns the TPL and
-/// logged pairs, or `None` when no owned partition has a manifest offset.
-fn restore_seek_tpl(
-    topic: &str,
-    owned: &[i32],
-    manifest: &OffsetManifest,
-) -> Option<(TopicPartitionList, Vec<(i32, i64)>)> {
-    let mut tpl = TopicPartitionList::new();
-    let mut sought: Vec<(i32, i64)> = Vec::new();
-    for &partition in owned {
-        let Some(next_offset) = manifest.offset_for(topic, partition) else {
-            continue;
-        };
-        if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
-            warn!(topic, partition, next_offset, error = %err, "skipping partition in restore seek list");
-            continue;
-        }
-        sought.push((partition, next_offset));
-    }
-    (tpl.count() > 0).then_some((tpl, sought))
 }
 
 pub(crate) fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionList {
@@ -1485,6 +1528,7 @@ mod tests {
 
     use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
+    use crate::consumers::readiness::NotReady;
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
     use crate::merge::transfer::{
@@ -1758,59 +1802,6 @@ mod tests {
         assert_eq!(tpl.count(), 0);
     }
 
-    fn manifest_for(topic: &str, committed: &[(i32, i64)]) -> OffsetManifest {
-        let tracker = OffsetTracker::new();
-        let owned: Vec<i32> = committed.iter().map(|(p, _)| *p).collect();
-        for &(partition, next) in committed {
-            tracker.mark_dispatched(partition, next);
-            let _ = tracker.mark_processed(partition, next);
-            tracker.mark_committed(partition, next);
-        }
-        OffsetManifest::capture(&owned, &[(topic, &tracker)])
-    }
-
-    #[test]
-    fn restore_seek_tpl_targets_owned_partitions_with_a_manifest_offset() {
-        let manifest = manifest_for("cohort_stream_events", &[(0, 100), (3, 250)]);
-        let (tpl, sought) = restore_seek_tpl("cohort_stream_events", &[0, 3, 7], &manifest)
-            .expect("a non-empty seek");
-        assert_eq!(tpl.count(), 2);
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 0)
-                .unwrap()
-                .offset(),
-            Offset::Offset(100),
-        );
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 3)
-                .unwrap()
-                .offset(),
-            Offset::Offset(250),
-        );
-        assert!(tpl.find_partition("cohort_stream_events", 7).is_none());
-        let mut sought_sorted = sought;
-        sought_sorted.sort_unstable();
-        assert_eq!(sought_sorted, vec![(0, 100), (3, 250)]);
-    }
-
-    #[test]
-    fn restore_seek_tpl_is_none_for_an_empty_manifest_topic() {
-        let empty = manifest_for("cohort_stream_events", &[]);
-        assert!(restore_seek_tpl("cohort_stream_events", &[0, 1, 2], &empty).is_none());
-    }
-
-    #[test]
-    fn restore_seek_tpl_is_none_when_no_owned_partition_matches() {
-        let manifest = manifest_for("cohort_stream_events", &[(0, 100), (3, 250)]);
-        assert!(restore_seek_tpl("cohort_stream_events", &[5, 9], &manifest).is_none());
-    }
-
-    #[test]
-    fn restore_seek_tpl_is_none_for_a_missing_topic() {
-        let manifest = manifest_for("cohort_stream_events", &[(0, 100)]);
-        assert!(restore_seek_tpl("person_merge_events", &[0], &manifest).is_none());
-    }
-
     fn temp_store() -> (TempDir, CohortStore) {
         let dir = TempDir::new().unwrap();
         let config = StoreConfig {
@@ -2069,24 +2060,6 @@ mod tests {
         );
 
         dispatcher.shutdown().await;
-    }
-
-    #[test]
-    fn boot_assignment_settled_requires_a_stable_non_empty_assignment() {
-        let mut prev: Option<HashSet<i32>> = None;
-
-        assert!(!boot_assignment_settled(&HashSet::new(), &mut prev));
-        assert_eq!(prev, None);
-
-        let first: HashSet<i32> = [0].into_iter().collect();
-        assert!(!boot_assignment_settled(&first, &mut prev));
-        assert_eq!(prev.as_ref(), Some(&first));
-
-        let second: HashSet<i32> = [0, 1].into_iter().collect();
-        assert!(!boot_assignment_settled(&second, &mut prev));
-        assert_eq!(prev.as_ref(), Some(&second));
-
-        assert!(boot_assignment_settled(&second, &mut prev));
     }
 
     #[tokio::test]
@@ -2837,6 +2810,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_drain_signal_waits_for_every_worker_and_keeps_the_ownership_it_drained_under() {
+        let (_dir, store) = temp_store();
+        let sink = BlockingMembershipSink::new();
+        let dispatcher = Arc::new(EventDispatcher::new(
+            PartitionRouter::new(64),
+            Arc::new(OffsetTracker::new()),
+            test_handle(&store),
+            behavioral_catalog(),
+            sink.clone(),
+            MergeWorkerDeps::capture(),
+        ));
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+        sink.entered.notified().await;
+
+        let drain = tokio::spawn({
+            let dispatcher = dispatcher.clone();
+            async move { dispatcher.shutdown().await }
+        });
+        assert!(matches!(
+            dispatcher
+                .wait_for_worker_drain(Duration::from_millis(100))
+                .await,
+            DrainWait::TimedOut,
+        ));
+
+        sink.release.notify_one();
+        drain.await.unwrap();
+        // Closing the events consumer revokes every partition after the drain.
+        dispatcher.revoke_partition_sync(0);
+        dispatcher.revoke_partition_sync(1);
+        let DrainWait::Drained(drained) = dispatcher
+            .wait_for_worker_drain(Duration::from_secs(10))
+            .await
+        else {
+            panic!("the drain finished once the blocked produce was released");
+        };
+        assert_eq!(drained.partitions(), &HashSet::from([0, 1]));
+
+        let follower_tracker = OffsetTracker::new();
+        for partition in [0, 1, 2] {
+            follower_tracker.mark_dispatched(partition, 6);
+            assert_eq!(
+                follower_tracker.mark_processed(partition, 6),
+                MarkOutcome::WithinDispatch
+            );
+        }
+        assert_eq!(
+            crate::consumers::merges::committable_after_drain(
+                &follower_tracker,
+                &dispatcher,
+                HashSet::new(),
+                "follower_topic",
+            )
+            .await,
+            HashMap::from([(0, 6), (1, 6)]),
+            "a follower commits for the partitions drained, not the emptied live set",
+        );
+    }
+
+    #[tokio::test]
+    async fn finishing_boot_rebuilds_every_owned_partition_before_the_gate_opens() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        dispatcher.enable_durable_restore();
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        let readiness = dispatcher.readiness().clone();
+        assert_eq!(readiness.check(), Err(NotReady::Booting));
+
+        assert_eq!(dispatcher.finish_boot(), 2);
+        assert_eq!(
+            readiness.check(),
+            Err(NotReady::Rebuilding { partitions: 2 }),
+            "both partitions rebuild although neither received a message",
+        );
+
+        let start = Instant::now();
+        while readiness.check().is_err() {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "each rebuild releases the gate when its scan ends, got {:?}",
+                readiness.check(),
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        dispatcher.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn revoke_partition_drain_forgets_the_offset_so_it_is_not_recommitted() {
         let (_dir, store) = temp_store();
         let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
@@ -2916,9 +2980,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn route_sweep_delivers_the_cutoff_to_each_owned_worker() {
+    async fn route_sweep_delivers_the_cutoff_to_each_owned_worker_once_the_catalog_loads() {
         let (_dir, store) = temp_store();
-        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        let catalog = Arc::new(CatalogHandle::new());
+        let dispatcher = dispatcher_with(&store, catalog.clone());
 
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);
@@ -2926,6 +2991,15 @@ mod tests {
         let mut rx1 = dispatcher.router.add_partition(1).unwrap();
 
         let cutoff = 1_700_000_000_000;
+        dispatcher.route_sweep(cutoff).await;
+        for rx in [&mut rx0, &mut rx1] {
+            assert!(
+                rx.live.try_recv().is_err(),
+                "a sweep before the first catalog load would drop every restored deadline",
+            );
+        }
+
+        catalog.publish(FilterCatalog::new());
         dispatcher.route_sweep(cutoff).await;
 
         for rx in [&mut rx0, &mut rx1] {
