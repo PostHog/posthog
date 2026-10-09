@@ -16,8 +16,6 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 
-import structlog
-
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -37,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     fake_environment,
     http_response,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.inputs import source_inputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 # The longest time one request, with all of its retries and waits, may hold a worker.
@@ -249,23 +248,6 @@ def placeholder_configs(config_class: type) -> Iterator[Any]:
             yield _placeholder_config(config_class, text, fill_optional)
         except Exception:
             continue
-
-
-def source_inputs(schema_name: str) -> SourceInputs:
-    return SourceInputs(
-        schema_name=schema_name,
-        schema_id="00000000-0000-4000-8000-000000000001",
-        source_id="00000000-0000-4000-8000-000000000002",
-        team_id=1,
-        should_use_incremental_field=False,
-        db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
-        incremental_field=None,
-        incremental_field_type=None,
-        job_id="00000000-0000-4000-8000-000000000003",
-        logger=structlog.get_logger("source_contract"),
-        reset_pipeline=False,
-    )
 
 
 def start_source(source: _BaseSource[Any], config: Any) -> StartExtraction:
