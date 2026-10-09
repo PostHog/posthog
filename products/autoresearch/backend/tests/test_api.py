@@ -1072,6 +1072,11 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "realized_auc_ci_low": 0.65,
             "realized_auc_ci_high": 0.75,
             "calibration_bins": [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}],
+            "average_precision": 0.5,
+            "confusion": {
+                cutoff: {"tp": 1, "fp": 0, "fn": 1, "tn": 8, "n_flagged": 1, "precision": 1.0, "recall": 0.5}
+                for cutoff in ("top_10", "top_20", "likely")
+            },
         }
         latest = validation("2026-09-01", {str(former.pk): populated}, completed_minutes_ago=20)
         validation(
@@ -1096,7 +1101,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             0.75,
         )
         assert rows[1]["calibration_bins"] == [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}]
+        assert rows[1]["average_precision"] == 0.5
+        assert rows[1]["confusion"]["likely"] == {
+            "tp": 1,
+            "fp": 0,
+            "fn": 1,
+            "tn": 8,
+            "n_flagged": 1,
+            "precision": 1.0,
+            "recall": 0.5,
+        }
         assert rows[0]["realized_auc_ci_low"] is None and rows[0]["calibration_bins"] is None
+        assert rows[0]["average_precision"] is None and rows[0]["confusion"] is None
 
         limited = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/?limit=1").json()["rows"]
         assert [r["prediction_date"] for r in limited] == ["2026-09-03"]

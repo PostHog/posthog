@@ -170,8 +170,8 @@ export function Exposures(): JSX.Element {
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
-    const hasZeroExposures =
-        !isExperimentDraft && !exposuresLoading && exposures != null && !exposures.timeseries?.length
+    // The answer holds a series for every configured variant, with zero counts, so only the total tells.
+    const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
         hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null
@@ -304,7 +304,7 @@ export function Exposures(): JSX.Element {
                                         </div>
                                     )}
                                 </div>
-                            ) : !exposures?.timeseries?.length ? (
+                            ) : totalExposures === 0 ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">
                                     <div className="text-center">
                                         <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />

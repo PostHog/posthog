@@ -18,6 +18,7 @@ from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from .event.event import Event
 from .event_buffer import EventBuffer
 
@@ -133,6 +134,7 @@ __all__ = [
     "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
+    "OrganizationEventsRetentionConfig",
     "OrganizationMemberNotificationLock",
     "OrganizationIntegration",
     "OrganizationInvite",
@@ -171,6 +173,7 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamEventsRetentionConfig",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
     "EventIngestionRestrictionConfig",

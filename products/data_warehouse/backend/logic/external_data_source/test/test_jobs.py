@@ -451,6 +451,31 @@ class TestUpdateExternalJobStatus:
         assert last_failed_at.tzinfo is not None
         assert before - timedelta(seconds=1) <= last_failed_at <= datetime.now(UTC) + timedelta(seconds=1)
 
+    @pytest.mark.parametrize(
+        "halting_marker",
+        [
+            {"cdc_broken": {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}},
+            {"cdc_extraction_paused": {"reason": "auth_failed", "at": "2026-06-29T10:40:00+00:00"}},
+        ],
+    )
+    def test_a_failed_run_of_a_cdc_halted_schema_still_moves_the_streak(self, halting_marker):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        schema.sync_type_config = {
+            **halting_marker,
+            "failure_streak": {"runs": 4, "last_failed_at": datetime.now(UTC).isoformat()},
+        }
+        schema.status = ExternalDataSchemaStatus.FAILED
+        schema.latest_error = "The replication slot no longer exists on the source database."
+        schema.save()
+
+        self._finalize(team, job, ExternalDataJobStatus.FAILED)
+
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.failed_runs_in_a_row == 5
+        assert schema.cdc_halted
+        assert schema.status == ExternalDataSchemaStatus.FAILED
+        assert schema.latest_error == "The replication slot no longer exists on the source database."
+
     def test_a_repeated_failed_write_for_the_same_job_does_not_count_again(self):
         team, _source, schema, job = _create_org_team_source_schema_job()
         schema.sync_type_config = {"failure_streak": {"runs": 2, "last_failed_at": datetime.now(UTC).isoformat()}}
