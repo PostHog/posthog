@@ -284,16 +284,29 @@ describe('metrics ingestion steps', () => {
             expect(await counterValue(metricMessageDlqCounter, { reason: 'MessageSizeTooLarge', team_id: '7' })).toBe(1)
         })
 
-        it('retries a retriable failure, then rejects the side effect without using the DLQ', async () => {
-            const error = new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
-            outputs.produce.mockRejectedValue(error)
+        it('retries a retriable failure and sends the message to the DLQ when the retries run out', async () => {
+            jest.useFakeTimers()
+            try {
+                const error = new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                outputs.produce.mockImplementation((output) =>
+                    output === METRICS_OUTPUT ? Promise.reject(error) : Promise.resolve()
+                )
 
-            const { sideEffect } = await runStep()
-            await expect(sideEffect).rejects.toBe(error)
+                const { sideEffect } = await runStep()
+                await jest.runAllTimersAsync()
+                // The side effect must resolve: consumer-v1 stores offsets even when the background task rejects.
+                await expect(sideEffect).resolves.toBeUndefined()
 
-            expect(outputs.produce).toHaveBeenCalledTimes(3)
-            expect(outputs.produce).not.toHaveBeenCalledWith(DLQ_OUTPUT, expect.anything())
-            expect(recordMetricsIngested).not.toHaveBeenCalled()
+                const metricsProduces = outputs.produce.mock.calls.filter(([output]) => output === METRICS_OUTPUT)
+                expect(metricsProduces).toHaveLength(5)
+                expect(outputs.produce).toHaveBeenLastCalledWith(
+                    DLQ_OUTPUT,
+                    expect.objectContaining({ headers: expect.objectContaining({ team_id: '7' }) })
+                )
+                expect(recordMetricsIngested).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('drops a message with no value', async () => {

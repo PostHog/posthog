@@ -20,7 +20,7 @@ export interface ProduceMetricsInput {
     recordCount: number
 }
 
-const PRODUCE_RETRY = { tries: 3, sleepMs: 100 }
+const PRODUCE_RETRY = { tries: 5, sleepMs: 100 }
 
 /**
  * Produces the capture-side Avro packet to the ClickHouse-bound topic as is.
@@ -28,9 +28,10 @@ const PRODUCE_RETRY = { tries: 3, sleepMs: 100 }
  * (`team_id`, `retention-days`) on top of the ones capture stamped.
  *
  * The produce is a side effect, so the consumer reads the next batch while
- * the acks are pending. A retriable error that outlasts the retries rejects
- * the side effect, which stops offset commits so the batch replays. Any other
- * error sends the message to the DLQ.
+ * the acks are pending. A retriable error gets retries. When the produce still
+ * fails, the message goes to the DLQ. The side effect must not reject:
+ * consumer-v1 stores the batch's offsets even when its background task
+ * rejects, so a rejection would lose the message instead of replaying it.
  */
 export function createProduceMetricsStep<T extends ProduceMetricsInput>(
     outputs: IngestionOutputs<MetricsOutput | DlqOutput>
@@ -61,9 +62,6 @@ export function createProduceMetricsStep<T extends ProduceMetricsInput>(
             // fail and route to the DLQ must not count as ingested.
             () => recordMetricsIngested(input.teamId, input.bytesUncompressed, input.recordCount),
             async (error) => {
-                if (error?.isRetriable === true) {
-                    throw error
-                }
                 const errorName = error instanceof Error ? error.name : 'UnknownError'
                 metricMessageDlqCounter.inc({ reason: errorName, team_id: teamIdLabel })
                 const dlqMessage = {
