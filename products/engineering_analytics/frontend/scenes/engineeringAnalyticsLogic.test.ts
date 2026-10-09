@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -485,6 +487,68 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
         expect(mockCiCards).toHaveBeenCalledTimes(1)
         expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
+    })
+
+    const openPullRequestList = async (searchParams: Record<string, string>): Promise<jest.SpyInstance> => {
+        mockSources.mockResolvedValue(SOURCES)
+        router.actions.push(urls.engineeringAnalyticsPullRequestList(), searchParams)
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadGithubSourcesSuccess'])
+        return jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+    }
+    const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'ci explorer opened from pull request jump')
+            .map(([, properties]) => properties)
+    const routedPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
+
+    it.each([
+        [
+            'a link in the repository it names, not the one in scope',
+            'https://github.com/PostHog/posthog.com/pull/42/files',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog.com', 42),
+            { source: 'src-newer', repo: 'posthog/posthog.com' },
+            'link',
+        ],
+        [
+            'a bare number in the picked repository',
+            '#42',
+            urls.engineeringAnalyticsCIExplorer('posthog', 'posthog', 42),
+            { source: 'src-older', repo: 'posthog/posthog' },
+            'number',
+        ],
+    ])('the pull request jump opens %s once', async (_label, text, pathname, scope, inputKind) => {
+        const capture = await openPullRequestList({ source: 'src-older', repo: 'posthog/posthog', date_from: '-30d' })
+
+        logic.actions.setPullRequestJumpText(text)
+        logic.actions.submitPullRequestJump()
+        logic.actions.submitPullRequestJump()
+
+        expect(routedPath()).toBe(pathname)
+        expect(router.values.searchParams).toEqual({ date_from: '-30d', ...scope })
+        expect(jumpEvents(capture)).toEqual([{ input_kind: inputKind }])
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+    })
+
+    it('the pull request jump says why it cannot open, until the cause is fixed', async () => {
+        const capture = await openPullRequestList({})
+
+        logic.actions.setPullRequestJumpText('not a pr')
+        logic.actions.submitPullRequestJump()
+        expect(logic.values.pullRequestJumpFailure).toBe('invalid')
+
+        logic.actions.setPullRequestJumpText('42')
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+        logic.actions.submitPullRequestJump()
+        expect(logic.values.pullRequestJumpFailure).toBe('needs_repository')
+        expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
+        expect(jumpEvents(capture)).toEqual([])
+
+        logic.actions.setScope('src-newer', 'posthog/posthog.com')
+        expect(logic.values.pullRequestJumpFailure).toBeNull()
+        logic.actions.submitPullRequestJump()
+        expect(routedPath()).toBe(urls.engineeringAnalyticsCIExplorer('posthog', 'posthog.com', 42))
     })
 
     it.each([
