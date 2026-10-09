@@ -108,9 +108,7 @@ export function SearchPerformanceDetail(): JSX.Element {
                             to={urls.dataWarehouseSourceNew(
                                 'GoogleSearchConsole',
                                 `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
-                                'Marketing analytics',
-                                undefined,
-                                'marketing_analytics_search_detail'
+                                'Marketing analytics'
                             )}
                         >
                             Connect Google Search Console

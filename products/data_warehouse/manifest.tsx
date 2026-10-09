@@ -126,8 +126,7 @@ export const manifest: ProductManifest = {
             kind?: string,
             returnUrl?: string,
             returnLabel?: string,
-            accessMethod?: 'warehouse' | 'direct',
-            entryPoint?: string
+            accessMethod?: 'warehouse' | 'direct'
         ): string => {
             const params = new URLSearchParams()
             if (kind) {
@@ -141,9 +140,6 @@ export const manifest: ProductManifest = {
             }
             if (accessMethod) {
                 params.set('access_method', accessMethod)
-            }
-            if (entryPoint) {
-                params.set('entry_point', entryPoint)
             }
             const queryString = params.toString()
             return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
