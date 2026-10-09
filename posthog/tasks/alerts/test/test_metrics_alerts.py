@@ -91,8 +91,11 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         clauses: Optional[list[dict[str, Any]]] = None,
         formula: Optional[str] = None,
         date_range: Optional[dict[str, str]] = None,
+        sql: Optional[str] = None,
     ) -> dict:
-        if clauses is None:
+        if sql is not None:
+            clauses = []
+        elif clauses is None:
             clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
             if group_by:
                 clause["groupBy"] = [{"key": key} for key in group_by]
@@ -102,6 +105,8 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             query_dict["formula"] = formula
         if date_range:
             query_dict["dateRange"] = date_range
+        if sql is not None:
+            query_dict.update(language="sql", sql=sql)
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -225,13 +230,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             f"FROM posthog.metrics WHERE metric_name IN ('{self.metric_name}', '{stopped_metric}') "
             "AND timestamp >= {date_from} AND timestamp < {date_to} GROUP BY time, clause"
         )
-        insight = self.dashboard_api.create_insight(
-            data={
-                "name": "metrics insight",
-                "query": {"kind": "MetricsQuery", "clauses": [], "language": "sql", "sql": sql},
-            }
-        )[1]
-        alert = self.create_alert(insight, lower=1.0)
+        alert = self.create_alert(self.create_metrics_insight(sql=sql), lower=1.0)
 
         run_alert_check(alert["id"])
 

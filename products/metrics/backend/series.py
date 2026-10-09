@@ -1,9 +1,11 @@
+from collections.abc import Sequence
+
 from products.metrics.backend.facade.api import MAX_SERIES_PER_CLAUSE
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 
 
 def rank_and_fill_series(
-    rows: list[tuple[dict[str, str], str | None, str | None, list[MetricPoint]]],
+    rows: Sequence[tuple[dict[str, str], str | None, str | None, list[MetricPoint]]],
 ) -> list[MetricSeries]:
     """Keep the largest series of each clause and put every series on one shared time grid.
 
