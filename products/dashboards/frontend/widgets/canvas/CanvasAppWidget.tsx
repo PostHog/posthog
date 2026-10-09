@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -30,6 +31,8 @@ export type CanvasAppWidgetResult = {
         currentVersionId: string | null
     } | null
     needsConfiguration?: boolean
+    /** Sent with `needsConfiguration`: whether the viewer can see any canvas to pick. */
+    hasCanvases?: boolean
     canvasNotFound?: boolean
 }
 
@@ -170,7 +173,19 @@ function CanvasAppTile({
                     title="Nothing published yet"
                     message="This canvas has no live build. It appears here once a version is built."
                     cta={
-                        <LemonButton type="secondary" size="small" to={urls.canvasDetail(canvasId)} targetBlank>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={urls.canvasDetail(canvasId)}
+                            targetBlank
+                            onClick={() =>
+                                posthog.capture('dashboard widget open canvas clicked', {
+                                    widget_type: 'canvas_app',
+                                    tile_id: tileId,
+                                    canvas_id: canvasId,
+                                })
+                            }
+                        >
                             Open canvas
                         </LemonButton>
                     }
@@ -204,6 +219,31 @@ export function CanvasAppWidget({
     }
 
     if (!payload || payload.needsConfiguration) {
+        // No canvases the viewer can pick yet: offer to make one instead of an empty picker.
+        if (onUpdateConfig && payload && payload.hasCanvases === false) {
+            return (
+                <CanvasAppWidgetMessage
+                    title="No canvases yet"
+                    message="Build an app on your PostHog data, then show it on this dashboard."
+                    cta={
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.canvasNew()}
+                            targetBlank
+                            onClick={() =>
+                                posthog.capture('dashboard widget create canvas clicked', {
+                                    widget_type: 'canvas_app',
+                                    tile_id: tileId,
+                                })
+                            }
+                        >
+                            New canvas
+                        </LemonButton>
+                    }
+                />
+            )
+        }
         return (
             <CanvasAppWidgetMessage
                 title="No canvas selected"
