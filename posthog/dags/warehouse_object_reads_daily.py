@@ -329,6 +329,6 @@ def warehouse_object_reads_daily_overdue_sensor(
     )
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
     channel = notification_channel_per_team[JobOwners.TEAM_DATA_MODELING.value]
-    send_slack_alert(context, slack.get_client(), channel, blocks, message)
-    context.update_cursor(day.isoformat())
+    if send_slack_alert(context, slack.get_client(), channel, blocks, message):
+        context.update_cursor(day.isoformat())
     return None

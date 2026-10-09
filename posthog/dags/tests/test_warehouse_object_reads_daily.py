@@ -244,14 +244,15 @@ def test_rollup_fails_before_touching_staging_while_another_run_executes(cluster
 
 @parameterized.expand(
     [
-        ("before_the_deadline", time(hour=9, minute=59), False, False),
-        ("published_day", time(hour=10), True, False),
-        ("missing_day", time(hour=10), False, True),
+        ("before_the_deadline", time(hour=9, minute=59), False, False, 0),
+        ("published_day", time(hour=10), True, False, 0),
+        ("missing_day", time(hour=10), False, False, 1),
+        ("missing_day_slack_down", time(hour=10), False, True, 2),
     ]
 )
 @override_settings(CLOUD_DEPLOYMENT="US", DAGSTER_DOMAIN="dagster.example.com")
 def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
-    _name: str, check_time: time, published: bool, alerts: bool
+    _name: str, check_time: time, published: bool, slack_down: bool, expected_posts: int
 ) -> None:
     today = date(2026, 10, 8)
     instance = dagster.DagsterInstance.ephemeral()
@@ -262,6 +263,8 @@ def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
             tags={"dagster/partition": (today - timedelta(days=1)).isoformat()},
         )
     slack = MagicMock()
+    if slack_down:
+        slack.get_client.return_value.chat_postMessage.side_effect = ConnectionError
 
     with time_machine.travel(datetime.combine(today, check_time, tzinfo=UTC), tick=False):
         context = dagster.build_sensor_context(instance=instance, resources={"slack": slack})
@@ -271,7 +274,7 @@ def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
         )
 
     posts = slack.get_client.return_value.chat_postMessage.call_args_list
-    assert len(posts) == int(alerts)
-    if alerts:
+    assert len(posts) == expected_posts
+    if expected_posts:
         assert posts[0].kwargs["channel"] == "#alerts-data-modeling"
         assert "2026-10-07" in posts[0].kwargs["text"]
