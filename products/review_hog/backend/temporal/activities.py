@@ -339,6 +339,7 @@ class SandboxStageInput:
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
     review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
+    dedupe_against_pr_comments: bool = field(default=False, kw_only=True)
 
 
 @dataclass
@@ -1486,6 +1487,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
+                against_pr_comments=input.dedupe_against_pr_comments,
             )
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
