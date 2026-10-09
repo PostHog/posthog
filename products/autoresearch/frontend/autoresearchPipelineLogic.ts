@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -18,6 +19,16 @@ import { Breadcrumb } from '~/types'
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
+import {
+    AgentNotes,
+    AgentSearch,
+    ExperimentLogFilter,
+    ExperimentLogGroup,
+    SearchPoint,
+    buildAgentSearch,
+    experimentLogGroups,
+    latestAgentNotes,
+} from './agentSearch'
 import {
     autoresearchModelsList,
     autoresearchPauseCreate,
@@ -34,8 +45,8 @@ import {
     autoresearchTrainCreate,
 } from './generated/api'
 import {
-    AutoresearchModelRoleEnumApi,
     type AutoresearchModelApi,
+    AutoresearchModelRoleEnumApi,
     type AutoresearchPipelineApi,
     type AutoresearchRunApi,
     type AutoresearchSuggestionApi,
@@ -43,6 +54,7 @@ import {
     CreateSuggestionPriorityEnumApi,
     type ModelExplanationFieldApi,
 } from './generated/api.schemas'
+import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
 import {
     PREDICTION_SEGMENTS,
     PREDICTION_SEGMENT_THRESHOLDS,
@@ -57,22 +69,38 @@ export interface AutoresearchPipelineLogicProps {
     id: string
 }
 
-export type AutoresearchPipelineTab = 'overview' | 'training' | 'predictions' | 'online_performance' | 'suggestions'
+export type AutoresearchPipelineTab = 'predictions' | 'accuracy' | 'agent_research' | 'setup'
 
-const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
-    'overview',
-    'training',
-    'predictions',
-    'online_performance',
-    'suggestions',
-]
+const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = ['predictions', 'accuracy', 'agent_research', 'setup']
 
-function isPipelineTab(value: string | undefined): value is AutoresearchPipelineTab {
-    return value !== undefined && (AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)
+/** Tab keys from the old five-tab layout, so links saved before the change still open the right tab. */
+const LEGACY_PIPELINE_TABS: Record<string, AutoresearchPipelineTab | null> = {
+    overview: null,
+    training: 'agent_research',
+    online_performance: 'accuracy',
+    suggestions: 'agent_research',
+}
+
+/** The tab a `?tab=` value opens. Null means the default tab. */
+export function pipelineTabFromUrl(value: unknown): AutoresearchPipelineTab | null {
+    if (typeof value !== 'string') {
+        return null
+    }
+    if ((AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)) {
+        return value as AutoresearchPipelineTab
+    }
+    return LEGACY_PIPELINE_TABS[value] ?? null
 }
 
 /** How often the Score now button checks a running scoring run. */
 export const SCORE_RUN_POLL_INTERVAL_MS = 5000
+
+/** How often the Agent research tab reloads training runs while one is pending or running. */
+export const TRAINING_RUN_POLL_INTERVAL_MS = 10000
+
+function isTrainingRunLive(run: AutoresearchTrainingRunApi): boolean {
+    return run.status === 'pending' || run.status === 'running'
+}
 
 /** Matches the backend cutoff: a run still running after the workflow timeout lost its worker. */
 export const SCORE_RUN_STALE_AFTER_MS = 5 * 60 * 60 * 1000
@@ -270,6 +298,8 @@ export interface autoresearchPipelineLogicValues {
     currentTeamId: number | null // teamLogic
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
+    agentNotes: AgentNotes | null
+    agentSearch: AgentSearch
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
@@ -277,11 +307,18 @@ export interface autoresearchPipelineLogicValues {
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
+    defaultTab: AutoresearchPipelineTab
     detailRequested: boolean
+    expandedLogRunIds: string[]
     expandedRunId: string | null
+    experimentLogFilter: ExperimentLogFilter
+    experimentLogGroups: ExperimentLogGroup[]
+    hasLiveTrainingRun: boolean
+    lifecycleSteps: LifecycleStep[] | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
     modelsError: boolean
+    modelsLoaded: boolean
     modelsLoading: boolean
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
@@ -299,11 +336,13 @@ export interface autoresearchPipelineLogicValues {
     reportByRunLoading: boolean
     runs: AutoresearchRunApi[]
     runsError: boolean
+    runsLoaded: boolean
     runsLoading: boolean
     savingCohortSegment: PredictionSegmentKey | null
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     scoringCoverage: ScoringCoverage | null
+    selectedTab: AutoresearchPipelineTab | null
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     suggestionDraft: string
@@ -549,6 +588,9 @@ export interface autoresearchPipelineLogicActions {
     pollScoreRun: () => {
         value: true
     }
+    pollTrainingRuns: () => {
+        value: true
+    }
     reportNotebookOpened: (runId: string) => {
         runId: string
     }
@@ -594,11 +636,17 @@ export interface autoresearchPipelineLogicActions {
     scoreRunFinished: (run: AutoresearchRunApi) => {
         run: AutoresearchRunApi
     }
+    searchPointClicked: (point: SearchPoint) => {
+        point: SearchPoint
+    }
     setActiveScoreRun: (run: AutoresearchRunApi | null) => {
         run: AutoresearchRunApi | null
     }
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
+    }
+    setExperimentLogFilter: (filter: ExperimentLogFilter) => {
+        filter: ExperimentLogFilter
     }
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
@@ -608,6 +656,9 @@ export interface autoresearchPipelineLogicActions {
     }
     setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => {
         priority: CreateSuggestionPriorityEnumApi
+    }
+    setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
+        tab: AutoresearchPipelineTab | null
     }
     startScorePolling: () => {
         value: true
@@ -619,6 +670,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         error: string
         errorObject?: any
+    }
+    startTrainingPolling: () => {
+        value: true
     }
     startTrainingSuccess: (
         startTrainingResult: AutoresearchTrainingRunApi | null,
@@ -641,6 +695,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         suggestionSubmitResult: AutoresearchSuggestionApi | null
         payload?: any
+    }
+    toggleLogRun: (runId: string) => {
+        runId: string
     }
     toggleRunArtifacts: (runId: string) => {
         runId: string
@@ -695,6 +752,27 @@ export interface autoresearchPipelineLogicMeta {
         ) => ScoringCoverage | null
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
+        hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
+        agentSearch: (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null) => AgentSearch
+        experimentLogGroups: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            agentSearch: AgentSearch,
+            experimentLogFilter: ExperimentLogFilter
+        ) => ExperimentLogGroup[]
+        agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
+        defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
+        activeTab: (
+            selectedTab: AutoresearchPipelineTab | null,
+            defaultTab: AutoresearchPipelineTab
+        ) => AutoresearchPipelineTab
+        lifecycleSteps: (
+            pipeline: AutoresearchPipelineApi | null,
+            champion: AutoresearchModelApi | null,
+            runs: AutoresearchRunApi[],
+            onlinePerformanceRows: OnlinePerformanceRow[],
+            modelsLoaded: boolean,
+            runsLoaded: boolean
+        ) => LifecycleStep[] | null
     }
 }
 
@@ -716,6 +794,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
+        setTabFromUrl: (tab: AutoresearchPipelineTab | null) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
         reportNotebookOpened: (runId: string) => ({ runId }),
@@ -726,6 +805,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         startScorePolling: true,
         pollScoreRun: true,
         scoreRunFinished: (run: AutoresearchRunApi) => ({ run }),
+        startTrainingPolling: true,
+        pollTrainingRuns: true,
+        setExperimentLogFilter: (filter: ExperimentLogFilter) => ({ filter }),
+        toggleLogRun: (runId: string) => ({ runId }),
+        searchPointClicked: (point: SearchPoint) => ({ point }),
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
     }),
@@ -736,10 +820,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 loadDetail: () => true,
             },
         ],
-        activeTab: [
-            'overview' as AutoresearchPipelineTab,
+        selectedTab: [
+            null as AutoresearchPipelineTab | null,
             {
                 setActiveTab: (_, { tab }) => tab,
+                setTabFromUrl: (_, { tab }) => tab,
             },
         ],
         predictionsPeopleView: [
@@ -761,6 +846,21 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as string | null,
             {
                 toggleRunArtifacts: (current, { runId }) => (current === runId ? null : runId),
+            },
+        ],
+        experimentLogFilter: [
+            'all' as ExperimentLogFilter,
+            {
+                setExperimentLogFilter: (_, { filter }) => filter,
+            },
+        ],
+        expandedLogRunIds: [
+            [] as string[],
+            {
+                toggleLogRun: (current, { runId }) =>
+                    current.includes(runId) ? current.filter((id) => id !== runId) : [...current, runId],
+                searchPointClicked: (current, { point }) =>
+                    current.includes(point.runId) ? current : [...current, point.runId],
             },
         ],
         suggestionDraft: [
@@ -817,6 +917,18 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             {
                 loadTrainingRuns: () => false,
                 loadTrainingRunsFailure: () => true,
+            },
+        ],
+        modelsLoaded: [
+            false,
+            {
+                loadModelsSuccess: () => true,
+            },
+        ],
+        runsLoaded: [
+            false,
+            {
+                loadRunsSuccess: () => true,
             },
         ],
         runsError: [
@@ -1215,6 +1327,60 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 }))
             },
         ],
+        hasLiveTrainingRun: [
+            (s) => [s.trainingRuns],
+            (trainingRuns: AutoresearchTrainingRunApi[]): boolean => trainingRuns.some(isTrainingRunLive),
+        ],
+        agentSearch: [
+            (s) => [s.trainingRuns, s.champion],
+            (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null): AgentSearch =>
+                buildAgentSearch(trainingRuns, champion),
+        ],
+        experimentLogGroups: [
+            (s) => [s.trainingRuns, s.agentSearch, s.experimentLogFilter],
+            (
+                trainingRuns: AutoresearchTrainingRunApi[],
+                agentSearch: AgentSearch,
+                experimentLogFilter: ExperimentLogFilter
+            ): ExperimentLogGroup[] => experimentLogGroups(trainingRuns, agentSearch, experimentLogFilter),
+        ],
+        agentNotes: [
+            (s) => [s.trainingRuns],
+            (trainingRuns: AutoresearchTrainingRunApi[]): AgentNotes | null => latestAgentNotes(trainingRuns),
+        ],
+        defaultTab: [
+            (s) => [s.pipeline],
+            (pipeline: AutoresearchPipelineApi | null): AutoresearchPipelineTab =>
+                pipeline?.last_scored_at ? 'predictions' : 'agent_research',
+        ],
+        activeTab: [
+            (s) => [s.selectedTab, s.defaultTab],
+            (
+                selectedTab: AutoresearchPipelineTab | null,
+                defaultTab: AutoresearchPipelineTab
+            ): AutoresearchPipelineTab => selectedTab ?? defaultTab,
+        ],
+        lifecycleSteps: [
+            (s) => [s.pipeline, s.champion, s.runs, s.onlinePerformanceRows, s.modelsLoaded, s.runsLoaded],
+            (
+                pipeline: AutoresearchPipelineApi | null,
+                champion: AutoresearchModelApi | null,
+                runs: AutoresearchRunApi[],
+                onlinePerformanceRows: OnlinePerformanceRow[],
+                modelsLoaded: boolean,
+                runsLoaded: boolean
+            ): LifecycleStep[] | null =>
+                // Before models and runs load, an empty list means "not known yet", not "none".
+                pipeline && modelsLoaded && runsLoaded
+                    ? pipelineLifecycle({
+                          pipeline,
+                          champion,
+                          runs,
+                          validatedDates: onlinePerformanceRows.map((row) => row.prediction_date),
+                          now: dayjs(),
+                      })
+                    : null,
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadDetail: () => {
@@ -1355,8 +1521,48 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 )
             }
         },
-        submitSuggestionSuccess: () => {
-            posthog.capture('autoresearch model suggestion sent', { pipeline_id: props.id })
+        loadTrainingRunsSuccess: ({ trainingRuns }) => {
+            if (trainingRuns.some(isTrainingRunLive)) {
+                actions.startTrainingPolling()
+            } else if (cache.disposables.registry.has('trainingPoll')) {
+                // The run finished, so the champion and the pipeline counters may have changed.
+                cache.disposables.dispose('trainingPoll')
+                actions.loadModels()
+                actions.loadPipeline()
+            }
+        },
+        startTrainingPolling: () => {
+            if (cache.disposables.registry.has('trainingPoll')) {
+                return
+            }
+            cache.disposables.add(() => {
+                const timer = window.setInterval(() => actions.pollTrainingRuns(), TRAINING_RUN_POLL_INTERVAL_MS)
+                return () => clearInterval(timer)
+            }, 'trainingPoll')
+        },
+        pollTrainingRuns: () => {
+            if (!values.trainingRunsLoading) {
+                actions.loadTrainingRuns()
+            }
+        },
+        setExperimentLogFilter: ({ filter }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model experiment log filter changed', { pipeline_id: props.id, filter })
+        },
+        searchPointClicked: ({ point }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model search point clicked', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
+                status: point.status,
+            })
+        },
+        submitSuggestionSuccess: ({ suggestionSubmitResult }) => {
+            posthog.capture('autoresearch model suggestion sent', {
+                pipeline_id: props.id,
+                priority: suggestionSubmitResult?.priority ?? values.suggestionPriority,
+            })
             actions.loadSuggestions()
             lemonToast.success('Suggestion sent. The agent will pick it up on its next run.')
         },
@@ -1374,6 +1580,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     actions.loadRunReport({ runId })
                 }
             }
+        },
+        setActiveTab: ({ tab }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model tab changed', { pipeline_id: props.id, tab })
         },
         reportNotebookOpened: ({ runId }) => {
             posthog.capture('autoresearch model report notebook opened', { pipeline_id: props.id, run_id: runId })
@@ -1420,26 +1630,30 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => ({
+    actionToUrl(() => ({
         // Reflect the active tab in the URL (?tab=…) so each tab is deep-linkable.
         setActiveTab: ({ tab }) => {
-            const searchParams = { ...router.values.searchParams }
-            if (tab === 'overview') {
-                delete searchParams.tab
-            } else {
-                searchParams.tab = tab
-            }
-            if ((router.values.searchParams.tab ?? 'overview') === (values.activeTab as string)) {
+            if (router.values.searchParams.tab === tab) {
                 return // no-op when the URL already matches (avoids a redundant history entry)
             }
-            return [router.values.location.pathname, searchParams, router.values.hashParams]
+            return [router.values.location.pathname, { ...router.values.searchParams, tab }, router.values.hashParams]
         },
     })),
     urlToAction(({ actions, values }) => ({
         '/autoresearch/:id': (_, searchParams) => {
-            const tab = isPipelineTab(searchParams.tab) ? searchParams.tab : 'overview'
-            if (tab !== values.activeTab) {
-                actions.setActiveTab(tab)
+            const tab = pipelineTabFromUrl(searchParams.tab)
+            if (searchParams.tab !== undefined && searchParams.tab !== tab) {
+                // A legacy or unknown key: rewrite the URL in place so it shows the tab that opens.
+                const { tab: _legacyTab, ...rest } = searchParams
+                router.actions.replace(
+                    router.values.location.pathname,
+                    tab ? { ...rest, tab } : rest,
+                    router.values.hashParams
+                )
+                return
+            }
+            if (tab !== values.selectedTab) {
+                actions.setTabFromUrl(tab)
             }
         },
     })),
