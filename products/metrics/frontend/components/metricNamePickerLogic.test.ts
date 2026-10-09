@@ -14,10 +14,14 @@ jest.mock('../generated/api', () => ({
     metricsNamesRetrieve: jest.fn(),
 }))
 
-const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: Error) => void } => {
     let resolve!: (value: T) => void
-    const promise = new Promise<T>((r) => (resolve = r))
-    return { promise, resolve }
+    let reject!: (error: Error) => void
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res
+        reject = rej
+    })
+    return { promise, resolve, reject }
 }
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 const fullPage = Array.from({ length: METRIC_NAMES_LIMIT }, (_, i) => ({ name: `m${i}`, metric_type: 'gauge' }))
@@ -105,6 +109,46 @@ describe('metricNamePickerLogic', () => {
         expect(metricsNamesRetrieve).toHaveBeenCalledTimes(2)
     })
 
+    it.each([
+        ['a fresh list', 0, 1],
+        ['a list older than a minute', 61_000, 2],
+    ])('opening the picker over %s sends %i request(s)', async (_case, ageMs, requests) => {
+        const now = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+
+        clock.mockReturnValue(now + ageMs)
+        logic.actions.openPicker()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(metricsNamesRetrieve).toHaveBeenCalledTimes(requests)
+        clock.mockRestore()
+    })
+
+    it('ignores a failed load that a newer scope change replaced', async () => {
+        const replacedLoad = deferred<any>()
+        const currentLoad = deferred<any>()
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+        jest.mocked(metricsNamesRetrieve)
+            .mockReturnValueOnce(replacedLoad.promise)
+            .mockReturnValueOnce(currentLoad.promise)
+
+        logic.actions.setServices(['a'])
+        logic.actions.setServices(['b'])
+        replacedLoad.reject(new Error('timeout'))
+        await wait(0)
+
+        expect(logic.values.scopeLoading).toBe(true)
+        currentLoad.resolve({ results: [ITEMS[2]] })
+        await expectLogic(logic)
+            .toDispatchActions(['loadItemsSuccess'])
+            .toMatchValues({ filteredItems: [ITEMS[2]] })
+    })
+
     it('keeps the first load running when an early search finishes', async () => {
         const firstLoad = deferred<any>()
         jest.mocked(metricsNamesRetrieve)
@@ -131,7 +175,7 @@ describe('metricNamePickerLogic', () => {
 
         logic.actions.setSearch('zzz')
         logic.actions.setSearch('')
-        await wait(400)
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(metricsNamesRetrieve).not.toHaveBeenCalled()
         expect(logic.values.searchedItemsLoading).toBe(false)

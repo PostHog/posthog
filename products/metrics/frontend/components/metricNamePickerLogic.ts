@@ -1,3 +1,4 @@
+import type { BreakPointFunction } from 'kea'
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -136,15 +137,25 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
         ],
     }),
     loaders(({ values, cache }) => {
-        const fetchNames = (search: string, limit: number): Promise<{ results: MetricNameItem[] }> =>
-            metricsNamesRetrieve(String(values.currentTeamId), {
-                value: search,
-                limit,
-                // Joined here rather than passed as an array: the generated
-                // client stringifies params, and an empty array would send
-                // `service=`, which the API reads as the unnamed-sender scope.
-                ...(values.services.length ? { service: values.services.join(',') } : {}),
-            })
+        const fetchNames = async (
+            search: string,
+            limit: number,
+            breakpoint: BreakPointFunction
+        ): Promise<{ results: MetricNameItem[] }> => {
+            try {
+                return await metricsNamesRetrieve(String(values.currentTeamId), {
+                    value: search,
+                    limit,
+                    // Joined here rather than passed as an array: the generated
+                    // client stringifies params, and an empty array would send
+                    // `service=`, which the API reads as the unnamed-sender scope.
+                    ...(values.services.length ? { service: values.services.join(',') } : {}),
+                })
+            } finally {
+                // Also on a failure: a request a newer call replaced must not end that call's loading state.
+                breakpoint()
+            }
+        }
         return {
             // The full list for the current scope.
             fullItems: [
@@ -154,8 +165,7 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
                         if (!canViewMetrics()) {
                             return []
                         }
-                        const response = await fetchNames('', METRIC_NAMES_LIMIT)
-                        breakpoint()
+                        const response = await fetchNames('', METRIC_NAMES_LIMIT, breakpoint)
                         return response.results
                     },
                 },
@@ -174,8 +184,7 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
                         // Keystrokes only — matches the 300ms cadence used in the viewer logic.
                         await breakpoint(300)
                         const services = values.services
-                        const response = await fetchNames(search, SEARCH_LIMIT)
-                        breakpoint()
+                        const response = await fetchNames(search, SEARCH_LIMIT, breakpoint)
                         // A scope change while this ran cleared the list; old-scope names must not join it.
                         if (services !== values.services) {
                             return values.searchedItems

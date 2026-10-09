@@ -137,7 +137,7 @@ function MetricNameFilterInner({
                     </div>
                     {(fullItemsLoading || searchedItemsLoading) && filteredItems.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
-                            {search ? 'Searching…' : 'Loading metrics…'}
+                            {search && !scopeLoading ? 'Searching…' : 'Loading metrics…'}
                         </div>
                     ) : filteredItems.length === 0 ? (
                         <div className="p-2 text-muted text-center text-xs">
