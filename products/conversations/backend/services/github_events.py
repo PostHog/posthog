@@ -11,17 +11,17 @@ from typing import Any, cast
 
 import structlog
 
-from posthog.github.installations import installation_id
+from posthog.github.installations import installation_id, installation_integrations
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.dispatch.database import bounded_statement_timeout
-from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 
 from products.conversations.backend.tasks.github import process_github_event
 
 logger = structlog.get_logger(__name__)
 
 # The lookup runs inside the request, before dispatch, so it draws on the delivery's wall clock.
-_INSTALLATION_LOOKUP_TIMEOUT_MS = 800
+_TEAM_SETTINGS_LOOKUP_TIMEOUT_MS = 800
 
 
 def _payload_delivery_id(data: dict[str, Any]) -> str:
@@ -46,13 +46,19 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
 
     A cancelled statement raises, because a lookup that never finished is not an answer.
     """
-    with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, models=[Integration]):
-        integrations = list(
-            Integration.objects.filter(kind="github", integration_id=external_id).select_related("team").order_by("id")
+    integrations = sorted(installation_integrations(external_id), key=lambda integration: integration.id)
+    if not integrations:
+        return None, False
+
+    with bounded_statement_timeout(_TEAM_SETTINGS_LOOKUP_TIMEOUT_MS, models=[Team]):
+        settings_by_team = dict(
+            Team.objects.filter(pk__in={integration.team_id for integration in integrations}).values_list(
+                "id", "conversations_settings"
+            )
         )
 
     for integration in integrations:
-        settings_dict = integration.team.conversations_settings or {}
+        settings_dict = settings_by_team.get(integration.team_id) or {}
         if not settings_dict.get("github_enabled", False):
             continue
         expected_integration_id = settings_dict.get("github_integration_id")
