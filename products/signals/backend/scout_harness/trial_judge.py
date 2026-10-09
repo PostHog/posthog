@@ -34,7 +34,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 from products.tasks.backend.facade.contracts import TaskRunInputFile
 
-JUDGE_MAX_RUNTIME_SECONDS = 15 * 60
+JUDGE_MAX_RUNTIME_SECONDS = 30 * 60
 JUDGE_SANDBOX_ENVIRONMENT = "SIGNALS_SCOUT_TRIAL_JUDGE"
 _JSON_RETRY_PROMPT = (
     "Return the complete JSON object with summary and one result per supplied criterion. "

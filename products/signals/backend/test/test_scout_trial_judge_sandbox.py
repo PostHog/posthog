@@ -40,6 +40,8 @@ class TestSandboxJudgeLifecycle(SimpleTestCase):
             output = output.model_copy(update={"criteria": output.criteria * 2})
 
         async def start(**kwargs):
+            self.assertEqual(kwargs["max_poll_seconds"], 30 * 60)
+            self.assertEqual(kwargs["context"].sandbox_timeout_seconds, 32 * 60)
             kwargs["before_task_dispatch"](run.id)
             if outcome == "cancelled":
                 raise asyncio.CancelledError
