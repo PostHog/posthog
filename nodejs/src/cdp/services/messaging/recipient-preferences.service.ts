@@ -32,9 +32,10 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
         .filter((addr) => addr.length > 0)
 }
 
-// Atomic so concurrent sends to one person cannot both slip under the cap. A step visit that already
-// holds a slot passes again, because the email queue and send retries re-enter the same step. The
-// re-entry moves the slot to now, so the window starts at the send and not before email queue pacing.
+// One Lua script, so two concurrent sends to one person cannot both pass with one slot left. Each slot
+// is keyed on the step visit. The email queue and send retries run the same step visit again, so a
+// visit that already holds a slot passes. That run also moves the slot score to now, because the email
+// queue can delay the actual send by hours and the window must start when the email goes out.
 const FREQUENCY_CAP_SCRIPT = `
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
 if not redis.call('ZSCORE', KEYS[1], ARGV[4]) and redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
@@ -50,7 +51,7 @@ export class RecipientPreferencesService {
         private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; valkey: RedisV2 }
     ) {}
 
-    /** Counts this send toward the team's marketing frequency cap, or returns true when the person is over it. */
+    /** Returns true when the person is at the cap. Otherwise records this send against the cap and returns false. */
     public async isFrequencyCapped(
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
