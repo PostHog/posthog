@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# A scout run's hard runtime cap. Enforced via the Temporal activity's
+# A regular scout run's hard runtime cap. Enforced via the Temporal activity's
 # `start_to_close_timeout` in `scout_scheduler.py` — if the agent is still going
 # at this point, the activity is killed and the run row is marked failed by the
 # bridge. Also passed to `MultiTurnSession` as the per-turn poll budget
@@ -14,8 +14,8 @@ DEFAULT_MAX_RUNTIME_S = 15 * 60
 # before Temporal's own timeout fires.
 ACTIVITY_SLACK_S = 60
 
-# Hard ceiling on how long a single agent activity can actually be running. The
-# workflow always sets `start_to_close_timeout = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`,
+# Hard ceiling on how long a regular scout activity can actually be running. The
+# workflow sets `start_to_close_timeout = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`,
 # providing a heartbeat window before Temporal's own timeout fires. The stale-RUNNING
 # self-heal in `runner.py` uses this as the staleness base.
 WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
@@ -49,6 +49,14 @@ SCOUT_RUN_REAPED_METADATA_KEY = "reaped_at"
 MAX_RUN_NOTE_CHARS = 1_000
 
 SCOUT_TRIAL_METADATA_KEY = "scout_trial"
+TRIAL_MAX_RUNTIME_S = 30 * 60
+# Poll budgets count sleeps, excluding startup and I/O; keep that overhead separate from cleanup time.
+TRIAL_RUNTIME_OVERHEAD_S = 5 * 60
+TRIAL_ACTIVITY_TIMEOUT_S = TRIAL_MAX_RUNTIME_S + TRIAL_RUNTIME_OVERHEAD_S + ACTIVITY_SLACK_S
+# Time a trial scout activity can wait in the task queue before it starts.
+TRIAL_QUEUE_ALLOWANCE_MINUTES = 19
+# How long a comparison waits for its scout runs. The activity timeout does not include queue time.
+TRIAL_SCOUT_WAIT_MINUTES = TRIAL_ACTIVITY_TIMEOUT_S // 60 + TRIAL_QUEUE_ALLOWANCE_MINUTES
 MAX_TRIAL_VARIANTS = 20
 MAX_TRIAL_REPEATS = 20
 MAX_TRIAL_RUNS = MAX_TRIAL_VARIANTS * MAX_TRIAL_REPEATS

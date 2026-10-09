@@ -78,6 +78,8 @@ class TestSandboxJudgeDispatch(BaseTest):
             self.assertNotIn(self.evidence.sources[0].text, run.state["pending_user_message"])
             self.assertEqual(run.state["model"], snapshot.judge_model)
             self.assertEqual(run.state["reasoning_effort"], "high")
+            self.assertEqual(run.state["sandbox_ttl_seconds"], 32 * 60)
+            self.assertEqual(run.state["inactivity_timeout_seconds"], 30 * 60)
             self.assertEqual(run.state["mcp_gateway_server_ids"], [])
             self.assertFalse(run.state["include_live_context"])
             self.assertEqual(run.task.mcp_builtin_agent_key, "scout")

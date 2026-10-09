@@ -1483,7 +1483,7 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
         with patch(f"{WORKFLOW_MODULE}.async_connect", AsyncMock(return_value=client)):
             start_trial_evaluation(2, evaluation_id)
         timeout = client.start_workflow.call_args.kwargs["execution_timeout"]
-        assert timeout >= timedelta(minutes=-(-MAX_TRIAL_RUNS // 3) * 17 + 2)
+        assert timeout >= timedelta(minutes=-(-MAX_TRIAL_RUNS // 3) * 33 + 2)
         assert client.start_workflow.call_args.args[1] == TrialEvaluationInput(
             team_id=2, evaluation_id=str(evaluation_id)
         )

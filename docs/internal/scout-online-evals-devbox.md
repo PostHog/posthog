@@ -47,6 +47,10 @@ Revoke or expire private tokens before rolling the gateway back to a version wit
 
 The rubric stays fixed across scout edits, and saved results retain the rubric used for that trial. If a run is interrupted, reopen the existing trial before starting another paid attempt.
 
+Trial scouts have a 30-minute runtime limit. Regular scouts keep their 15-minute limit. Timed-out scouts cannot be scored; start a new trial to try again.
+
+Trial scout deadlines include five minutes for startup and log reads, plus time to collect and save the final result.
+
 Trial plans and evaluation documents keep one complete adopted reference each and exclude suggestion-generation history. The judge reads that same adopted reference from its evidence attachment.
 
 Suggestion generation captures the complete scout instructions and reference files for judging, while keeping the generator's prompt bounded. If an older saved reference is incomplete, generate suggestions again, review and use the new reference, then save. You can keep your existing criteria.
