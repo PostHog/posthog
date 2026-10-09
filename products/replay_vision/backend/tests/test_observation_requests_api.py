@@ -481,3 +481,21 @@ class TestStartWaitingRequests(APIBaseTest):
 
         request.refresh_from_db()
         self.assertEqual([o["scan_outcome"] for o in request.start_outcomes], ["failed"])
+
+    def test_a_tick_out_of_time_leaves_its_requests_at_the_front(self) -> None:
+        request = ReplayObservationRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            session_ids=["s1"],
+            start_outcomes=[],
+            source="project_secret_api_key",
+            wait_for_session_end=True,
+        )
+
+        with patch("products.replay_vision.backend.observation_requests.fetch_session_last_activity") as fetch:
+            start_waiting_requests(budget_seconds=0)
+
+        request.refresh_from_db()
+        fetch.assert_not_called()
+        # Never read, so it must not count as checked and drop behind requests that were.
+        self.assertIsNone(request.session_end_checked_at)

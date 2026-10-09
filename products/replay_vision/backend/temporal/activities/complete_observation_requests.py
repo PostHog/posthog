@@ -12,8 +12,12 @@ from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 @database_sync_to_async
 def _complete_observation_requests() -> int:
+    # Isolated so a failure in one sweep still lets the other run; each also keeps to its own time budget.
     with bounded_queries(REAPER_OP_TIMEOUT):
-        start_waiting_requests()
+        try:
+            start_waiting_requests()
+        except Exception:
+            activity.logger.exception("Starting waiting observation requests failed")
         return complete_settled_requests()
 
 

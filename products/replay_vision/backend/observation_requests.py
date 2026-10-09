@@ -53,8 +53,10 @@ MAX_STARTS_PER_TICK = 50
 # How many waiting requests one tick checks for ended sessions.
 MAX_CHECKS_PER_TICK = 200
 
-# Leaves headroom inside the reconciler activity's own start-to-close timeout.
-_SWEEP_BUDGET_SECONDS = 30
+# Each sweep gets its own budget, and together they leave headroom inside the reconciler activity's 45-second
+# start-to-close timeout, so a slow start sweep can't starve the completion sweep or the reverse.
+START_SWEEP_BUDGET_SECONDS = 15
+COMPLETION_SWEEP_BUDGET_SECONDS = 20
 
 _DELIVERY_TIMEOUT_SECONDS = 10
 
@@ -203,25 +205,25 @@ def _start_scans(
     request.save(update_fields=["scanner", "start_outcomes", "started_at"])
 
 
-def start_waiting_requests(*, now: datetime | None = None) -> int:
+def start_waiting_requests(*, now: datetime | None = None, budget_seconds: float = START_SWEEP_BUDGET_SECONDS) -> int:
     """Start the scans of waiting requests whose sessions have all gone quiet, or have waited long enough.
 
     Each tick checks the waiting requests checked least recently, so one whose sessions never end moves to the
-    back instead of holding up everyone behind it until its wait runs out.
+    back instead of holding up everyone behind it until its wait runs out. A request only counts as checked
+    once its team's sessions were actually read, so a tick that runs out of time leaves the rest at the front.
     """
     now = now or timezone.now()
+    deadline = time.monotonic() + budget_seconds
     waiting = list(
         ReplayObservationRequest.objects.unscoped()
         .filter(wait_for_session_end=True, started_at__isnull=True, completed_at__isnull=True)
         .select_related("team", "scanner", "created_by")
         .order_by(F("session_end_checked_at").asc(nulls_first=True), "created_at")[:MAX_CHECKS_PER_TICK]
     )
-    # nosemgrep: idor-lookup-without-team -- cross-team reconciler sweep; ids come from the rows read just above
-    ReplayObservationRequest.objects.unscoped().filter(id__in=[r.id for r in waiting]).update(
-        session_end_checked_at=now
-    )
     started = 0
-    for team_id in {r.team_id for r in waiting}:
+    for team_id in dict.fromkeys(r.team_id for r in waiting):
+        if time.monotonic() >= deadline or started >= MAX_STARTS_PER_TICK:
+            break
         team_requests = [r for r in waiting if r.team_id == team_id]
         session_ids = sorted({sid for r in team_requests for sid in r.session_ids})
         try:
@@ -229,9 +231,13 @@ def start_waiting_requests(*, now: datetime | None = None) -> int:
         except Exception:
             logger.exception("replay_vision.observation_request.last_activity_failed", team_id=team_id)
             continue
+        # nosemgrep: idor-lookup-without-team -- cross-team reconciler sweep; ids come from the rows read just above
+        ReplayObservationRequest.objects.unscoped().filter(id__in=[r.id for r in team_requests]).update(
+            session_end_checked_at=now
+        )
         for request in team_requests:
-            if started >= MAX_STARTS_PER_TICK:
-                return started
+            if started >= MAX_STARTS_PER_TICK or time.monotonic() >= deadline:
+                break
             if not _sessions_ended(request, last_activity, now):
                 continue
             if not _creator_still_allowed(request):
@@ -372,7 +378,9 @@ def _session(outcome: dict[str, str], observation: ReplayObservation | None, exp
     )
 
 
-def complete_settled_requests(*, now: datetime | None = None) -> int:
+def complete_settled_requests(
+    *, now: datetime | None = None, budget_seconds: float = COMPLETION_SWEEP_BUDGET_SECONDS
+) -> int:
     """Mark every open request whose sessions have all settled as completed, announcing each one first.
 
     The event goes out before the row is stamped, so a crash between the two sends it again on the next
@@ -380,7 +388,7 @@ def complete_settled_requests(*, now: datetime | None = None) -> int:
     walked oldest first in pages, so a request whose event keeps failing never hides the ones behind it.
     """
     now = now or timezone.now()
-    deadline = time.monotonic() + _SWEEP_BUDGET_SECONDS
+    deadline = time.monotonic() + budget_seconds
     open_requests = ReplayObservationRequest.objects.unscoped().filter(completed_at__isnull=True)
     completed = 0
     cursor: tuple[datetime, Any] | None = None
