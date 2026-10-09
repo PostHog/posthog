@@ -147,7 +147,7 @@ FROM system.information_schema.columns
 WHERE table_name = 'events'
 ```
 
-This works for `system.*` entity tables too — query them by full name, e.g. `WHERE table_name = 'system.insights'`. Their column sets differ per entity, so confirm columns before projecting them.
+This works for `system.*` entity tables too — query them by full name, e.g. `WHERE table_name = 'system.insights'`. Their column sets differ per entity and from REST/tool response fields, so confirm columns before projecting them. If a required field is absent, use a tool that exposes it or explain the limitation; do not remove the filter or substitute a different field just to make the query succeed.
 
 **Discover how a table joins to others:**
 
@@ -381,6 +381,7 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 
 ##### Other rules
 
+- Use explicit `AS` and descriptive column aliases: `min(timestamp) AS first_seen_at` instead of `min(timestamp) first`. Some short names, such as `fn`, are reserved even after `AS`; use a descriptive name or backtick-quote the alias and its references.
 - WHERE clause must come after all JOINs
 - No semicolons at end of queries
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)
