@@ -182,6 +182,7 @@ def _event_row(
 ) -> PlatformAlertEventRow:
     return PlatformAlertEventRow(
         team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
         configuration_id=configuration.id,
         alert_id=alert.id,
         grouping_key=alert.grouping_key,
@@ -208,7 +209,8 @@ def _event_row(
 def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
-        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+        # One batch holds one source's checks.
+        safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:

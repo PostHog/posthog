@@ -73,14 +73,14 @@ def increment_notifications_muted(source: str, reason: str) -> None:
     ).add(1)
 
 
-def increment_history_rows_dropped(count: int) -> None:
+def increment_history_rows_dropped(source: str, count: int) -> None:
     """Check rows the platform decided but could not record.
 
     The alert's state and schedule are already written when this rises, so the cost is a gap in
     history rather than a lost evaluation. A comparison against a source's own stack reads as a
     disagreement where the gap falls.
     """
-    get_metric_meter().create_counter(
+    get_metric_meter({"source": source}).create_counter(
         "alerts_platform_history_rows_dropped_total",
         "Check history rows lost to a failed ClickHouse write",
     ).add(count)
@@ -101,6 +101,42 @@ def increment_deliveries_deferred(source: str, count: int) -> None:
     get_metric_meter({"source": source}).create_counter(
         "alerts_platform_deliveries_deferred_total",
         "Deliveries left out of a batch by its payload bound; the alerts stay due",
+    ).add(count)
+
+
+def increment_discovery_omitted(source: str, count: int) -> None:
+    """Batch keys a tick found due and left out under the source's discovery limit.
+
+    They keep their due time, so a later tick takes them. A count that stays above zero means the
+    limit is below the demand, and scheduler lag grows for that source.
+    """
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_discovery_omitted_total",
+        "Due batch keys a tick left out under the source's discovery limit; the alerts stay due",
+    ).add(count)
+
+
+def increment_checks_deferred(source: str, count: int) -> None:
+    """Checks an evaluation pool turned away because it was full.
+
+    They keep their due time, so this counts work a later tick repeats. A sustained count means the
+    pool is the bottleneck rather than ClickHouse.
+    """
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_checks_deferred_total",
+        "Checks a full evaluation pool turned away; the alerts stay due",
+    ).add(count)
+
+
+def increment_checks_unfinished(source: str, count: int) -> None:
+    """Admitted checks that reached no outcome, because their activity failed or timed out.
+
+    They keep their due time, so a later tick repeats them. Unlike a skipped check, nothing
+    records them anywhere else.
+    """
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_checks_unfinished_total",
+        "Admitted checks that reached no outcome; the alerts stay due",
     ).add(count)
 
 

@@ -50,6 +50,7 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     ) -> PlatformAlertEventRow:
         return PlatformAlertEventRow(
             team_id=self.team.id,
+            source_kind="logs",
             configuration_id=configuration.id,
             alert_id=overrides.pop("alert_id", uuid4()),
             grouping_key="",
