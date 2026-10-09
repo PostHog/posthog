@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from products.alerts.backend.logic.alert_email import insight_email_group
+from products.alerts.backend.logic.alert_email import (
+    SUBSCRIBER_EVENT_IDS,
+    insight_alert,
+    insight_email_groups,
+    recipients_with_access,
+)
 from products.alerts.backend.logic.alert_in_app import insight_in_app_groups
 from products.alerts.backend.logic.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.facade.contracts import AlertDestinationGroup
@@ -20,6 +25,15 @@ def list_delivery_destination_groups(
     subscriber group there would show up as a destination a person could delete.
     """
     groups = list_alert_destination_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-    email = insight_email_group(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-    in_app = insight_in_app_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-    return [*groups, *([email] if email is not None else []), *in_app]
+    event_ids = SUBSCRIBER_EVENT_IDS.intersection(allowed_event_ids)
+    if not event_ids:
+        return groups
+    alert = insight_alert(team_id=team_id, alert_id=alert_id)
+    if alert is None:
+        return groups
+    recipients = recipients_with_access(alert)
+    return [
+        *groups,
+        *insight_email_groups(recipients),
+        *insight_in_app_groups(alert, event_ids=event_ids, recipients_with_access=recipients),
+    ]

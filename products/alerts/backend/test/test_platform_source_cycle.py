@@ -101,13 +101,13 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowlisted", True, False, ["above 100"]),
-            ("not_allowlisted", False, False, ["above 100"]),
-            ("allowlisted_resolve", True, True, []),
+            ("allowlisted", True, False),
+            ("not_allowlisted", False, False),
+            ("allowlisted_resolve", True, True),
         ]
     )
     def test_only_an_allowlisted_firing_or_failure_asks_for_a_delivery(
-        self, _name: str, allowlisted: bool, was_firing: bool, breaches: list[str]
+        self, _name: str, allowlisted: bool, was_firing: bool
     ) -> None:
         alert = self._alert()
         configuration = self._copy(alert)
@@ -120,7 +120,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
 
         with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
-            self._evaluate(configuration, result=AlertEvaluationResult(value=50.0, breaches=breaches))
+            self._evaluate(
+                configuration,
+                result=AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+            )
 
         expected = [
             (

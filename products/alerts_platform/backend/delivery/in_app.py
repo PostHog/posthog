@@ -10,6 +10,8 @@ A notification starts no conversation, so a send returns no handle and a resolve
 from typing import Final, cast
 from urllib.parse import urlsplit
 
+from posthog.slack.channels import clip_text
+
 from products.alerts_platform.backend.delivery.message import AlertMessage, transition_delivery_key
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.delivery.wire import credential_digest
@@ -61,20 +63,24 @@ class InAppTransport:
         if notification_type is None:
             raise DeliveryError(f"In-app notifications have no type for {message.transition.kind.value} alerts.")
         key = transition_delivery_key(message)
-        resource_type = target.get("in_app_resource_type")
+        raw_resource_type = target.get("in_app_resource_type")
+        resource_type = cast(NotificationResourceType, raw_resource_type) if raw_resource_type else None
+        title = clip_text(message.headline, MAX_TITLE_CHARS)
+        body = body_for(message)
+        source_url = target.get("in_app_url") or urlsplit(message.alert_url).path
         for user_id in user_ids:
             create_notification(
                 NotificationData(
                     team_id=team_id,
                     notification_type=notification_type,
                     priority=Priority.NORMAL,
-                    title=message.headline[:MAX_TITLE_CHARS],
-                    body=body_for(message),
+                    title=title,
+                    body=body,
                     target_type=TargetType.USER,
                     target_id=str(user_id),
-                    resource_type=cast(NotificationResourceType, resource_type) if resource_type else None,
+                    resource_type=resource_type,
                     resource_id=target.get("in_app_resource_id", ""),
-                    source_url=target.get("in_app_url") or urlsplit(message.alert_url).path,
+                    source_url=source_url,
                     idempotency_key=f"{key}:{user_id}",
                 )
             )
