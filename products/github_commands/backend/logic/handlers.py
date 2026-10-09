@@ -82,10 +82,8 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
         return CommandOutcome(
             accepted=False, message="You aren't a member of the PostHog project that reviews this repository."
         )
-    # Standard is the default review and Deep is the longer one. Where a project has no Standard
-    # review, Deep is the only review there is.
-    standard_fallback = not args.deep and not review_hog_facade.flash_available(team_id)
-    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.deep or standard_fallback else review_hog_facade.RUN_MODE_FLASH
+    # Standard is the default review, and Deep is the longer one asked for with `--deep`.
+    run_mode = review_hog_facade.RUN_MODE_REVIEW if args.deep else review_hog_facade.RUN_MODE_FLASH
     outcome = review_hog_facade.request_pr_review(
         team_id=team_id,
         requester_id=context.user_id,
@@ -95,11 +93,6 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     )
     if outcome.status == review_hog_facade.PRReviewRequestStatus.ALREADY_REVIEWED:
         return CommandOutcome(accepted=True, message="PostHog Review already reviewed the current commit.")
-    if outcome.started and standard_fallback:
-        return CommandOutcome(
-            accepted=True,
-            message="A Standard review isn't available in this project, so PostHog Review started a Deep review.",
-        )
     if outcome.started:
         return CommandOutcome(accepted=True, message="PostHog Review is reviewing this pull request.")
     # PostHog Review writes its refusals from the repository name, the PR number and fixed text.

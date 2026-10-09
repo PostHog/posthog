@@ -48,7 +48,6 @@ HAS_LOOPS_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access
 DESKTOP_ACCESS = "products.github_commands.backend.logic.handlers.tasks_access.get_desktop_access_decision"
 CREATE_TASK = "products.github_commands.backend.logic.handlers.tasks_facade.create_and_run_task"
 USAGE_LIMITED = "products.github_commands.backend.logic.handlers.tasks_usage.task_run_usage_limited"
-FLASH_AVAILABLE = "products.github_commands.backend.logic.handlers.review_hog_facade.flash_available"
 REQUEST_PR_REVIEW = "products.github_commands.backend.logic.handlers.review_hog_facade.request_pr_review"
 OWNING_TEAM_ID = "products.github_commands.backend.logic.handlers.review_hog_github.owning_team_id"
 CLAIM_CACHE = "products.github_commands.backend.logic.dispatch.cache"
@@ -315,19 +314,13 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("standard", "commenter_project", True, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
-            (
-                "no_standard_in_project",
-                "commenter_project",
-                False,
-                RUN_MODE_REVIEW,
-                "A Standard review isn't available in this project, so PostHog Review started a Deep review.",
-            ),
-            ("no_owner", None, True, None, "PostHog Review isn't set up for this repository."),
+            ("standard", "commenter_project", False, RUN_MODE_FLASH, "PostHog Review is reviewing this pull request."),
+            ("deep", "commenter_project", True, RUN_MODE_REVIEW, "PostHog Review is reviewing this pull request."),
+            ("no_owner", None, False, None, "PostHog Review isn't set up for this repository."),
             (
                 "owner_without_the_commenter",
                 "other_project",
-                True,
+                False,
                 None,
                 "You aren't a member of the PostHog project that reviews this repository.",
             ),
@@ -337,7 +330,7 @@ class TestDispatchCommentCommand(BaseTest):
         self,
         _name: str,
         owner: str | None,
-        flash_available: bool,
+        deep: bool,
         expected_mode: str | None,
         expected_message: str,
     ) -> None:
@@ -356,10 +349,9 @@ class TestDispatchCommentCommand(BaseTest):
 
         with (
             patch(OWNING_TEAM_ID, return_value=owner_team_ids[owner]),
-            patch(FLASH_AVAILABLE, return_value=flash_available),
             patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
         ):
-            outcome = handle_review(context, ReviewArgs(deep=False))
+            outcome = handle_review(context, ReviewArgs(deep=deep))
 
         assert outcome.message == expected_message
         assert outcome.accepted == (expected_mode is not None)
