@@ -42,7 +42,10 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
     ExperimentQueryContext,
     MaturityGate,
 )
-from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import (
+    RatioPrecomputeQueries,
+    RatioQueryBuilder,
+)
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -202,7 +205,12 @@ class ExperimentQueryBuilder:
             case ExperimentMeanMetric():
                 query = MeanQueryBuilder(self, exposure, metric_events_job_ids=metric_events_job_ids).build_mean_query()
             case ExperimentRatioMetric():
-                query = RatioQueryBuilder(self, exposure).build_ratio_query()
+                query = RatioQueryBuilder(
+                    self,
+                    exposure,
+                    numerator_job_ids=job_ids.numerator_job_ids,
+                    denominator_job_ids=job_ids.denominator_job_ids,
+                ).build_ratio_query()
             case ExperimentRetentionMetric():
                 query = RetentionQueryBuilder(
                     self, exposure, maturity=maturity, metric_events_job_ids=metric_events_job_ids
@@ -242,6 +250,10 @@ class ExperimentQueryBuilder:
     def _mean_query_builder(self) -> MeanQueryBuilder:
         """For the precompute write query, which takes no per-build inputs."""
         return MeanQueryBuilder(self, self._exposure_query_builder())
+
+    def _ratio_query_builder(self) -> RatioQueryBuilder:
+        """For the precompute write queries, which take no per-build inputs."""
+        return RatioQueryBuilder(self, self._exposure_query_builder())
 
     def _cuped_query_builder(self) -> CupedQueryBuilder:
         return CupedQueryBuilder(self)
@@ -409,6 +421,8 @@ class ExperimentQueryBuilder:
         type. This is the write path. It scans the events table and stores one
         row per matching event: funnel and retention metrics pack step indicators
         into an Array(UInt8), mean metrics store the per-event value in numeric_value.
+        A ratio metric needs one build per side; see
+        get_ratio_metric_events_queries_for_precomputation().
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
@@ -422,6 +436,10 @@ class ExperimentQueryBuilder:
                 return self._retention_query_builder().get_retention_metric_events_query_for_precomputation()
             case _:
                 raise NotImplementedError(f"Metric-events precomputation is not supported for {type(self.metric)}")
+
+    def get_ratio_metric_events_queries_for_precomputation(self) -> RatioPrecomputeQueries:
+        """The write-path SELECT of each ratio side."""
+        return self._ratio_query_builder().get_ratio_metric_events_queries_for_precomputation()
 
     def get_metric_events_window_extension_seconds(self) -> int:
         """

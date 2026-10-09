@@ -1,15 +1,36 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierHandling, ExperimentRatioMetric
+from posthog.schema import (
+    ActionsNode,
+    EventsNode,
+    ExperimentDataWarehouseNode,
+    ExperimentMetricOutlierHandling,
+    ExperimentRatioMetric,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.dataclasses import frozen
+
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
+from products.experiments.backend.hogql_queries.metric_source_precompute import (
+    build_metric_events_precompute_query,
+    build_precomputed_metric_events_cte,
+    build_precomputed_metric_events_placeholders,
+)
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
+
+
+@frozen
+class RatioPrecomputeQueries:
+    """The write-path SELECT and placeholders of each ratio side, keyed by side so they cannot be swapped."""
+
+    numerator: tuple[str, dict[str, ast.Expr]]
+    denominator: tuple[str, dict[str, ast.Expr]]
 
 
 class RatioQueryBuilder:
@@ -21,9 +42,46 @@ class RatioQueryBuilder:
     exposure and metric-value helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder", exposure: ExposureQueryBuilder):
+    def __init__(
+        self,
+        builder: "ExperimentQueryBuilder",
+        exposure: ExposureQueryBuilder,
+        *,
+        numerator_job_ids: list[str] | None = None,
+        denominator_job_ids: list[str] | None = None,
+    ):
         self._b = builder
         self._exposure = exposure
+        self._numerator_job_ids = numerator_job_ids
+        self._denominator_job_ids = denominator_job_ids
+
+    def reads_precomputed_metric_events(self) -> bool:
+        """Both sides must be served from the precomputed table, or neither is."""
+        return bool(self._numerator_job_ids and self._denominator_job_ids)
+
+    def get_ratio_metric_events_queries_for_precomputation(self) -> RatioPrecomputeQueries:
+        """
+        Each side's query is the build query a mean metric on that source would
+        produce, so a side shares precompute jobs with such a metric. See
+        build_metric_events_precompute_query().
+        """
+        assert isinstance(self._b.metric, ExperimentRatioMetric)
+        return RatioPrecomputeQueries(
+            numerator=self._metric_events_query_for_precomputation(self._b.metric.numerator),
+            denominator=self._metric_events_query_for_precomputation(self._b.metric.denominator),
+        )
+
+    def _metric_events_query_for_precomputation(
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    ) -> tuple[str, dict[str, ast.Expr]]:
+        assert isinstance(source, (ActionsNode, EventsNode))
+        return build_metric_events_precompute_query(
+            team=self._b.team,
+            source=source,
+            entity_key=self._b.entity_key,
+            date_range_query=self._b.date_range_query,
+            conversion_window_seconds=self._b._get_conversion_window_seconds(),
+        )
 
     def build_ratio_query(self) -> ast.SelectQuery:
         assert isinstance(self._b.metric, ExperimentRatioMetric)
@@ -263,28 +321,51 @@ class RatioQueryBuilder:
         else:
             denom_preagg_join = "exposures.entity_id = denominator_events.entity_id"
 
+        if self.reads_precomputed_metric_events():
+            # Only reachable for eligible metrics (events/actions sources on both sides, no
+            # breakdowns/CUPED), so the data warehouse join branches above never apply here.
+            assert isinstance(self._b.metric.numerator, (ActionsNode, EventsNode))
+            assert isinstance(self._b.metric.denominator, (ActionsNode, EventsNode))
+            numerator_events_cte = build_precomputed_metric_events_cte(
+                cte_name="numerator_events",
+                source=self._b.metric.numerator,
+                entity_key=self._b.entity_key,
+                job_ids_placeholder="numerator_job_ids",
+            )
+            denominator_events_cte = build_precomputed_metric_events_cte(
+                cte_name="denominator_events",
+                source=self._b.metric.denominator,
+                entity_key=self._b.entity_key,
+                job_ids_placeholder="denominator_job_ids",
+            )
+        else:
+            numerator_events_cte = """
+            numerator_events AS (
+                SELECT
+                    {num_entity_key} AS entity_id,
+                    {num_timestamp_field} AS timestamp,
+                    {numerator_value_expr} AS value
+                FROM {num_table}
+                WHERE {numerator_predicate}
+            )"""
+            denominator_events_cte = """
+            denominator_events AS (
+                SELECT
+                    {denom_entity_key} AS entity_id,
+                    {denom_timestamp_field} AS timestamp,
+                    {denominator_value_expr} AS value
+                FROM {denom_table}
+                WHERE {denominator_predicate}
+            )"""
+
         common_ctes = f"""
             exposures AS (
                 {{exposure_select_query}}
             ),
 
-            numerator_events AS (
-                SELECT
-                    {{num_entity_key}} AS entity_id,
-                    {{num_timestamp_field}} AS timestamp,
-                    {{numerator_value_expr}} AS value
-                FROM {{num_table}}
-                WHERE {{numerator_predicate}}
-            ),
+            {numerator_events_cte},
 
-            denominator_events AS (
-                SELECT
-                    {{denom_entity_key}} AS entity_id,
-                    {{denom_timestamp_field}} AS timestamp,
-                    {{denominator_value_expr}} AS value
-                FROM {{denom_table}}
-                WHERE {{denominator_predicate}}
-            ),
+            {denominator_events_cte},
 
             numerator_agg AS (
                 SELECT
@@ -348,5 +429,16 @@ class RatioQueryBuilder:
                 "denominator_events"
             ),
         }
+
+        if self.reads_precomputed_metric_events():
+            placeholders["numerator_job_ids"] = ast.Constant(value=self._numerator_job_ids)
+            placeholders["denominator_job_ids"] = ast.Constant(value=self._denominator_job_ids)
+            placeholders.update(
+                build_precomputed_metric_events_placeholders(
+                    team=self._b.team,
+                    date_range_query=self._b.date_range_query,
+                    conversion_window_seconds=self._b._get_conversion_window_seconds(),
+                )
+            )
 
         return common_ctes, placeholders

@@ -16,6 +16,7 @@ from posthog.schema import (
     EventsNode,
     ExperimentActorsQuery,
     ExperimentBreakdownResult,
+    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -35,6 +36,8 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.constants import EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -280,6 +283,18 @@ def ensure_exposures_precomputed(
     )
 
 
+@frozen
+class RatioPrecomputeResults:
+    """The metric-events build result of each ratio side."""
+
+    numerator: LazyComputationResult
+    denominator: LazyComputationResult
+
+    @property
+    def ready(self) -> bool:
+        return self.numerator.ready and self.denominator.ready
+
+
 class ExperimentResultsCacheMixin:
     """24-hour result cache, shared by the experiment query runners."""
 
@@ -418,7 +433,19 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         table: funnel metrics store step indicators, mean metrics the per-event value.
         """
         query_string, placeholders = builder.get_metric_events_query_for_precomputation()
+        return self._ensure_metric_events_build(builder, query_string, placeholders)
 
+    def _ensure_ratio_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> RatioPrecomputeResults:
+        """One build per side. Each side is a mean-shaped build of its source."""
+        queries = builder.get_ratio_metric_events_queries_for_precomputation()
+        return RatioPrecomputeResults(
+            numerator=self._ensure_metric_events_build(builder, *queries.numerator),
+            denominator=self._ensure_metric_events_build(builder, *queries.denominator),
+        )
+
+    def _ensure_metric_events_build(
+        self, builder: ExperimentQueryBuilder, query_string: str, placeholders: dict[str, ast.Expr]
+    ) -> LazyComputationResult:
         if not self.experiment.start_date:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
@@ -483,8 +510,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         """
         Why metric-events precompute cannot serve this metric, or None when it can.
         Supported: ordered funnels, mean metrics with numeric math (count/sum/avg/min/max)
-        or ID-valued math (unique users / unique sessions), and retention metrics, in all
-        cases without breakdowns, CUPED, or data warehouse sources.
+        or ID-valued math (unique users / unique sessions), ratio metrics whose two sides
+        each pass the mean rules, and retention metrics, in all cases without breakdowns,
+        CUPED, or data warehouse sources.
 
         Tagged on the read as `experiment_metric_events_skip_reason`, the metric-events
         counterpart of `experiment_precompute_skip_reason`, so query-log analysis can split
@@ -503,36 +531,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 return None
             return "funnel_order_type"
         if isinstance(self.metric, ExperimentMeanMetric):
-            source = self.metric.source
-            if not isinstance(source, (EventsNode, ActionsNode)):
-                return "non_event_source"
-            # Session-property means aggregate via a per-session dedup CTE that the
-            # precomputed table can't feed. Unique-group math is excluded because
-            # the build INSERT can't resolve $group_N (MATERIALIZED on
-            # sharded_events), and HogQL math because user expressions are arbitrary.
-            if is_session_property_metric(source):
-                return "session_property_math"
-            math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
-            # Numeric math types are safe because the build query stores the same
-            # coalesced per-event float regardless of math type, and the math is
-            # applied at read time by build_value_aggregation_expr on both paths.
-            if math_type in (
-                ExperimentMetricMathType.TOTAL,
-                ExperimentMetricMathType.SUM,
-                ExperimentMetricMathType.AVG,
-                ExperimentMetricMathType.MIN,
-                ExperimentMetricMathType.MAX,
-            ):
-                return None
-            # unique_session counts distinct session_id, which every mean build stores.
-            if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
-                return None
-            # dau counts distinct entity_id, which is the person id only when the
-            # experiment is person-keyed. Group experiments never reach precompute,
-            # but keep the guard explicit in case that exclusion is ever lifted.
-            if math_type == ExperimentMetricMathType.DAU:
-                return None if self.group_type_index is None else "group_math"
-            return "unsupported_math"
+            return self._metric_source_ineligibility_reason(self.metric.source)
+        if isinstance(self.metric, ExperimentRatioMetric):
+            if not self._ratio_metric_events_precomputation_enabled():
+                return "ratio_flag_off"
+            # Each side is built and read like a mean metric on that source, so the
+            # per-source rules apply to both.
+            return self._metric_source_ineligibility_reason(
+                self.metric.numerator
+            ) or self._metric_source_ineligibility_reason(self.metric.denominator)
         if isinstance(self.metric, ExperimentRetentionMetric):
             if not isinstance(self.metric.start_event, (EventsNode, ActionsNode)) or not isinstance(
                 self.metric.completion_event, (EventsNode, ActionsNode)
@@ -544,7 +551,61 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             if extension_seconds <= METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
                 return None
             return "retention_window"
-        return "metric_type"
+
+    def _metric_source_ineligibility_reason(
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+    ) -> Optional[str]:
+        """The per-source rules for a mean-shaped build: a mean metric's source or either ratio side."""
+        if not isinstance(source, (EventsNode, ActionsNode)):
+            return "non_event_source"
+        # Session-property means aggregate via a per-session dedup CTE that the
+        # precomputed table can't feed. Unique-group math is excluded because
+        # the build INSERT can't resolve $group_N (MATERIALIZED on
+        # sharded_events), and HogQL math because user expressions are arbitrary.
+        if is_session_property_metric(source):
+            return "session_property_math"
+        math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
+        # Numeric math types are safe because the build query stores the same
+        # coalesced per-event float regardless of math type, and the math is
+        # applied at read time by build_value_aggregation_expr on both paths.
+        if math_type in (
+            ExperimentMetricMathType.TOTAL,
+            ExperimentMetricMathType.SUM,
+            ExperimentMetricMathType.AVG,
+            ExperimentMetricMathType.MIN,
+            ExperimentMetricMathType.MAX,
+        ):
+            return None
+        # unique_session counts distinct session_id, which every mean build stores.
+        if math_type == ExperimentMetricMathType.UNIQUE_SESSION:
+            return None
+        # dau counts distinct entity_id, which is the person id only when the
+        # experiment is person-keyed. Group experiments never reach precompute,
+        # but keep the guard explicit in case that exclusion is ever lifted.
+        if math_type == ExperimentMetricMathType.DAU:
+            return None if self.group_type_index is None else "group_math"
+        return "unsupported_math"
+
+    def _ratio_metric_events_precomputation_enabled(self) -> bool:
+        """
+        Kill switch for ratio metric-events precomputation, independent of the other
+        metric types. Default-off and fail-safe: an absent or unevaluable flag keeps ratio
+        metric events on the direct scan while exposures and the other types keep their
+        precomputed tables.
+        """
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY,
+                str(self.team.uuid),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id), "uuid": str(self.team.uuid)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
 
     @property
     def metric_events_path(self) -> str:
@@ -587,6 +648,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         exposure_job_ids: list[str] | None = None
         metric_events_job_ids: list[str] | None = None
+        numerator_job_ids: list[str] | None = None
+        denominator_job_ids: list[str] | None = None
 
         # Skip precomputation for data warehouse metrics because the precomputed table
         # doesn't include the join keys needed to link exposures to data warehouse tables.
@@ -620,11 +683,20 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     with tags_context(
                         experiment_query_surface="precompute_build", experiment_precompute_table="metric_events"
                     ):
-                        metric_result = self._ensure_metric_events_precomputed(builder)
-                    if metric_result.ready:
-                        metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
-                        self._metric_events_precomputed = True
-                    else:
+                        if isinstance(self.metric, ExperimentRatioMetric):
+                            ratio_result = self._ensure_ratio_metric_events_precomputed(builder)
+                            # Both sides or neither: a half-served read would report a
+                            # metric_events_path that is neither precomputed nor direct_scan.
+                            if ratio_result.ready:
+                                numerator_job_ids = [str(job_id) for job_id in ratio_result.numerator.job_ids]
+                                denominator_job_ids = [str(job_id) for job_id in ratio_result.denominator.job_ids]
+                                self._metric_events_precomputed = True
+                        else:
+                            metric_result = self._ensure_metric_events_precomputed(builder)
+                            if metric_result.ready:
+                                metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
+                                self._metric_events_precomputed = True
+                    if not self._metric_events_precomputed:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
                 except Exception as e:
                     capture_exception(
@@ -641,6 +713,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             precomputation_context=ExperimentPrecomputationContext(
                 exposure_job_ids=exposure_job_ids,
                 metric_events_job_ids=metric_events_job_ids,
+                numerator_job_ids=numerator_job_ids,
+                denominator_job_ids=denominator_job_ids,
             )
         )
 

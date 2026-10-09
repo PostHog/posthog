@@ -46,7 +46,11 @@ class ExperimentPrecomputationContext:
     """
 
     exposure_job_ids: list[str] | None = None
+    # Funnel, mean and retention metrics have one metric-events build. A ratio
+    # metric has one per side, and each read CTE filters on its own jobs.
     metric_events_job_ids: list[str] | None = None
+    numerator_job_ids: list[str] | None = None
+    denominator_job_ids: list[str] | None = None
 
 
 @frozen
