@@ -26,6 +26,22 @@ describe('PatternMessageKeysCache', () => {
         expect(await cache.getMessageKeys(1)).toEqual(expected)
     })
 
+    it('serves cached keys inside the refresh window and picks up saved keys after it', async () => {
+        const start = Date.now()
+        const now = jest.spyOn(Date, 'now').mockReturnValue(start)
+        query.mockResolvedValueOnce({ rows: [{ logs_pattern_message_keys: ['log'] }] })
+        expect(await cache.getMessageKeys(1)).toEqual(['log'])
+
+        now.mockReturnValue(start + 29_000)
+        expect(await cache.getMessageKeys(1)).toEqual(['log'])
+        expect(query).toHaveBeenCalledTimes(1)
+
+        now.mockReturnValue(start + 31_000)
+        query.mockResolvedValueOnce({ rows: [{ logs_pattern_message_keys: ['msg'] }] })
+        expect(await cache.getMessageKeys(1)).toEqual(['msg'])
+        expect(query).toHaveBeenCalledTimes(2)
+    })
+
     it('rethrows a dependency outage when nothing is cached', async () => {
         query.mockRejectedValueOnce(new DependencyUnavailableError('pg down', 'Postgres', new Error('pg down')))
         await expect(cache.getMessageKeys(1)).rejects.toBeInstanceOf(DependencyUnavailableError)
