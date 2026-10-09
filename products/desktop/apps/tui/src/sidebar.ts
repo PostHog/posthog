@@ -1,5 +1,7 @@
 import type { Task } from "@posthog/shared";
 import {
+  allPanes,
+  expandPane,
   focusPane,
   type LayoutState,
   openTask,
@@ -23,7 +25,7 @@ export type SidebarRow =
   // The day's briefing, shown in the main view while it has no chat; the pane it is in, if any.
   | { kind: "today"; paneId: string | null }
   // Names the list of every task, under the split workspaces.
-  | { kind: "section"; label: "Chats" }
+  | { kind: "section"; label: "All chats" }
   // A blank row after each workspace.
   | { kind: "gap" }
   | {
@@ -200,7 +202,7 @@ export function sidebarRows({
 
   // Today comes first, naming the main view while it shows the briefing. Split workspaces follow, each followed by
   // a gap. Chats comes last: the main view's new chat while it has one, single tasks the page does not hold, then
-  // the whole list. A split task shows in both places; its row under Chats jumps to its pane.
+  // the whole list. A split task shows in both places; its row under Chats opens it full width.
   const today: SidebarRow & { kind: "today" } = { kind: "today", paneId: null };
   let newChatPaneId: string | null = null;
   const rows: SidebarRow[] = [
@@ -229,7 +231,7 @@ export function sidebarRows({
     rows.push({
       kind: "workspace",
       workspaceId: workspace.id,
-      label: workspace.name ?? `Workspace ${index + 1}`,
+      label: workspace.name ?? `Workspace #${index + 1}`,
       expanded,
       size: workspacePanes.length,
     });
@@ -241,7 +243,7 @@ export function sidebarRows({
     rows.push({ kind: "gap" });
   });
   rows.push(
-    { kind: "section", label: "Chats" },
+    { kind: "section", label: "All chats" },
     ...(newChatPaneId ? [taskRow(null, newChatPaneId, false)] : []),
     ...unlisted,
   );
@@ -291,9 +293,14 @@ export function activateRow(
   switch (row.kind) {
     case "today":
       return row.paneId ? focusPane(layout, row.paneId) : showToday(layout);
-    case "task":
+    case "task": {
       if (row.paneId) return focusPane(layout, row.paneId);
-      return row.taskId ? openTask(layout, row.taskId, row.title) : layout;
+      if (!row.taskId) return layout;
+      const split = allPanes(layout).find((p) => p.taskId === row.taskId);
+      return split
+        ? expandPane(layout, split.id)
+        : openTask(layout, row.taskId, row.title);
+    }
     case "workspace": {
       const workspace = layout.workspaces.find((w) => w.id === row.workspaceId);
       return workspace ? focusPane(layout, workspace.focusedPaneId) : layout;

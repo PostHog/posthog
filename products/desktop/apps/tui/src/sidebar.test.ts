@@ -75,11 +75,11 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "v Workspace 1",
+      "v Workspace #1",
       "  Task a",
       "  Task b",
       "",
-      "## Chats",
+      "## All chats",
       "Task a",
       "Task b",
       "Task c",
@@ -109,7 +109,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## Chats",
+      "## All chats",
       "New chat",
       "Task a",
     ]);
@@ -136,7 +136,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## Chats",
+      "## All chats",
       "Task a",
     ]);
     expect(shown[1]).toEqual({ kind: "today", paneId: mainPane });
@@ -158,15 +158,15 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "v Workspace 1",
+      "v Workspace #1",
       "  Task a",
       "  Task b",
       "",
-      "v Workspace 2",
+      "v Workspace #2",
       "  Task c",
       "  Task d",
       "",
-      "## Chats",
+      "## All chats",
       "Task a",
       "Task b",
       "Task c",
@@ -188,7 +188,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## Chats",
+      "## All chats",
       "Task old",
       "Task a",
     ]);
@@ -212,11 +212,11 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "v Workspace 1",
+      "v Workspace #1",
       "  Fix the flaky test",
       "  New chat",
       "",
-      "## Chats",
+      "## All chats",
       "[loading]",
     ]);
     expect(rows[5]).toMatchObject({ kind: "task", indicator: null });
@@ -234,7 +234,7 @@ describe("sidebarRows", () => {
       "# Work",
       "Today",
       "",
-      "## Chats",
+      "## All chats",
       "New chat",
       "[signedOut]",
     ]);
@@ -246,7 +246,7 @@ describe("sidebarRows", () => {
       "b",
     );
     expect(rowsFor(layout, page(), new Set([layout.workspaces[0].id]))).toEqual(
-      ["# Work", "Today", "", "> Workspace 1", "", "## Chats", "[empty]"],
+      ["# Work", "Today", "", "> Workspace #1", "", "## All chats", "[empty]"],
     );
   });
 
@@ -318,7 +318,7 @@ describe("sidebar selection", () => {
     collapsed: new Set(),
     working: new Set(),
   });
-  // Work, Today, gap, Workspace 1, a, b, gap, Chats, a, z, View more
+  // Work, Today, gap, Workspace #1, a, b, gap, Chats, a, z, View more
 
   it.each([
     ["down", 4, 1, 5],
@@ -330,14 +330,17 @@ describe("sidebar selection", () => {
     expect(moveSelection(rows, from, step as 1 | -1)).toBe(to);
   });
 
-  it("jumps to an open pane, opens a Work task, and asks for more", () => {
+  it("jumps to a workspace's pane, expands a split task from Chats, opens a Work task, and asks for more", () => {
     const paneOfA = rows[4].kind === "task" && rows[4].paneId;
-    for (const row of [rows[4], rows[8]]) {
-      const toPane = activateRow(layout, row);
-      expect(
-        toPane !== "viewMore" && activeWorkspace(toPane).focusedPaneId,
-      ).toBe(paneOfA);
-    }
+    const toPane = activateRow(layout, rows[4]);
+    expect(toPane !== "viewMore" && activeWorkspace(toPane).focusedPaneId).toBe(
+      paneOfA,
+    );
+
+    const expanded = activateRow(layout, rows[8]);
+    expect(
+      expanded !== "viewMore" && activeWorkspace(expanded).root,
+    ).toMatchObject({ kind: "pane", taskId: "a" });
 
     const opened = activateRow(layout, rows[9]);
     expect(opened !== "viewMore" && opened.workspaces).toHaveLength(2);
@@ -404,7 +407,7 @@ describe("sidebar selection", () => {
       "# Work",
       "Today",
       "",
-      "## Chats",
+      "## All chats",
       "Task a",
       "Task mine",
       "Task b",
@@ -423,7 +426,7 @@ describe("sidebar selection", () => {
         "# Work",
         "Today",
         "",
-        "## Chats",
+        "## All chats",
         "Task a",
         "Task mine",
         "Task b",
@@ -457,7 +460,7 @@ describe("sidebar selection", () => {
       "# Work",
       "Today",
       "",
-      "## Chats",
+      "## All chats",
       "New chat",
       "Task a",
       "Task new",
