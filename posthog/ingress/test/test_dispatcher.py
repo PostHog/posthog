@@ -26,6 +26,7 @@ from posthog.ingress.dispatch.budget import (
 from posthog.ingress.dispatch.dedup import (
     INGRESS_DEDUP_CACHE_ALIAS,
     DeliveryClaim,
+    DeliveryClaimResult,
     DeliveryDedup,
     delivery_claim_lease_seconds,
 )
@@ -210,6 +211,35 @@ class TestWebhookDispatcher(SimpleTestCase):
         dispatcher_with_room = _dispatcher([_consumer("zulu", skipped)], budget_seconds=10)
         dispatcher_with_room.dispatch(_delivery())
         skipped.assert_called_once()
+
+    def test_a_slow_dedup_claim_is_charged_to_its_own_consumer(self) -> None:
+        elapsed = {"seconds": 0.0}
+        real_claim = DeliveryDedup.claim
+
+        def slow_claim_for_bravo(dedup: DeliveryDedup, **kwargs: str) -> DeliveryClaimResult:
+            if kwargs["consumer"] == "bravo":
+                elapsed["seconds"] += 30.0
+                return DeliveryClaimResult(state=DeliveryClaim.DONE)
+            return real_claim(dedup, **kwargs)
+
+        skipped = Mock()
+        dispatcher = _dispatcher(
+            [_consumer("alpha", Mock()), _consumer("bravo", Mock()), _consumer("zulu", skipped)],
+            budget_seconds=8,
+        )
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch.object(DeliveryDedup, "claim", autospec=True, side_effect=slow_claim_for_bravo),
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+            capture_logs() as logs,
+        ):
+            dispatcher.dispatch(_delivery())
+
+        skipped.assert_not_called()
+        exhausted.assert_called_once_with(provider="github", consumer="bravo")
+        [warning] = [log for log in logs if log["event"] == "ingress_delivery_budget_exceeded"]
+        self.assertEqual(warning["elapsed_by_consumer"], {"alpha": 0.0, "bravo": 30.0})
 
     def test_a_budget_passed_in_spans_every_delivery_of_one_request(self) -> None:
         elapsed = {"seconds": 0.0}

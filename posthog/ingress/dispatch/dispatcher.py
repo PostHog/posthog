@@ -44,7 +44,7 @@ class WebhookDispatcher:
         self._dedup = dedup if dedup is not None else DeliveryDedup()
         self._budget_seconds = budget_seconds
 
-    def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery, budget: DeliveryBudget) -> bool:
+    def _claim_and_run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> bool:
         """Run one consumer, and answer whether it accepted the delivery.
 
         A consumer deduped against a finished run accepted it then, so it answers True too. One
@@ -107,9 +107,17 @@ class WebhookDispatcher:
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="succeeded")
             return True
         finally:
-            seconds = time.monotonic() - started
-            observe_consumer_duration(provider=delivery.provider, consumer=consumer.name, seconds=seconds)
-            budget.record_run(consumer.name, seconds)
+            observe_consumer_duration(
+                provider=delivery.provider, consumer=consumer.name, seconds=time.monotonic() - started
+            )
+
+    def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery, budget: DeliveryBudget) -> bool:
+        # The budget counts the dedup claim too, so a slow claim is charged to its own consumer.
+        started = time.monotonic()
+        try:
+            return self._claim_and_run(consumer, delivery)
+        finally:
+            budget.record_run(consumer.name, time.monotonic() - started)
 
     def _ask_ownership(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> DeliveryOwnership:
         if consumer.ownership is None:
