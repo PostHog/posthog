@@ -546,7 +546,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         validated_data = serializer.validated_data
 
         credential_data = validated_data.pop("credential", None)
-        if credential_data:
+        if instance.credential is None:
+            # PostHog built this table's URL and reads it with its own role, so a key has nothing to
+            # attach to. An empty credential object is the form echoing its unused fields.
+            if credential_data:
+                raise serializers.ValidationError(
+                    "PostHog manages where this table reads from, so it doesn't take an access key or secret. "
+                    "To read from your own bucket, add it as a self-managed source with an access key and secret."
+                )
+        elif credential_data:
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
 

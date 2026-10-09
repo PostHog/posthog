@@ -850,6 +850,38 @@ class TestTable(APIBaseTest):
         assert table.name == "renamed_table"
         assert table.url_pattern == hosted_url
 
+    @parameterized.expand(
+        [
+            ("empty_credential", {}, 200),
+            ("new_access_key", {"access_key": "new_key"}, 400),
+            ("new_key_and_secret", {"access_key": "new_key", "access_secret": "new_secret"}, 400),
+        ]
+    )
+    @override_settings(
+        DATAWAREHOUSE_BUCKET_DOMAIN="warehouse-files.posthog.example", DATAWAREHOUSE_BUCKET="ph-warehouse"
+    )
+    def test_update_with_credential_body_on_an_uploaded_table(self, _name, credential_body, expected_status):
+        hosted_url = "https://warehouse-files.posthog.example/file_uploads/team_1/abc/data.csv"
+        table = DataWarehouseTable.objects.create(
+            name="uploaded_table",
+            format="CSVWithNames",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern=hosted_url,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"name": "renamed_table", "url_pattern": hosted_url, "credential": credential_body},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        table.refresh_from_db()
+        assert table.credential is None
+        assert table.name == ("renamed_table" if expected_status == 200 else "uploaded_table")
+
     def test_update_can_repoint_a_table_that_has_its_own_credential(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 
