@@ -1797,7 +1797,7 @@ class TestMaterializeViewActivity:
 
             async def async_generator():
                 raise ClickHouseError(clickhouse_message)
-                yield  # makes this an async generator
+                yield  # type: ignore[unreachable]  # makes this an async generator
 
             return async_generator()
 
