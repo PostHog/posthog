@@ -223,6 +223,25 @@ describe('metricNamePickerLogic', () => {
         expect(logic.values.items.map((item) => item.name)).not.toContain('old.scope.metric')
     })
 
+    it('takes a searched name from the newest search reply', async () => {
+        jest.mocked(metricsNamesRetrieve)
+            .mockResolvedValueOnce({ results: fullPage } as any)
+            .mockResolvedValueOnce({ results: [{ name: 'shared.x', metric_type: 'sum' }] } as any)
+            .mockResolvedValueOnce({ results: [{ name: 'shared.x', metric_type: 'histogram' }] } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('shared')
+        }).toDispatchActions(['searchItemsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('shared.')
+        }).toDispatchActions(['searchItemsSuccess'])
+
+        expect(logic.values.items.find((item) => item.name === 'shared.x')?.metric_type).toBe('histogram')
+    })
+
     it('keeps names a search found in the current scope when the list reloads', async () => {
         jest.mocked(metricsNamesRetrieve)
             .mockResolvedValueOnce({ results: fullPage } as any)

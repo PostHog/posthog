@@ -185,7 +185,12 @@ export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
                         for (const item of response.results) {
                             cache.searchScopes.set(item.name, services)
                         }
-                        return mergeMetricNames(values.searchedItems, response.results)
+                        // The newest reply replaces older entries, so a name keeps its type in the current scope.
+                        const replied = new Set(response.results.map((item) => item.name))
+                        return mergeMetricNames(
+                            values.searchedItems.filter((item) => !replied.has(item.name)),
+                            response.results
+                        )
                     },
                 },
             ],
