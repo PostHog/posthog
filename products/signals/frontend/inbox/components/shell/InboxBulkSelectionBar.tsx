@@ -4,8 +4,9 @@ import { IconCheckCircle, IconHide, IconLeave, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import type { SignalReport } from '../../types'
-import { hasOpenImplementationPr } from '../../utils/reportActions'
+import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
 import { openDismissReportDialog } from './DismissReportDialog'
 import { openResolveReportDialog } from './ResolveReportDialog'
 
@@ -19,6 +20,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     const { selectedCount, selectedReportIds, isDismissing, isResolving, isUnassigning } =
         useValues(inboxBulkActionsLogic)
     const { clearSelection, bulkDismiss, bulkResolve, bulkUnassignMe } = useActions(inboxBulkActionsLogic)
+    const { isScopedToMe } = useValues(inboxFiltersLogic)
 
     if (selectedCount === 0) {
         return null
@@ -27,7 +29,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     const selectedIds = new Set(selectedReportIds)
     const hasOpenPr = reports.some((report) => selectedIds.has(report.id) && hasOpenImplementationPr(report))
     const unassignableIds = reports
-        .filter((report) => selectedIds.has(report.id) && report.is_suggested_reviewer)
+        .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
         .map((report) => report.id)
 
     return (

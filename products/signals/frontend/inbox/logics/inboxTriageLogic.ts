@@ -9,7 +9,7 @@ import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { INBOX_PRIMARY_REPORT_SECTION_KEY, InboxReportSectionKey, SignalReport } from '../types'
-import { canCreateImplementationPr, hasOpenImplementationPr } from '../utils/reportActions'
+import { canCreateImplementationPr, canUnassignMe, hasOpenImplementationPr } from '../utils/reportActions'
 import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
@@ -38,6 +38,7 @@ export interface inboxTriageLogicValues {
     isCreatingPr: boolean // inboxTaskKickoffLogic
     hasMore: boolean // reportListLogic
     isLoaded: boolean // reportListLogic
+    isScopedToMe: boolean // reportListLogic
     reports: SignalReport[] // reportListLogic
     reportsLoadFailed: boolean // reportListLogic
     reportsResponseLoading: boolean // reportListLogic
@@ -190,7 +191,11 @@ export interface inboxTriageLogicMeta {
         counter: (reports: SignalReport[], currentIndex: number, hasMore: boolean) => string
         canCreatePr: (currentReport: SignalReport | null) => boolean
         isUnassigningCurrent: (currentReport: SignalReport | null, unassigningReportIds: string[]) => boolean
-        unassignDisabledReason: (currentReport: SignalReport | null, isUnassigningCurrent: boolean) => string | null
+        unassignDisabledReason: (
+            currentReport: SignalReport | null,
+            isUnassigningCurrent: boolean,
+            isScopedToMe: any
+        ) => string | null
         returnUrl: (currentReport: SignalReport | null, currentIndex: number) => string
         currentReportUrl: (currentReport: SignalReport | null, returnUrl: string) => string | null
     }
@@ -214,7 +219,15 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
     connect(() => ({
         values: [
             reportListLogic(TRIAGE_LIST_PROPS),
-            ['reports', 'hasMore', 'isLoaded', 'reportsResponseLoading', 'reportsLoadFailed', 'unassigningReportIds'],
+            [
+                'reports',
+                'hasMore',
+                'isLoaded',
+                'reportsResponseLoading',
+                'reportsLoadFailed',
+                'unassigningReportIds',
+                'isScopedToMe',
+            ],
             inboxTaskKickoffLogic,
             ['isCreatingPr', 'createPrDisabledReason'],
         ],
@@ -350,9 +363,9 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 currentReport !== null && unassigningReportIds.includes(currentReport.id),
         ],
         unassignDisabledReason: [
-            (s) => [s.currentReport, s.isUnassigningCurrent],
-            (currentReport: SignalReport | null, isUnassigningCurrent: boolean): string | null =>
-                currentReport && !currentReport.is_suggested_reviewer
+            (s) => [s.currentReport, s.isUnassigningCurrent, s.isScopedToMe],
+            (currentReport: SignalReport | null, isUnassigningCurrent: boolean, isScopedToMe: boolean): string | null =>
+                currentReport && !canUnassignMe(currentReport, isScopedToMe)
                     ? "You're not a reviewer on this report"
                     : isUnassigningCurrent
                       ? 'Unassigning you…'

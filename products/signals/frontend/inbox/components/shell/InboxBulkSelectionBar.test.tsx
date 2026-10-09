@@ -7,7 +7,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { type SignalReport, SignalReportStatus } from '../../types'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, type SignalReport, SignalReportStatus } from '../../types'
 import { InboxBulkSelectionBar } from './InboxBulkSelectionBar'
 
 function makeReport(id: string, overrides: Partial<SignalReport> = {}): SignalReport {
@@ -38,6 +39,8 @@ describe('InboxBulkSelectionBar', () => {
     afterEach(() => {
         cleanup()
         logic.unmount()
+        // The list scope persists to localStorage, so a test that changes it would leak into the next.
+        localStorage.clear()
     })
 
     // The bar holds a count and no titles, so its dialogs have to count reports at every size. The
@@ -72,7 +75,11 @@ describe('InboxBulkSelectionBar', () => {
         expect(await screen.findByText(/The pull request opened for this report is closed/)).toBeInTheDocument()
     })
 
-    it('unassigns you only from your selected reports and drops only the ones that succeeded', async () => {
+    it.each([
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: ['b', 'c'], unassigned: ['b'] },
+        // A For you list only holds reports that name you, so a report without the flag counts too.
+        { scope: INBOX_SCOPE_FOR_YOU, sent: ['a', 'b', 'c'], unassigned: ['a', 'b'] },
+    ])('under $scope unassigns $sent and drops only the ones that succeeded', async ({ scope, sent, unassigned }) => {
         const deleted: string[] = []
         useMocks({
             delete: {
@@ -82,6 +89,8 @@ describe('InboxBulkSelectionBar', () => {
                 },
             },
         })
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setScope(scope)
         logic.actions.setSelectedReportIds(['a', 'b', 'c'])
         render(
             <InboxBulkSelectionBar
@@ -96,8 +105,8 @@ describe('InboxBulkSelectionBar', () => {
         await expectLogic(logic, () => {
             fireEvent.click(screen.getByText('Unassign me'))
         })
-            .toDispatchActions([logic.actionCreators.unassignedMe(['b']), 'bulkUnassignMeSuccess'])
+            .toDispatchActions([logic.actionCreators.unassignedMe(unassigned), 'bulkUnassignMeSuccess'])
             .toMatchValues({ selectedReportIds: [] })
-        expect(deleted.sort()).toEqual(['b', 'c'])
+        expect(deleted.sort()).toEqual(sent)
     })
 })

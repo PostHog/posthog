@@ -180,6 +180,7 @@ export interface reportListLogicValues {
     activeSortDirection: InboxSortDirection // inboxFiltersLogic
     activeSortField: InboxSortField // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
+    isScopedToMe: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
     scoutFilter: string[] // inboxFiltersLogic
@@ -427,6 +428,7 @@ export const reportListLogic = kea<reportListLogicType>([
             inboxFiltersLogic,
             [
                 'scope',
+                'isScopedToMe',
                 'hasUserChosenScope',
                 'searchQuery',
                 'activeSortField',
@@ -947,8 +949,7 @@ export const reportListLogic = kea<reportListLogicType>([
             }
         },
         [inboxBulkActionsLogic.actionTypes.unassignedMe]: ({ reportIds }: { reportIds: string[] }) => {
-            const scopeUuid = values.scopeReviewerUuid
-            if (scopeUuid && scopeUuid === values.user?.uuid) {
+            if (values.isScopedToMe) {
                 const loadedIds = new Set(values.reportsResponse?.results.map((r) => r.id))
                 reportIds.filter((id) => loadedIds.has(id)).forEach((id) => actions.removeReport(id))
             } else {
