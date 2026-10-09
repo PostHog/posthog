@@ -57,6 +57,7 @@ class TestValidateFilterTree(SimpleTestCase):
             ("invalid_type", {"type": "xor"}, "type must be one of"),
             ("missing_type", {}, "type must be one of"),
             ("non_string_comment", {**_or(), "comment": 123}, "comment must be a string"),
+            ("null_comment", {**_cond(), "comment": None}, "comment must be a string"),
             ("comment_too_long", {**_cond(), "comment": "x" * (MAX_COMMENT_LENGTH + 1)}, "comment exceeds maximum"),
         ]
     )

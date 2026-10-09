@@ -160,8 +160,8 @@ def _validate_node(node: object, path: str = "root") -> None:
             {"filter_tree": f"Node at {path}: type must be one of {sorted(NODE_TYPES)}, got '{node_type}'."}
         )
 
-    comment = node.get("comment")
-    if comment is not None:
+    if "comment" in node:
+        comment = node["comment"]
         if not isinstance(comment, str):
             raise ValidationError({"filter_tree": f"Node at {path}: comment must be a string."})
         if len(comment) > MAX_COMMENT_LENGTH:
