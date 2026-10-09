@@ -6928,19 +6928,20 @@ class TestRunScoutActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
 
-class TestJevClassifyActionValidation(APIBaseTest):
+class TestClassifyActionValidation(APIBaseTest):
     def setUp(self):
         super().setUp()
         template = deepcopy(webhook_template)
-        template["id"] = "template-posthog-jev-classify"
-        template["name"] = "Classify with Jev"
+        template["id"] = "template-posthog-classify"
+        template["name"] = "Classify with AI"
         template["inputs_schema"] = [
             {"key": "question", "type": "string", "label": "Question", "secret": False, "required": True},
             {"key": "categories", "type": "dictionary", "label": "Categories", "secret": False, "required": True},
+            {"key": "model", "type": "choice", "label": "Model", "secret": False, "required": False},
         ]
         sync_template_to_db(template)
 
-    def _post_flow(self, categories: dict, question: str = "Which team?"):
+    def _post_flow(self, categories: dict, question: str = "Which team?", model: str | None = None):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -6950,14 +6951,14 @@ class TestJevClassifyActionValidation(APIBaseTest):
                 "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
             },
         }
+        inputs: dict[str, Any] = {"question": {"value": question}, "categories": {"value": categories}}
+        if model is not None:
+            inputs["model"] = {"value": model}
         action = {
             "id": "action_1",
             "name": "action_1",
             "type": "function",
-            "config": {
-                "template_id": "template-posthog-jev-classify",
-                "inputs": {"question": {"value": question}, "categories": {"value": categories}},
-            },
+            "config": {"template_id": "template-posthog-classify", "inputs": inputs},
         }
         with patch("products.workflows.backend.presentation.views.hog_flow.gated_template_enabled", return_value=True):
             return self.client.post(
@@ -6972,11 +6973,18 @@ class TestJevClassifyActionValidation(APIBaseTest):
             ("seventeen_categories", {f"c{i}": "x" for i in range(17)}, status.HTTP_400_BAD_REQUEST),
             ("long_description", {"spam": "x" * 501, "support": "help"}, status.HTTP_400_BAD_REQUEST),
             ("long_question", {"spam": "x", "support": "help"}, status.HTTP_400_BAD_REQUEST, "x" * 2001),
+            (
+                "unlisted_model",
+                {"spam": "x", "support": "help"},
+                status.HTTP_400_BAD_REQUEST,
+                "Which team?",
+                "gpt-unlisted",
+            ),
         ]
     )
     def test_applies_the_classification_endpoint_limits_at_save(
-        self, _name, categories, expected, question="Which team?"
+        self, _name, categories, expected, question="Which team?", model=None
     ):
-        response = self._post_flow(categories, question)
+        response = self._post_flow(categories, question, model)
 
         assert response.status_code == expected, response.json()

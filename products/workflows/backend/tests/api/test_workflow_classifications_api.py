@@ -15,6 +15,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.ml_inference.backend.facade.contracts import (
+    DEFAULT_DECISION_MODEL,
     ChoiceAnswer,
     DecisionGatewayError,
     DecisionGatewayUnreachableError,
@@ -80,10 +81,12 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         decide.assert_not_called()
 
-    def test_returns_the_chosen_category(self) -> None:
+    # The step sends a null model when the author never opened the picker.
+    @parameterized.expand([("model_omitted", {}), ("model_null", {"model": None}), ("jev", {"model": "jev"})])
+    def test_returns_the_chosen_category(self, _name: str, body: dict) -> None:
         answer = ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
         with patch(_DECIDE, return_value=_result(answer)) as decide:
-            response = self._post()
+            response = self._post(body)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {
@@ -94,6 +97,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
         sent = decide.call_args.args[0]
         assert sent.team_id == self.team.id
         assert sent.privacy_mode is True
+        assert sent.model == DEFAULT_DECISION_MODEL
         # User text stays in the state, never in the instructions.
         assert sent.state == {"subject": "Buy SEO"}
         assert sent.questions == {
@@ -154,6 +158,7 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             ("long_category_name", {"categories": {"x" * 101: "Spam", "support": "Help"}}),
             ("too_many_categories", {"categories": {f"c{i}": "x" for i in range(17)}}),
             ("oversized_context", {"context": {"message": "x" * 65_536}}),
+            ("unlisted_model", {"model": "openai/gpt-6-luna"}),
             ("deeply_nested_context", {"context": reduce(lambda inner, _: {"a": inner}, range(255), cast(Any, "x"))}),
         ]
     )

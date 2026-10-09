@@ -6,9 +6,9 @@ export const template: HogFunctionTemplate = {
     free: true,
     status: 'hidden',
     type: 'destination',
-    id: 'template-posthog-jev-classify',
-    name: 'Classify with Jev',
-    description: 'Ask Jev to pick one category for the context. Returns the category and its confidence.',
+    id: 'template-posthog-classify',
+    name: 'Classify with AI',
+    description: 'Ask an AI model to pick one category for the context. Returns the category and its confidence.',
     icon_url: '/static/services/typesafe.png',
     category: ['Custom'],
     code_language: 'hog',
@@ -18,7 +18,8 @@ ${hogApiErrorMessageFn}
 let response := postHogClassify({
   'question': inputs.question,
   'context': inputs.context,
-  'categories': inputs.categories
+  'categories': inputs.categories,
+  'model': inputs.model
 })
 
 if (response.status >= 400) {
@@ -29,13 +30,22 @@ return response.body
 `,
     inputs_schema: [
         {
+            key: 'model',
+            type: 'choice',
+            label: 'Model',
+            required: false,
+            default: 'jev',
+            choices: [{ label: 'Jev', value: 'jev' }],
+            description: 'The model that picks the category.',
+        },
+        {
             key: 'question',
             type: 'string',
             label: 'Question',
             required: true,
             // Event data goes in the context, so it can never become part of the instructions.
             templating: false,
-            description: 'What Jev should decide, for example "Which team should handle this ticket?"',
+            description: 'What the model should decide, for example "Which team should handle this ticket?"',
         },
         {
             key: 'context',
@@ -43,7 +53,7 @@ return response.body
             label: 'Context',
             required: true,
             default: { subject: '{event.properties.subject}', message: '{event.properties.message}' },
-            description: 'The data Jev reads to decide. Use event properties or variables from earlier steps.',
+            description: 'The data the model reads to decide. Use event properties or variables from earlier steps.',
         },
         {
             key: 'categories',

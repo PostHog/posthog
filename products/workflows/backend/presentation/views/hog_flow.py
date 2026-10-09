@@ -483,9 +483,9 @@ _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 # workflow built through the API or MCP.
 _RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
 
-# The "Classify with Jev" step. The classification endpoint refuses categories outside its limits with a
+# The "Classify with AI" step. The classification endpoint refuses categories outside its limits with a
 # 400, which fails the step on every run, so a strict save applies the same limits.
-_JEV_CLASSIFY_TEMPLATE_ID = "template-posthog-jev-classify"
+_CLASSIFY_TEMPLATE_ID = "template-posthog-classify"
 
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
@@ -1406,8 +1406,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
-    def _validate_jev_classify_action(self, inputs: dict) -> None:
-        data = {key: (inputs.get(key) or {}).get("value") for key in ("question", "categories")}
+    def _validate_classify_action(self, inputs: dict) -> None:
+        data = {key: (inputs.get(key) or {}).get("value") for key in ("question", "categories", "model")}
+        if data["model"] is None:
+            del data["model"]
         # Reuses the endpoint's serializer so the save-time and runtime limits cannot drift apart.
         serializer = WorkflowClassificationRequestSerializer(data=data, partial=True)
         if not serializer.is_valid():
@@ -1679,8 +1681,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_create_task_action(data["config"]["inputs"])
                 if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
                     self._validate_run_scout_action()
-                if strict and template_id == _JEV_CLASSIFY_TEMPLATE_ID:
-                    self._validate_jev_classify_action(data["config"]["inputs"])
+                if strict and template_id == _CLASSIFY_TEMPLATE_ID:
+                    self._validate_classify_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only

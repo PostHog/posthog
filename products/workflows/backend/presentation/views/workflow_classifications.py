@@ -15,6 +15,7 @@ from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.models import Team
 
 from products.ml_inference.backend.facade.contracts import (
+    DEFAULT_DECISION_MODEL,
     MAX_OPTIONS_PER_QUESTION,
     ChoiceAnswer,
     DecisionGatewayError,
@@ -41,6 +42,10 @@ MAX_CONTEXT_CHARS = 65_536
 # whole context into logs and exception reporting. A small payload can reach that depth, so cap it first.
 # Keep it equal to MAX_CONTEXT_DEPTH in nodejs/src/cdp/async-functions/classify.ts.
 MAX_CONTEXT_DEPTH = 100
+# The models an author can pick for the step, keyed by the value the step stores. A new entry needs the AI gateway
+# to route the model on /v1/systemone, and the vendor's data processing must be covered for customer context.
+CLASSIFICATION_MODELS: dict[str, str] = {"jev": DEFAULT_DECISION_MODEL}
+DEFAULT_CLASSIFICATION_MODEL = "jev"
 
 
 def _nesting_exceeds(value: Any, limit: int) -> bool:
@@ -75,6 +80,12 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
     )
     context = serializers.JSONField(  # type: ignore[assignment]  # The field name shadows DRF Field.context.
         help_text=f"The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON and {MAX_CONTEXT_DEPTH} levels of nesting."
+    )
+    model = serializers.ChoiceField(
+        choices=list(CLASSIFICATION_MODELS),
+        default=DEFAULT_CLASSIFICATION_MODEL,
+        allow_null=True,
+        help_text="The model that picks the category. Defaults to Jev.",
     )
     categories = serializers.DictField(
         child=serializers.CharField(max_length=500, allow_blank=True),
@@ -111,7 +122,7 @@ class WorkflowClassificationErrorSerializer(serializers.Serializer):
 
 
 class WorkflowClassificationViewSet(viewsets.GenericViewSet):
-    """Classify a workflow's context with Jev for the "Classify with Jev" action. Authenticated by a
+    """Classify a workflow's context with an AI model for the "Classify with AI" action. Authenticated by a
     scoped service JWT minted by the plugin server, never by a user credential."""
 
     authentication_classes = [WorkflowClassifyJWTAuthentication]
@@ -139,14 +150,14 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 description="The model is busy or unreachable. Retry later",
             ),
         },
-        summary="Classify workflow context with Jev",
+        summary="Classify workflow context with an AI model",
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
         user = cast(InternalAPIUser, request.user)
         team = Team.objects.select_related("organization").get(id=cast(int, user.current_team_id))
 
-        if not gated_template_enabled("workflow-jev-classify-action", team):
-            return _error("Classify with Jev is not enabled for this project.", status.HTTP_403_FORBIDDEN)
+        if not gated_template_enabled("workflow-classify-action", team):
+            return _error("Classify with AI is not enabled for this project.", status.HTTP_403_FORBIDDEN)
 
         serializer = WorkflowClassificationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -174,6 +185,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                             type=DecisionQuestionType.CHOICE, instructions=data["question"], criteria=categories
                         )
                     },
+                    model=CLASSIFICATION_MODELS[data["model"] or DEFAULT_CLASSIFICATION_MODEL],
                     ai_product="workflows",
                     properties={"hog_flow_id": str(cast(dict[str, Any], request.auth)["hog_flow_id"])},
                     # The context carries person and event data, which must stay out of the internal AI observability project.
@@ -182,25 +194,28 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 timeout_seconds=TIMEOUT_SECONDS,
             )
         except (DecisionsDisabledError, GatewayNotConfiguredError):
-            return _error("Jev is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
+            return _error("The model is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
         except DecisionGatewayUnreachableError:
             logger.warning("workflow_classification_unreachable", team_id=team.id)
-            return _error("Jev is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
+            return _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
         except DecisionGatewayError as error:
             # Only the status is logged: the gateway's body can echo the context.
             logger.warning("workflow_classification_failed", team_id=team.id, status_code=error.status_code)
             if error.status_code == 429 or error.status_code >= 500:
-                return _error("Jev is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
+                return _error("The model is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
             if error.status_code == 200:
-                return _error("Jev returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+                return _error(
+                    "The model returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY
+                )
             return _error(
-                f"Jev refused the request (gateway status {error.status_code}).", status.HTTP_422_UNPROCESSABLE_ENTITY
+                f"The model refused the request (gateway status {error.status_code}).",
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         answer = result.answers.get(_QUESTION_ID)
         if not _is_usable(answer, categories):
             logger.warning("workflow_classification_unusable_answer", team_id=team.id)
-            return _error("Jev returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+            return _error("The model returned an answer the step cannot read.", status.HTTP_422_UNPROCESSABLE_ENTITY)
         answer = cast(ChoiceAnswer, answer)
         return Response(
             WorkflowClassificationResponseSerializer(

@@ -614,7 +614,7 @@ WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
 )
 
-# Signs the tokens a workflow's "Classify with Jev" action calls back with. The dev/test value
+# Signs the tokens a workflow's "Classify with AI" action calls back with. The dev/test value
 # must match the plugin server's minting default.
 WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
