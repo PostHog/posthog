@@ -184,18 +184,16 @@ impl FeatureFlagStorage for PostgresStorage {
         sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
             .execute(&mut *tx)
             .await?;
-        // lock_timeout bounds the wait on one held row. The INSERT can wait on several held rows
-        // in turn, so statement_timeout caps the total wait. Both limits stay under the caller's
-        // deadline, so the INSERT can fail with its own error before the caller gives up. The
-        // limits cover only the INSERT. The pool acquire above runs before them and can still use
-        // up the caller's deadline. The settings are local to the transaction, so PgBouncer does
-        // not pass them to the next client of the server connection.
-        sqlx::query(
-            "SELECT set_config('lock_timeout', '2s', true), set_config('statement_timeout', $1, true)",
-        )
-        .bind(self.hash_key_override_statement_timeout_ms.to_string())
-        .execute(&mut *tx)
-        .await?;
+        // statement_timeout includes time spent waiting on row locks, so it bounds the whole
+        // INSERT, including several held rows in turn. It stays under the caller's deadline, so
+        // the INSERT can fail with its own error before the caller gives up. The limit covers
+        // only the INSERT. The pool acquire above runs before it and can still use up the
+        // caller's deadline. The setting is local to the transaction, so PgBouncer does not pass
+        // it to the next client of the server connection.
+        sqlx::query("SELECT set_config('statement_timeout', $1, true)")
+            .bind(self.hash_key_override_statement_timeout_ms.to_string())
+            .execute(&mut *tx)
+            .await?;
 
         // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
         // skips the pairs that already hold a real key. The WHERE still keeps a real key that a

@@ -1599,20 +1599,14 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
     ctx.cleanup().await.ok();
 }
 
-#[rstest]
-#[case::statement_timeout(200, "statement timeout")]
-#[case::lock_timeout(4000, "lock timeout")]
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
-    #[case] statement_timeout_ms: u64,
-    #[case] expected_error: &str,
-) {
+async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row() {
     let ctx = TestContext::new().await;
     let person = ctx
         .insert_person("upsert_locked_user", None)
         .await
         .expect("Failed to insert person");
-    let storage = ctx.storage_with_hash_key_override_statement_timeout(statement_timeout_ms);
+    let storage = ctx.storage_with_hash_key_override_statement_timeout(200);
 
     // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
     // person row.
@@ -1634,9 +1628,9 @@ async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
     assert!(
         matches!(
             &result,
-            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains(expected_error)
+            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains("statement timeout")
         ),
-        "expected a {expected_error}, got {result:?}"
+        "expected a statement timeout, got {result:?}"
     );
     assert_eq!(ctx.hash_key_override_count(person.id).await.unwrap(), 0);
 
