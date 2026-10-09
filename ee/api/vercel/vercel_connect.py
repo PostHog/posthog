@@ -42,6 +42,8 @@ CONNECT_SESSION_TIMEOUT = 600  # 10 minutes
 CONNECT_SALT = "vercel_connect"
 CONNECT_NONCE_COOKIE_PREFIX = "ph_vercel_connect_"
 CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
+CONNECT_STATE_COOKIE_PREFIX = "ph_vercel_install_state_"
+CONNECT_STATE_COOKIE_PATH = "/connect/vercel/callback"
 SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
 _BROWSER_NONCE_KEY = "browser_nonce"
 
@@ -57,9 +59,13 @@ def _load_connect_session(token: str) -> dict:
         raise signing.BadSignature("Invalid or expired token")
 
 
-def _browser_nonce_cookie_name(browser_nonce: str) -> str:
+def _per_flow_cookie_name(prefix: str, flow_secret: str) -> str:
     # One cookie per link flow, so a second flow in the same browser does not replace the first flow's cookie.
-    return CONNECT_NONCE_COOKIE_PREFIX + hashlib.sha256(browser_nonce.encode()).hexdigest()[:16]
+    return prefix + hashlib.sha256(flow_secret.encode()).hexdigest()[:16]
+
+
+def _browser_nonce_cookie_name(browser_nonce: str) -> str:
+    return _per_flow_cookie_name(CONNECT_NONCE_COOKIE_PREFIX, browser_nonce)
 
 
 def _set_browser_nonce_cookie(request: Request, response: HttpResponse, browser_nonce: str) -> None:
@@ -105,6 +111,55 @@ def _load_browser_bound_session(request: Request, token: str) -> dict:
 
     capture_exception(
         Exception("Vercel connect: session used by a browser that did not start it"),
+        {"reason": reason, "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _install_state_cookie_name(state: str) -> str:
+    return _per_flow_cookie_name(CONNECT_STATE_COOKIE_PREFIX, state)
+
+
+def _redirect_through_vercel_install() -> HttpResponse:
+    # A Marketplace install calls back without a state, so nothing ties its code to this browser. Vercel's
+    # external install flow returns the state we send, and the state cookie ties that state to this browser.
+    state = secrets.token_urlsafe(32)
+    slug = quote(settings.VERCEL_INTEGRATION_SLUG, safe="")
+    response = HttpResponseRedirect(f"https://vercel.com/integrations/{slug}/new?{urlencode({'state': state})}")
+    response.set_cookie(
+        _install_state_cookie_name(state),
+        state,
+        max_age=CONNECT_SESSION_TIMEOUT,
+        path=CONNECT_STATE_COOKIE_PATH,
+        # No shared domain, unlike the browser nonce cookie: Vercel sends both callback requests to the one
+        # configured Redirect URL, so they always reach the same host.
+        secure=settings.SESSION_COOKIE_SECURE,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
+
+
+def _pending_install_state_cookie_names(request: Request) -> list[str]:
+    return [name for name, value in request.COOKIES.items() if name.startswith(CONNECT_STATE_COOKIE_PREFIX) and value]
+
+
+def _clear_install_state_cookies(response: HttpResponse, cookie_names: list[str]) -> None:
+    for cookie_name in cookie_names:
+        response.delete_cookie(cookie_name, path=CONNECT_STATE_COOKIE_PATH, samesite="Lax")
+
+
+def _require_install_state_from_this_browser(request: Request, state: str) -> None:
+    cookie_state = request.COOKIES.get(_install_state_cookie_name(state), "")
+    if not cookie_state:
+        reason = "missing_state_cookie"
+    elif secrets.compare_digest(cookie_state.encode(), state.encode()):
+        return
+    else:
+        reason = "state_mismatch"
+
+    capture_exception(
+        Exception("Vercel connect: install state used by a browser that did not start it"),
         {"reason": reason, "integration": "vercel"},
     )
     raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
@@ -204,6 +259,21 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
 
     permission_classes = [permissions.AllowAny]
 
+    def _handle_missing_install_state(self, request: Request) -> HttpResponse:
+        pending_state_cookies = _pending_install_state_cookie_names(request)
+        if not pending_state_cookies:
+            return _redirect_through_vercel_install()
+
+        # This browser went to Vercel's install page and came back without a state. Another redirect could loop,
+        # so fail. Clearing the cookies lets the next attempt from Vercel start with one new redirect.
+        capture_exception(
+            Exception("Vercel connect: install returned without a state"),
+            {"reason": "missing_state_after_install_redirect", "integration": "vercel"},
+        )
+        error_response = self.handle_exception(exceptions.ValidationError(SESSION_INVALID_MESSAGE))
+        _clear_install_state_cookies(error_response, pending_state_cookies)
+        return error_response
+
     @decorators.action(detail=False, methods=["get"], url_path="callback")
     def callback(self, request: Request) -> HttpResponse:
         code = request.query_params.get("code")
@@ -221,6 +291,11 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             logger.error("vercel_connect_missing_configuration", integration="vercel")
             capture_exception(Exception("Vercel connect: missing client configuration"))
             raise exceptions.APIException("Vercel integration not configured")
+
+        state = request.query_params.get("state")
+        if not state:
+            return self._handle_missing_install_state(request)
+        _require_install_state_from_this_browser(request, state)
 
         client = VercelAPIClient(bearer_token=None)
         token_response = client.oauth_token_exchange(
@@ -262,6 +337,7 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
             response = HttpResponseRedirect(redirect_to=link_url)
 
         _set_browser_nonce_cookie(request, response, browser_nonce)
+        _clear_install_state_cookies(response, [_install_state_cookie_name(state)])
         return response
 
 

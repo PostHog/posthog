@@ -105,7 +105,11 @@ sequenceDiagram
     participant PH as PostHog
 
     User->>VM: Click "Link Existing Account"
-    VM->>PH: GET /connect/vercel/callback (OAuth code)
+    VM->>PH: GET /connect/vercel/callback (OAuth code, no state)
+    PH-->>User: Redirect to Vercel's install page with a state, set a state cookie
+    User->>VM: Continue on the install page
+    VM->>PH: GET /connect/vercel/callback (OAuth code + same state)
+    PH->>PH: Reject unless the state matches this browser's cookie
     PH->>PH: Exchange code for access token
     PH->>PH: Store session in cache (10 min TTL)
 

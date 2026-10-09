@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.http import HttpResponse
+from django.http.response import HttpResponseBase
 from django.test import Client, TestCase, override_settings
 
 from parameterized import parameterized
@@ -22,6 +22,7 @@ from ee.api.vercel.vercel_connect import (
     VercelImportError,
     _browser_nonce_cookie_name,
     _delete_orphaned_integration,
+    _install_state_cookie_name,
     _load_connect_session,
     _sign_connect_session,
     _validate_next_url,
@@ -41,6 +42,7 @@ CACHED_SESSION_DATA = {
     "next_url": "https://vercel.com/done",
 }
 
+CALLBACK_URL = "/connect/vercel/callback"
 BROWSER_NONCE = "nonce-set-in-this-browser"
 OTHER_BROWSER_NONCE = "nonce-from-another-linking-flow"
 REJECTED_BROWSER_COOKIES = [("missing_cookie", None), ("cookie_from_another_flow", OTHER_BROWSER_NONCE)]
@@ -50,6 +52,10 @@ REJECTED_SESSIONS = [
     ("tampered_cookie", BROWSER_NONCE, BROWSER_NONCE, OTHER_BROWSER_NONCE, "nonce_mismatch"),
     ("token_without_nonce", None, BROWSER_NONCE, BROWSER_NONCE, "token_without_nonce"),
 ]
+
+
+def _state_from_install_redirect(response: HttpResponseBase) -> str:
+    return parse_qs(urlparse(response["Location"]).query)["state"][0]
 
 
 def _session_token_from_redirect(location: str) -> str:
@@ -72,7 +78,7 @@ def _mock_vercel_client(mock_client_class: MagicMock) -> MagicMock:
     return mock_client
 
 
-def _flow_cookie(response: HttpResponse) -> Morsel:
+def _flow_cookie(response: HttpResponseBase) -> Morsel:
     [cookie] = [cookie for name, cookie in response.cookies.items() if name.startswith(CONNECT_NONCE_COOKIE_PREFIX)]
     return cookie
 
@@ -86,6 +92,15 @@ class VercelConnectTestBase(APIBaseTest):
     def _seed_session(self) -> str:
         self._set_nonce_cookie(BROWSER_NONCE)
         return _sign_connect_session(CACHED_SESSION_DATA, browser_nonce=BROWSER_NONCE)
+
+    def _callback_through_vercel_install(
+        self, params: dict[str, str], browser: Client | None = None, host: str = "testserver"
+    ) -> HttpResponseBase:
+        browser = browser or self.client
+        install_redirect = browser.get(CALLBACK_URL, {"code": "code_from_marketplace"}, HTTP_HOST=host)
+        return browser.get(
+            CALLBACK_URL, {**params, "state": _state_from_install_redirect(install_redirect)}, HTTP_HOST=host
+        )
 
     def _set_nonce_cookie(self, flow_nonce: str | None, value: str | None = None) -> None:
         for name in [name for name in self.client.cookies if name.startswith(CONNECT_NONCE_COOKIE_PREFIX)]:
@@ -124,7 +139,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
             error_description="Code expired",
         )
 
-        response = self.client.get(self.url, {"code": "bad_code"})
+        response = self._callback_through_vercel_install({"code": "bad_code"})
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -141,7 +156,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
             team_id="team_1",
         )
 
-        response = self.client.get(self.url, {"code": "good_code", "next": "https://vercel.com/done"})
+        response = self._callback_through_vercel_install({"code": "good_code", "next": "https://vercel.com/done"})
 
         assert response.status_code == 302
         location = response["Location"]
@@ -173,7 +188,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
             user_id="usr_1",
         )
 
-        response = self.client.get(self.url, {"code": "good_code", "next": malicious_url})
+        response = self._callback_through_vercel_install({"code": "good_code", "next": malicious_url})
 
         assert response.status_code == 302
         parsed = parse_qs(urlparse(response["Location"]).query)
@@ -194,7 +209,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
             user_id="usr_1",
         )
 
-        response = self.client.get(self.url, {"code": "good_code"})
+        response = self._callback_through_vercel_install({"code": "good_code"})
 
         assert response.status_code == 302
         assert response["Location"].startswith("/login?next=")
@@ -219,7 +234,7 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         self.client.logout()
         _mock_vercel_client(mock_client_class)
 
-        response = self.client.get(self.url, {"code": "good_code"}, HTTP_HOST=host)
+        response = self._callback_through_vercel_install({"code": "good_code"}, host=host)
 
         cookie = _flow_cookie(response)
         assert cookie["domain"] == expected_domain
@@ -228,6 +243,93 @@ class TestVercelConnectCallback(VercelConnectTestBase):
         assert cookie["httponly"] is True
         assert cookie["secure"] is True
         assert cookie["samesite"] == "Lax"
+
+    @override_settings(
+        VERCEL_CLIENT_INTEGRATION_ID="client_id",
+        VERCEL_CLIENT_INTEGRATION_SECRET="secret",
+        VERCEL_INTEGRATION_SLUG="posthog-test",
+    )
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_callback_without_state_restarts_install_through_vercel(self, mock_client_class: MagicMock) -> None:
+        mock_client = _mock_vercel_client(mock_client_class)
+
+        response = self.client.get(self.url, {"code": "code_from_marketplace", "configurationId": "icfg_marketplace"})
+
+        assert response.status_code == 302
+        location = urlparse(response["Location"])
+        assert (
+            f"{location.scheme}://{location.netloc}{location.path}"
+            == "https://vercel.com/integrations/posthog-test/new"
+        )
+        state = _state_from_install_redirect(response)
+        cookie = response.cookies[_install_state_cookie_name(state)]
+        assert cookie.value == state
+        assert cookie["path"] == "/connect/vercel/callback"
+        assert cookie["httponly"] is True
+        assert cookie["samesite"] == "Lax"
+        mock_client.oauth_token_exchange.assert_not_called()
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.capture_exception")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_install_that_returns_without_state_fails_instead_of_looping(
+        self, mock_client_class: MagicMock, mock_capture_exception: MagicMock
+    ) -> None:
+        mock_client = _mock_vercel_client(mock_client_class)
+
+        first_attempt = self.client.get(self.url, {"code": "code_from_marketplace"})
+        returned_without_state = self.client.get(self.url, {"code": "code_from_install"})
+        next_attempt = self.client.get(self.url, {"code": "code_from_marketplace"})
+
+        assert [first_attempt.status_code, returned_without_state.status_code, next_attempt.status_code] == [
+            302,
+            status.HTTP_400_BAD_REQUEST,
+            302,
+        ]
+        assert next_attempt["Location"].startswith("https://vercel.com/integrations/")
+        mock_client.oauth_token_exchange.assert_not_called()
+        assert mock_capture_exception.call_args.args[1]["reason"] == "missing_state_after_install_redirect"
+
+    @parameterized.expand(
+        [
+            ("state_from_another_browser", None, "missing_state_cookie"),
+            ("cookie_value_differs", "value-set-by-another-site", "state_mismatch"),
+        ]
+    )
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.capture_exception")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_rejects_state_this_browser_was_not_given(
+        self,
+        _name: str,
+        cookie_value: str | None,
+        expected_reason: str,
+        mock_client_class: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        mock_client = _mock_vercel_client(mock_client_class)
+        other_browser = Client()
+        state = _state_from_install_redirect(other_browser.get(self.url, {"code": "code_from_marketplace"}))
+        if cookie_value is not None:
+            self.client.cookies[_install_state_cookie_name(state)] = cookie_value
+
+        response = self.client.get(self.url, {"code": "code_for_other_installation", "state": state})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_client.oauth_token_exchange.assert_not_called()
+        assert mock_capture_exception.call_args.args[1]["reason"] == expected_reason
+
+    @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_install_state_works_once(self, mock_client_class: MagicMock) -> None:
+        mock_client = _mock_vercel_client(mock_client_class)
+        state = _state_from_install_redirect(self.client.get(self.url, {"code": "code_from_marketplace"}))
+
+        first = self.client.get(self.url, {"code": "first_code", "state": state})
+        replay = self.client.get(self.url, {"code": "second_code", "state": state})
+
+        assert [first.status_code, replay.status_code] == [302, status.HTTP_400_BAD_REQUEST]
+        assert mock_client.oauth_token_exchange.call_count == 1
 
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="secret")
@@ -801,10 +903,6 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
 class TestVercelConnectEndToEnd(VercelConnectTestBase):
-    def setUp(self):
-        super().setUp()
-        self.callback_url = "/connect/vercel/callback"
-
     @parameterized.expand(
         [
             ("same_host_signed_in", "testserver", "testserver", True, ""),
@@ -827,7 +925,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         if not signed_in_at_callback:
             self.client.logout()
 
-        callback_response = self.client.get(self.callback_url, {"code": "good_code"}, HTTP_HOST=callback_host)
+        callback_response = self._callback_through_vercel_install({"code": "good_code"}, host=callback_host)
         session_token = _session_token_from_redirect(callback_response["Location"])
 
         self.client.force_login(self.user)
@@ -862,7 +960,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
         mock_client = _mock_vercel_client(mock_client_class)
         attacker_browser = Client()
 
-        callback_response = attacker_browser.get(self.callback_url, {"code": "attacker_code"})
+        callback_response = self._callback_through_vercel_install({"code": "attacker_code"}, browser=attacker_browser)
         session_token = _session_token_from_redirect(callback_response["Location"])
 
         session_response = self.client.get("/api/vercel/connect/session", {"session": session_token})
@@ -884,7 +982,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
     def test_two_link_flows_in_one_browser_both_stay_usable(self, mock_client_class: MagicMock) -> None:
         _mock_vercel_client(mock_client_class)
         session_tokens = [
-            _session_token_from_redirect(self.client.get(self.callback_url, {"code": code})["Location"])
+            _session_token_from_redirect(self._callback_through_vercel_install({"code": code})["Location"])
             for code in ("first_code", "second_code")
         ]
 
@@ -897,7 +995,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
     def test_token_survives_session_flush(self, mock_client_class, _mock_vercel_integration):
         _mock_vercel_client(mock_client_class)
 
-        response = self.client.get(self.callback_url, {"code": "good_code"})
+        response = self._callback_through_vercel_install({"code": "good_code"})
         assert response.status_code == 302
         parsed = parse_qs(urlparse(response["Location"]).query)
         session_token = parsed["session"][0]
