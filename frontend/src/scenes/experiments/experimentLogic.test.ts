@@ -1025,7 +1025,7 @@ describe('experimentLogic', () => {
             )
         })
 
-        it('keeps the server metric lists and skips the recompute after a save conflict', async () => {
+        it('recomputes cached results for the server metric lists after a save conflict', async () => {
             const testExperiment = {
                 ...experiment,
                 saved_metrics: [],
@@ -1040,7 +1040,8 @@ describe('experimentLogic', () => {
                 status: 409,
                 data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
             })
-            // Another editor swapped the two primary metrics, and this move did not save.
+            // Another editor swapped the two primary metrics, and this move did not save. The loader swaps
+            // the server's lists in before it reports the failure, so the recompute lands first.
             jest.spyOn(api, 'get').mockResolvedValueOnce({
                 ...testExperiment,
                 version: 5,
@@ -1055,9 +1056,14 @@ describe('experimentLogic', () => {
                     ['primary-metric-uuid']
                 )
             })
-                .toDispatchActions(['updateExperimentFailure'])
+                .toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.refreshExperimentResults &&
+                        action.payload.forceRefresh === false &&
+                        action.payload.triggeredBy === 'metric_config_change',
+                    'updateExperimentFailure',
+                ])
                 .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['refreshExperimentResults'])
 
             expect(logic.values.experiment.metrics).toEqual([otherPrimaryMetric, primaryMetric])
         })
