@@ -614,12 +614,26 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         [
             ("create_insight_scope", None, {"scope": "dashboard_item"}, "dashboard_item"),
             ("create_dashboard_scope", None, {"scope": "dashboard"}, "dashboard_id"),
-            ("patch_to_insight_scope", "none", {"scope": "dashboard_item"}, "dashboard_item"),
-            ("patch_to_dashboard_scope", "none", {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_to_insight_scope", "project", {"scope": "dashboard_item"}, "dashboard_item"),
+            ("patch_to_dashboard_scope", "project", {"scope": "dashboard"}, "dashboard_id"),
             ("patch_clears_insight", "insight", {"scope": "dashboard_item", "dashboard_item": None}, "dashboard_item"),
             ("patch_keeps_stored_insight", "insight", {"scope": "dashboard_item"}, None),
             ("patch_keeps_stored_dashboard", "dashboard", {"scope": "dashboard"}, None),
             ("patch_without_scope_on_default_row", "none", {"content": "edited"}, None),
+            ("patch_clears_dashboard_without_scope", "dashboard", {"dashboard_id": None}, "dashboard_id"),
+            ("patch_clears_insight_without_scope", "insight", {"dashboard_item": None}, "dashboard_item"),
+            (
+                "ui_edit_of_default_row",
+                "none",
+                {"content": "edited", "scope": "dashboard_item", "dashboard_item": None, "dashboard_id": None},
+                None,
+            ),
+            (
+                "ui_edit_of_detached_dashboard_row",
+                "detached_dashboard",
+                {"content": "edited", "scope": "dashboard", "dashboard_item": None, "dashboard_id": None},
+                None,
+            ),
         ]
     )
     def test_insight_and_dashboard_scopes_require_the_matching_id(
@@ -636,7 +650,11 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 created_by=self.user,
                 content="Original annotation",
-                scope=Annotation.Scope.DASHBOARD if existing_parent == "dashboard" else Annotation.Scope.INSIGHT,
+                scope={
+                    "dashboard": Annotation.Scope.DASHBOARD,
+                    "detached_dashboard": Annotation.Scope.DASHBOARD,
+                    "project": Annotation.Scope.PROJECT,
+                }.get(existing_parent, Annotation.Scope.INSIGHT),
                 dashboard_item=Insight.objects.create(team=self.team) if existing_parent == "insight" else None,
                 dashboard=Dashboard.objects.create(team=self.team) if existing_parent == "dashboard" else None,
             )
