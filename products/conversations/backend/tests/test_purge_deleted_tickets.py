@@ -2,6 +2,7 @@ import importlib
 from datetime import timedelta
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,7 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.temporal.zendesk_import.activities import _partition_new_tickets
 
 
+@time_machine.travel("2026-01-15T12:00:00Z", tick=False)
 class TestPurgeDeletedTickets(BaseTest):
     @patch("products.conversations.backend.tasks.maintenance.object_storage.delete")
     @patch("products.signals.backend.facade.api.retract_source_signals", return_value=1)

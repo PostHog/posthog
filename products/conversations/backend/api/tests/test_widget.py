@@ -1,6 +1,7 @@
 import time
 import uuid
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -277,6 +278,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.anonymous_traits["name"], "John")
         self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
 
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_deleted_ticket_is_hidden_from_the_widget(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,

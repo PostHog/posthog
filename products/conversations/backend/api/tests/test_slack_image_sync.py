@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -503,6 +504,7 @@ class TestSlackDurableImageDelivery(BaseTest):
 
     @patch("products.conversations.backend.tasks.slack.resolve_slack_avatar_by_email", return_value=None)
     @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_body_is_not_posted_after_ticket_delete(self, mock_get_client: MagicMock, _avatar: MagicMock) -> None:
         self._create_reply()
         client = self._slack_client()

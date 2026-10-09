@@ -1,5 +1,6 @@
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -146,6 +147,7 @@ class TestPostReplyToTeams(BaseTest):
     @patch("products.conversations.backend.tasks.teams.get_bot_from_id", return_value="28:app-id")
     @patch("products.conversations.backend.tasks.teams.get_bot_framework_token")
     @patch("products.conversations.backend.tasks.teams.requests.post")
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_post_reply_to_teams(
         self,
         _name: str,

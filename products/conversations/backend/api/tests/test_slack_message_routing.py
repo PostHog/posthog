@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -101,6 +102,7 @@ class TestSlackMessageRouting(BaseTest):
     @patch("products.conversations.backend.slack.resolve_slack_user", return_value={"name": "Ada", "email": None})
     @patch("products.conversations.backend.slack.extract_slack_files", return_value=[])
     @patch("products.conversations.backend.slack.get_slack_client")
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_message_on_deleted_ticket_does_not_open_another(
         self,
         _name: str,

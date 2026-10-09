@@ -2,6 +2,7 @@ import json
 import uuid
 from types import SimpleNamespace
 
+import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from django.utils import timezone
@@ -1466,6 +1467,7 @@ class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
 
         assert response.results == [("organization_organization",)]
 
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_deleted_ticket_is_excluded(self):
         live = _create_support_ticket(self.team, "live")
         deleted = _create_support_ticket(self.team, "deleted")

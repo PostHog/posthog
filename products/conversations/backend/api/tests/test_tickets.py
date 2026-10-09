@@ -5,6 +5,7 @@ from decimal import Decimal
 from threading import Barrier, Event
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -153,6 +154,7 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(comment_detail.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIsNone(get_cached_tickets(self.team.id, self.ticket.widget_session_id))
 
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_update_after_delete_keeps_ticket_deleted(self, mock_on_commit):
         load_ticket = TicketViewSet.get_object
 
@@ -171,6 +173,7 @@ class TestTicketAPI(APIBaseTest):
         self.assertIsNotNone(ticket.deleted_at)
         self.assertEqual(ticket.status, Status.NEW)
 
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_soft_deleted_ticket_number_is_not_reused(self, mock_on_commit):
         deleted_number = self.ticket.ticket_number
         self.ticket.deleted_at = timezone.now()
