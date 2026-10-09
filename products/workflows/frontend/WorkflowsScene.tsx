@@ -178,12 +178,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const newNavigationEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_NEW_NAVIGATION]
     const guidedOnboardingEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_GUIDED_ONBOARDING]
-    const onboardingWizardEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ONBOARDING_WIZARD]
-    // The workflow templates page and the onboarding wizard exist only behind their flags.
-    const currentTab: WorkflowsSceneTab =
-        (!newNavigationEnabled && routeTab === 'templates') || (!onboardingWizardEnabled && routeTab === 'onboarding')
-            ? 'workflows'
-            : routeTab
+    // The workflow templates page exists only behind its flag. The onboarding wizard is always reachable,
+    // because the broadcast setup links to it without a flag.
+    const currentTab: WorkflowsSceneTab = !newNavigationEnabled && routeTab === 'templates' ? 'workflows' : routeTab
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
