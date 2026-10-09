@@ -5,6 +5,7 @@ import { IconCode2 } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -20,6 +21,7 @@ export function TeamAccessControl(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
 
     return (
@@ -44,7 +46,7 @@ export function TeamAccessControl(): JSX.Element {
                 <ResourcesAccessControlsV2
                     projectId={`${currentTeam.id}`}
                     tabsRightSlot={
-                        currentOrganization?.id && hasAvailableFeature(AvailableFeature.ACCESS_CONTROL) ? (
+                        currentOrganization?.id ? (
                             <>
                                 <LemonButton
                                     type="tertiary"
@@ -53,7 +55,11 @@ export function TeamAccessControl(): JSX.Element {
                                     icon={
                                         <IconCode2 className="text-secondary group-hover/terraform-button:text-primary" />
                                     }
-                                    onClick={() => setTerraformModalOpen(true)}
+                                    onClick={() =>
+                                        guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () =>
+                                            setTerraformModalOpen(true)
+                                        )
+                                    }
                                     data-attr="access-control-manage-with-terraform"
                                 >
                                     <span className="font-normal text-secondary group-hover/terraform-button:text-primary">
