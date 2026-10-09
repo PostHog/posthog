@@ -327,6 +327,7 @@ export const FEATURE_FLAGS = {
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
+    DWH_SYNC_ALERTS: 'dwh-sync-alerts', // owner: #team-warehouse-sources, gates the data warehouse sync alert sub-templates
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     EMAIL_TEMPLATES_AI_FIRST_NEW: 'email-templates-ai-first-new', // owner: @mayteio #team-workflows
     EMOJI_RELATED_SEARCH: 'emoji-related-search', // owner: @pauldambra, gates the model search in `emojiSuggestionsLogic.ts` when the emoji picker finds no match
@@ -642,7 +643,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
-    WORKFLOWS_ONBOARDING_WIZARD: 'workflows-onboarding-wizard', // owner: #team-workflows, step-by-step setup after the first-run path choice, needs workflows-guided-onboarding
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
