@@ -1323,7 +1323,7 @@ class SignalReportViewSet(
         SignalReportBulkStateOutcome.NOT_FOUND: "No report with this id is visible to you.",
     }
 
-    _MONITORING_FALLBACK_READ_ACTIONS = frozenset({"list", "retrieve", "signals", "pr_checks", "pr_comments"})
+    _MONITORING_FALLBACK_READ_ACTIONS = frozenset({"list", "retrieve", "signals", "viewed", "pr_checks", "pr_comments"})
 
     @cached_property
     def _report_monitoring_enabled(self) -> bool:
