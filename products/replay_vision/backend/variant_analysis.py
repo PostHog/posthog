@@ -55,7 +55,7 @@ VARIANT_ANALYSIS_SCHEMA: dict[str, Any] = {
         },
         "observations_read": {
             **_COUNTS_BY_VARIANT,
-            "description": "How many summaries you read per variant key: the denominator of every count below.",
+            "description": "How many summaries per variant key your counts rest on: the denominator of every count below.",
         },
         "variants": {
             "type": "object",
@@ -85,7 +85,7 @@ VARIANT_ANALYSIS_SCHEMA: dict[str, Any] = {
                 "count": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Summaries of this variant you read that show the theme.",
+                    "description": "Summaries of this variant, out of `observations_read`, that show the theme.",
                 },
                 "example_observation_ids": {
                     "type": "array",
