@@ -18,7 +18,7 @@ PREEMPTED_ERROR = "Preempted: a new DAG run started before this job completed"
 ABANDONED_ERROR = "Abandoned: the materialization workflow is no longer running"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PreemptDAGRunInputs:
     team_id: int
     dag_id: str

@@ -67,7 +67,6 @@
 1 posthog/temporal/data_modeling/activities/enrich_view_semantics.py
 1 posthog/temporal/data_modeling/activities/fail_materialization.py
 1 posthog/temporal/data_modeling/activities/materialize_view.py
-1 posthog/temporal/data_modeling/activities/preempt_dag_run.py
 1 posthog/temporal/exports/workflows.py
 1 posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py
 1 posthog/temporal/mcp_analytics/intent_clustering/coordinator.py
