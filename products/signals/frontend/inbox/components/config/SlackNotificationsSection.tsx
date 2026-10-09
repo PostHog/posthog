@@ -15,7 +15,7 @@ import {
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
-import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
+import { getGrantedScopes } from 'lib/integrations/integrationScopes'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSlackMemberTarget, slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
