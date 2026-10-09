@@ -6,7 +6,6 @@ use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event, EventInfo};
 use crate::v1::analytics::constants::CAPTURE_V1_EVENTS_QUOTA_LIMITED;
 use crate::v1::analytics::types::{EventResult, WrappedEvent};
-use crate::v1::types::Destination;
 use crate::v1::Error;
 
 type ScopedCheck = (QuotaResource, fn(EventInfo) -> bool);
@@ -66,7 +65,6 @@ pub async fn apply_quota_limits(
             };
             if predicate(info) {
                 ev.result = EventResult::Drop;
-                ev.destination = Destination::Drop;
                 ev.details = Some(match resource {
                     QuotaResource::Exceptions => "exceptions_over_quota",
                     QuotaResource::Surveys => "survey_responses_over_quota",
@@ -98,6 +96,7 @@ pub async fn apply_quota_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v1::types::Destination;
     use std::num::NonZeroU32;
     use std::sync::Arc;
     use std::time::Duration;
@@ -326,7 +325,7 @@ mod tests {
     fn quota_dropped_event_names(events: &[WrappedEvent]) -> Vec<&str> {
         let mut names: Vec<&str> = events
             .iter()
-            .filter(|e| e.result == EventResult::Drop && e.destination == Destination::Drop)
+            .filter(|e| e.result == EventResult::Drop)
             .map(|e| e.event.event.as_str())
             .collect();
         names.sort();
@@ -396,7 +395,6 @@ mod tests {
         // Pre-mark one event as Drop (e.g. from validation)
         let bad_ev = events.iter_mut().find(|e| e.uuid == bad_uuid).unwrap();
         bad_ev.result = EventResult::Drop;
-        bad_ev.destination = Destination::Drop;
         bad_ev.details = Some("invalid_event_name");
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
@@ -674,7 +672,6 @@ mod tests {
         // Pre-mark pageview as Drop from a prior validation step
         let pv_ev = events.iter_mut().find(|e| e.uuid == pv_uuid).unwrap();
         pv_ev.result = EventResult::Drop;
-        pv_ev.destination = Destination::Drop;
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
         // $exception → Drop (quota), $pageview → already Drop → all non-Ok → error

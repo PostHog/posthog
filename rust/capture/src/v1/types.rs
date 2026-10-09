@@ -14,8 +14,6 @@ pub enum Destination {
     Overflow,
     Dlq,
     Custom(String),
-    /// Never published.
-    Drop,
     ExceptionErrorTracking,
     HeatmapMain,
     ClientIngestionWarning,
@@ -35,11 +33,7 @@ impl Destination {
             }
             Self::AiEvents | Self::AiEventsOverflow => Some(Pipeline::Ai),
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
-            Self::HeatmapMain
-            | Self::ClientIngestionWarning
-            | Self::Dlq
-            | Self::Custom(_)
-            | Self::Drop => None,
+            Self::HeatmapMain | Self::ClientIngestionWarning | Self::Dlq | Self::Custom(_) => None,
         }
     }
 
@@ -55,7 +49,6 @@ impl Destination {
             | Self::HeatmapMain
             | Self::ClientIngestionWarning
             | Self::AiEvents => false,
-            Self::Drop => false,
         }
     }
 
@@ -69,12 +62,11 @@ impl Destination {
             | Self::ExceptionErrorTracking
             | Self::HeatmapMain
             | Self::ClientIngestionWarning => false,
-            Self::Drop => false,
         }
     }
 
-    pub fn address(&self) -> Option<Address> {
-        let lane = |pipeline, lane| Some(Address::Lane { pipeline, lane });
+    pub fn address(&self) -> Address {
+        let lane = |pipeline, lane| Address::Lane { pipeline, lane };
         match self {
             Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
             Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
@@ -84,9 +76,8 @@ impl Destination {
             Self::ExceptionErrorTracking => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
             Self::HeatmapMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
             Self::ClientIngestionWarning => lane(pipeline::Pipeline::Warnings, Lane::Main),
-            Self::Dlq => Some(Address::Dlq),
-            Self::Custom(topic) => Some(Address::Custom(topic.clone())),
-            Self::Drop => None,
+            Self::Dlq => Address::Dlq,
+            Self::Custom(topic) => Address::Custom(topic.clone()),
         }
     }
 }
@@ -130,7 +121,6 @@ mod destination_tests {
         assert!(!Destination::AiEventsOverflow.is_analytics_pipeline());
         assert!(!Destination::Overflow.is_analytics_pipeline());
         assert!(!Destination::Dlq.is_analytics_pipeline());
-        assert!(!Destination::Drop.is_analytics_pipeline());
         assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
     }
 
@@ -155,12 +145,11 @@ mod destination_tests {
     )]
     #[case(Destination::AiEvents, Some(V0Destination::AiMain))]
     #[case(Destination::AiEventsOverflow, Some(V0Destination::AiOverflow))]
-    #[case(Destination::Drop, None)]
     fn address_matches_the_v0_destination(
         #[case] destination: Destination,
         #[case] expected: Option<V0Destination>,
     ) {
-        let v0 = destination.address().and_then(V0Destination::for_address);
+        let v0 = V0Destination::for_address(destination.address());
         assert_eq!(v0, expected);
     }
 }

@@ -16,7 +16,7 @@ use crate::v1::context::RequestContext;
 use crate::v1::types::{Destination, Publishable};
 
 /// Serialize publishable events into `PreparedEvent`s for driving outputs in
-/// tests. Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit)
+/// tests. Accepts `&[&dyn Publishable]` (integration) or `&[&ConcreteType]` (unit)
 /// via `?Sized`.
 pub fn prepared<E: Publishable + ?Sized>(
     events: &[&E],
@@ -25,10 +25,9 @@ pub fn prepared<E: Publishable + ?Sized>(
     events
         .iter()
         .filter(|e| e.should_publish())
-        .filter_map(|e| Some((e, e.destination().address()?)))
-        .map(|(e, address)| PreparedEvent {
+        .map(|e| PreparedEvent {
             uuid: e.uuid(),
-            address,
+            address: e.destination().address(),
             payload: e.serialize(ctx).expect("test payload must serialize"),
             headers: e.headers(ctx),
             partition_key: e.partition_key(ctx),
@@ -343,7 +342,6 @@ pub fn realistic_ordered_mixed_batch() -> Vec<WrappedEvent> {
 
     let mut exception_warning = realistic_custom("user-pos-3", "$exception");
     exception_warning.result = EventResult::Warning;
-    exception_warning.destination = Destination::Drop;
     exception_warning.details = Some("exceptions_over_quota");
 
     let click_overflow =
@@ -402,8 +400,7 @@ pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let custom = realistic_pageview("user-dest-4")
         .with_destination(Destination::Custom("custom_topic".to_string()));
     let dropped = realistic_pageview("user-dest-5")
-        .with_result(EventResult::Drop, Some("missing_event_name"))
-        .with_destination(Destination::Drop);
+        .with_result(EventResult::Drop, Some("missing_event_name"));
     vec![main, historical, overflow, dlq, custom, dropped]
 }
 

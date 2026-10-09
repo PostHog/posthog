@@ -52,13 +52,10 @@ fn prepare_one<E: Publishable>(
     if !ev.should_publish() {
         return Ok(None);
     }
-    let Some(address) = ev.destination().address() else {
-        return Ok(None);
-    };
     let payload = ev.serialize(ctx)?;
     Ok(Some(PreparedEvent {
         uuid: ev.uuid(),
-        address,
+        address: ev.destination().address(),
         payload,
         headers: ev.headers(ctx),
         partition_key: ev.partition_key(ctx),

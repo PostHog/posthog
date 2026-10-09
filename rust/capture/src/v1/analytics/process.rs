@@ -106,7 +106,6 @@ async fn run_pipeline(
     if state.capture_mode.requires_historical_migration() && !context.historical_migration {
         for ev in events.iter_mut() {
             ev.result = EventResult::Drop;
-            ev.destination = Destination::Drop;
             ev.details = Some(DETAIL_NON_HISTORICAL_DROP);
         }
         metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_historical_import")
@@ -286,7 +285,6 @@ fn apply_gateway_provenance(state: &router::State, context: &Context, events: &m
 /// so a forged marker we can't remove would otherwise survive to billing — fail closed.
 fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
     ev.result = EventResult::Drop;
-    ev.destination = Destination::Drop;
     ev.details = Some("gateway_props_unparseable");
     metrics::counter!(
         crate::v1::gateway_provenance::PROVENANCE_METRIC,
@@ -869,7 +867,6 @@ async fn apply_restrictions(
         if applied.should_drop() {
             event.result = EventResult::Drop;
             event.details = Some(DETAIL_EVENT_RESTRICTION_DROP);
-            event.destination = Destination::Drop;
             metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "event_restriction")
                 .increment(1);
             continue;
@@ -943,7 +940,6 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
             continue;
         }
         event.result = EventResult::Drop;
-        event.destination = Destination::Drop;
         event.details = Some(DETAIL_MISROUTED_EVENT);
         dropped += 1;
         single_offender = match dropped {
@@ -1025,7 +1021,6 @@ fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) 
         if exceeds_max_ai_event_bytes(event.event.properties.get().len(), max_event_bytes) {
             event.result = EventResult::Drop;
             event.details = Some(DETAIL_AI_EVENT_TOO_BIG);
-            event.destination = Destination::Drop;
             dropped += 1;
         }
     }
@@ -1064,7 +1059,6 @@ async fn apply_ai_byte_limits(
         if charge_ai_bytes(limiter, token, event.event.properties.get().len()).await {
             event.result = EventResult::Drop;
             event.details = Some(DETAIL_AI_BYTE_RATE_LIMITED);
-            event.destination = Destination::Drop;
             dropped += 1;
         }
     }
@@ -1583,7 +1577,6 @@ mod tests {
                 Some(DETAIL_PERSON_PROCESSING_DISABLED),
                 "id={id:?}"
             );
-            assert_ne!(flagged.destination, Destination::Drop, "id={id:?}");
 
             let normal = &events[1];
             assert_eq!(normal.result, EventResult::Ok, "id={id:?}");
@@ -2098,7 +2091,6 @@ mod tests {
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
-            assert_eq!(ev.destination, Destination::Drop);
         }
     }
 
@@ -2128,7 +2120,6 @@ mod tests {
         // valid event gets dropped by restriction
         let valid = find_by_did(&events, "user-valid");
         assert_eq!(valid.result, EventResult::Drop);
-        assert_eq!(valid.destination, Destination::Drop);
     }
 
     #[tokio::test]
@@ -2216,7 +2207,6 @@ mod tests {
 
         let big = find_by_did(&events, "user-big");
         assert_eq!(big.result, EventResult::Drop);
-        assert_eq!(big.destination, Destination::Drop);
         assert_eq!(big.details, Some(DETAIL_AI_EVENT_TOO_BIG));
 
         let kept = find_by_did(&events, "user-1");
@@ -2257,7 +2247,6 @@ mod tests {
         apply_ai_event_size_limit(700, &mut events);
 
         assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].destination, Destination::Drop);
     }
 
     /// Lane membership decides the charge, and a restriction that retargets an
@@ -2289,7 +2278,6 @@ mod tests {
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, destination);
         assert_eq!(events[1].result, EventResult::Drop);
-        assert_eq!(events[1].destination, Destination::Drop);
     }
 
     /// The mirror of the case above: an event that was never on the AI lane is
@@ -2554,7 +2542,6 @@ mod tests {
 
         // Analytics event gets dropped by analytics-pipeline restriction
         assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].destination, Destination::Drop);
         // Exception event is untouched — it's on the ErrorTracking pipeline,
         // which has no restrictions configured here.
         assert_eq!(events[1].result, EventResult::Ok);
@@ -2592,7 +2579,6 @@ mod tests {
             EventResult::Drop,
             "exception should be dropped"
         );
-        assert_eq!(events[0].destination, Destination::Drop);
         assert_eq!(events[1].result, EventResult::Ok, "pageview should be kept");
         assert_eq!(events[1].destination, Destination::AnalyticsMain);
     }
@@ -2907,14 +2893,12 @@ mod tests {
         // Simulate event already dropped by restrictions
         let pd = events.iter_mut().find(|e| e.uuid == pre_drop_uuid).unwrap();
         pd.result = EventResult::Drop;
-        pd.destination = Destination::Drop;
 
         apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         // Pre-dropped event untouched
         let dropped = find_by_did(&events, "user-1");
         assert_eq!(dropped.result, EventResult::Drop);
-        assert_eq!(dropped.destination, Destination::Drop);
         // Other event rate-limited (person processing disabled, rerouted to overflow)
         let limited = find_by_did(&events, "user-2");
         assert_eq!(limited.result, EventResult::Warning);
@@ -3028,7 +3012,6 @@ mod tests {
         events[1].force_disable_person_processing = true;
         // user-3 was dropped by an earlier stage.
         events[2].result = EventResult::Drop;
-        events[2].destination = Destination::Drop;
 
         let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
@@ -3263,7 +3246,6 @@ mod tests {
         let mut events = vec![ev];
         let e = events.iter_mut().find(|e| e.uuid == ev_uuid).unwrap();
         e.result = EventResult::Drop;
-        e.destination = Destination::Drop;
 
         apply_historical_rerouting(&cfg, &ctx, &mut events);
 
@@ -3273,7 +3255,7 @@ mod tests {
                 .find(|e| e.uuid == ev_uuid)
                 .unwrap()
                 .destination,
-            Destination::Drop
+            Destination::AnalyticsMain
         );
     }
 
@@ -3426,7 +3408,6 @@ mod tests {
         );
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
-            assert_eq!(ev.destination, Destination::Drop);
         }
     }
 
@@ -4246,7 +4227,6 @@ mod tests {
         ];
         events[0].result = EventResult::Drop;
         events[0].details = Some("billing_limit_exceeded");
-        events[0].destination = Destination::Drop;
 
         // Only one publish result (for the published event)
         let (failures, publish_results) = published(events[1].uuid);
@@ -4717,7 +4697,6 @@ mod tests {
         drop_non_ai_events(&ts.state, &ctx, &mut events);
 
         assert_eq!(events[0].result, EventResult::Drop);
-        assert_eq!(events[0].destination, Destination::Drop);
         assert_eq!(events[0].details, Some(DETAIL_MISROUTED_EVENT));
     }
 

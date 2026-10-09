@@ -367,8 +367,7 @@ impl Publishable for WrappedEvent {
     }
 
     fn should_publish(&self) -> bool {
-        (self.result == EventResult::Ok || self.result == EventResult::Warning)
-            && self.destination != Destination::Drop
+        self.result == EventResult::Ok || self.result == EventResult::Warning
     }
 
     fn destination(&self) -> &Destination {
@@ -1386,10 +1385,6 @@ mod tests {
     #[rstest::rstest]
     #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
     #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
-    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
-    #[case::warning_dest_drop(EventResult::Warning, Destination::Drop)]
-    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
-    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
