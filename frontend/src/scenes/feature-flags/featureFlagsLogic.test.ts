@@ -575,6 +575,38 @@ describe('updateFeatureFlagArchived', () => {
         )
     })
 
+    it.each(['flag update', 'new page'])('preserves a %s received while cleanup is pending', async (change) => {
+        let resolveCleanup: (result: { task_id: string; repository: string }) => void = () => {}
+        const cleanup = jest
+            .spyOn(flagApi, 'featureFlagsCleanupPrCreate')
+            .mockImplementation(() => new Promise((resolve) => (resolveCleanup = resolve)))
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadFeatureFlagsSuccess({
+            ...logic.values.featureFlags,
+            count: 1,
+            results: [{ id: 1, key: 'test-flag', active: true } as FeatureFlagType],
+        })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, cleanupPr: { keep: 'enabled' } })
+        await waitFor(() => expect(cleanup).toHaveBeenCalled())
+        if (change === 'flag update') {
+            logic.actions.updateFlag({ id: 1, key: 'updated-flag', active: false } as FeatureFlagType)
+        } else {
+            logic.actions.loadFeatureFlagsSuccess({
+                ...logic.values.featureFlags,
+                count: 31,
+                results: [{ id: 2, key: 'another-page', active: true } as FeatureFlagType],
+                filters: { search: 'another' },
+            })
+        }
+        const latest = logic.values.featureFlags
+        resolveCleanup({ task_id: 'cleanup-task', repository: 'example/app' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.featureFlags).toEqual(latest)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+    })
+
     it('marks the row as updating until the archive resolves', async () => {
         jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
 

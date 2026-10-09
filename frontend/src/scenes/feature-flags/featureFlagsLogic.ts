@@ -583,6 +583,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     })),
     reducers({
         featureFlags: {
+            updateFeatureFlagArchivedSuccess: (state, { featureFlags, payload }) =>
+                payload?.archived && payload.cleanupPr && payload.cleanupPr.keep !== 'disabled' ? state : featureFlags,
             updateFlag: (state, { flag }) => ({
                 ...state,
                 results: state.results.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag)),

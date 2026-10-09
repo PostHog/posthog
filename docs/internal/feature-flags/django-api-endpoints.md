@@ -122,11 +122,14 @@ It is the one action that cannot return a 409: every gated action declines a cha
 
 Both cleanup endpoints require PostHog Desktop access.
 `cleanup_target` reads the repository cache and schedules a background refresh when it is stale.
+Concurrent refresh workers share a per-integration lease to avoid repeated GitHub scans.
 An empty cache being refreshed returns `source: refreshing`; retry the lookup once the refresh completes.
 Repository resolution excludes archived repositories and validates the chosen repository against the team's GitHub installation before starting a task.
 
 `cleanup_pr` requires both `feature_flag:write` and `task:write`, enforces the task usage limit, and rejects requests from sandbox agents.
-Each flag has one cleanup task, so retries and archive cycles return the existing task instead of starting another run.
+Each flag has one cleanup task, so retries and archive cycles return the existing task.
+Teammates can read the task; its creator can retry a failed run without creating another task.
+Concurrent retries of a failed run start one new run. Queued, running, and completed runs are reused.
 The task is attributed to feature flags and uses read-only PostHog MCP scopes.
 
 The caller chooses the code to keep: `enabled`, `disabled`, or `variant` with a `variant_key` from the flag.

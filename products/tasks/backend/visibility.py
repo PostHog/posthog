@@ -24,6 +24,7 @@ TEAM_VISIBLE_ORIGIN_PRODUCTS = [
 TEAM_READABLE_ORIGIN_PRODUCTS = [
     *TEAM_VISIBLE_ORIGIN_PRODUCTS,
     Task.OriginProduct.EXPERIMENTS,
+    Task.OriginProduct.FEATURE_FLAGS,
 ]
 
 # These tasks carry another product's data, so only that product reads them, through its own facade

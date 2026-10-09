@@ -16,6 +16,7 @@ from rest_framework.test import APIClient
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.tasks.integrations import refresh_github_repository_cache
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
@@ -23,7 +24,7 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.flag_cleanup import resolve_cleanup_repository
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 MULTIVARIATE_FILTERS = {
     "groups": [{"properties": [], "rollout_percentage": 100}],
@@ -337,6 +338,55 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         mock_create_task.assert_not_called()
         assert Task.objects.filter(team=self.team, origin_key=existing.origin_key).count() == 1
 
+    @patch("products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_failed_cleanup_retries_once_even_when_callers_observed_the_failed_run(self, mock_github, mock_dispatch):
+        mock_github.return_value = _github(["posthog/posthog"])
+        flag = self._flag()
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Existing cleanup",
+            origin_product=Task.OriginProduct.FEATURE_FLAGS,
+            origin_key=f"feature-flag-cleanup:{flag.id}",
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.FAILED)
+        stale_task = tasks_facade.get_task_by_origin_key(self.team.id, task.origin_key)
+
+        with patch("products.tasks.backend.facade.api.get_task_by_origin_key", return_value=stale_task):
+            for _ in range(2):
+                response = self.client.post(self._url(flag, "cleanup_pr"), {"keep": "disabled"})
+                assert response.status_code == 200, response.json()
+                assert response.json()["task_id"] == str(task.id)
+
+        assert task.runs.count() == 2
+        mock_dispatch.assert_called_once()
+        assert mock_dispatch.call_args.kwargs["options"].posthog_mcp_scopes == "read_only"
+
+    @patch("products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_failed_cleanup_cannot_be_restarted_by_another_member(self, mock_github, mock_dispatch):
+        mock_github.return_value = _github(["posthog/posthog"])
+        flag = self._flag()
+        owner = User.objects.create(email="cleanup-owner@example.com")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=owner,
+            title="Existing cleanup",
+            origin_product=Task.OriginProduct.FEATURE_FLAGS,
+            origin_key=f"feature-flag-cleanup:{flag.id}",
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.FAILED)
+
+        response = self.client.post(self._url(flag, "cleanup_pr"), {"keep": "disabled"})
+
+        assert response.status_code == 403, response.json()
+        assert "creator" in response.json()["detail"]
+        assert task.runs.count() == 1
+        mock_dispatch.assert_not_called()
+
     @patch("products.tasks.backend.facade.api.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_long_flag_key_fits_task_title_and_stays_in_prompt(self, mock_resolve_github, mock_create_task):
@@ -401,6 +451,23 @@ class TestFeatureFlagCleanupPrApi(APIBaseTest):
         integration.refresh_from_db()
         assert integration.repository_cache == []
         assert integration.repository_cache_updated_at is None
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    def test_background_cache_refresh_coalesces_overlapping_workers(self, mock_list_repositories):
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="456", config={})
+
+        def scan_repositories():
+            if mock_list_repositories.call_count == 1:
+                refresh_github_repository_cache.run(integration.id, self.team.id)
+            return [{"id": 1, "name": "app", "full_name": "example/app"}]
+
+        mock_list_repositories.side_effect = scan_repositories
+        refresh_github_repository_cache.run(integration.id, self.team.id)
+        refresh_github_repository_cache.run(integration.id, self.team.id)
+
+        mock_list_repositories.assert_called_once()
+        integration.refresh_from_db()
+        assert integration.repository_cache[0]["full_name"] == "example/app"
 
     @parameterized.expand(
         [
