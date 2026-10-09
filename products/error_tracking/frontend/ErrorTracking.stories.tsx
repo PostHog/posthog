@@ -849,10 +849,7 @@ export const GroupPageFingerprintList: Story = {
 
 export const GroupPageManageFingerprints: Story = {
     name: 'Issue scene with manage fingerprints',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_SPLITTING],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(FINGERPRINT_LIST_ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" manageFingerprintsOpen />,
 }
 

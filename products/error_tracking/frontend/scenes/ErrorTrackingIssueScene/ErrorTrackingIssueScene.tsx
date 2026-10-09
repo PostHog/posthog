@@ -76,7 +76,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
@@ -151,7 +150,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     <SceneMenuBar>
                                         <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
                                             <SceneMenuBarFileItems dataAttrKey="issue" />
-                                            {hasIssueSplitting && <ManageFingerprintsMenuItem issueId={issueId} />}
+                                            <ManageFingerprintsMenuItem issueId={issueId} />
                                         </SceneMenuBarMenu>
                                         <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
                                             <SceneMenuBarItem
@@ -292,7 +291,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 )}
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
-                                {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
+                                <ManageFingerprintsModal issueId={issueId} />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
