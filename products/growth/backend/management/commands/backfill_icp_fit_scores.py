@@ -61,7 +61,13 @@ from products.growth.backend.enrichment.writer import (
 )
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
-_BackfillOutcome = Literal["written", "skipped_org_gone", "skipped_wizard_unavailable", "skipped_stale_fetch"]
+_BackfillOutcome = Literal[
+    "written",
+    "cleared_not_company_email",
+    "skipped_org_gone",
+    "skipped_wizard_unavailable",
+    "skipped_stale_fetch",
+]
 
 
 class _Stats:
@@ -213,21 +219,34 @@ class Command(BaseCommand):
             return "skipped_org_gone"
 
         record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
-        wizard_ai_sdk = _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
+        identity = gates.resolve_signup_identity(str(fetch.organization_id))
+        clears_fit = isinstance(identity, gates.SignupIdentitySkip) and identity.reason == "not_company_email"
+        outcome: _BackfillOutcome = "cleared_not_company_email" if clears_fit else "written"
+        verb, done = ("clear", "cleared") if clears_fit else ("write", "wrote")
+        clear_domain = signup_domain_for_organization(organization) if clears_fit else None
+        detail = f" signup_domain={clear_domain}" if clears_fit else ""
+        wizard_ai_sdk = (
+            False
+            if clears_fit
+            else _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
+        )
         if wizard_ai_sdk is None:
             return "skipped_wizard_unavailable"
         with lock_organization_enrichment(str(fetch.organization_id)):
             current_fetch = latest_fetch(str(fetch.organization_id))
             if current_fetch is None or current_fetch.id != fetch.id:
                 return "skipped_stale_fetch"
-            result = _score_backfill_fetch(
-                fetch=fetch, organization=organization, lists=lists, wizard_ai_sdk=wizard_ai_sdk
-            )
+            if clears_fit:
+                result = score_company(None, lists=lists, domain=clear_domain)
+            else:
+                result = _score_backfill_fetch(
+                    fetch=fetch, organization=organization, lists=lists, wizard_ai_sdk=wizard_ai_sdk
+                )
             stats.add(result)
 
             if dry_run:
-                self.stdout.write(f"would write {fetch.organization_id}: {result.status} score={result.score}")
-                return "written"
+                self.stdout.write(f"would {verb} {fetch.organization_id}: {result.status} score={result.score}{detail}")
+                return outcome
 
             if (
                 require_active_config
@@ -247,10 +266,10 @@ class Command(BaseCommand):
         project_organization_enrichment(
             organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
         )
-        self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
+        self.stdout.write(f"{done} {fetch.organization_id}: {result.status} score={result.score}{detail}")
         if delay:
             time.sleep(delay)
-        return "written"
+        return outcome
 
     def _run_backfill(self, options: dict[str, Any]) -> None:
         if not gates.region_allowed():
@@ -276,6 +295,7 @@ class Command(BaseCommand):
 
         outcomes: dict[_BackfillOutcome, int] = {
             "written": 0,
+            "cleared_not_company_email": 0,
             "skipped_org_gone": 0,
             "skipped_wizard_unavailable": 0,
             "skipped_stale_fetch": 0,
@@ -297,10 +317,11 @@ class Command(BaseCommand):
         finally:
             pha_client.shutdown()
 
-        verb = "would write" if dry_run else "wrote"
+        verb, cleared = ("would write", "would clear") if dry_run else ("wrote", "cleared")
         self.stdout.write(
             self.style.SUCCESS(
                 f"considered {considered}, {verb} {outcomes['written']}, "
+                f"{cleared} (not a company email) {outcomes['cleared_not_company_email']}, "
                 f"skipped_org_gone {outcomes['skipped_org_gone']}, "
                 f"skipped_wizard_unavailable {outcomes['skipped_wizard_unavailable']}, "
                 f"skipped_stale_fetch {outcomes['skipped_stale_fetch']}"

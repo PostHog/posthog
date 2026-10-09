@@ -6,6 +6,9 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
+
 from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, WizardBridgeInputs
 from products.growth.backend.enrichment.fit_score import score_company
 from products.growth.backend.enrichment.icp_lists import build_curated_lists, clear_lists_cache
@@ -123,6 +126,29 @@ class TestBackfillIcpFitScores(BaseTest):
         record.refresh_from_db()
         assert record.data["icp_fit_evaluation_kind"] == "backfill"
         assert record.data["icp_fit_evaluated_at"]
+
+    def test_clears_the_score_of_an_org_whose_signup_email_is_not_a_company_email(self):
+        organization = Organization.objects.create(name="proton signup")
+        user = User.objects.create_user(email="founder@proton.me", password=None, first_name="signup")
+        OrganizationMembership.objects.create(organization=organization, user=user)
+        OrganizationEnrichmentFetch.objects.create(organization=organization, provider="harmonic", payload=_PAYLOAD)
+        record = OrganizationEnrichment.objects.create(
+            organization=organization,
+            data={"icp_fit_status": "scored", "icp_fit_score": 75, "icp_fit_version": "v0.7"},
+        )
+        pha_client = MagicMock()
+
+        with (
+            patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", return_value=OrganizationBridgeInputs()),
+        ):
+            call_command("backfill_icp_fit_scores", "--delay=0")
+
+        record.refresh_from_db()
+        assert record.data["icp_fit_status"] == "not_found"
+        assert "icp_fit_score" not in record.data
+        assert pha_client.group_identify.call_args.kwargs["properties"] == {"icp_fit_status": "not_found"}
 
     def test_policy_change_stops_an_old_backfill_before_it_overwrites_a_new_score(self):
         record = self._record({})

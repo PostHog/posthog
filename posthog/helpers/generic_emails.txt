@@ -87,6 +87,7 @@ ajacied.com
 ak47.hu
 aknet.kg
 albawaba.com
+aleeas.com
 alex4all.com
 alexandria.cc
 algeria.com
@@ -177,6 +178,7 @@ atlanticbb.net
 atlaswebmail.com
 atlink.com
 ato.check.com
+atomicmail.io
 atozasia.com
 att.net
 att.net
@@ -309,6 +311,7 @@ bt.com
 btinternet.com
 btopenworld.co.uk
 buffymail.com
+bugcrowdninja.com
 bullsfan.com
 bullsgame.com
 bumerang.ro
@@ -588,6 +591,7 @@ dslextreme.com
 dubaimail.com
 dublin.com
 dublin.ie
+duck.com
 dunlopdriver.com
 dunloprider.com
 duno.com
@@ -666,6 +670,7 @@ eqqu.com
 eramail.co.za
 eresmas.com
 eriga.lv
+erine.email
 erols.com
 estranet.it
 ethos.st
@@ -704,6 +709,7 @@ fastemail.us
 fastemailer.com
 fastermail.com
 fastimap.com
+fastmail.com
 fastmail.fm
 fastmailbox.net
 fastmessaging.com
@@ -1002,6 +1008,7 @@ herediano.com
 heremail.com
 herono1.com
 hetnet.nl
+hey.com
 hey.to
 hhdevel.com
 highmilton.com
@@ -1217,6 +1224,7 @@ katamail.com
 kayafmmail.co.za
 kbjrmail.com
 kcks.com
+keemail.me
 keg-party.com
 keko.com.ar
 kellychen.com
@@ -2939,8 +2947,14 @@ ourbrisbane.com
 ournet.md
 outel.com
 outgun.com
+outlook.co.uk
 outlook.com
 outlook.com.br
+outlook.de
+outlook.es
+outlook.fr
+outlook.it
+outlook.jp
 over-the-rainbow.com
 ownmail.net
 ozbytes.net.au
@@ -2958,6 +2972,9 @@ parsmail.com
 partlycloudy.com
 partynight.at
 parvazi.com
+passinbox.com
+passmail.com
+passmail.net
 passwordmail.com
 pathfindermail.com
 patmedia.net
@@ -2997,6 +3014,7 @@ plasa.com
 playersodds.com
 playful.com
 plusmail.com.br
+pm.me
 pmail.net
 pobox.com
 pobox.hu
@@ -3041,6 +3059,7 @@ press.co.jp
 priest.com
 primposta.com
 primposta.hu
+privaterelay.appleid.com
 pro.hu
 probemail.com
 prodigy.net
@@ -3053,6 +3072,8 @@ project2k.com
 prolaunch.com
 promessage.com
 prontomail.com
+proton.me
+protonmail.ch
 protonmail.com
 psi.net
 psv-supporter.com
@@ -3199,6 +3220,8 @@ sialkotian.com
 sialkotoye.com
 sify.com
 silkroad.net
+simplelogin.com
+simplelogin.fr
 sina.cn
 sina.com
 sinamail.com
@@ -3213,6 +3236,7 @@ sky.com
 skynet.be
 slamdunkfan.com
 slingshot.com
+slmail.me
 slo.net
 slotter.com
 smapxsmap.net
@@ -3491,6 +3515,11 @@ tsamail.co.za
 ttml.co.in
 tunisiamail.com
 turkey.com
+tuta.com
+tuta.io
+tutamail.com
+tutanota.com
+tutanota.de
 tvcablenet.be
 twinstarsmail.com
 tycoonmail.com
@@ -3601,6 +3630,7 @@ warrior.hu
 waumail.com
 wbdet.com
 wearab.net
+wearehackerone.com
 web-mail.com.ar
 web-police.com
 web.de
@@ -3771,6 +3801,7 @@ zipmail.com.br
 zipmax.com
 zmail.ru
 zoho.com
+zohomail.com
 zonnet.nl
 zoominternet.net
 zubee.com

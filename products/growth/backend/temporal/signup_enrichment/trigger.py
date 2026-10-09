@@ -23,7 +23,6 @@ from temporalio.service import RPCError
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import GenericEmails
 
 from products.growth.backend.enrichment import gates
 from products.growth.backend.enrichment.writer import record_signup_work_email
@@ -33,8 +32,6 @@ from products.growth.backend.temporal.signup_enrichment.workflow import SignupEn
 logger = structlog.get_logger(__name__)
 
 RescoreDispatchFailure = Literal["dispatch_backlog_full", "dispatch_failed"]
-
-_generic_emails = GenericEmails()
 
 # Bounded dispatch pool: a slow or unreachable Temporal must never let signup-triggered
 # threads accumulate on web pods. When the pool's backlog cap is hit, dispatch drops —
@@ -70,7 +67,7 @@ def start_signup_enrichment_workflow(
     if not domain:
         return
 
-    work_email = not _generic_emails.is_generic(email)
+    work_email = gates.is_company_email(email)
     _record_work_email(
         organization_id=str(organization_id), work_email=work_email, signup_role=role_at_organization or None
     )
