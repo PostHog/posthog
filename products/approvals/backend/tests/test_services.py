@@ -197,6 +197,7 @@ class TestApplyApprovedEncryptedPayloads(APIBaseTest):
         assert flag.active is False
         assert flag.filters["payloads"]["true"] == stored_payload
         change_request.refresh_from_db()
+        assert change_request.updated_at is not None
         assert change_request.updated_at > old_updated_at
 
 
@@ -417,4 +418,5 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
             change_request.refresh_from_db()
             assert change_request.validation_status == ValidationStatus.INVALID
             assert change_request.state == ChangeRequestState.FAILED
+            assert change_request.updated_at is not None
             assert change_request.updated_at > old_updated_at
