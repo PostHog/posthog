@@ -223,9 +223,9 @@ def _load_single_active_skill(
     Reads the user's one enabled row for the prefix, falling back to the default `canonical_name`
     when none is enabled — there is always a default, so no min-1 floor. Every name in
     `canonical_names` is selectable by any user. A selected custom whose skill row is dead (e.g.
-    archived from the Skills UI) also falls back to the canonical rather than failing the run, as does a selected custom the acting user did not author (a leftover from before
-    visibility became author-only — the config API no longer allows such a selection). Raises
-    `error` only when the canonical itself has no live row (the sync recreates archived canonicals,
+    archived from the Skills UI) also falls back to the canonical rather than failing the run, as
+    does a selected custom the acting user did not author (a leftover from before visibility
+    became author-only — the config API no longer allows such a selection). Raises `error` only when the canonical itself has no live row (the sync recreates archived canonicals,
     so this is a genuine seeding failure). The enabled set is single-active in app code;
     `sorted(...)[0]` is only a deterministic tiebreak.
     """
