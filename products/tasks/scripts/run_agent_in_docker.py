@@ -24,8 +24,9 @@ django.setup()
 
 from django.db import transaction
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.models import Integration, PersonalAPIKey, Team, User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
@@ -80,11 +81,9 @@ def create_test_task(repository=None):
 
         task_run = TaskRun.objects.create(task=task, team=team)
 
-        api_key_value = generate_random_token_personal()
-        api_key = PersonalAPIKey.objects.create(
-            user=user,
+        minted = mint_personal_api_key(
+            user,
             label="Test runAgent",
-            secure_value=hash_key_value(api_key_value),
             scopes=[
                 "error_tracking:read",
                 "user:read",
@@ -93,8 +92,10 @@ def create_test_task(repository=None):
                 "task:read",
                 "task:write",
             ],
-            scoped_teams=[team.id],
+            teams=AccessibleTeams.for_user(user, [team.id]),
         )
+        api_key = minted.key
+        api_key_value = minted.value
 
         print(f"✓ Created test task: {task.id}")
         print(f"  - Run ID: {task_run.id}")

@@ -14,8 +14,9 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
+from posthog.accessible_teams import AccessibleTeams  # noqa: E402
 from posthog.models import Organization, PersonalAPIKey, Team, User  # noqa: E402
-from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value  # noqa: E402
+from posthog.personal_api_key_minting import mint_personal_api_key  # noqa: E402
 
 org = Organization.objects.first()
 if not org:
@@ -31,13 +32,11 @@ user = User.objects.filter(email="ci@posthog.com").first()
 if not user:
     user = User.objects.create_and_join(org, "ci@posthog.com", "CiTest123!", "Hobby CI")
 
-raw_key = generate_random_token_personal()
 PersonalAPIKey.objects.filter(user=user, label="ci-smoke-test").delete()
-PersonalAPIKey.objects.create(
-    user=user,
+minted = mint_personal_api_key(
+    user,
     label="ci-smoke-test",
-    secure_value=hash_key_value(raw_key),
-    mask_value=mask_key_value(raw_key),
     scopes=["query:read", "logs:read", "error_tracking:read", "session_recording:read", "tracing:read"],
+    teams=AccessibleTeams.all_for(user),
 )
-print(f"{team.api_token}|||{raw_key}")  # noqa: T201
+print(f"{team.api_token}|||{minted.value}")  # noqa: T201

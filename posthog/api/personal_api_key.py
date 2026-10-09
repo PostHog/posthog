@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
@@ -17,10 +18,14 @@ from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
+
+SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
+SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
 
 
 def validate_personal_api_key_scopes(
@@ -148,17 +153,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return scopes
 
     def validate_scoped_teams(self, scoped_teams):
-        requesting_user: User = self.context["request"].user
-        user_permissions = UserPermissions(requesting_user)
-
-        teams = Team.objects.filter(pk__in=scoped_teams)
-
-        if len(teams) != len(scoped_teams):
-            raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
-
-        for team in teams:
-            if user_permissions.team(team).effective_membership_level is None:
-                raise serializers.ValidationError(f"You must be a member of all teams that you are scoping the key to.")
+        try:
+            AccessibleTeams.for_request(self.context["request"], scoped_teams or None)
+        except CredentialScopeDenied:
+            raise serializers.ValidationError(SCOPED_TEAMS_ACCESS_ERROR) from None
 
         return scoped_teams
 
@@ -181,19 +179,26 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return scoped_organizations
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
-        user = self.context["request"].user
+        request = self.context["request"]
+        user = request.user
         count = PersonalAPIKey.objects.filter(user=user).count()
         if count >= MAX_API_KEYS_PER_USER:
             raise serializers.ValidationError(
                 f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
             )
-        value = generate_random_token_personal()
-        mask_value = mask_key_value(value)
-        secure_value = hash_key_value(value)
-        personal_api_key = PersonalAPIKey.objects.create(
-            user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
-        )
-        personal_api_key._value = value  # type: ignore
+        try:
+            minted = mint_personal_api_key(
+                user,
+                label=validated_data["label"],
+                description=validated_data.get("description"),
+                scopes=validated_data["scopes"],
+                teams=AccessibleTeams.for_request(request, validated_data.get("scoped_teams") or None),
+                organization_ids=validated_data.get("scoped_organizations") or [],
+            )
+        except CredentialScopeDenied:
+            raise serializers.ValidationError(SCOPE_ACCESS_ERROR) from None
+        personal_api_key = minted.key
+        personal_api_key._value = minted.value  # type: ignore
         # User created their FIRST PAT themselves through a session, so the credential
         # review interstitial has nothing partner-issued to surface for them - mark it
         # acknowledged. Four gates, all load-bearing:
@@ -207,7 +212,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         #   - no live third-party OAuth access: a partner-provisioned account has access
         #     to disclose even with no partner-issued PAT, and stamping here would retire
         #     the interstitial before the user was ever shown that connection.
-        request = self.context["request"]
         if (
             count == 0
             and user.credentials_reviewed_at is None

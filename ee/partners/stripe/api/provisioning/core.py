@@ -19,16 +19,16 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 import structlog
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -659,23 +659,20 @@ def maybe_create_provisioned_pat(
     # target only provisioned keys - scope alone is ambiguous with keys a user
     # created via /api/personal_api_keys/ carrying the same team/org scope.
     try:
-        api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
         # final string to match so we never violate the column constraint.
         label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
-        PersonalAPIKey.objects.create(
-            user=user,
+        minted = mint_personal_api_key(
+            user,
             label=label,
-            secure_value=hash_key_value(api_key_value),
-            mask_value=mask_key_value(api_key_value),
             scopes=pat_scopes,
-            scoped_teams=[team.id],
-            scoped_organizations=[str(team.organization_id)],
+            teams=AccessibleTeams.for_user(user, [team.id]),
+            organization_ids=[str(team.organization_id)],
         )
 
-        return api_key_value
+        return minted.value
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "team_id": team.id})
         return None
