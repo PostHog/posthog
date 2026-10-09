@@ -68,21 +68,24 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
 
 def _live_condition_sets(flag: FlagState) -> list[tuple[int, FlagReleaseGroup]]:
     """The release conditions that can include users, numbered from 1 as the page labels them ("Set 2")."""
-    # In a flag that mixes person and group conditions, the flag service skips a group condition for a
-    # request without that group's key, so a group condition never decides for every request.
-    mixes_aggregation = len({group.aggregation_group_type_index for group in flag.release_groups}) > 1
+    # A request without a group's key skips that group's conditions, so a group condition ends the evaluation
+    # only for the requests of its group type. A person condition ends it for every request.
+    ended_group_types: set[int] = set()
     live: list[tuple[int, FlagReleaseGroup]] = []
     for number, group in enumerate(flag.release_groups, start=1):
+        group_type = group.aggregation_group_type_index
+        if group_type in ended_group_types:
+            continue
         # A missing rollout serves every matched user, as on the flag service.
         rollout = 100 if group.rollout_percentage is None else group.rollout_percentage
-        if rollout <= 0:
-            continue
-        live.append((number, group))
-        # A condition without properties matches every user who reaches it. At a full rollout, or with early
-        # exit at any rollout, it ends the evaluation for all of them, so later conditions match nobody.
-        decides_for_everyone = not group.property_count and (rollout >= 100 or flag.early_exit)
-        if decides_for_everyone and (not mixes_aggregation or group.aggregation_group_type_index is None):
-            break
+        if rollout > 0:
+            live.append((number, group))
+        # A condition without properties matches every request that reaches it. At a full rollout, or with early
+        # exit at any rollout including 0%, the evaluation ends there for all of them.
+        if not group.property_count and (rollout >= 100 or flag.early_exit):
+            if group_type is None:
+                break
+            ended_group_types.add(group_type)
     return live
 
 

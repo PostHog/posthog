@@ -89,6 +89,22 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ("some_conditions_pinned", ExperimentHealthFindingSeverity.INFO, "2", "test"),
             ),
             (
+                "override_after_a_catch_all_of_the_same_group_type",
+                _context(
+                    [
+                        {**EVERYONE, "aggregation_group_type_index": 0, "variant": "test"},
+                        {**EVERYONE, "aggregation_group_type_index": 0},
+                        {**STAFF, "variant": "control"},
+                    ]
+                ),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 3", "test, control"),
+            ),
+            (
+                "override_after_a_zero_catch_all_with_early_exit",
+                _context([{**EVERYONE, "rollout_percentage": 0}, {**EVERYONE, "variant": "control"}], early_exit=True),
+                None,
+            ),
+            (
                 "override_after_a_partial_catch_all_with_early_exit",
                 _context([{**EVERYONE, "rollout_percentage": 50}, {**STAFF, "variant": "test"}], early_exit=True),
                 None,

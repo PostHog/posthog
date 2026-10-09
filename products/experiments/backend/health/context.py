@@ -137,7 +137,7 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
         groups=flag.conditions,
         variants=flag.variants,
         aggregation_group_type_index=flag.aggregation_group_type_index,
-        early_exit=(flag.get_filters() or {}).get("early_exit"),
+        early_exit=flag.early_exit,
     )
 
 
