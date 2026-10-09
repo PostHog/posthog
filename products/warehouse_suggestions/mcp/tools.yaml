@@ -28,7 +28,8 @@ tools:
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
-                Reply 'confirm' to proceed.
+                If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute
+                cost. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
     warehouse-suggestions-dismiss:
         operation: warehouse_suggestions_dismiss_create

@@ -41,7 +41,7 @@ const warehouseSuggestionsAcceptPrepare = (): ToolBase<
             purpose: 'warehouse-suggestions-accept',
             actionLabel: 'accept warehouse suggestion',
             messageTemplate:
-                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. Reply 'confirm' to proceed.\n",
+                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
