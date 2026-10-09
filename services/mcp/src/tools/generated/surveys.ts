@@ -33,7 +33,7 @@ const SurveyCreateSchema = () => {
             'Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints, external_survey for hosted forms with a shareable public URL, and api only for headless custom implementations.'
         ),
         schedule: SurveysCreateBody.shape['schedule'].describe(
-            'Survey scheduling behavior. Omit this to use the default once behavior. Use recurring only when the user explicitly asks for a repeated schedule.'
+            'How often a person can see the survey. Omit this to use the default once behavior. Use recurring only when the user explicitly asks for a repeated schedule, and set iteration_count and iteration_frequency_days with it. Use always when the user wants the survey to show every time its display conditions are met, also after the person responds or dismisses it. The survey editor calls this "Every time the display conditions are met". An always popover without display conditions or a wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.'
         ),
         questions: SurveysCreateBody.shape['questions'].describe(
             'Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the user wants structured answers. Questions can include inline translations on each question.'
@@ -255,6 +255,9 @@ const SurveyUpdateSchema = () => {
         .extend({
             appearance: SurveysPartialUpdateBody.shape['appearance'].describe(
                 'Optional appearance customization. Omit this to preserve current styling. When changing it, fetch the survey first and preserve existing appearance fields. whiteLabel=true requires the organization to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available. surveyPopupDelaySeconds must be non-negative.'
+            ),
+            schedule: SurveysPartialUpdateBody.shape['schedule'].describe(
+                'How often a person can see the survey: once, recurring, or always. Use always when the user wants the survey to show every time its display conditions are met, also after the person responds or dismisses it. The survey editor calls this "Every time the display conditions are met". When you change away from recurring, the iteration fields are cleared. An always popover without display conditions or a wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.'
             ),
             questions: SurveysPartialUpdateBody.shape['questions'].describe(
                 "Complete replacement question list. Existing question IDs are tied to response data and must be preserved. Before sending this field, fetch the survey first, modify the existing question objects in place, keep every unchanged or edited question's id, and include the complete intended ordered question list. New questions should omit id. Do not regenerate existing questions from scratch."

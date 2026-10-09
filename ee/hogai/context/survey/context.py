@@ -133,6 +133,13 @@ class SurveyContext:
 
         return "\n".join(lines)
 
+    def format_schedule(self, survey: Survey) -> str:
+        if survey.schedule == Survey.Schedule.ALWAYS:
+            return "always (every time the display conditions are met)"
+        if survey.schedule == Survey.Schedule.RECURRING or (survey.iteration_count and survey.iteration_frequency_days):
+            return f"recurring (up to {survey.iteration_count} times, every {survey.iteration_frequency_days} days)"
+        return "once"
+
     def _get_status(self, survey: Survey) -> str:
         """Determine the survey status."""
         if survey.archived:
@@ -161,6 +168,7 @@ class SurveyContext:
             survey_name=survey_name,
             survey_type=survey.type,
             survey_status=status,
+            survey_schedule=self.format_schedule(survey),
             survey_description=survey.description or "No description provided.",
             questions=self.format_questions(survey),
             targeting=self.format_targeting(survey),

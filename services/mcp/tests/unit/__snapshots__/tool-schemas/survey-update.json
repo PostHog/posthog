@@ -717,7 +717,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)\n\n* `once` - once\n* `recurring` - recurring\n* `always` - always"
+            "description": "How often a person can see the survey: once, recurring, or always. Use always when the user wants the survey to show every time its display conditions are met, also after the person responds or dismisses it. The survey editor calls this \"Every time the display conditions are met\". When you change away from recurring, the iteration fields are cleared. An always popover without display conditions or a wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays."
         },
         "start_date": {
             "anyOf": [
