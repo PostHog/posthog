@@ -44,6 +44,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, results: [] },
             },
         }),
     ],
