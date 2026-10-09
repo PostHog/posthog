@@ -464,10 +464,12 @@ export interface sessionRecordingDataCoordinatorLogicActions {
         errorObject?: any
     } // snapLogic
     loadSnapshotSourcesSuccess: (
-        snapshotSources: SessionRecordingSnapshotSource[],
-        payload?: {
-            breakpointLength: number | undefined
-        }
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[],
+        payload?:
+            | {
+                  breakpointLength: number | undefined
+              }
+            | undefined
     ) => {
         payload?: {
             breakpointLength: number | undefined
