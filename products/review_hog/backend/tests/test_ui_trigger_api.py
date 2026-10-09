@@ -17,11 +17,11 @@ from products.review_hog.backend.reviewer.persistence import load_review_arm
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.skills.backend.models.skills import LLMSkill
 
-_START = "products.review_hog.backend.api.reviews.start_review_pr_workflow"
-_START_RESOLUTION = "products.review_hog.backend.api.reviews.start_resolution_workflow"
-_ACCESS = "products.review_hog.backend.api.reviews.GitHubIntegration.first_for_team_repository"
-_META = "products.review_hog.backend.api.reviews._fetch_pr_metadata"
-_BUSY = "products.review_hog.backend.api.reviews.workflow_running"
+_START = "products.review_hog.backend.requested_reviews.start_review_pr_workflow"
+_START_RESOLUTION = "products.review_hog.backend.requested_reviews.start_resolution_workflow"
+_ACCESS = "products.review_hog.backend.requested_reviews.GitHubIntegration.first_for_team_repository"
+_META = "products.review_hog.backend.requested_reviews.fetch_pr_metadata"
+_BUSY = "products.review_hog.backend.requested_reviews.workflow_running"
 
 
 def _pr_meta(**overrides: object) -> MagicMock:
