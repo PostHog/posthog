@@ -43,6 +43,8 @@ from products.signals.backend.scout_harness.limits import (
     FINISHED_ORPHAN_RECENT_RUNS,
     SCOUT_RUN_REAPED_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
+    TRIAL_ACTIVITY_TIMEOUT_S,
+    TRIAL_MAX_RUNTIME_S,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
@@ -957,6 +959,7 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
+        sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
@@ -1068,11 +1071,8 @@ async def _spawn_and_run(
         ai_agent_name=skill.name,
         before_task_dispatch=_create_bridge_row,
         origin_key=f"scout-trial:{trial.id}" if trial is not None else None,
-        # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
-        # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
-        # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
-        # ceiling and would let the activity die before salvage could return the written summary.
-        max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
+        # Leave the activity's cleanup allowance after the scout's own timeout.
+        max_poll_seconds=TRIAL_MAX_RUNTIME_S if trial is not None else DEFAULT_MAX_RUNTIME_S,
         # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
         # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
         # failing the whole run. A failed run never finalizes, so its scan-position close-out is
