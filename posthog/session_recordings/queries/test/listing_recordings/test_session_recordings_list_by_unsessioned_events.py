@@ -125,13 +125,16 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
 
         self._assert_matches([ORDER_PAID], ["recording-of-user-1"])
 
-    def test_events_of_people_without_recordings_do_not_fill_the_row_cap(self) -> None:
+    @parameterized.expand([("person_without_recordings", False), ("recorded_person_outside_window", True)])
+    def test_unmatched_events_do_not_fill_the_row_cap(self, _name: str, busy_person_has_recording: bool) -> None:
         person = create_person(team=self.team, distinct_ids=["user-1"])
-        busy = create_person(team=self.team, distinct_ids=["no-recording"])
+        busy = create_person(team=self.team, distinct_ids=["busy"])
         self._produce_recording("recording-of-user-1", "user-1")
+        if busy_person_has_recording:
+            self._produce_recording("recording-of-busy", "busy")
         self._create_order_paid("user-1", person.uuid, INSIDE_WINDOW)
         for minute in range(50):
-            self._create_order_paid("no-recording", busy.uuid, RECORDING_START + timedelta(minutes=minute))
+            self._create_order_paid("busy", busy.uuid, RECORDING_START - timedelta(hours=5, minutes=minute))
         flush_persons_and_events()
 
         with patch("posthog.session_recordings.queries.sub_queries.events_subquery.EVENTS_SUBQUERY_ROW_LIMIT", 1):
