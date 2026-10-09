@@ -81361,7 +81361,7 @@ export namespace Schemas {
       /**
          * Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.
          * @minimum 1
-         * @maximum 365
+         * @maximum 30
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
