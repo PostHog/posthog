@@ -125148,6 +125148,8 @@ export namespace Schemas {
     /**
      * * `insight` - insight
      * * `dashboard` - dashboard
+     * * `data_warehouse_view` - data_warehouse_view
+     * * `endpoint` - endpoint
      * * `experiment` - experiment
      * * `feature_flag` - feature_flag
      * * `notebook` - notebook
@@ -125165,6 +125167,8 @@ export namespace Schemas {
     export const SearchListEntitiesItem = {
       Insight: 'insight',
       Dashboard: 'dashboard',
+      DataWarehouseView: 'data_warehouse_view',
+      Endpoint: 'endpoint',
       Experiment: 'experiment',
       FeatureFlag: 'feature_flag',
       Notebook: 'notebook',
