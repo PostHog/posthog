@@ -184,6 +184,8 @@ class TestNotifyExternalDataSyncFailures:
             assert function.hog == template.code
             assert function.bytecode == template.bytecode
             assert function.inputs_schema == template.inputs_schema
+            assert function.filters is not None
+            assert function.inputs is not None
             assert function.filters["source"] == "internal-events"
             assert function.filters["events"] == [{"id": FAILURE_DIGEST_EVENT, "type": "events"}]
             assert function.inputs["body"]["value"] == "These tables failed to sync:\n\n{event.properties.summary}"

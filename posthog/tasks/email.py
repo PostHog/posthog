@@ -1,6 +1,7 @@
 import uuid
 import hashlib
 import datetime
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from typing import Any, Literal, Optional, TypedDict, cast
 
@@ -1192,7 +1193,7 @@ def external_data_failure_digest_campaign_key(team_id: int, digest_day: datetime
 
 
 def send_external_data_failure_digest(
-    team_id: int, schemas: list[ExternalDataFailureDigestItem], omitted_count: int = 0
+    team_id: int, schemas: Sequence[Mapping[str, Any]], omitted_count: int = 0
 ) -> bool:
     """Email a per-team digest of failing external data source syncs.
 
