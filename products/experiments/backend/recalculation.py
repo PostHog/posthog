@@ -30,8 +30,8 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
+from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import plan
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -500,15 +500,15 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
-        specs = plan(experiment)
+        calculation_configs = build_calculation_configs(experiment)
         store = MetricResultStore(experiment_id=experiment.id)
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
-        for spec in specs:
+        for calculation_config in calculation_configs:
             # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
             # query_to that would surface here as a future completion time.
-            row = store.latest_daily_point(spec, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
+            row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:
                 continue
             results.append(
@@ -529,7 +529,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             "id": "timeseries-fallback",
             "experiment_id": experiment.id,
             "status": ExperimentMetricsRecalculation.Status.COMPLETED,
-            "total_metrics": len(specs),
+            "total_metrics": len(calculation_configs),
             "completed_metrics": len(results),
             "failed_metrics": 0,
             "metric_errors": {},

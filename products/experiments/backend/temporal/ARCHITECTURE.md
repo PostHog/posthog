@@ -70,7 +70,7 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 ### Recalc fingerprint, not config fingerprint
 
-Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`compute_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `CalculationSpec.calculation_key()` in `metric_calculation/spec.py`. The spec holds the configuration the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
+Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`compute_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `MetricCalculationConfig.calculation_key()` in `metric_calculation/config.py`. The calculation config holds everything the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 

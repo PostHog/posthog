@@ -10,8 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -31,9 +31,9 @@ def _mean_metric(uuid: str) -> dict:
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):

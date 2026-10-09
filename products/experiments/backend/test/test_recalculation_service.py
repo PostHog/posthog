@@ -15,8 +15,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
-from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -47,9 +47,9 @@ def _mean_metric(uuid: str) -> dict:
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
-    spec = plan_metric(experiment, metric_uuid)
-    assert spec is not None
-    return spec.calculation_key()
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 @pytest.mark.django_db(transaction=True)

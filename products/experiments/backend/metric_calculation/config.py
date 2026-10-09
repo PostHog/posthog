@@ -1,14 +1,15 @@
-"""The inputs of one metric calculation, and the key that files and finds its results.
+"""The configuration of one metric calculation, and the key that files and finds its results.
 
-A `CalculationSpec` holds what one metric calculation reads from the experiment, its feature flag, the
-team and the team's experiment settings, with defaults resolved to concrete values. `plan` builds the
-specs of the scheduled metrics of an experiment.
+A `MetricCalculationConfig` combines the effective definition of one metric with what its calculation reads
+from the experiment, its feature flag, the team and the team's experiment settings, with defaults resolved to
+concrete values. `build_calculation_configs` builds the configs of the metrics that an experiment calculates.
+Building a config does not schedule or run a calculation.
 
-A spec does not pin the events and warehouse rows, the definitions a metric references (actions,
+A config does not pin the events and warehouse rows, the definitions a metric references (actions,
 cohorts, warehouse tables, property types), the team's HogQL modifiers, or the clock that the maturity
-filters read. The same spec can therefore give a different result later.
+filters read. The same config can therefore give a different result later.
 
-Key version 1 hashes only part of a spec: the metric, the start date, the stats method, the exposure
+Key version 1 hashes only part of a config: the metric, the start date, the stats method, the exposure
 criteria as stored, maturity and the excluded variants. The other fields do not change it.
 """
 
@@ -41,9 +42,9 @@ from products.experiments.backend.hogql_queries.utils import (
 )
 from products.experiments.backend.metric_resolution import (
     MetricRole,
-    resolve_experiment_metrics,
-    resolve_saved_metric_definition,
-    resolve_scheduled_metrics,
+    apply_saved_metric_overrides,
+    get_effective_experiment_metrics,
+    get_metrics_for_calculation,
     saved_metric_link_role,
     saved_metric_links,
 )
@@ -66,7 +67,7 @@ def _strip_empty_breakdowns(metric: dict[str, Any]) -> None:
     """Remove a breakdownFilter that carries no breakdowns.
 
     An empty breakdown list is the same metric config as no breakdowns, but the two dict shapes hash to
-    different values. Saved-metric resolution (`resolve_saved_metric_definition`) injects
+    different values. Saved-metric resolution (`apply_saved_metric_overrides`) injects
     `breakdownFilter.breakdowns = []` when the experiment link has none, so without this normalization the
     merged dict would hash away from an identical config stored without a breakdownFilter, and rows written
     under one shape would be invisible to readers hashing the other.
@@ -149,7 +150,7 @@ class ExperimentCalculationSettings:
         return "frequentist" if isinstance(self.stats, FrequentistSettings) else "bayesian"
 
     @classmethod
-    def resolve(
+    def from_configuration(
         cls,
         *,
         team: "Team",
@@ -164,7 +165,7 @@ class ExperimentCalculationSettings:
         """Settings from explicit values, for a caller that holds a configuration that is not saved yet.
 
         Stored configuration never makes this raise, because the experiment read and write paths build
-        settings to stamp the metric keys. A configuration the query runner rejects still resolves.
+        settings to stamp the metric keys. A configuration that the query runner rejects still gives settings.
         Without `team_config`, this reads the team's experiment settings with one query.
         """
         config = team_config or team_experiments_configs([team.id])[team.id]
@@ -208,11 +209,11 @@ class ExperimentCalculationSettings:
         )
 
     @classmethod
-    def of_experiment(
+    def from_experiment(
         cls, experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
     ) -> "ExperimentCalculationSettings":
         """Settings from the current fields of the experiment, which does not need to be saved."""
-        return cls.resolve(
+        return cls.from_configuration(
             team=experiment.team,
             feature_flag=experiment.feature_flag,
             start_date=experiment.start_date,
@@ -223,10 +224,12 @@ class ExperimentCalculationSettings:
             team_config=team_config,
         )
 
-    def spec_for(self, *, metric_id: str, role: MetricRole, definition: dict[str, Any]) -> "CalculationSpec":
-        """The spec of one metric under these settings. `definition` is the effective definition, with
-        the saved-metric link overrides applied."""
-        return CalculationSpec(
+    def build_metric_config(
+        self, *, metric_id: str, role: MetricRole, definition: dict[str, Any]
+    ) -> "MetricCalculationConfig":
+        """The calculation config of one metric under these settings. `definition` is the effective
+        definition, with the saved-metric link overrides applied."""
+        return MetricCalculationConfig(
             spec_version=SPEC_VERSION,
             metric_id=metric_id,
             role=role,
@@ -237,16 +240,16 @@ class ExperimentCalculationSettings:
 
 
 @frozen
-class CalculationSpec:
+class MetricCalculationConfig:
     """The configuration one metric calculation reads, and the key its results are filed under.
 
-    Equal specs compute the same thing. The metric id and the role identify the metric and take no part
-    in equality, so an inline metric and a saved metric with the same effective definition have equal specs.
+    Equal configs compute the same thing. The metric id and the role identify the metric and take no part
+    in equality, so an inline metric and a saved metric with the same effective definition have equal configs.
     """
 
     spec_version: int
     # A metric without a uuid gets an empty id. Nothing can calculate or look up such a metric, and only
-    # its stored `fingerprint` reads the spec.
+    # its stored `fingerprint` reads the config.
     metric_id: str = field(compare=False)
     role: MetricRole = field(compare=False)
     # The effective definition without the fields in _NON_ANALYTICAL_METRIC_FIELDS and without an empty
@@ -281,21 +284,29 @@ class CalculationSpec:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def plan(experiment: Experiment) -> list[CalculationSpec]:
-    """One spec per scheduled metric of the experiment, in the order of `resolve_scheduled_metrics`."""
-    metrics = resolve_scheduled_metrics(experiment)
+def build_calculation_configs(experiment: Experiment) -> list[MetricCalculationConfig]:
+    """One calculation config per metric that `get_metrics_for_calculation` returns, in that order."""
+    metrics = get_metrics_for_calculation(experiment)
     if not metrics:
         return []
-    settings = ExperimentCalculationSettings.of_experiment(experiment)
+    settings = ExperimentCalculationSettings.from_experiment(experiment)
     return [
-        settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition) for metric in metrics
+        settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+        for metric in metrics
     ]
 
 
-def plan_metric(experiment: Experiment, metric_uuid: str) -> CalculationSpec | None:
-    """The spec `plan` builds for one scheduled metric, or None when the experiment has no scheduled
-    metric with this uuid."""
-    return next((spec for spec in plan(experiment) if spec.metric_id == metric_uuid), None)
+def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> MetricCalculationConfig | None:
+    """The config that `build_calculation_configs` builds for one metric, or None when the experiment
+    calculates no metric with this uuid."""
+    return next(
+        (
+            calculation_config
+            for calculation_config in build_calculation_configs(experiment)
+            if calculation_config.metric_id == metric_uuid
+        ),
+        None,
+    )
 
 
 def stamp_calculation_keys(
@@ -306,8 +317,10 @@ def stamp_calculation_keys(
     stamped = []
     for metric in metrics:
         metric_copy = deepcopy(metric)
-        spec = settings.spec_for(metric_id=metric.get("uuid") or "", role=role, definition=metric)
-        metric_copy["fingerprint"] = spec.calculation_key()
+        calculation_config = settings.build_metric_config(
+            metric_id=metric.get("uuid") or "", role=role, definition=metric
+        )
+        metric_copy["fingerprint"] = calculation_config.calculation_key()
         stamped.append(metric_copy)
     return stamped
 
@@ -319,29 +332,31 @@ def inline_metric_calculation_keys(experiment: Experiment, settings: ExperimentC
     calculation computes that metric for the uuid, so the key matches what it computes.
     """
     keys: dict[str, str] = {}
-    for metric in resolve_experiment_metrics(experiment):
+    for metric in get_effective_experiment_metrics(experiment):
         if metric.source == "inline" and metric.uuid not in keys:
-            spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
-            keys[metric.uuid] = spec.calculation_key()
+            calculation_config = settings.build_metric_config(
+                metric_id=metric.uuid, role=metric.role, definition=metric.definition
+            )
+            keys[metric.uuid] = calculation_config.calculation_key()
     return keys
 
 
 def saved_metric_calculation_keys(experiment: Experiment, settings: ExperimentCalculationSettings) -> dict[int, str]:
     """The key of each saved metric linked to the experiment, by link id.
 
-    Unlike `plan`, this keeps metrics that cannot be scheduled, and it keys each saved metric by its own
-    effective definition even when an inline metric has the same uuid. The daily saved-metric discovery
-    and the `fingerprint` in the API response hash each link this way. A prefetched
+    Unlike `build_calculation_configs`, this keeps metrics that cannot be scheduled, and it keys each saved
+    metric by its own effective definition even when an inline metric has the same uuid. The daily
+    saved-metric discovery and the `fingerprint` in the API response hash each link this way. A prefetched
     `experimenttosavedmetric_set` with its saved metrics makes this read no rows.
     """
     keys: dict[int, str] = {}
     for link in saved_metric_links(experiment):
         query = link.saved_metric.query
         if isinstance(query, dict):
-            spec = settings.spec_for(
+            calculation_config = settings.build_metric_config(
                 metric_id=query.get("uuid") or "",
                 role=saved_metric_link_role(link),
-                definition=resolve_saved_metric_definition(query, link.metadata),
+                definition=apply_saved_metric_overrides(query, link.metadata),
             )
-            keys[link.id] = spec.calculation_key()
+            keys[link.id] = calculation_config.calculation_key()
     return keys

@@ -19,7 +19,7 @@ from posthog.temporal.experiments.activities import (
     _get_experiment_saved_metrics_for_hour_sync,
 )
 
-from products.experiments.backend.metric_calculation.spec import plan_metric
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -63,9 +63,9 @@ class TestDiscoveryFingerprints:
         return experiment, user
 
     def _recalculation_key(self, experiment: Experiment, metric_uuid: str) -> str:
-        spec = plan_metric(experiment, metric_uuid)
-        assert spec is not None
-        return spec.calculation_key()
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        assert calculation_config is not None
+        return calculation_config.calculation_key()
 
     @parameterized.expand([("without_maturity", False), ("with_maturity", True)])
     def test_regular_metric_discovery_uses_the_recalculation_key(

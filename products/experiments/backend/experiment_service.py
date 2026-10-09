@@ -60,12 +60,12 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import (
+from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -1024,7 +1024,7 @@ class ExperimentService:
         the daily workflow wrote. The links come from the caller's prefetch when it has one, and the team's
         experiment settings take one query.
         """
-        return saved_metric_calculation_keys(experiment, ExperimentCalculationSettings.of_experiment(experiment))
+        return saved_metric_calculation_keys(experiment, ExperimentCalculationSettings.from_experiment(experiment))
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
@@ -1203,7 +1203,7 @@ class ExperimentService:
                 "minimum_detectable_effect": team_config.default_minimum_detectable_effect,
             }
 
-        calculation_settings = ExperimentCalculationSettings.resolve(
+        calculation_settings = ExperimentCalculationSettings.from_configuration(
             team=self.team,
             feature_flag=feature_flag,
             start_date=start_date,
@@ -1764,7 +1764,7 @@ class ExperimentService:
             experiment.start_date = timezone.now()
 
             # Recompute metric fingerprints with the new start_date
-            calculation_settings = ExperimentCalculationSettings.of_experiment(experiment)
+            calculation_settings = ExperimentCalculationSettings.from_experiment(experiment)
             for metric_field, role in _INLINE_METRIC_FIELD_ROLES:
                 metrics = getattr(experiment, metric_field, None)
                 if metrics:
@@ -3622,7 +3622,7 @@ class ExperimentService:
             else:
                 excluded_variants = experiment.excluded_variants or []
 
-            calculation_settings = ExperimentCalculationSettings.resolve(
+            calculation_settings = ExperimentCalculationSettings.from_configuration(
                 team=self.team,
                 feature_flag=experiment.feature_flag,
                 start_date=start_date,
