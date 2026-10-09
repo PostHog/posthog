@@ -200,7 +200,7 @@ def test_flag_evaluations_mv_projection_matches_column_template():
 
 
 @pytest.mark.usefixtures("clickhouse_database")
-def test_flag_evaluations_mv_ignores_producer_inserted_at() -> None:
+def test_flag_evaluations_mv_overrides_producer_values() -> None:
     select = FLAG_EVALUATIONS_MV_SELECT_SQL().replace(
         f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}", "FROM mv_input"
     )
@@ -216,16 +216,19 @@ def test_flag_evaluations_mv_ignores_producer_inserted_at() -> None:
                 'user' AS distinct_id,
                 timestamp AS created_at,
                 generateUUIDv4() AS person_id,
+                arrayJoin(['', '{"email": "a@example.com"}']) AS person_properties,
+                timestamp AS person_created_at,
                 timestamp AS inserted_at,
+                'full' AS person_mode,
                 toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
                 0 AS _offset,
                 0 AS _partition
         )
-        SELECT inserted_at > timestamp FROM ("""
+        SELECT inserted_at > timestamp, person_properties FROM ("""
         + select
-        + ")"
+        + ") ORDER BY person_properties"
     )
-    assert rows == [(1,)]
+    assert rows == [(1, '{"email": "a@example.com"}'), (1, "{}")]
 
 
 def test_flag_evaluations_read_table_declares_every_stored_column():
@@ -251,8 +254,18 @@ def _hogql_column_names(table: Table) -> set[str]:
     return names
 
 
-# Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+# _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
+# The person columns stay hidden until every stored row carries the values the producer writes.
+# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
+# test-account filters and keep lifecycle from counting anyone as new.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
+    "_timestamp",
+    "_offset",
+    "_partition",
+    "person_properties",
+    "person_created_at",
+    "person_mode",
+}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():
