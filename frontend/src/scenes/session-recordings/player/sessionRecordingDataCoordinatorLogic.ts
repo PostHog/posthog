@@ -728,8 +728,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         checkForNewSnapshots: () => {
-            // Call the loader directly: loadSnapshots skips while a background poll is in flight,
-            // and then the check never settles. A new loader call cancels the poll at its breakpoint.
+            // Call the loader directly: loadSnapshots skips while a background poll waits at its
+            // breakpoint, so the click would wait out the poll interval. A new loader call cancels that wait.
             actions.loadSnapshotSources()
         },
 
