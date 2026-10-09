@@ -658,6 +658,10 @@ pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superse
 /// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
 /// (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
+/// Reconcile jobs the guard would discard against a catalog snapshot older than the job, held until
+/// a refresh that began after the job's admission, labelled by `reason` and `kind`. Counted once per
+/// job (counter). Each one is a catalog race the processor absorbed instead of stranding the run.
+pub const RECONCILE_JOBS_DEFERRED_TOTAL: &str = "cohort_reconcile_jobs_deferred_total";
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
 pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_total";
@@ -1086,6 +1090,10 @@ mod tests {
         assert_eq!(
             RECONCILE_JOBS_DISCARDED_TOTAL,
             "cohort_reconcile_jobs_discarded_total",
+        );
+        assert_eq!(
+            RECONCILE_JOBS_DEFERRED_TOTAL,
+            "cohort_reconcile_jobs_deferred_total",
         );
         assert_eq!(
             RECONCILE_ROWS_SCANNED_TOTAL,

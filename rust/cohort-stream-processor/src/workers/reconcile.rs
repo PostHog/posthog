@@ -17,12 +17,13 @@ use cohort_core::filters::{CohortId, TeamId};
 #[cfg(test)]
 use cohort_core::seed::RunId;
 use cohort_core::seed::{ReconcileScope, ReconcileTile, ScopeKind};
+use cohort_core::CohortEligibility;
 
-use crate::filters::manager::CatalogHandle;
+use crate::filters::manager::{CatalogHandle, CatalogView, RefreshSeq};
 use crate::filters::reverse_index::TeamFilters;
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_BITS_FIXED_TOTAL,
-    RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DISCARDED_TOTAL,
+    RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DEFERRED_TOTAL, RECONCILE_JOBS_DISCARDED_TOTAL,
     RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKER_PRODUCE_ERRORS,
     RECONCILE_PAGE_DURATION_SECONDS, RECONCILE_QUEUE_DEPTH, RECONCILE_ROWS_EMITTED_TOTAL,
     RECONCILE_ROWS_SCANNED_TOTAL,
@@ -123,6 +124,11 @@ enum ScanPhase {
 struct ReconcileJob {
     tile: ReconcileTile,
     offset: DeferredOffset,
+    /// The newest catalog refresh that had begun when the job was admitted. Only a snapshot from a
+    /// later refresh can discard it.
+    admitted_after: RefreshSeq,
+    /// Set the first time the job waits for that refresh, so the wait counts and logs once.
+    deferral_counted: bool,
     dirty_tracking: Option<crate::store::Stage2DirtyTrackingGuard>,
     phase: ScanPhase,
     rows_scanned: u64,
@@ -141,6 +147,8 @@ pub(crate) struct ReconcileQueue {
     backlog: Arc<ReconcileBacklog>,
     partition_label: Arc<str>,
     handle: StoreHandle,
+    /// Stamps each admission and judges each drain, so both read one catalog.
+    catalog: Arc<CatalogHandle>,
 }
 
 impl ReconcileQueue {
@@ -148,12 +156,14 @@ impl ReconcileQueue {
         partition_id: u16,
         backlog: Arc<ReconcileBacklog>,
         handle: StoreHandle,
+        catalog: Arc<CatalogHandle>,
     ) -> Self {
         let queue = Self {
             jobs: VecDeque::new(),
             backlog,
             partition_label: Arc::from(partition_id.to_string()),
             handle,
+            catalog,
         };
         queue.record_depth();
         queue
@@ -163,6 +173,8 @@ impl ReconcileQueue {
         self.jobs.push_back(ReconcileJob {
             tile,
             offset,
+            admitted_after: self.catalog.last_begun(),
+            deferral_counted: false,
             dirty_tracking: None,
             phase: ScanPhase::Scanning { cursor: None },
             rows_scanned: 0,
@@ -263,6 +275,8 @@ impl Drop for ReconcileQueue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReconcileRetryReason {
     CatalogNotLoaded,
+    /// The snapshot predates the job, so the miss may be a write it has not read yet.
+    AwaitingRefresh(ReconcileDiscardReason),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,32 +300,33 @@ impl ReconcileDiscardReason {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 enum ReconcileGuard {
-    Proceed,
+    /// Carries what the guard proved, so the drain needs no `expect`.
+    Proceed {
+        filters: Arc<TeamFilters>,
+        eligibility: CohortEligibility,
+    },
     Retry(ReconcileRetryReason),
     Discard(ReconcileDiscardReason),
 }
 
-fn evaluate_guard(
-    catalog_loaded: bool,
-    filters: Option<&TeamFilters>,
+/// The catalog's answer alone, with no view of how fresh the catalog is.
+fn catalog_verdict(
+    filters: Option<&Arc<TeamFilters>>,
     tile: &ReconcileTile,
-) -> ReconcileGuard {
-    if !catalog_loaded {
-        return ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded);
-    }
+) -> Result<(Arc<TeamFilters>, CohortEligibility), ReconcileDiscardReason> {
     let Some(filters) = filters else {
-        return ReconcileGuard::Discard(ReconcileDiscardReason::TeamAbsent);
+        return Err(ReconcileDiscardReason::TeamAbsent);
     };
     if !filters.cohorts.contains_key(&tile.cohort_id()) {
-        return ReconcileGuard::Discard(ReconcileDiscardReason::CohortAbsent);
+        return Err(ReconcileDiscardReason::CohortAbsent);
     }
-    let Some(eligibility) = filters.eligibility.get(&tile.cohort_id()) else {
-        return ReconcileGuard::Discard(ReconcileDiscardReason::CohortAbsent);
+    let Some(&eligibility) = filters.eligibility.get(&tile.cohort_id()) else {
+        return Err(ReconcileDiscardReason::CohortAbsent);
     };
     if !eligibility.registers_membership() {
-        return ReconcileGuard::Discard(ReconcileDiscardReason::NotEmitting);
+        return Err(ReconcileDiscardReason::NotEmitting);
     }
     // The tile's scope picks the guard map, so a person hash is never checked against a behavioral
     // one. An absent entry means the cohort has no leaves of that kind (the loader omits the column
@@ -328,9 +343,34 @@ fn evaluate_guard(
             .map(|current| current == pinned),
     };
     match matches {
-        None => ReconcileGuard::Discard(ReconcileDiscardReason::HashUnknown),
-        Some(false) => ReconcileGuard::Discard(ReconcileDiscardReason::HashMismatch),
-        Some(true) => ReconcileGuard::Proceed,
+        None => Err(ReconcileDiscardReason::HashUnknown),
+        Some(false) => Err(ReconcileDiscardReason::HashMismatch),
+        Some(true) => Ok((filters.clone(), eligibility)),
+    }
+}
+
+/// The one place that decides a job's fate. Every discard reason reads the catalog, so a miss
+/// against a snapshot whose refresh began before the job was admitted may only mean that refresh
+/// had not read the run's writes yet. Such a miss waits. After one later refresh it stands, so a
+/// superseded run still fails closed.
+fn evaluate_guard(
+    view: &CatalogView,
+    admitted_after: RefreshSeq,
+    tile: &ReconcileTile,
+) -> ReconcileGuard {
+    let (published, catalog) = match view {
+        CatalogView::NotLoaded => {
+            return ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded)
+        }
+        CatalogView::Loaded { published, catalog } => (*published, catalog),
+    };
+    match catalog_verdict(catalog.team(tile.team_id()), tile) {
+        Ok((filters, eligibility)) => ReconcileGuard::Proceed {
+            filters,
+            eligibility,
+        },
+        Err(reason) if published > admitted_after => ReconcileGuard::Discard(reason),
+        Err(reason) => ReconcileGuard::Retry(ReconcileRetryReason::AwaitingRefresh(reason)),
     }
 }
 
@@ -341,7 +381,6 @@ fn evaluate_guard(
 pub(crate) async fn handle_reconcile_drain(
     partition_id: u16,
     handle: &StoreHandle,
-    catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
     queue: &mut ReconcileQueue,
@@ -355,58 +394,75 @@ pub(crate) async fn handle_reconcile_drain(
         let phase = job.phase.clone();
         let source_offset = job.offset.offset();
 
-        // Read the release-published loaded flag before the ArcSwap. On the first refresh, that
-        // ordering prevents observing `loaded = true` alongside the pre-refresh empty snapshot.
-        let catalog_loaded = catalog.is_loaded();
-        let catalog_snapshot = catalog.load_full();
-        let filters = catalog_snapshot.team(tile.team_id());
-        match evaluate_guard(catalog_loaded, filters.map(Arc::as_ref), &tile) {
-            ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded) => {
-                debug!(
-                    partition_id,
-                    team_id = tile.team_id().0,
-                    cohort_id = tile.cohort_id().0,
-                    run_id = %tile.run_id().0,
-                    "reconcile drain waiting for the first filter catalog load",
-                );
-                return;
-            }
-            ReconcileGuard::Discard(reason) => {
-                let discarded = queue
-                    .finish_front()
-                    .expect("the guarded queue head is still present");
-                complete_offset(
-                    &merge.seed_tracker,
-                    partition_id,
-                    discarded.offset,
-                    "discarded reconcile",
-                );
-                counter!(
-                    RECONCILE_JOBS_DISCARDED_TOTAL,
-                    "reason" => reason.as_str(),
-                    "kind" => tile.scope().kind().as_str(),
-                )
-                .increment(1);
-                warn_job!(
-                    tile,
-                    partition_id,
-                    reason = reason.as_str(),
-                    kind = tile.scope().kind().as_str(),
-                    "discarding reconcile job without a completion marker",
-                );
-                continue;
-            }
-            ReconcileGuard::Proceed => {}
-        }
+        let (filters, eligibility) =
+            match evaluate_guard(&queue.catalog.view(), job.admitted_after, &tile) {
+                ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded) => {
+                    debug!(
+                        partition_id,
+                        team_id = tile.team_id().0,
+                        cohort_id = tile.cohort_id().0,
+                        run_id = %tile.run_id().0,
+                        "reconcile drain waiting for the first filter catalog load",
+                    );
+                    return;
+                }
+                ReconcileGuard::Retry(ReconcileRetryReason::AwaitingRefresh(reason)) => {
+                    let job = queue
+                        .front_mut()
+                        .expect("the guarded queue head is still present");
+                    if !job.deferral_counted {
+                        job.deferral_counted = true;
+                        counter!(
+                            RECONCILE_JOBS_DEFERRED_TOTAL,
+                            "reason" => reason.as_str(),
+                            "kind" => tile.scope().kind().as_str(),
+                        )
+                        .increment(1);
+                        info!(
+                            partition_id,
+                            team_id = tile.team_id().0,
+                            cohort_id = tile.cohort_id().0,
+                            run_id = %tile.run_id().0,
+                            reason = reason.as_str(),
+                            kind = tile.scope().kind().as_str(),
+                            "reconcile job waits for a catalog refresh that began after it arrived",
+                        );
+                    }
+                    return;
+                }
+                ReconcileGuard::Discard(reason) => {
+                    let discarded = queue
+                        .finish_front()
+                        .expect("the guarded queue head is still present");
+                    complete_offset(
+                        &merge.seed_tracker,
+                        partition_id,
+                        discarded.offset,
+                        "discarded reconcile",
+                    );
+                    counter!(
+                        RECONCILE_JOBS_DISCARDED_TOTAL,
+                        "reason" => reason.as_str(),
+                        "kind" => tile.scope().kind().as_str(),
+                    )
+                    .increment(1);
+                    warn_job!(
+                        tile,
+                        partition_id,
+                        reason = reason.as_str(),
+                        kind = tile.scope().kind().as_str(),
+                        "discarding reconcile job without a completion marker",
+                    );
+                    continue;
+                }
+                ReconcileGuard::Proceed {
+                    filters,
+                    eligibility,
+                } => (filters, eligibility),
+            };
 
-        let filters = filters.expect("the proceed guard proved the team exists");
         // Only flipped bits of a full-tree cohort cascade to referrers; single-leaf fixes never do.
-        let cascades_flips = filters
-            .eligibility
-            .get(&tile.cohort_id())
-            .copied()
-            .expect("the proceed guard proved eligibility exists")
-            .writes_cf_stage2();
+        let cascades_flips = eligibility.writes_cf_stage2();
 
         let prefix = Stage2CohortPrefix {
             partition_id,
@@ -424,7 +480,7 @@ pub(crate) async fn handle_reconcile_drain(
                     merge,
                     queue,
                     &tile,
-                    filters,
+                    &filters,
                     cascades_flips,
                     prefix,
                     source_offset,
@@ -441,7 +497,7 @@ pub(crate) async fn handle_reconcile_drain(
                     merge,
                     queue,
                     &tile,
-                    filters,
+                    &filters,
                     cascades_flips,
                     prefix,
                     source_offset,
@@ -1081,7 +1137,9 @@ mod tests {
         })
     }
 
-    fn catalog(single_leaf: bool) -> (CatalogHandle, LeafStateKey) {
+    /// `behavioral_hash` is the catalog's behavioral shape hash for the cohort, `None` for one it
+    /// has not read yet.
+    fn cohort_filters(single_leaf: bool, behavioral_hash: Option<&str>) -> TeamFilters {
         let values = if single_leaf {
             vec![behavioral_leaf()]
         } else {
@@ -1092,10 +1150,12 @@ mod tests {
         builder
             .add_cohort(CohortId(COHORT), TeamId(TEAM), &cohort)
             .unwrap();
-        builder.set_behavioral_shape_hash(
-            CohortId(COHORT),
-            BehavioralShapeHash::parse(SHAPE_HASH).unwrap(),
-        );
+        if let Some(hash) = behavioral_hash {
+            builder.set_behavioral_shape_hash(
+                CohortId(COHORT),
+                BehavioralShapeHash::parse(hash).unwrap(),
+            );
+        }
         if !single_leaf {
             // A mixed cohort carries both guards, so either kind of run can reconcile it.
             builder.set_person_shape_hash(
@@ -1103,13 +1163,20 @@ mod tests {
                 PersonShapeHash::parse(SHAPE_HASH).unwrap(),
             );
         }
-        let filters = builder.freeze(UTC);
+        builder.freeze(UTC)
+    }
+
+    fn catalog(single_leaf: bool) -> (Arc<CatalogHandle>, LeafStateKey) {
+        catalog_over(cohort_filters(single_leaf, Some(SHAPE_HASH)))
+    }
+
+    fn catalog_over(filters: TeamFilters) -> (Arc<CatalogHandle>, LeafStateKey) {
         let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
         (handle_for(filters), lsk)
     }
 
     /// A person-only cohort: no behavioral leaf, so only the person guard fences its reconcile.
-    fn person_catalog() -> (CatalogHandle, LeafStateKey) {
+    fn person_catalog() -> (Arc<CatalogHandle>, LeafStateKey) {
         let cohort = json!({ "properties": { "type": "AND", "values": [person_leaf()] } });
         let mut builder = TeamFiltersBuilder::default();
         builder
@@ -1125,15 +1192,23 @@ mod tests {
         )
     }
 
-    fn handle_for(filters: TeamFilters) -> CatalogHandle {
-        CatalogHandle::from_catalog(FilterCatalog::from_teams([(TeamId(TEAM), filters)]))
+    fn unloaded() -> Arc<CatalogHandle> {
+        Arc::new(CatalogHandle::new())
+    }
+
+    fn team_catalog(filters: TeamFilters) -> FilterCatalog {
+        FilterCatalog::from_teams([(TeamId(TEAM), filters)])
+    }
+
+    fn handle_for(filters: TeamFilters) -> Arc<CatalogHandle> {
+        Arc::new(CatalogHandle::from_catalog(team_catalog(filters)))
     }
 
     struct DrainShell {
         _dir: TempDir,
         store: CohortStore,
         handle: StoreHandle,
-        catalog: CatalogHandle,
+        catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
         markers: CaptureReconcileMarkerSink,
         deps: MergeWorkerDeps,
@@ -1160,7 +1235,7 @@ mod tests {
         }
 
         fn over(
-            (catalog, lsk): (CatalogHandle, LeafStateKey),
+            (catalog, lsk): (Arc<CatalogHandle>, LeafStateKey),
             sink: Arc<dyn MembershipSink>,
             cascade_sink: CaptureCascadeSink,
             scan_page: usize,
@@ -1175,8 +1250,12 @@ mod tests {
             deps.cascade_sink = Arc::new(cascade_sink);
             let markers = CaptureReconcileMarkerSink::new();
             deps.reconcile.marker_sink = Arc::new(markers.clone());
-            let queue =
-                ReconcileQueue::new(PARTITION, deps.reconcile.backlog.clone(), handle.clone());
+            let queue = ReconcileQueue::new(
+                PARTITION,
+                deps.reconcile.backlog.clone(),
+                handle.clone(),
+                catalog.clone(),
+            );
             Self {
                 _dir,
                 store,
@@ -1287,7 +1366,6 @@ mod tests {
             handle_reconcile_drain(
                 PARTITION,
                 &self.handle,
-                &self.catalog,
                 &self.sink,
                 &self.deps,
                 &mut self.queue,
@@ -1326,7 +1404,8 @@ mod tests {
         tracker.mark_dispatched(3, 11);
 
         {
-            let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store));
+            let mut queue =
+                ReconcileQueue::new(3, backlog.clone(), store_handle(&store), unloaded());
             queue.enqueue(tile(1, 7, 1), tracker.defer(3, 10));
             assert_eq!(queue.len(), 1);
             assert_eq!(backlog.len(), 1);
@@ -1350,7 +1429,7 @@ mod tests {
         let tracker = OffsetTracker::new();
         let backlog = Arc::new(ReconcileBacklog::default());
         tracker.mark_dispatched(PARTITION as i32, 12);
-        let mut queue = ReconcileQueue::new(PARTITION, backlog, store_handle(&store));
+        let mut queue = ReconcileQueue::new(PARTITION, backlog, store_handle(&store), unloaded());
         queue.enqueue(tile(TEAM, COHORT, 1), tracker.defer(PARTITION as i32, 10));
         queue.enqueue(
             tile(TEAM, COHORT + 1, 2),
@@ -1415,7 +1494,7 @@ mod tests {
         let tracker = OffsetTracker::new();
         let backlog = Arc::new(ReconcileBacklog::default());
         tracker.mark_dispatched(3, 14);
-        let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store));
+        let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store), unloaded());
         queue.enqueue(tile(1, 7, 1), tracker.defer(3, 10));
         queue.enqueue(tile(1, 8, 2), tracker.defer(3, 11));
         queue.enqueue(tile(2, 7, 3), tracker.defer(3, 12));
@@ -1445,7 +1524,7 @@ mod tests {
         let tracker = OffsetTracker::new();
         let backlog = Arc::new(ReconcileBacklog::default());
         tracker.mark_dispatched(3, 20);
-        let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store));
+        let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store), unloaded());
         queue.enqueue(
             scoped_tile(TEAM, COHORT, 1, ScopeKind::Behavioral),
             tracker.defer(3, 10),
@@ -1494,7 +1573,7 @@ mod tests {
         let tracker = OffsetTracker::new();
         let backlog = Arc::new(ReconcileBacklog::default());
         tracker.mark_dispatched(3, 20);
-        let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store));
+        let mut queue = ReconcileQueue::new(3, backlog.clone(), store_handle(&store), unloaded());
         queue.enqueue(tile(1, 7, 2), tracker.defer(3, 15));
 
         for replayed_offset in [10, 15] {
@@ -1618,36 +1697,38 @@ mod tests {
         filters
     }
 
+    fn verdict(
+        filters: TeamFilters,
+        tile: &ReconcileTile,
+    ) -> Result<CohortEligibility, ReconcileDiscardReason> {
+        catalog_verdict(Some(&Arc::new(filters)), tile).map(|(_, eligibility)| eligibility)
+    }
+
     #[test]
-    fn drain_guard_classifies_every_retry_discard_and_proceed_state() {
+    fn catalog_verdict_names_every_discard_reason_and_proves_what_proceeds() {
         let reconcile = tile(TEAM, COHORT, 1);
 
         assert_eq!(
-            evaluate_guard(false, None, &reconcile),
-            ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded),
+            catalog_verdict(None, &reconcile).map(|(_, eligibility)| eligibility),
+            Err(ReconcileDiscardReason::TeamAbsent),
         );
         assert_eq!(
-            evaluate_guard(true, None, &reconcile),
-            ReconcileGuard::Discard(ReconcileDiscardReason::TeamAbsent),
-        );
-        assert_eq!(
-            evaluate_guard(true, Some(&TeamFilters::default()), &reconcile),
-            ReconcileGuard::Discard(ReconcileDiscardReason::CohortAbsent),
+            verdict(TeamFilters::default(), &reconcile),
+            Err(ReconcileDiscardReason::CohortAbsent),
         );
 
         let behavioral_guard = &[(ScopeKind::Behavioral, SHAPE_HASH)];
-        let missing_eligibility = guard_filters(None, behavioral_guard);
         assert_eq!(
-            evaluate_guard(true, Some(&missing_eligibility), &reconcile),
-            ReconcileGuard::Discard(ReconcileDiscardReason::CohortAbsent),
+            verdict(guard_filters(None, behavioral_guard), &reconcile),
+            Err(ReconcileDiscardReason::CohortAbsent),
         );
         let excluded = guard_filters(
             Some(CohortEligibility::Excluded(ExcludedReason::HasDroppedLeaf)),
             behavioral_guard,
         );
         assert_eq!(
-            evaluate_guard(true, Some(&excluded), &reconcile),
-            ReconcileGuard::Discard(ReconcileDiscardReason::NotEmitting),
+            verdict(excluded, &reconcile),
+            Err(ReconcileDiscardReason::NotEmitting),
         );
 
         for eligibility in [
@@ -1655,10 +1736,12 @@ mod tests {
             CohortEligibility::Stage2Composable,
             CohortEligibility::Stage2ComposableRef,
         ] {
-            let filters = guard_filters(Some(eligibility), behavioral_guard);
             assert_eq!(
-                evaluate_guard(true, Some(&filters), &reconcile),
-                ReconcileGuard::Proceed,
+                verdict(
+                    guard_filters(Some(eligibility), behavioral_guard),
+                    &reconcile
+                ),
+                Ok(eligibility),
                 "{eligibility:?} registers membership",
             );
         }
@@ -1673,38 +1756,203 @@ mod tests {
         ] {
             let reconcile = scoped_tile(TEAM, COHORT, 1, guard);
             assert_eq!(
-                evaluate_guard(
-                    true,
-                    Some(&guard_filters(emitting, &[(guard, SHAPE_HASH)])),
-                    &reconcile,
-                ),
-                ReconcileGuard::Proceed,
+                verdict(guard_filters(emitting, &[(guard, SHAPE_HASH)]), &reconcile),
+                Ok(CohortEligibility::Stage2Composable),
                 "{guard} matches its own map",
             );
             assert_eq!(
-                evaluate_guard(
-                    true,
-                    Some(&guard_filters(emitting, &[(guard, "shape-v2")])),
-                    &reconcile,
-                ),
-                ReconcileGuard::Discard(ReconcileDiscardReason::HashMismatch),
+                verdict(guard_filters(emitting, &[(guard, "shape-v2")]), &reconcile),
+                Err(ReconcileDiscardReason::HashMismatch),
                 "{guard} diverged",
             );
             assert_eq!(
-                evaluate_guard(true, Some(&guard_filters(emitting, &[])), &reconcile),
-                ReconcileGuard::Discard(ReconcileDiscardReason::HashUnknown),
+                verdict(guard_filters(emitting, &[]), &reconcile),
+                Err(ReconcileDiscardReason::HashUnknown),
                 "{guard} has no persisted hash",
             );
             // The catalog carries only the *other* kind's hash, at the very value the tile pins.
             assert_eq!(
-                evaluate_guard(
-                    true,
-                    Some(&guard_filters(emitting, &[(other, SHAPE_HASH)])),
-                    &reconcile,
-                ),
-                ReconcileGuard::Discard(ReconcileDiscardReason::HashUnknown),
+                verdict(guard_filters(emitting, &[(other, SHAPE_HASH)]), &reconcile),
+                Err(ReconcileDiscardReason::HashUnknown),
                 "{guard} must not be satisfied by the {other} map",
             );
+        }
+    }
+
+    /// The guard's decision without the filters it carries, so cases compare by value.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Fate {
+        Proceed(CohortEligibility),
+        Retry(ReconcileRetryReason),
+        Discard(ReconcileDiscardReason),
+    }
+
+    impl From<ReconcileGuard> for Fate {
+        fn from(guard: ReconcileGuard) -> Self {
+            match guard {
+                ReconcileGuard::Proceed { eligibility, .. } => Self::Proceed(eligibility),
+                ReconcileGuard::Retry(reason) => Self::Retry(reason),
+                ReconcileGuard::Discard(reason) => Self::Discard(reason),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum Freshness {
+        NotLoaded,
+        RefreshedBeforeAdmission,
+        RefreshedAfterAdmission,
+    }
+
+    /// What the refresh the case publishes holds for the job's cohort.
+    #[derive(Debug, Clone, Copy)]
+    enum Snapshot {
+        Emitting,
+        MissingTeam,
+    }
+
+    impl Snapshot {
+        fn catalog(self) -> FilterCatalog {
+            match self {
+                Self::Emitting => team_catalog(guard_filters(
+                    Some(CohortEligibility::Stage2Composable),
+                    &[(ScopeKind::Behavioral, SHAPE_HASH)],
+                )),
+                Self::MissingTeam => FilterCatalog::from_teams([]),
+            }
+        }
+    }
+
+    #[test]
+    fn a_catalog_miss_discards_only_against_a_refresh_begun_after_admission() {
+        let reconcile = tile(TEAM, COHORT, 1);
+        let team_absent = ReconcileDiscardReason::TeamAbsent;
+        let cases = [
+            // Nothing is published before the first load, so the snapshot kind does not matter.
+            (
+                Freshness::NotLoaded,
+                Snapshot::MissingTeam,
+                Fate::Retry(ReconcileRetryReason::CatalogNotLoaded),
+            ),
+            (
+                Freshness::RefreshedBeforeAdmission,
+                Snapshot::Emitting,
+                Fate::Proceed(CohortEligibility::Stage2Composable),
+            ),
+            (
+                Freshness::RefreshedBeforeAdmission,
+                Snapshot::MissingTeam,
+                Fate::Retry(ReconcileRetryReason::AwaitingRefresh(team_absent)),
+            ),
+            (
+                Freshness::RefreshedAfterAdmission,
+                Snapshot::Emitting,
+                Fate::Proceed(CohortEligibility::Stage2Composable),
+            ),
+            (
+                Freshness::RefreshedAfterAdmission,
+                Snapshot::MissingTeam,
+                Fate::Discard(team_absent),
+            ),
+        ];
+
+        for (freshness, snapshot, expected) in cases {
+            let catalog = CatalogHandle::new();
+            let admitted_after = match freshness {
+                Freshness::NotLoaded => catalog.last_begun(),
+                Freshness::RefreshedBeforeAdmission => {
+                    catalog.publish(snapshot.catalog());
+                    catalog.last_begun()
+                }
+                Freshness::RefreshedAfterAdmission => {
+                    let admitted_after = catalog.last_begun();
+                    catalog.publish(snapshot.catalog());
+                    admitted_after
+                }
+            };
+
+            assert_eq!(
+                Fate::from(evaluate_guard(&catalog.view(), admitted_after, &reconcile)),
+                expected,
+                "{freshness:?} with {snapshot:?}",
+            );
+        }
+    }
+
+    fn counted(metrics: &metrics_exporter_prometheus::PrometheusHandle, series: &str) -> u64 {
+        metrics
+            .render()
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .find(|line| series.split(',').all(|part| line.contains(part)))
+            .and_then(|line| line.rsplit(' ').next())
+            .map_or(0, |count| count.parse().unwrap())
+    }
+
+    /// A run's reconcile can reach the processor before the catalog refresh that reads the run's
+    /// pinned hash. The job waits with its seed offset held, and the next refresh decides it.
+    #[tokio::test]
+    async fn a_reconcile_that_beats_its_catalog_refresh_waits_for_the_next_one() {
+        for (refreshed_hash, completes) in [(SHAPE_HASH, true), ("shape-v2", false)] {
+            let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+            let metrics = recorder.handle();
+            let _local = metrics::set_default_local_recorder(&recorder);
+            let mut shell = DrainShell::over(
+                catalog_over(cohort_filters(true, None)),
+                Arc::new(CaptureSink::new()),
+                CaptureCascadeSink::new(),
+                8,
+            );
+            // A refresh in flight at admission may have read Postgres before the run's write, so
+            // its snapshot cannot discard the job either.
+            let catalog = shell.catalog.clone();
+            let in_flight = catalog.begin_refresh();
+            shell.enqueue(tile(TEAM, COHORT, 1), 5);
+            in_flight.publish(team_catalog(cohort_filters(true, None)));
+
+            shell.tick().await;
+            shell.tick().await;
+            assert!(shell.markers.markers().is_empty(), "{refreshed_hash}");
+            assert_eq!(shell.queue.len(), 1, "the job waits for the next refresh");
+            assert_eq!(
+                shell.committable(),
+                Some(5),
+                "its seed offset stays deferred"
+            );
+            assert_eq!(
+                counted(
+                    &metrics,
+                    "cohort_reconcile_jobs_deferred_total,reason=\"hash_unknown\""
+                ),
+                1,
+                "a wait over several ticks counts once",
+            );
+
+            shell
+                .catalog
+                .publish(team_catalog(cohort_filters(true, Some(refreshed_hash))));
+            shell.tick().await;
+
+            let markers: Vec<RunId> = shell
+                .markers
+                .markers()
+                .iter()
+                .map(|marker| marker.run_id())
+                .collect();
+            if completes {
+                assert_eq!(markers, vec![RunId(Uuid::from_u128(1))]);
+            } else {
+                assert!(markers.is_empty(), "a superseded run still fails closed");
+                assert_eq!(
+                    counted(
+                        &metrics,
+                        "cohort_reconcile_jobs_discarded_total,reason=\"hash_mismatch\""
+                    ),
+                    1,
+                );
+            }
+            assert!(shell.queue.front().is_none(), "{refreshed_hash}");
+            assert_eq!(shell.committable(), Some(6), "{refreshed_hash}");
         }
     }
 
@@ -2006,6 +2254,9 @@ mod tests {
             DrainShell::new(false, Arc::new(sink.clone()), CaptureCascadeSink::new(), 8);
         shell.enqueue(tile(999, COHORT, 1), 5);
         shell.enqueue(tile(TEAM, COHORT, 2), 6);
+        shell
+            .catalog
+            .publish(team_catalog(cohort_filters(false, Some(SHAPE_HASH))));
 
         shell.tick().await;
 
