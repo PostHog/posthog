@@ -2761,6 +2761,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -5474,6 +5486,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
             })
             .optional(),
         feature_flag_policy_config: zod

@@ -1,8 +1,10 @@
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
@@ -29,11 +31,57 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
         .filter((addr) => addr.length > 0)
 }
 
+// Atomic so concurrent sends to one person cannot both slip under the cap.
+const FREQUENCY_CAP_SCRIPT = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
+redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+return 0
+`
+
 export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; redis: RedisV2 }
     ) {}
+
+    /** Counts this send toward the team's marketing frequency cap, or returns true when the person is over it. */
+    public async isFrequencyCapped(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: HogFlowAction
+    ): Promise<boolean> {
+        const personId = invocation.state.globals.person?.id
+        if (
+            !this.frequencyCap ||
+            !personId ||
+            !this.isSubjectToRecipientPreferences(action) ||
+            action.config.message_category_type === 'transactional'
+        ) {
+            return false
+        }
+        const { max_messages, window_days } = await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(
+            invocation.teamId
+        )
+        if (!max_messages || !window_days) {
+            return false
+        }
+        const capped = await this.frequencyCap.redis.useClient(
+            { name: 'workflows-frequency-cap', failOpen: true },
+            (client) =>
+                client.eval(
+                    FREQUENCY_CAP_SCRIPT,
+                    1,
+                    `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
+                    Date.now(),
+                    window_days * 24 * 60 * 60 * 1000,
+                    max_messages,
+                    `${invocation.id}:${action.id}`
+                ) as Promise<number>
+        )
+        return capped === 1
+    }
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,
