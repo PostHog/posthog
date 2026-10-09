@@ -512,6 +512,16 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
+    it.each([
+        ['from the full list', 'request_duration'],
+        ['from a server search', 'checkout_latency'],
+    ])('keeps the type of a metric picked %s while the service scope reloads', (_source, metricName) => {
+        metricNamePickerLogic.actions.searchItemsSuccess([{ name: 'checkout_latency', metric_type: 'histogram' }])
+        metricNamePickerLogic.actions.setServices(['web'])
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.selectedMetricType).toBe('histogram')
+    })
+
     it('backfills the metric type when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
@@ -902,7 +912,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({ debounce: true })
+            metricNamePickerLogic.actions.loadItems()
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')
