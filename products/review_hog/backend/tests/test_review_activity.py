@@ -21,7 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewArm,
     review_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
@@ -37,6 +37,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    _current_pr_comments,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -310,7 +311,34 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     assert kwargs["workflow_id_prefix"] == f"{env.info.workflow_id}:issues-review-p1-c3".lower()
 
 
+def _single_agent_stage(**extra: object) -> dict:
+    return {
+        "team_id": 1,
+        "user_id": 2,
+        "report_id": "rep-1",
+        "head_sha": "sha1",
+        "repository": "o/r",
+        "branch": "feat",
+        "run_index": 1,
+        "review_mode": REVIEW_MODE_FLASH,
+        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
+        **extra,
+    }
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "activity_fn,activity_input",
+    [
+        pytest.param(review_chunk_activity, _review_input(), id="review_chunk"),
+        pytest.param(single_agent_review_activity, SandboxStageInput(**_single_agent_stage()), id="main_session"),
+        pytest.param(
+            lens_review_activity,
+            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            id="lens_session",
+        ),
+    ],
+)
 @pytest.mark.parametrize(
     "category,expected_type",
     [
@@ -320,19 +348,24 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
         (None, AgentTurnFailed),
     ],
 )
-async def test_review_chunk_activity_fails_non_retryably_only_on_non_retryable_agent_categories(
-    category: str | None, expected_type: type[Exception]
+async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_categories(
+    activity_fn: Callable[..., Awaitable[None]],
+    activity_input: SandboxStageInput | ReviewChunkInput,
+    category: str | None,
+    expected_type: type[Exception],
 ) -> None:
     failure = AgentTurnFailed("agent failed", category=category, agent_message="agent failed")
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", MagicMock(return_value="review-prompt")),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", MagicMock(return_value="review-prompt")),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}.load_perspective_results", return_value={}),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
     ):
         with pytest.raises(expected_type) as excinfo:
-            await ActivityEnvironment().run(review_chunk_activity, _review_input())
+            await ActivityEnvironment().run(activity_fn, activity_input)
 
     if isinstance(excinfo.value, ApplicationError):
         assert excinfo.value.non_retryable is True
@@ -483,21 +516,6 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     assert mock_load.called is False
 
 
-def _single_agent_stage(**extra: object) -> dict:
-    return {
-        "team_id": 1,
-        "user_id": 2,
-        "report_id": "rep-1",
-        "head_sha": "sha1",
-        "repository": "o/r",
-        "branch": "feat",
-        "run_index": 1,
-        "review_mode": REVIEW_MODE_FLASH,
-        "review_design": REVIEW_DESIGN_SINGLE_AGENT,
-        **extra,
-    }
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "activity_fn,activity_input,expected_key,expected_source",
@@ -574,3 +592,39 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
         (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
         (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
     ]
+
+
+def _comment(comment_id: int, line: int | None) -> PRComment:
+    return PRComment(id=comment_id, path="a.py", line=line, body="x", diff_hunk="", user="other-bot", created_at="c")
+
+
+@pytest.mark.parametrize(
+    "fetch_fails,current_head,expected_ids",
+    [
+        pytest.param(False, "sha1", [2, 1], id="the_new_read_adds_new_comments_and_drops_deleted_ones"),
+        pytest.param(True, "sha1", [1, 4], id="keeps_the_first_read_when_github_fails"),
+        pytest.param(False, "sha2", [1, 4], id="keeps_the_first_read_after_a_push_during_the_turn"),
+    ],
+)
+def test_full_dedup_reads_current_comments_without_outdated_ones(
+    fetch_fails: bool, current_head: str, expected_ids: list[int]
+) -> None:
+    # Other bots often post while a Full turn runs, so a start-of-turn read misses what they raise, and a comment
+    # deleted meanwhile must not keep a finding off the PR. A comment GitHub no longer places on a line is about
+    # code that changed, so it must not suppress a finding either. After a push during the turn, GitHub places
+    # comments on code the turn did not review, so the first read stays.
+    snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None), _comment(4, 30)]})
+    fetcher = MagicMock()
+    fetcher.return_value.fetch_pr_comments.return_value = [_comment(2, 20), _comment(1, 10)]
+    fetcher.return_value.fetch_head_sha.return_value = current_head
+    with (
+        patch(
+            f"{_MODULE}._installation_auth",
+            side_effect=RuntimeError("no installation") if fetch_fails else None,
+            return_value=("tok", None),
+        ),
+        patch(f"{_MODULE}.PRFetcher", fetcher),
+    ):
+        comments = _current_pr_comments(SandboxStageInput(**_single_agent_stage()), snapshot)
+
+    assert [comment.id for comment in comments] == expected_ids

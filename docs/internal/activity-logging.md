@@ -135,6 +135,10 @@ The activity log API, the advanced activity logs API and its exports, the notifi
 The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
 These protections do not revoke exposed credentials.
 
+New browser configuration builds leave out a site function while one of its secret values would reach the browser.
+That covers a secret still stored in plaintext inputs, and a mapping secret or its default.
+Regenerate existing browser configurations after deployment to replace cached JavaScript.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.

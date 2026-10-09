@@ -1611,7 +1611,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
                     )
                 try:
-                    validate_and_coerce_row_filters(row_filters, schema_metadata)
+                    validate_and_coerce_row_filters(
+                        row_filters, schema_metadata, source.row_filter_columns_for_schema(schema_name)
+                    )
                 except RowFilterValidationError as e:
                     new_source_model.delete()
                     return Response(
@@ -1772,6 +1774,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 team_id=self.team_id,
                 source_id=new_source_model.pk,
                 destination_ids=selected_destination_ids,
+                authorize_resume=self._assert_can_write_schemas,
             )
         except Exception as e:
             # The source is already created and its tables are configured. Losing that over a

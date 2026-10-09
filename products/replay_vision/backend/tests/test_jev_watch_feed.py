@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -585,6 +586,70 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.cache_errors == 1
         assert result.scanners_judged == 0
         assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {"judged-earlier": 0.9}
+
+    def test_scanners_are_judged_concurrently(self) -> None:
+        # One scanner at a time cannot cover a half rollout inside the time budget. The barrier only
+        # opens while both scanners' Jev calls are in flight, so a sequential sweep fails every chunk.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for name in ("a", "b"):
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name=name,
+                scanner_type=ScannerType.SUMMARIZER,
+                scanner_config={"prompt": "p", "length": "short"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            )
+            self._succeeded_observation(scanner, f"session-{name}", "The user hit an error at checkout.")
+        barrier = threading.Barrier(2, timeout=10)
+        answer = _answer_every_question(0.7)
+
+        def _together(request: DecisionRequest, **kwargs: Any) -> DecisionResult:
+            barrier.wait()
+            return answer(request)
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = _together
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert result.scanners_judged == 2
+        assert result.observations_judged == 2
+        assert result.failed_chunks == 0
+
+    def test_a_consent_revoked_while_a_scanner_waits_sends_nothing(self) -> None:
+        # Scanners are queued when their team passes the consent check but judged at their turn,
+        # which can come most of the run later. A revocation in between must stop the prose from
+        # reaching the model.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="s",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "short"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            # Approved when the team is queued, revoked by the time its scanner's turn comes.
+            patch(f"{activities}.is_ai_data_processing_approved", side_effect=[True, False]),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        api.decide_when_available.assert_not_called()
+        assert result.teams_enrolled == 1
+        assert result.scanners_consent_revoked == 1
+        assert result.scanners_judged == 0
 
     def _flag_arm(self, arm: str):
         """The experiment arm for self.team only, so the pinned team 2 stays on the default arm."""

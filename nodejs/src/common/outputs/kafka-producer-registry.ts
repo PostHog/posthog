@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 /**
@@ -9,12 +9,12 @@ import { logger } from '~/common/utils/logger'
  * to the constructor — the registry itself only manages access and shutdown.
  */
 export class KafkaProducerRegistry<P extends string> {
-    constructor(private producers: Record<P, KafkaProducerWrapper>) {}
+    constructor(private producers: Record<P, KafkaProducer>) {}
 
     /**
      * Get a producer by its typed name.
      */
-    getProducer(name: P): KafkaProducerWrapper {
+    getProducer(name: P): KafkaProducer {
         return this.producers[name]
     }
 
@@ -25,7 +25,7 @@ export class KafkaProducerRegistry<P extends string> {
      * disconnects complete if any failed.
      */
     async disconnectAll(): Promise<void> {
-        const entries = Object.entries<KafkaProducerWrapper>(this.producers)
+        const entries = Object.entries<KafkaProducer>(this.producers)
         const errors: [string, unknown][] = []
         for (const [name, producer] of entries) {
             logger.info('🔌', `Disconnecting producer "${name}"`)

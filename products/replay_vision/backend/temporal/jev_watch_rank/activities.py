@@ -12,6 +12,7 @@ data-processing consent, then per-team indexed observation queries. The observat
 cross-team index on (status, created_at), so the sweep never queries it without a team_id.
 """
 
+import random
 import asyncio
 from collections import Counter
 from contextlib import suppress
@@ -26,6 +27,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -45,6 +47,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
+    JUDGE_CONCURRENCY,
     MAX_JUDGE_ATTEMPTS,
     MAX_JUDGED_PER_SCANNER,
     MAX_SCANNERS_PER_SWEEP,
@@ -72,9 +75,8 @@ def _teams_with_scanners() -> list[int]:
     """Teams that own any scanner. The scanner table is small, so this is the cheap universe to
     flag-check; the huge observation table is only queried per team below, where its indexes hold.
 
-    Ordered, so the team cap cuts deterministically instead of by whatever order Postgres returns —
-    an unordered slice could drop an enrolled team on some runs and not others. Pinned teams go
-    first, so they never fall past the cap at all.
+    Pinned teams go first. The rest are shuffled, so when a run stops at the time budget, the teams
+    it leaves for the next run change from run to run instead of always being the newest ones.
     """
     with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
         team_ids = list(
@@ -82,7 +84,9 @@ def _teams_with_scanners() -> list[int]:
             .distinct()
             .order_by("team_id")[: MAX_TEAMS_PER_SWEEP + 1]
         )
-    return [*PINNED_TEAM_IDS, *[team_id for team_id in team_ids if team_id not in PINNED_TEAM_IDS]]
+    others = [team_id for team_id in team_ids if team_id not in PINNED_TEAM_IDS]
+    random.shuffle(others)
+    return [*PINNED_TEAM_IDS, *others]
 
 
 def _team_uuids(team_ids: list[int]) -> dict[int, UUID]:
@@ -135,6 +139,133 @@ async def judge_watch_ranks_activity(inputs: JevWatchRankSweepInputs) -> JevWatc
         return await _judge_watch_ranks(inputs)
 
 
+@frozen
+class _ScannerOutcome:
+    """What one scanner's turn in the sweep did, summed into the sweep result."""
+
+    judged: bool = False
+    skipped_unchanged: bool = False
+    # The scanner waited past the time budget and was left for the next run.
+    out_of_time: bool = False
+    # The organization revoked AI data-processing consent while the scanner waited for its turn.
+    consent_revoked: bool = False
+    observations_judged: int = 0
+    observations_given_up: int = 0
+    cache_errors: int = 0
+    failed_chunks: int = 0
+    input_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+
+
+async def _sweep_scanner(team_id: int, scanner_id: UUID, mode: str, window_start: datetime) -> _ScannerOutcome:
+    window_ids = await sync_to_async(_scanner_window_ids)(team_id, scanner_id, window_start)
+    if not window_ids:
+        return _ScannerOutcome()
+    # Judgments accumulate: each sweep judges only the rows the judged set does not hold,
+    # newest first, and cache entries whose rows left the window are pruned. Coverage
+    # therefore grows across sweeps at MAX_JUDGED_PER_SCANNER per hour whatever the
+    # scanner's volume, and a fully judged window costs nothing.
+    try:
+        judged_state = await asyncio.to_thread(load_judged_state, team_id, scanner_id)
+        cached = await asyncio.to_thread(load_scanner_watch_ranks, team_id, scanner_id)
+    except Exception:
+        # A cache the sweep cannot read must not be judged over or written: without the
+        # judged set it re-buys rows, and the write would replace entries it never saw.
+        logger.exception(
+            "Jev watch rank cache unreadable, skipping scanner",
+            team_id=team_id,
+            scanner_id=str(scanner_id),
+        )
+        return _ScannerOutcome(cache_errors=1)
+    judged = judged_state.ids
+    unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in judged][:MAX_JUDGED_PER_SCANNER]
+    if not unjudged_ids:
+        await asyncio.to_thread(refresh_watch_ranks_ttl, team_id, scanner_id)
+        return _ScannerOutcome(skipped_unchanged=True)
+    judged_context_ids = [row_id for row_id in window_ids if str(row_id) in judged][:WINDOW_CHUNK_SIZE]
+    rows = await sync_to_async(_rows_by_id)(team_id, unjudged_ids)
+    context_rows = await sync_to_async(_rows_by_id)(team_id, judged_context_ids)
+    judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows)
+    # Sub-threshold judgments join only the judged set, keeping the watchable key — which
+    # the feed loads for every readable scanner on each request — small.
+    window_strs = {str(row_id) for row_id in window_ids}
+    watchable = {
+        **{oid: p for oid, p in cached.probabilities.items() if oid in window_strs},
+        **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
+    }
+    reasons = {oid: reason for oid, reason in (cached.reasons | judgment.reasons).items() if oid in watchable}
+    # A row whose judgment failed through its own batch (an invalid answer, a gateway
+    # refusal the batch caused) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
+    # newest-first pick would otherwise retry a deterministically failing batch every hour
+    # and starve older rows. An exhausted row is recorded as judged with no score, so it
+    # settles into the filler tier like a prose-less row. An outage charges nothing — its
+    # rows stay unjudged and retry free next sweep.
+    failed_ids = set(judgment.batch_failed_ids)
+    updated_attempts = {oid: judged_state.attempts.get(oid, 0) + 1 for oid in failed_ids}
+    exhausted = {oid for oid, count in updated_attempts.items() if count >= MAX_JUDGE_ATTEMPTS}
+    attempts = {
+        oid: count for oid, count in judged_state.attempts.items() if oid in window_strs and oid not in failed_ids
+    } | {oid: count for oid, count in updated_attempts.items() if count < MAX_JUDGE_ATTEMPTS}
+    all_judged = (judged & window_strs) | set(judgment.probabilities) | set(judgment.skipped_no_prose) | exhausted
+    cache_errors = 0
+    if all_judged or attempts:
+        try:
+            await asyncio.to_thread(
+                store_watch_ranks,
+                team_id,
+                scanner_id,
+                all_judged,
+                watchable,
+                attempts,
+                judgment.model,
+                reasons,
+            )
+        except Exception:
+            # The batch is re-bought next run, which beats one write failure ending the sweep.
+            logger.exception("Jev watch rank cache write failed", team_id=team_id, scanner_id=str(scanner_id))
+            cache_errors += 1
+    with suppress(Exception):
+        # Sub-threshold scores are cached nowhere, so this event is the only record of the
+        # score distribution — it is the data JEV_WATCHABLE_MIN is calibrated from.
+        scores = sorted(judgment.probabilities.values())
+        top_scored = [
+            {"id": oid, "p": round(probability, 3)}
+            for oid, probability in sorted(judgment.probabilities.items(), key=lambda entry: entry[1], reverse=True)[:5]
+        ]
+        posthoganalytics.capture(
+            event="replay_vision_jev_watch_rank_judged",
+            distinct_id=f"team-{team_id}",
+            properties={
+                "scanner_id": str(scanner_id),
+                "mode": mode,
+                "window_rows": len(rows),
+                "observations_judged": len(judgment.probabilities),
+                "mean_watchability": (fmean(judgment.probabilities.values()) if judgment.probabilities else None),
+                "watchable_count": sum(1 for probability in scores if probability >= JEV_WATCHABLE_MIN),
+                "watchability_p90": scores[int(0.9 * (len(scores) - 1))] if scores else None,
+                "watchability_max": scores[-1] if scores else None,
+                "top_scored": top_scored,
+                "chunks": judgment.chunks,
+                "failed_chunks": judgment.failed_chunks,
+                "chunk_error_types": judgment.chunk_error_types,
+                "watch_reasons": dict(Counter(judgment.reasons.values())),
+                "failed_reason_chunks": judgment.failed_reason_chunks,
+                "jev_model": judgment.model,
+                "input_tokens": judgment.input_tokens,
+                "estimated_cost_usd": judgment.estimated_cost_usd,
+            },
+        )
+    return _ScannerOutcome(
+        judged=True,
+        observations_judged=len(judgment.probabilities),
+        observations_given_up=len(exhausted),
+        cache_errors=cache_errors,
+        failed_chunks=judgment.failed_chunks,
+        input_tokens=judgment.input_tokens,
+        estimated_cost_usd=judgment.estimated_cost_usd,
+    )
+
+
 async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSweepResult:
     if not decision_api.decisions_available_here():
         return JevWatchRankSweepResult(decisions_unavailable=True)
@@ -143,180 +274,77 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
     team_ids = await sync_to_async(_teams_with_scanners)()
     team_uuids = await sync_to_async(_team_uuids)(team_ids[:MAX_TEAMS_PER_SWEEP])
 
+    # Most of a scanner's turn waits on Jev, so scanners take turns JUDGE_CONCURRENCY at a time. The
+    # teams loop only flag-checks and lists scanners, so it runs ahead and queues them.
+    turns = asyncio.Semaphore(JUDGE_CONCURRENCY)
+
+    async def take_turn(team_id: int, scanner_id: UUID, mode: str) -> _ScannerOutcome:
+        async with turns:
+            if monotonic() > deadline:
+                return _ScannerOutcome(out_of_time=True)
+            # A turn can wait most of the run after its team was queued, so consent is read again
+            # here: a revocation in between must stop the prose before it reaches the model.
+            if not await sync_to_async(is_ai_data_processing_approved)(team_id):
+                return _ScannerOutcome(consent_revoked=True)
+            return await _sweep_scanner(team_id, scanner_id, mode, window_start)
+
     teams_enrolled = 0
     teams_without_consent = 0
-    scanners_judged = 0
-    scanners_skipped_unchanged = 0
-    observations_judged = 0
-    observations_given_up = 0
-    cache_errors = 0
-    failed_chunks = 0
-    input_tokens = 0
-    estimated_cost = 0.0
     scanners_seen = 0
     hit_scanner_cap = False
     hit_time_budget = False
-    for team_id in team_ids[:MAX_TEAMS_PER_SWEEP]:
-        if monotonic() > deadline:
-            hit_time_budget = True
-            break
-        team_uuid = team_uuids.get(team_id)
-        if team_uuid is None:
-            continue
-        mode = await asyncio.to_thread(watch_feed_ranker, team_id, team_uuid)
-        if mode == "weighted-score":
-            continue
-        # The scan prose the sweep sends to the model derives from recordings, so a revoked consent
-        # stops the judgments even while the flag stays on.
-        if not await sync_to_async(is_ai_data_processing_approved)(team_id):
-            teams_without_consent += 1
-            continue
-        teams_enrolled += 1
-        scanner_ids = await sync_to_async(_team_scanner_ids)(team_id, window_start)
-        for scanner_id in scanner_ids:
+    queued: list[asyncio.Task[_ScannerOutcome]] = []
+    async with asyncio.TaskGroup() as scanner_turns:
+        for team_id in team_ids[:MAX_TEAMS_PER_SWEEP]:
             if monotonic() > deadline:
                 hit_time_budget = True
                 break
-            if scanners_seen >= MAX_SCANNERS_PER_SWEEP:
-                hit_scanner_cap = True
+            team_uuid = team_uuids.get(team_id)
+            if team_uuid is None:
+                continue
+            mode = await asyncio.to_thread(watch_feed_ranker, team_id, team_uuid)
+            if mode == "weighted-score":
+                continue
+            # The scan prose the sweep sends to the model derives from recordings, so a revoked consent
+            # stops the judgments even while the flag stays on.
+            if not await sync_to_async(is_ai_data_processing_approved)(team_id):
+                teams_without_consent += 1
+                continue
+            teams_enrolled += 1
+            scanner_ids = await sync_to_async(_team_scanner_ids)(team_id, window_start)
+            for scanner_id in scanner_ids:
+                if scanners_seen >= MAX_SCANNERS_PER_SWEEP:
+                    hit_scanner_cap = True
+                    break
+                scanners_seen += 1
+                queued.append(scanner_turns.create_task(take_turn(team_id, scanner_id, mode)))
+            if hit_scanner_cap:
                 break
-            scanners_seen += 1
-            window_ids = await sync_to_async(_scanner_window_ids)(team_id, scanner_id, window_start)
-            if not window_ids:
-                continue
-            # Judgments accumulate: each sweep judges only the rows the judged set does not hold,
-            # newest first, and cache entries whose rows left the window are pruned. Coverage
-            # therefore grows across sweeps at MAX_JUDGED_PER_SCANNER per hour whatever the
-            # scanner's volume, and a fully judged window costs nothing.
-            try:
-                judged_state = await asyncio.to_thread(load_judged_state, team_id, scanner_id)
-                cached = await asyncio.to_thread(load_scanner_watch_ranks, team_id, scanner_id)
-            except Exception:
-                # A cache the sweep cannot read must not be judged over or written: without the
-                # judged set it re-buys rows, and the write would replace entries it never saw.
-                logger.exception(
-                    "Jev watch rank cache unreadable, skipping scanner",
-                    team_id=team_id,
-                    scanner_id=str(scanner_id),
-                )
-                cache_errors += 1
-                continue
-            judged = judged_state.ids
-            unjudged_ids = [row_id for row_id in window_ids if str(row_id) not in judged][:MAX_JUDGED_PER_SCANNER]
-            if not unjudged_ids:
-                await asyncio.to_thread(refresh_watch_ranks_ttl, team_id, scanner_id)
-                scanners_skipped_unchanged += 1
-                continue
-            judged_context_ids = [row_id for row_id in window_ids if str(row_id) in judged][:WINDOW_CHUNK_SIZE]
-            rows = await sync_to_async(_rows_by_id)(team_id, unjudged_ids)
-            context_rows = await sync_to_async(_rows_by_id)(team_id, judged_context_ids)
-            judgment = await asyncio.to_thread(judge_scanner_window, team_id, scanner_id, rows, context_rows)
-            # Sub-threshold judgments join only the judged set, keeping the watchable key — which
-            # the feed loads for every readable scanner on each request — small.
-            window_strs = {str(row_id) for row_id in window_ids}
-            watchable = {
-                **{oid: p for oid, p in cached.probabilities.items() if oid in window_strs},
-                **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
-            }
-            reasons = {oid: reason for oid, reason in (cached.reasons | judgment.reasons).items() if oid in watchable}
-            # A row whose judgment failed through its own batch (an invalid answer, a gateway
-            # refusal the batch caused) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
-            # newest-first pick would otherwise retry a deterministically failing batch every hour
-            # and starve older rows. An exhausted row is recorded as judged with no score, so it
-            # settles into the filler tier like a prose-less row. An outage charges nothing — its
-            # rows stay unjudged and retry free next sweep.
-            failed_ids = set(judgment.batch_failed_ids)
-            updated_attempts = {oid: judged_state.attempts.get(oid, 0) + 1 for oid in failed_ids}
-            exhausted = {oid for oid, count in updated_attempts.items() if count >= MAX_JUDGE_ATTEMPTS}
-            attempts = {
-                oid: count
-                for oid, count in judged_state.attempts.items()
-                if oid in window_strs and oid not in failed_ids
-            } | {oid: count for oid, count in updated_attempts.items() if count < MAX_JUDGE_ATTEMPTS}
-            observations_given_up += len(exhausted)
-            all_judged = (
-                (judged & window_strs) | set(judgment.probabilities) | set(judgment.skipped_no_prose) | exhausted
-            )
-            if all_judged or attempts:
-                try:
-                    await asyncio.to_thread(
-                        store_watch_ranks,
-                        team_id,
-                        scanner_id,
-                        all_judged,
-                        watchable,
-                        attempts,
-                        judgment.model,
-                        reasons,
-                    )
-                except Exception:
-                    # The batch is re-bought next run, which beats one write failure ending the sweep.
-                    logger.exception("Jev watch rank cache write failed", team_id=team_id, scanner_id=str(scanner_id))
-                    cache_errors += 1
-            scanners_judged += 1
-            observations_judged += len(judgment.probabilities)
-            failed_chunks += judgment.failed_chunks
-            input_tokens += judgment.input_tokens
-            estimated_cost += judgment.estimated_cost_usd
-            with suppress(Exception):
-                # Sub-threshold scores are cached nowhere, so this event is the only record of the
-                # score distribution — it is the data JEV_WATCHABLE_MIN is calibrated from.
-                scores = sorted(judgment.probabilities.values())
-                top_scored = [
-                    {"id": oid, "p": round(probability, 3)}
-                    for oid, probability in sorted(
-                        judgment.probabilities.items(), key=lambda entry: entry[1], reverse=True
-                    )[:5]
-                ]
-                posthoganalytics.capture(
-                    event="replay_vision_jev_watch_rank_judged",
-                    distinct_id=f"team-{team_id}",
-                    properties={
-                        "scanner_id": str(scanner_id),
-                        "mode": mode,
-                        "window_rows": len(rows),
-                        "observations_judged": len(judgment.probabilities),
-                        "mean_watchability": (
-                            fmean(judgment.probabilities.values()) if judgment.probabilities else None
-                        ),
-                        "watchable_count": sum(1 for probability in scores if probability >= JEV_WATCHABLE_MIN),
-                        "watchability_p90": scores[int(0.9 * (len(scores) - 1))] if scores else None,
-                        "watchability_max": scores[-1] if scores else None,
-                        "top_scored": top_scored,
-                        "chunks": judgment.chunks,
-                        "failed_chunks": judgment.failed_chunks,
-                        "chunk_error_types": judgment.chunk_error_types,
-                        "watch_reasons": dict(Counter(judgment.reasons.values())),
-                        "failed_reason_chunks": judgment.failed_reason_chunks,
-                        "jev_model": judgment.model,
-                        "input_tokens": judgment.input_tokens,
-                        "estimated_cost_usd": judgment.estimated_cost_usd,
-                    },
-                )
-        if hit_scanner_cap:
-            break
+    outcomes = [turn.result() for turn in queued]
 
     result = JevWatchRankSweepResult(
         teams_seen=min(len(team_ids), MAX_TEAMS_PER_SWEEP),
         teams_enrolled=teams_enrolled,
         teams_without_consent=teams_without_consent,
-        scanners_judged=scanners_judged,
-        scanners_skipped_unchanged=scanners_skipped_unchanged,
-        observations_judged=observations_judged,
-        observations_given_up=observations_given_up,
-        cache_errors=cache_errors,
-        failed_chunks=failed_chunks,
-        input_tokens=input_tokens,
-        estimated_cost_usd=estimated_cost,
+        scanners_consent_revoked=sum(outcome.consent_revoked for outcome in outcomes),
+        scanners_judged=sum(outcome.judged for outcome in outcomes),
+        scanners_skipped_unchanged=sum(outcome.skipped_unchanged for outcome in outcomes),
+        observations_judged=sum(outcome.observations_judged for outcome in outcomes),
+        observations_given_up=sum(outcome.observations_given_up for outcome in outcomes),
+        cache_errors=sum(outcome.cache_errors for outcome in outcomes),
+        failed_chunks=sum(outcome.failed_chunks for outcome in outcomes),
+        input_tokens=sum(outcome.input_tokens for outcome in outcomes),
+        estimated_cost_usd=sum(outcome.estimated_cost_usd for outcome in outcomes),
         hit_team_cap=len(team_ids) > MAX_TEAMS_PER_SWEEP,
         hit_scanner_cap=hit_scanner_cap,
-        hit_time_budget=hit_time_budget,
+        hit_time_budget=hit_time_budget or any(outcome.out_of_time for outcome in outcomes),
     )
     logger.info(
         "replay_vision.jev_watch_rank.cycle_complete",
         teams_seen=result.teams_seen,
         teams_enrolled=result.teams_enrolled,
         teams_without_consent=result.teams_without_consent,
+        scanners_consent_revoked=result.scanners_consent_revoked,
         scanners_judged=result.scanners_judged,
         scanners_skipped_unchanged=result.scanners_skipped_unchanged,
         observations_judged=result.observations_judged,

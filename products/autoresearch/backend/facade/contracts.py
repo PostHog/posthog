@@ -379,6 +379,24 @@ class CalibrationBin:
 
 
 @dataclass(frozen=True)
+class ConfusionCounts:
+    tp: int
+    fp: int
+    fn: int
+    tn: int
+    n_flagged: int
+    precision: float | None
+    recall: float | None
+
+
+@dataclass(frozen=True)
+class ConfusionByCutoff:
+    top_10: ConfusionCounts
+    top_20: ConfusionCounts
+    likely: ConfusionCounts
+
+
+@dataclass(frozen=True)
 class OnlinePerformanceRow:
     """One model's realized metrics for one validated prediction date."""
 
@@ -400,6 +418,8 @@ class OnlinePerformanceRow:
     calibration_error: float | None
     lift_at_10: float | None
     lift_at_20: float | None
+    average_precision: float | None
+    confusion: ConfusionByCutoff | None
     calibration_bins: list[CalibrationBin] | None
     warning: str | None
     validated_at: datetime | None

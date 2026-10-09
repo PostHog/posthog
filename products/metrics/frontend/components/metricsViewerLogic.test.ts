@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
+import { performQuery } from '~/queries/query'
 import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -35,6 +36,11 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     metricsAttributesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
+}))
+
+jest.mock('~/queries/query', () => ({
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn(),
 }))
 
 jest.mock('scenes/insights/utils/api', () => ({
@@ -273,6 +279,14 @@ describe('metricsViewerLogic', () => {
         expectHeatmapFallback(() =>
             logic.actions.setClauses([createViewerClause('a'), createViewerClause('b')], 'a / 2')
         )
+        expectHeatmapFallback(() =>
+            logic.actions.applyQuery({
+                kind: NodeKind.MetricsQuery,
+                clauses: [],
+                language: 'promql',
+                promql: 'sum(rate(request_duration_bucket))',
+            })
+        )
     })
 
     // Guards the multi-series save path: each clause carries its own metric/aggregation,
@@ -368,6 +382,28 @@ describe('metricsViewerLogic', () => {
         expect(requestBody.query).not.toHaveProperty('formula')
     })
 
+    it('runs a PromQL query through the query runner and charts its series', async () => {
+        jest.mocked(performQuery).mockResolvedValue({
+            results: [{ labels: { job: 'api' }, points: [{ time: '2026-01-01T00:00:00Z', value: 1 }], clause: 'a' }],
+        })
+        logic.actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(up)' })
+
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+
+        expect(jest.mocked(performQuery).mock.calls[0][0]).toMatchObject({ language: 'promql', promql: 'sum(up)' })
+        expect(metricsQueryCreate).not.toHaveBeenCalled()
+        expect(logic.values.chartSeries).toEqual([
+            {
+                labels: { job: 'api' },
+                points: [{ time: '2026-01-01T00:00:00Z', value: 1 }],
+                metricName: null,
+                clause: 'a',
+            },
+        ])
+    })
+
     // A "vs baseline" badge computed from one input clause would be attributed to the
     // whole (multi-series or formula) chart — suppressing it is the honest behavior.
     it('suppresses the anomaly characterization for multi-series queries', async () => {
@@ -415,21 +451,49 @@ describe('metricsViewerLogic', () => {
         toastSpy.mockRestore()
     })
 
-    it('names a formula insight after the formula and its inputs', async () => {
+    it.each<[string, () => void, string]>([
+        [
+            'a formula, after the formula and its inputs',
+            () => {
+                logic.actions.setMetricName('requests_total')
+                logic.actions.addClause()
+                logic.actions.setMetricName('queue_depth')
+                logic.actions.setFormula('a / b')
+            },
+            'a / b (requests_total, queue_depth)',
+        ],
+        [
+            'a PromQL query, after its text',
+            () =>
+                logic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum(rate(requests_total))',
+                }),
+            'PromQL: sum(rate(requests_total))',
+        ],
+        [
+            'a SQL query, after its text',
+            () =>
+                logic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'sql',
+                    sql: 'SELECT now() AS time,\n    1 AS value',
+                }),
+            'SQL: SELECT now() AS time, 1 AS value',
+        ],
+    ])('names %s', async (_name, setUp, expectedName) => {
         jest.mocked(insightsApi.create).mockImplementation(
             async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
         )
-        logic.actions.setMetricName('requests_total')
-        logic.actions.addClause()
-        logic.actions.setMetricName('queue_depth')
-        logic.actions.setFormula('a / b')
+        setUp()
 
         logic.actions.saveAsInsight()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
 
-        expect(insightsApi.create).toHaveBeenCalledWith(
-            expect.objectContaining({ name: 'a / b (requests_total, queue_depth)' })
-        )
+        expect(insightsApi.create).toHaveBeenCalledWith(expect.objectContaining({ name: expectedName }))
     })
 
     // A type outside the API enum (or a metric missing from the picker list) must be
@@ -446,6 +510,16 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('queue_depth')
         metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it.each([
+        ['from the full list', 'request_duration'],
+        ['from a server search', 'checkout_latency'],
+    ])('keeps the type of a metric picked %s while the service scope reloads', (_source, metricName) => {
+        metricNamePickerLogic.actions.searchItemsSuccess([{ name: 'checkout_latency', metric_type: 'histogram' }])
+        metricNamePickerLogic.actions.setServices(['web'])
+        logic.actions.setMetricName(metricName)
+        expect(logic.values.selectedMetricType).toBe('histogram')
     })
 
     it('backfills the metric type when the picker loads after the metric was set', () => {
@@ -838,7 +912,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({ debounce: true })
+            metricNamePickerLogic.actions.loadItems()
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')
@@ -911,10 +985,49 @@ describe('metricsViewerLogic', () => {
 
         // The editor writes this node back to the insight; if it differs from the saved
         // query, merely opening edit mode would mark the insight as changed.
-        it('maps a saved query back to the same node', () => {
-            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: SAVED_QUERY })
+        it.each<[string, MetricsQuery]>([
+            ['builder', SAVED_QUERY],
+            [
+                'PromQL',
+                {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum by (job) (rate(requests_total))',
+                    dateRange: { date_from: '-6h' },
+                    display: { type: 'area' },
+                },
+            ],
+            [
+                'SQL',
+                {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'sql',
+                    sql: 'SELECT now() AS time, 1 AS value',
+                    dateRange: { date_from: '-6h' },
+                    interval: 'minute_5',
+                },
+            ],
+        ])('maps a saved %s query back to the same node', (_name, query) => {
+            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: query })
             editor.mount()
-            expect(editor.values.metricsQueryNode).toEqual(SAVED_QUERY)
+            expect(editor.values.metricsQueryNode).toEqual(query)
+            editor.unmount()
+        })
+
+        it('changes the PromQL in the query only when the draft runs', () => {
+            const editor = metricsViewerLogic({
+                key: 'editor-test',
+                initialQuery: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(x)' },
+            })
+            editor.mount()
+            editor.actions.setQueryDraft('sum(y) ')
+            expect(editor.values.metricsQueryNode?.promql).toBe('sum(x)')
+            expect(editor.values.queryTextChanged).toBe(true)
+            editor.actions.runQueryText()
+            expect(editor.values.metricsQueryNode?.promql).toBe('sum(y)')
+            expect(editor.values.queryTextChanged).toBe(false)
             editor.unmount()
         })
 
