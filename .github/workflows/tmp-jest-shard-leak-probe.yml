@@ -6,6 +6,8 @@ on:
     pull_request:
         paths:
             - '.github/workflows/tmp-jest-shard-leak-probe.yml'
+            - '.github/scripts/tmp_jest_leak_probe.py'
+            - 'frontend/jest.probe.*'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -16,14 +18,21 @@ permissions:
 
 jobs:
     probe:
-        name: Probe (${{ matrix.fix }}, ${{ matrix.order }})
+        name: Probe (${{ matrix.fix }}, shard 1 of ${{ matrix.shards }}, ${{ matrix.order }})
         runs-on: ubuntu-24.04
         timeout-minutes: 60
         strategy:
             fail-fast: false
             matrix:
-                fix: [nocache, workerlimit, heap6g, heap4g, heap3g]
+                fix: [retainmaps, retainmaps-gc, retainmaps-heap4g, node22]
                 order: [today-first, today-second]
+                # Two shards is the workload the timeouts came from. Three is what master runs now.
+                shards: [2, 3]
+                exclude:
+                    - fix: retainmaps-heap4g
+                      shards: 3
+                    - fix: node22
+                      shards: 3
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -32,94 +41,12 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
+            - name: Build product files
+              run: pnpm --filter=@posthog/frontend build:products
+
             - name: Run shard 1 as today and with one fix
               env:
                   FIX: ${{ matrix.fix }}
                   ORDER: ${{ matrix.order }}
-              run: |
-                  set +e
-                  set -uo pipefail
-                  pnpm --filter=@posthog/frontend build:products
-                  echo "RESULT runner: $(nproc) cpus, $(free -m | awk '/^Mem:/ {print $2}') MB RAM"
-
-                  # pnpm's jest launcher sets NODE_PATH, which jest needs to resolve imports from product folders.
-                  # A node flag that NODE_OPTIONS rejects goes into a copy of that launcher.
-                  # shellcheck disable=SC2016
-                  sed's|exec node  |exec node --no-compilation-cache |; s|exec "$basedir/node"  |exec "$basedir/node" --no-compilation-cache |' \
-                      frontend/node_modules/.bin/jest > frontend/node_modules/.bin/jest-nocache
-                  chmod +x frontend/node_modules/.bin/jest-nocache
-                  echo "RESULT nocache launcher lines with the flag: $(grep -c -- '--no-compilation-cache' frontend/node_modules/.bin/jest-nocache)"
-
-                  run_variant() {
-                      local variant="$1" log="$RUNNER_TEMP/jest-$1.log"
-                      local heap=16384 launcher=jest
-                      local jest_flags=()
-                      case "$variant" in
-                          nocache) launcher=jest-nocache ;;
-                          workerlimit) jest_flags=(--workerIdleMemoryLimit=2GB) ;;
-                          heap6g) heap=6144 ;;
-                          heap4g) heap=4096 ;;
-                          heap3g) heap=3072 ;;
-                      esac
-                      local start
-                      start=$(date +%s)
-                      # Same jest arguments as the selective jest job, plus heap logging and a cold jest cache per variant.
-                      NODE_OPTIONS="--max-old-space-size=$heap" pnpm --filter=@posthog/frontend exec "$launcher" \
-                          --forceExit \
-                          --passWithNoTests \
-                          --logHeapUsage \
-                          --cacheDirectory="$RUNNER_TEMP/jest-cache-$variant" \
-                          "${jest_flags[@]}" \
-                          --shard=1/2 \
-                          --findRelatedTests src/lib/constants.tsx > "$log" 2>&1
-                      local status=$?
-                      local wall=$(( $(date +%s) - start ))
-                      python3 - "$log" "$variant" "$wall" "$status" <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
-                  import re, sys
-                  log, variant, wall, status = sys.argv[1:5]
-                  ansi = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-                  heaps, first, jest_time, suites, tests, failed, notes = [], None, "?", "?", "?", [], []
-                  for raw in open(log, errors="replace"):
-                      line = ansi.sub("", raw.rstrip("\n"))
-                      m = re.match(r"^(PASS|FAIL) (\S+)(?: \((?:[\d.]+ s, )?(\d+) MB heap size\))?", line)
-                      if m:
-                          first = first or m.group(2)
-                          if m.group(1) == "FAIL":
-                              failed.append(m.group(2))
-                          if m.group(3):
-                              heaps.append(int(m.group(3)))
-                      if line.startswith("Test Suites:"):
-                          suites = line.split(":", 1)[1].strip()
-                      if line.startswith("Tests:"):
-                          tests = line.split(":", 1)[1].strip()
-                      if line.startswith("Time:"):
-                          jest_time = line.split(":", 1)[1].strip()
-                      if re.search(r"heap out of memory|FATAL ERROR|SIGKILL|SIGABRT|terminated by another process|ran out of memory|Killed", line) and len(notes) < 6:
-                          notes.append(line.strip()[:200])
-                  third = max(1, len(heaps) // 3)
-                  mid = lambda xs: sorted(xs)[len(xs) // 2] if xs else 0
-                  print(f"RESULT variant={variant} exit={status} wall_s={wall} jest_time={jest_time}")
-                  print(f"RESULT   suites: {suites}; tests: {tests}")
-                  print(f"RESULT   first suite: {first}")
-                  print(f"RESULT   heap MB: median first third={mid(heaps[:third])} middle third={mid(heaps[third:2 * third])} last third={mid(heaps[2 * third:])} max={max(heaps) if heaps else 0}")
-                  print(f"RESULT   suites reporting over 2000 MB: {sum(1 for h in heaps if h > 2000)} of {len(heaps)}")
-                  for name in sorted(set(failed))[:8]:
-                      print(f"RESULT   failed suite: {name}")
-                  for note in notes:
-                      print(f"RESULT   note: {note}")
-                  PY
-                      if [ "$status" -ne 0 ]; then
-                          echo "RESULT   last lines of the jest output for $variant:"
-                          tail -n 25 "$log" | cut -c1-220 | sed 's/^/RESULT     /'
-                      fi
-                  }
-
-                  if [ "$ORDER" = "today-first" ]; then
-                      run_variant today
-                      run_variant "$FIX"
-                  else
-                      run_variant "$FIX"
-                      run_variant today
-                  fi
-                  echo "RESULT kernel out-of-memory kills: $(sudo dmesg 2>/dev/null | grep -c -i 'killed process')"
-                  exit 0
+                  SHARDS: ${{ matrix.shards }}
+              run: python3 .github/scripts/tmp_jest_leak_probe.py --fix "$FIX" --order "$ORDER" --shards "$SHARDS" | tee -a "$GITHUB_STEP_SUMMARY"
