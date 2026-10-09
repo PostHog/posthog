@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
 from typing import cast
 from uuid import UUID
 
@@ -53,7 +54,7 @@ from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialSetupSerializer,
     ScoutTrialStartedSerializer,
 )
-from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
+from products.signals.backend.scout_harness.trial_state import ScoutTrialStateError, ScoutTrialStore
 
 
 class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
@@ -231,9 +232,10 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
             else:
                 trial_status = "in_progress" if workflow.status == "pending" else workflow.status
                 if workflow.status in {"failed", "cancelled", "skipped"}:
-                    ScoutTrialStore(run).invalidate(
-                        error or "The controlling scout workflow ended before its task.", allow_terminal=True
-                    )
+                    with suppress(ScoutTrialStateError):
+                        ScoutTrialStore(run).invalidate(
+                            error or "The controlling scout workflow ended before its task.", allow_terminal=True
+                        )
                 if workflow.status == "completed":
                     trial_status = "unknown"
                 try:
@@ -257,11 +259,16 @@ class ScoutTrialConfigMixin(ScoutTrialComparisonMixin):
                     elif run.task_run.status != "completed":
                         trial_status = run.task_run.status
                         error = "The scout task stopped before completion."
-            private = ScoutTrialStore(run).export()
-            stored_reports = private["reports"]
-            reports = list(stored_reports.values()) if isinstance(stored_reports, dict) else []
-            memory = private["memory"]
-            invalid_reason = private["invalid_reason"]
+            try:
+                private = ScoutTrialStore(run).export()
+            except ScoutTrialStateError as state_error:
+                # Trials from before the private state column existed have no saved reports or memory.
+                invalid_reason = str(state_error)
+            else:
+                stored_reports = private["reports"]
+                reports = list(stored_reports.values()) if isinstance(stored_reports, dict) else []
+                memory = private["memory"]
+                invalid_reason = private["invalid_reason"]
             token_usage = (run.task_run.state or {}).get("token_usage")
             if isinstance(token_usage, dict):
                 usage = token_usage
