@@ -14,8 +14,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
-use usage_ingestion::config::Config;
+use usage_ingestion::config::{Config, TransportMode};
 use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator};
+use usage_ingestion::grpc::GrpcUsageIngestion;
+use usage_ingestion::kafka::KafkaUsageIngestion;
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
@@ -77,16 +79,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
+    let (consumer_liveness, dead_letter_producer) = if config.transport_mode == TransportMode::Grpc
+    {
+        (None, None)
+    } else {
+        let consumer_liveness = health
+            .register("kafka_consumer".to_string(), Duration::from_secs(30))
+            .await;
+        let dead_letter_liveness = health
+            .register(
+                "kafka_dead_letter_producer".to_string(),
+                Duration::from_secs(30),
+            )
+            .await;
+        let dead_letter_producer =
+            create_kafka_producer(&config.kafka_dead_letter_config(), dead_letter_liveness).await?;
+        (Some(consumer_liveness), Some(dead_letter_producer))
+    };
     let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
     let counters = (!config.redis_url.is_empty()).then(|| Arc::new(CounterAccumulator::default()));
-    let service = UsageIngestionService::new(
+    let service = Arc::new(UsageIngestionService::new(
         producer,
         resolver,
         config.max_batch_size,
         config.topic.clone(),
         counters.as_ref().map(Arc::clone),
-    );
+    ));
 
     // Buckets only for the shared gRPC histogram, so it renders the same way personhog's does
     // and quantiles aggregate across pods. Left global, these millisecond bounds would also
@@ -103,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(accumulator) = counters {
         spawn_flush_task(
             accumulator,
-            config.redis_url,
+            config.redis_url.clone(),
             Duration::from_secs(config.redis_flush_interval_seconds),
             redis_counter_config,
         );
@@ -132,21 +151,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("usage-ingestion metrics server failed");
     });
 
-    tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
-    // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
-    // before exposing it beyond that boundary because records affect tenant billing.
-    // Producers pin one HTTP/2 connection for the life of the process, so a scale-up takes no
-    // traffic until connections churn. A periodic GOAWAY makes them re-resolve the service.
-    // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
-    // synchronized reconnect shows up as a latency sawtooth.
-    let mut builder = Server::builder();
-    if let Some(age) = grpc_max_connection_age {
-        builder = builder.max_connection_age(age);
+    let grpc_service = service.clone();
+    let grpc = async {
+        if config.transport_mode != TransportMode::Kafka {
+            tracing::info!(address = %config.grpc_address, "Starting usage-ingestion gRPC service");
+            // This listener is limited to trusted in-cluster callers. Add authenticated caller identity
+            // before exposing it beyond that boundary because records affect tenant billing.
+            // Producers pin one HTTP/2 connection for the life of the process, so a scale-up takes no
+            // traffic until connections churn. A periodic GOAWAY makes them re-resolve the service.
+            // ponytail: tonic 0.12 adds no jitter here. Move to client-side round-robin if the
+            // synchronized reconnect shows up as a latency sawtooth.
+            let mut builder = Server::builder();
+            if let Some(age) = grpc_max_connection_age {
+                builder = builder.max_connection_age(age);
+            }
+            builder
+                .layer(GrpcMetricsLayer)
+                .add_service(UsageIngestionServer::new(GrpcUsageIngestion::new(
+                    grpc_service,
+                )))
+                .serve(config.grpc_address.parse()?)
+                .await?;
+        }
+        Ok::<(), Box<dyn std::error::Error>>(())
+    };
+    let kafka_config = config.kafka_consumer_config();
+    let kafka_batch_config = config.kafka_batch_config();
+    // A consumer failure exits the process, like the other consumers in this repo: k8s
+    // restarts the pod, and a permanent fault shows up as CrashLoopBackOff instead of a
+    // green pod that quietly stopped draining the topic.
+    let kafka = async {
+        tracing::info!(
+            topic = %config.kafka_input_topic,
+            group = %config.kafka_consumer_group,
+            "Starting usage-ingestion Kafka consumer"
+        );
+        let result = KafkaUsageIngestion::new(
+            &kafka_config,
+            &config.kafka_input_topic,
+            dead_letter_producer.expect("Kafka modes create the dead-letter producer"),
+            config.kafka_dead_letter_topic.clone(),
+            service,
+            kafka_batch_config,
+            consumer_liveness.expect("Kafka modes register consumer health"),
+        )?
+        .run()
+        .await;
+        let error = result.expect_err("the Kafka consumer only exits on failure");
+        tracing::error!(error = %error, "usage ingestion Kafka consumer failed; exiting");
+        Err::<(), Box<dyn std::error::Error>>(error.into())
+    };
+
+    match config.transport_mode {
+        TransportMode::Grpc => grpc.await?,
+        TransportMode::Kafka => kafka.await?,
+        TransportMode::Both => tokio::select! {
+            result = grpc => result?,
+            result = kafka => result?,
+        },
     }
-    builder
-        .layer(GrpcMetricsLayer)
-        .add_service(UsageIngestionServer::new(service))
-        .serve(config.grpc_address.parse()?)
-        .await?;
     Ok(())
 }
