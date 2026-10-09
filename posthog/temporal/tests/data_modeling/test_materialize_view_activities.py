@@ -1793,13 +1793,7 @@ class TestMaterializeViewActivity:
         expects_delayed_retry,
     ):
         def mock_hogql_table(*args, **kwargs):
-            del args, kwargs
-
-            async def async_generator():
-                raise ClickHouseError(clickhouse_message)
-                yield  # type: ignore[unreachable]  # makes this an async generator
-
-            return async_generator()
+            raise ClickHouseError(clickhouse_message)
 
         with (
             override_settings(
