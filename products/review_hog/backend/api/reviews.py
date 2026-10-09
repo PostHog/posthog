@@ -21,8 +21,10 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.api.settings import has_internal_features
+from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
+from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, flash_refusal
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
     ReviewIssueFinding,
@@ -249,8 +251,8 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     )
 
 
-# What the trigger runs. The default 'review' includes the resolution stage when the requesting
-# user's `resolve_comments` setting is on; the others are the split button's explicit variants.
+# What the trigger runs. The default 'review' includes the resolution stage when the pull request
+# owner's `resolve_comments` setting is on; the others are the split button's explicit variants.
 # Flash never resolves comments because it must not write code.
 RUN_MODE_REVIEW = "review"
 RUN_MODE_REVIEW_ONLY = "review_only"
@@ -267,12 +269,13 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
         required=False,
         default=RUN_MODE_REVIEW,
         choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY, RUN_MODE_FLASH],
-        help_text="What to run on the pull request. 'review' (default) reviews it and, when the "
-        "requesting user's resolve_comments setting is on, chains the resolution stage; "
-        "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
-        "the review and only runs the resolution stage on the PR's existing unresolved review "
-        "threads; 'flash' uses a lower-cost model for the review passes and validation, and never "
-        "resolves comments.",
+        help_text="What to run on the pull request. 'review' (default) reviews it and, when the pull "
+        "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
+        "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
+        "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
+        "opt-in; 'flash' uses a lower-cost model for the review passes and validation, never resolves "
+        "comments, and is refused once the PR has a published Full review. The owner is the PR's author, "
+        "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
 
 
@@ -290,6 +293,14 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
 
 class ReviewTriggerErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human-readable explanation of why the trigger was rejected.")
+    code = serializers.ChoiceField(
+        required=False,
+        choices=ReviewRequestRefusal.choices,
+        help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
+        "(the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not "
+        "turned on resolving comments), 'internal_feature' (the run mode is not available in this project). "
+        "Absent for other errors.",
+    )
 
 
 class ReviewFindingLineRangeSerializer(serializers.Serializer):
@@ -384,6 +395,10 @@ class _PageEnvelopeSchema(AutoSchema):
         if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
             return operation_id.removesuffix("_retrieve") + "_list"
         return operation_id
+
+
+def _refusal(message: str, code: ReviewRequestRefusal, http_status: int) -> Response:
+    return Response(ReviewTriggerErrorSerializer({"error": message, "code": code.value}).data, status=http_status)
 
 
 def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
@@ -711,23 +726,26 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The review-hog feature flag is off for this project, or Flash was requested in a "
-                "project without internal features (see show_internal_features in the settings response).",
+                description="The review-hog feature flag is off for this project, or Flash or resolve-only was "
+                "requested in a project without the review-hog-internal flag (code 'internal_feature').",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
                 description="The pull request's cycle is busy (busy-guard): reviews are blocked while its "
-                "comments are being resolved, and resolve-only runs are blocked while a review is running.",
+                "comments are being resolved, and resolve-only runs are blocked while a review is running. "
+                "Also returned with a code when Flash follows a published Full review ('flash_after_full') "
+                "or the PR owner has not opted in to resolution ('resolution_not_opted_in').",
             ),
             429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
         },
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
         "access, and publish it back to the PR. The requesting user is the review's acting user: their "
-        "enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria "
-        "drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review "
-        "(which chains the resolution stage per the user's resolve_comments setting), a review without "
-        "resolving, resolution only, or a lower-cost Flash review that never resolves comments. "
+        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
+        "appears under their recent reviews. Resolution writes to the branch only when the pull request "
+        "owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution "
+        "stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a "
+        "lower-cost Flash review that never resolves comments and is refused after a published Full review. "
         "Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
         "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
@@ -741,11 +759,12 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         run_mode: str = serializer.validated_data["run_mode"]
-        # The scene hides Flash outside the internal project; this also stops API and MCP callers there.
-        if run_mode == RUN_MODE_FLASH and not has_internal_features(team_id):
-            return Response(
-                {"error": "Flash reviews aren't available in this project. Start a regular review instead."},
-                status=status.HTTP_403_FORBIDDEN,
+        # The scene hides these outside internal projects; this also stops API and MCP callers there.
+        if run_mode in (RUN_MODE_FLASH, RUN_MODE_RESOLVE_ONLY) and not has_internal_features(team_id):
+            return _refusal(
+                "This run mode isn't available in this project. Start a regular review instead.",
+                ReviewRequestRefusal.INTERNAL_FEATURE,
+                status.HTTP_403_FORBIDDEN,
             )
         try:
             pr_info = PRParser().parse_github_pr_url(serializer.validated_data["pr_url"])
@@ -826,6 +845,17 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         requester_id = cast(User, request.user).id
 
         if run_mode == RUN_MODE_RESOLVE_ONLY:
+            # Checked here so the person sees the answer. The resolution run checks again before it writes.
+            pull_request_owner = PullRequestOwnerResolver.resolve(
+                team_id, repository=repository, author_login=pr_meta.author, head_branch=pr_meta.head_branch
+            )
+            if not ResolutionGate.load(team_id, pull_request_owner.user_id).allows(REVIEW_MODE_FULL):
+                return _refusal(
+                    "Comments are resolved only on pull requests whose owner turned on resolving comments "
+                    "in their PostHog Review settings.",
+                    ReviewRequestRefusal.RESOLUTION_NOT_OPTED_IN,
+                    status.HTTP_409_CONFLICT,
+                )
             # No already-reviewed early-return here: an already-reviewed head is exactly when a
             # standalone resolution run is useful (the threads exist, the review won't re-run).
             workflow_id = start_resolution_workflow(
@@ -846,6 +876,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
         )
         review_mode = REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL
+        if flash_refusal(report, review_mode) is not None:
+            return _refusal(
+                "This pull request already has a Full review, so it gets no more Flash reviews. "
+                "Start a Full review instead.",
+                ReviewRequestRefusal.FLASH_AFTER_FULL,
+                status.HTTP_409_CONFLICT,
+            )
         if report is not None and review_already_published(report, pr_meta.head_sha or "", review_mode):
             # The workflow would early-exit before resolving the acting user anyway — say so instead
             # of answering "started" for a run that will do nothing.
@@ -865,7 +902,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             publish=True,
             acting_user_id=requester_id,
             trigger_source=TRIGGER_UI,
-            # None = the requester's resolve_comments setting decides; review_only and flash pin it off.
+            # None = the PR owner's resolve_comments setting decides; review_only and flash pin it off.
             resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
             review_mode=review_mode,
             requested_head_sha=pr_meta.head_sha,
