@@ -583,6 +583,7 @@ class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
@@ -1408,6 +1409,24 @@ class ManualMetricType(StrEnum):
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
 
 
+class ExperimentExposureHealthFindingActionKind(StrEnum):
+    EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
+    ADJUST_DISTRIBUTION = "adjust_distribution"
+    USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+
+
+class ExperimentExposureHealthFindingCode(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+
+
+class ExperimentExposureHealthFindingSeverity(StrEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
@@ -2195,6 +2214,17 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
+
+
+class MetricsRangeFunction(StrEnum):
+    RATE = "rate"
+    INCREASE = "increase"
 
 
 class MetricsReducer(StrEnum):

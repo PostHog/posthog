@@ -149,6 +149,13 @@ def update_external_job_status(
         # moves: billing is what blocks this schema now.
         billing_limited_run = schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED
 
+        # The streak moves for a halted schema too. Its schedule keeps running, and the streak is
+        # the only thing that spaces out those runs, so skipping it lets a source that never
+        # answers fail on every slot.
+        streak_moved = is_first_terminal_transition and _move_failure_streak(
+            schema, status, counts_as_source_failure=counts_as_source_failure
+        )
+
         if schema.cdc_halted:
             logger.info(
                 "dwh_schema_status_update_skipped_cdc_halted",
@@ -156,14 +163,14 @@ def update_external_job_status(
                 schema_id=str(schema.id),
                 requested_status=schema_status,
             )
+            if streak_moved:
+                schema.save(update_fields=["sync_type_config", "updated_at"])
         else:
             schema.status = schema_status
             if not billing_limited_run:
                 schema.latest_error = error_to_persist
             schema_update_fields = ["status", "latest_error", "updated_at"]
-            if is_first_terminal_transition and _move_failure_streak(
-                schema, status, counts_as_source_failure=counts_as_source_failure
-            ):
+            if streak_moved:
                 schema_update_fields.append("sync_type_config")
 
             schema.save(update_fields=schema_update_fields)

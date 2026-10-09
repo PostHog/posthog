@@ -477,6 +477,7 @@ export type AssistantTrendsDisplayType =
     | ChartDisplayType.ActionsBarValue
     | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsDonut
+    | ChartDisplayType.ActionsProportionBar
     | ChartDisplayType.ActionsTable
     | ChartDisplayType.WorldMap
     // Not in the `display` description: the MCP chart app cannot show calendar_heatmap_data yet.
@@ -516,6 +517,7 @@ export interface AssistantTrendsFilter {
      * `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as "top pages" or "failures by reason".
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsDonut` - total value donut chart; same use as `ActionsPie`.
+     * `ActionsProportionBar` - total value chart that shows the parts of one whole as a single flat bar, with one segment per breakdown value or series. Use it to show the share of each part in a total. It cannot compare to a previous period, so do not set `compareFilter.compare` with it.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
      * `WorldMap` - total value world map; use when breaking down by country using property `$geoip_country_code`, and only then.
      * @default ActionsLineGraph

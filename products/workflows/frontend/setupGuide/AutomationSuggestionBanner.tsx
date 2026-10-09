@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { onboardingWizardUrl } from './wizard/onboardingWizardSteps'
 import { workflowsSetupGuideLogic } from './workflowsSetupGuideLogic'
 
 /** A one-time suggestion for people who started with messaging, so they learn that workflows also automate work. */
 export function AutomationSuggestionBanner(): JSX.Element | null {
     const { showAutomationSuggestion } = useValues(workflowsSetupGuideLogic)
-    const { dismissAutomationSuggestion, browseTemplates } = useActions(workflowsSetupGuideLogic)
+    const { dismissAutomationSuggestion } = useActions(workflowsSetupGuideLogic)
 
     if (!showAutomationSuggestion) {
         return null
@@ -19,8 +20,8 @@ export function AutomationSuggestionBanner(): JSX.Element | null {
             className="mt-4"
             onClose={dismissAutomationSuggestion}
             action={{
-                children: 'See automation templates',
-                onClick: () => browseTemplates('automation'),
+                children: 'Set up an automation',
+                to: onboardingWizardUrl('automation'),
                 'data-attr': 'workflows-automation-suggestion',
             }}
         >

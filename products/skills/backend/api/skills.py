@@ -706,7 +706,9 @@ class LLMSkillViewSet(
             return None
         if token.sandbox_task_id is None:
             raise PermissionDenied()
-        trial_skill = get_scout_trial_skill_override(team_id=self.team.id, task_id=token.sandbox_task_id)
+        trial_skill = get_scout_trial_skill_override(
+            team_id=self.team.id, task_id=token.sandbox_task_id, token_id=token.pk
+        )
         if trial_skill is None:
             raise PermissionDenied()
         return trial_skill
