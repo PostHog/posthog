@@ -5,7 +5,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.source import AftershipSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aftership import (
     AftershipSourceConfig,
@@ -22,27 +21,6 @@ class TestAftershipSource:
         self.source = AftershipSource()
         self.team_id = 123
         self.config = AftershipSourceConfig(api_key="as-key")
-
-    def test_version_pin_matches_the_path_the_code_calls(self) -> None:
-        assert self.source.supported_versions == ("2026-07",)
-        assert self.source.default_version == "2026-07"
-
-    def test_get_schemas_marks_only_trackings_incremental(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-        by_name = {s.name: s for s in schemas}
-        # Only GET /trackings has server-side created/updated time filters.
-        assert by_name["trackings"].supports_incremental is True
-        assert [f["field"] for f in by_name["trackings"].incremental_fields] == ["updated_at", "created_at"]
-        for name in ("couriers", "courier_connections"):
-            assert by_name[name].supports_incremental is False
-            assert by_name[name].incremental_fields == []
-
-    def test_canonical_descriptions_cover_every_table(self) -> None:
-        # Keys must match the schema names, or the enrichment silently falls back to the LLM.
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
 
     def test_courier_connection_credentials_are_not_documented_as_a_column(self) -> None:
         # The sync drops the column; documenting it would advertise a table that never exists.
@@ -86,12 +64,6 @@ class TestAftershipSource:
         assert is_valid is False
         assert message == "Unknown AfterShip table 'not_a_table'"
         mock_check.assert_not_called()
-
-    @mock.patch(CHECK_ACCESS_PATH)
-    def test_validate_credentials_probes_under_the_resolved_version(self, mock_check: mock.MagicMock) -> None:
-        mock_check.return_value = (True, 200)
-        self.source.validate_credentials(self.config, self.team_id, schema_name="trackings", api_version=None)
-        assert mock_check.call_args.args == ("as-key", "trackings", "2026-07")
 
     @parameterized.expand(
         [

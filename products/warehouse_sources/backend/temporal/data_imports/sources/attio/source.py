@@ -43,15 +43,6 @@ class AttioSource(ResumableSource[AttioSourceConfig, AttioResumeConfig]):
 
         return CANONICAL_DESCRIPTIONS
 
-    def resume_covers_run(
-        self,
-        *,
-        incremental_or_append: bool,
-        schema_name: str | None = None,
-    ) -> bool:
-        endpoint = ATTIO_ENDPOINTS.get(schema_name or "")
-        return endpoint is None or endpoint.method == "POST"
-
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.attio.com": "Your Attio API key is invalid or expired. Please generate a new key and reconnect.",

@@ -8,8 +8,8 @@ import uuid
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Any
 
+from products.ai_observability.backend.llm.decisions import DecisionClient
 from products.ai_observability.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
-from products.ai_observability.backend.llm.system_one import SystemOneClient
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -83,7 +83,7 @@ class Client:
     def validate_key(cls, provider: str, api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an API key for a provider. Returns (state, error_message)."""
         if provider == "system_one":
-            return SystemOneClient.validate_key(api_key, **kwargs)
+            return DecisionClient.validate_key(api_key, **kwargs)
         return _get_provider(provider).validate_key(api_key, **kwargs)
 
     @classmethod

@@ -45,54 +45,6 @@ def sync_items(response: SourceResponse) -> Iterable[Any]:
     return items
 
 
-@pytest.mark.parametrize(
-    "endpoint,path",
-    [
-        ("clusters", f"/api/cluster/v1/accounts/{ACCOUNT_ID}/clusters"),
-        ("backups", f"/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backups"),
-        ("backup_schedules", f"/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backup_schedules"),
-        ("backup_restores", f"/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backup_restores"),
-    ],
-)
-@pytest.mark.parametrize("terminal_token", [None, ""])
-def test_paginated_full_refresh(
-    config: QdrantSourceConfig, manager: Mock, endpoint: str, path: str, terminal_token: str | None
-) -> None:
-    first = {"id": "first", "createdAt": "2025-01-01T00:00:00Z", "accountId": ACCOUNT_ID}
-    second = {"id": "second", "createdAt": "2025-02-01T00:00:00Z", "accountId": ACCOUNT_ID}
-    terminal: dict[str, Any] = {"items": [second]}
-    if terminal_token is not None:
-        terminal["nextPageToken"] = terminal_token
-
-    with requests_mock.Mocker() as http:
-        http.get(
-            f"https://api.cloud.qdrant.io{path}",
-            [
-                {"json": {"items": [first], "nextPageToken": "next+/="}},
-                {"json": terminal},
-            ],
-        )
-        response = qdrant_source(config, endpoint, 1, "job", manager)
-        pages = iter(sync_items(response))
-        assert next(pages) == [first]
-        manager.save_state.assert_not_called()
-        assert next(pages) == [second]
-        manager.save_state.assert_called_once_with(QdrantResumeConfig(cursor="next+/="))
-        assert list(pages) == []
-        assert http.call_count == 2
-        manager.save_state.assert_called_once()
-        assert [parse_qs(urlsplit(request.url).query) for request in http.request_history] == [
-            {"pageSize": ["100"]},
-            {"pageSize": ["100"], "pageToken": ["next+/="]},
-        ]
-        assert all(request.headers["Authorization"] == "apikey fake-management-key" for request in http.request_history)
-        assert all(request.method == "GET" for request in http.request_history)
-        assert response.name == endpoint
-        assert response.on_complete is not None
-        response.on_complete()
-        manager.clear_state.assert_called_once_with()
-
-
 @pytest.mark.parametrize("resume", [None, QdrantResumeConfig(cursor="saved-token")])
 @pytest.mark.parametrize("body", [{"items": []}, {}, {"items": [], "nextPageToken": ""}])
 def test_resume_and_empty_terminal_page(

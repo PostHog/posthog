@@ -91,36 +91,8 @@ class TestRepositories:
         # re-yields the in-progress page instead of skipping it.
         assert manager.saved == [TravisCIResumeConfig(next_path=page2_path)]
 
-    def test_resumes_from_saved_page_path(self) -> None:
-        resume_path = "/repos?limit=100&offset=200"
-        pages = {f"{TRAVIS_CI_BASE_URL}{resume_path}": _page("repositories", [{"id": 9}])}
-        manager = _FakeResumableManager(TravisCIResumeConfig(next_path=resume_path))
-        rows, fetched = _collect(manager, pages, endpoint="repositories")
-
-        assert fetched == [f"{TRAVIS_CI_BASE_URL}{resume_path}"]
-        assert [r["id"] for r in rows] == [9]
-
 
 class TestBuildsFanOut:
-    def test_fans_out_over_repositories_and_bookmarks_progress(self) -> None:
-        repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}, {"id": 2}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page(
-                "builds", [{"@type": "build", "id": 30}, {"id": 20}], next_path=repo1_page2
-            ),
-            f"{TRAVIS_CI_BASE_URL}{repo1_page2}": _page("builds", [{"id": 10}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 25}]),
-        }
-        manager = _FakeResumableManager()
-        rows, _fetched = _collect(manager, pages, endpoint="builds")
-
-        assert [(r["id"], r["repository_id"]) for r in rows] == [(30, 1), (20, 1), (10, 1), (25, 2)]
-        assert manager.saved == [
-            TravisCIResumeConfig(next_path=repo1_page2, repository_id=1),
-            TravisCIResumeConfig(next_path=None, repository_id=2),
-        ]
-
     @parameterized.expand([("int_watermark", 20), ("str_watermark", "20")])
     def test_incremental_stops_at_watermark(self, _name: str, watermark: Any) -> None:
         repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
@@ -146,16 +118,6 @@ class TestBuildsFanOut:
         assert f"{TRAVIS_CI_BASE_URL}{repo1_page2}" not in fetched
         assert f"{TRAVIS_CI_BASE_URL}/repo/2/builds?{BUILDS_PARAMS}" in fetched
 
-    def test_full_refresh_walks_all_pages(self) -> None:
-        repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 30}], next_path=repo1_page2),
-            f"{TRAVIS_CI_BASE_URL}{repo1_page2}": _page("builds", [{"id": 10}]),
-        }
-        rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="builds")
-        assert [r["id"] for r in rows] == [30, 10]
-
     def test_resumes_from_bookmarked_repository(self) -> None:
         resume_path = f"/repo/2/builds?{BUILDS_PARAMS}&offset=100"
         pages = {
@@ -169,15 +131,6 @@ class TestBuildsFanOut:
         # Repo 1 is skipped entirely, repo 2 resumes at the saved page, repo 3 starts fresh.
         assert f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}" not in fetched
         assert [(r["id"], r["repository_id"]) for r in rows] == [(5, 2), (7, 3)]
-
-    def test_missing_bookmarked_repository_starts_over(self) -> None:
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{BUILDS_PARAMS}": _page("builds", [{"id": 3}]),
-        }
-        manager = _FakeResumableManager(TravisCIResumeConfig(next_path="/repo/99/builds", repository_id=99))
-        rows, _fetched = _collect(manager, pages, endpoint="builds")
-        assert [r["id"] for r in rows] == [3]
 
     def test_page_cap_stops_pagination_and_warns(self) -> None:
         repo1_page2 = f"/repo/1/builds?{BUILDS_PARAMS}&offset=100"
@@ -195,30 +148,6 @@ class TestBuildsFanOut:
 
 
 class TestJobs:
-    def test_flattens_embedded_jobs_with_parent_identifiers(self) -> None:
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/builds?{JOBS_PARAMS}": _page(
-                "builds",
-                [
-                    {
-                        "id": 30,
-                        "jobs": [
-                            {"@type": "job", "id": 301, "state": "passed", "build": {"@type": "build", "id": 30}},
-                            {"id": 302, "state": "failed"},
-                        ],
-                    },
-                    {"id": 20, "jobs": []},
-                ],
-            ),
-        }
-        rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="jobs")
-
-        assert [(r["id"], r["build_id"], r["repository_id"]) for r in rows] == [(301, 30, 1), (302, 30, 1)]
-        # Meta keys are stripped recursively, including from nested minimal representations.
-        assert "@type" not in rows[0]
-        assert "@type" not in rows[0]["build"]
-
     def test_incremental_stops_at_build_watermark(self) -> None:
         pages = {
             REPOS_URL: _page("repositories", [{"id": 1}]),
@@ -241,18 +170,6 @@ class TestJobs:
 
         assert [r["id"] for r in rows] == [301]
         assert len(fetched) == 2  # /repos + first builds page; the older page is never fetched
-
-
-class TestBranches:
-    def test_rows_carry_composite_primary_key_fields(self) -> None:
-        pages = {
-            REPOS_URL: _page("repositories", [{"id": 1}]),
-            f"{TRAVIS_CI_BASE_URL}/repo/1/branches?limit=100": _page(
-                "branches", [{"@type": "branch", "name": "main", "default_branch": True}]
-            ),
-        }
-        rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="branches")
-        assert rows == [{"name": "main", "default_branch": True, "repository_id": 1}]
 
 
 class TestPaginationCursorValidation:

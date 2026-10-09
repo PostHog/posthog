@@ -375,7 +375,9 @@ async def build_output_lanes(
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
     for index, lane in enumerate(served_lanes(schema)):
-        delta_table = await DeltaTableRef(lane.resource_name, job, logger).get_delta_table()
+        delta_table = await DeltaTableRef(
+            lane.resource_name, job, logger, expect_missing=schema.table_id is None
+        ).get_delta_table()
         is_append = lane.write_mode == COMPANION_WRITE_MODE
         keys = [normalize_column_name(name) for name in schema.primary_key_columns or []]
         if delta_table is not None:
@@ -387,7 +389,7 @@ async def build_output_lanes(
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
         positions.append(position.position)
-        replay = ReplayFilter(position, team_id=job.team_id)
+        replay = ReplayFilter(position)
         lanes.append(
             OutputLane(
                 name=lane.resource_name,
@@ -513,7 +515,7 @@ class ReplayFilter:
     capture would close it, and is the follow-up.
     """
 
-    def __init__(self, position: LanePosition, *, team_id: int | None = None) -> None:
+    def __init__(self, position: LanePosition) -> None:
         self._position = position.position
         self._applied = {key: list(rows) for key, rows in position.applied.items()}
         # Taken from the position itself, so the batch is keyed exactly as the table was read.
@@ -521,7 +523,6 @@ class ReplayFilter:
         self._content_schema = position.content_schema
         self._content_matched = position.content_matched
         self._load_applied = position.load_applied
-        self._team_id = team_id
         self.rows_skipped = 0
 
     def apply(self, table: pa.Table) -> pa.Table:
@@ -546,8 +547,8 @@ class ReplayFilter:
         # `superseded` is the series the loader raised while the position lived there. It now
         # comes from the extraction workers, so a dashboard filtered to the load fleet loses it.
         self.rows_skipped += dropped
-        if dropped and self._team_id is not None:
-            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=str(self._team_id), reason=reason).inc(dropped)
+        if dropped:
+            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(reason=reason).inc(dropped)
 
     def _drop_already_written(self, table: pa.Table) -> pa.Table:
         # A source column of the same name is customer data, so comparing it against this lane's

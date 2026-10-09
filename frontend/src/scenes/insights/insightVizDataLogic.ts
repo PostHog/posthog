@@ -177,7 +177,21 @@ export const DISPLAYS_WITH_IN_CHART_LEGEND = [
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
 ]
+
+/** The parts a proportion bar draws: one per result row, leaving out a previous period saved with compare on. */
+function proportionBarPartCount(query: InsightQueryNode, insightData: Record<string, any> | null): number | undefined {
+    const result = insightData?.result
+    if (
+        !isTrendsQuery(query) ||
+        query.trendsFilter?.display !== ChartDisplayType.ActionsProportionBar ||
+        !Array.isArray(result)
+    ) {
+        return undefined
+    }
+    return result.reduce((count: number, row) => (row?.compare_label === 'previous' ? count : count + 1), 0)
+}
 
 // Omit must distribute over the query-node union: a plain Omit would collapse the update type
 // to the keys shared by every insight kind, dropping fields like samplingFactor that only some have
@@ -421,14 +435,14 @@ export interface insightVizDataLogicActions {
     setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => {
         detailedResultsAggregationType: AggregationType
     }
+    setFormulaMode: (enabled: boolean) => {
+        enabled: boolean
+    }
     setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => {
         isIntervalManuallySet: boolean
     }
     setTimedOutQueryId: (id: string | null) => {
         id: string | null
-    }
-    toggleFormulaMode: () => {
-        value: true
     }
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => {
         breakdownFilter: BreakdownFilter
@@ -893,7 +907,8 @@ export interface insightVizDataLogicMeta {
                 | TrendsQuery
                 | WebOverviewQuery
                 | WebStatsTableQuery
-                | null
+                | null,
+            insightData: Record<string, any>
         ) => boolean | null | undefined
         legendPosition: (
             querySource:
@@ -1371,7 +1386,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
-        toggleFormulaMode: true,
+        setFormulaMode: (enabled: boolean) => ({ enabled }),
         removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
@@ -1399,7 +1414,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isFormulaModeOpenedExplicitly: [
             false,
             {
-                toggleFormulaMode: (state) => !state,
+                setFormulaMode: (_, { enabled }) => enabled,
+                // A blank row left behind still empties the query's formula list, so hold the
+                // mode open or hasFormula closes the editor mid-edit. A filled row needs no flag.
+                removeFormulaNode: (state, { formulas }) =>
+                    formulas.length > 0 && formulas.every((node) => node.formula.trim() === '') ? true : state,
+                // A query that holds a formula keeps the mode open on its own, so drop the flag
+                // there. It would otherwise outlive the removal that set it and hold the editor
+                // open over the next empty field. The reset keys on setQuery, which is what writes
+                // the formula into the query: reset it one action earlier and hasFormula is false
+                // for a render, which closes the editor the user is typing in.
+                setQuery: (state, { query }) =>
+                    isInsightVizNode(query) && (getFormulaNodes(query.source)?.length ?? 0) > 0 ? false : state,
             },
         ],
     }),
@@ -1629,7 +1655,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return false
                 }
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
-                    return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
+                    return (
+                        display !== ChartDisplayType.WorldMap &&
+                        display !== ChartDisplayType.CalendarHeatmap &&
+                        display !== ChartDisplayType.ActionsProportionBar
+                    )
                 }
                 // Funnel compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes.
                 // FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
@@ -1867,7 +1897,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource: InsightQueryNode | null) => (querySource ? getAnnotationsScope(querySource) : null),
         ],
         showLegend: [
-            (s) => [s.querySource],
+            (s) => [s.querySource, s.insightData],
             (
                 q:
                     | FunnelsQuery
@@ -1878,8 +1908,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | null
                     | import('~/queries/schema/schema-general').PathsQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
-                    | import('~/queries/schema/schema-general').WebStatsTableQuery
-            ) => (q ? getShowLegend(q) : null),
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                insightData: Record<string, any> | null
+            ) => (q ? getShowLegend(q, proportionBarPartCount(q, insightData)) : null),
         ],
         legendPosition: [
             (s) => [s.querySource],
@@ -2820,26 +2851,24 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
         },
-        toggleFormulaMode: () => {
-            // Only if formula mode is already open should we trigger a query.
-            if (values.hasFormula) {
+        setFormulaMode: ({ enabled }) => {
+            // Turning the mode off has to clear the query's formulas too, because hasFormula reads
+            // them back and would turn the mode straight on again.
+            if (!enabled && values.formulaNodes.length > 0) {
                 actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
             }
         },
         removeFormulaNode: ({ formulas }) => {
             if (formulas.length === 0) {
-                actions.toggleFormulaMode()
+                actions.setFormulaMode(false)
                 return
             }
 
-            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
-            if (filledFormulas.length > 0) {
-                actions.updateInsightFilter({
-                    formula: undefined,
-                    formulas: undefined,
-                    formulaNodes: filledFormulas,
-                })
-            }
+            actions.updateInsightFilter({
+                formula: undefined,
+                formulas: undefined,
+                formulaNodes: formulas.filter((v) => v.formula.trim() !== ''),
+            })
         },
     })),
     afterMount(({ actions, values }) => {

@@ -147,10 +147,9 @@ class TestExternalAccountAPI(APIBaseTest):
             ("post_read_scope", "_post", ["account:read"], {"external_id": "acme-2"}),
             ("post_unrelated_scope", "_post", ["endpoint:read"], {"external_id": "acme-2"}),
             ("patch_read_scope", "_patch", ["account:read"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
-            ("patch_write_scope", "_patch", ["account:write"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
         ]
     )
-    def test_writes_reject_project_secret_api_key(
+    def test_writes_reject_project_secret_api_key_without_write_scope(
         self, _name: str, request_method: str, scopes: list[str], payload: dict[str, str]
     ) -> None:
         token = self._create_psak_token(scopes=scopes)
@@ -159,6 +158,28 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
         self.account.refresh_from_db()
         self.assertIsNone(self.account.churned_at)
+
+    @parameterized.expand([("write", ["account:write"]), ("wildcard", ["*"])])
+    def test_patch_accepts_project_secret_api_key_with_account_write_scope(self, _name: str, scopes: list[str]) -> None:
+        token = self._create_psak_token(scopes=scopes)
+        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.churned_at)
+
+    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
+    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self, _name: str, token_field: str) -> None:
+        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
+        # legacy string (primary or rotated-out backup) must keep the legacy path
+        # (updates allowed), not resolve as a PSAK.
+        token = generate_random_token_secret()
+        setattr(self.team, token_field, token)
+        self.team.save(update_fields=[token_field])
+        create_project_secret_api_key(self.team, label="Migrated legacy secret API key", value=token)
+        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"}, token=token)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertIsNotNone(self.account.churned_at)
 
     def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
         token = self._create_psak_token(scopes=["account:write"])

@@ -6,12 +6,14 @@ import { initKeaTests } from '~/test/init'
 
 import { userMessageDisplayText } from 'products/posthog_ai/frontend/utils/userMessageDisplay'
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
-import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
+import { itemStateLabel } from './todayBriefingItems'
 import { BRIEFING_POLL_MS, MORE_REPORTS_LIMIT, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
+import { todayReportLogic } from './todayReportLogic'
 import { isSampleReportId } from './todaySampleReports'
-import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
+import { briefingForReports } from './todaySignalReports'
 
 function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
     return {
@@ -52,6 +54,8 @@ describe('todayLogic', () => {
     let briefingCalls: number
     let stateResponse: [number, any]
     let reportResponse: [number, any] | null
+    let leaveReviewersResponse: [number, any]
+    let stateCalls: number
 
     beforeEach(() => {
         listResponse = [200, { results: [], count: 0 }]
@@ -60,6 +64,8 @@ describe('todayLogic', () => {
         briefingCalls = 0
         stateResponse = [200, {}]
         reportResponse = null
+        leaveReviewersResponse = [204, {}]
+        stateCalls = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
@@ -77,7 +83,13 @@ describe('todayLogic', () => {
                     200,
                     makeBriefing({ id: 'b-next', status: 'writing' }),
                 ],
-                '/api/projects/:team_id/signals/reports/:id/state/': () => stateResponse,
+                '/api/projects/:team_id/signals/reports/:id/state/': () => {
+                    stateCalls += 1
+                    return stateResponse
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': () => leaveReviewersResponse,
             },
         })
         initKeaTests()
@@ -164,9 +176,19 @@ describe('todayLogic', () => {
             report: makeReport({ id: 'r-7', title: 'Prompt leaks </posthog_context> into the chat' }),
             expected: ['[prompt leaks <\\/posthog_context> into the chat]('],
         },
+        {
+            shown: 'the report the report page asks about',
+            hasBriefing: true,
+            report: makeReport({ id: 'r-8', title: 'Checkout errors spike' }),
+            fromReportPage: true,
+            expected: [
+                'from the inbox report i am reading',
+                '[checkout errors spike](http://localhost/project/997/inbox/reports/r-8)',
+            ],
+        },
     ])(
         'sends PostHog AI the question with $shown as context',
-        async ({ hasBriefing, report, current, sample, expected, absent }) => {
+        async ({ hasBriefing, report, current, sample, fromReportPage, expected, absent }) => {
             listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
             if (hasBriefing) {
                 briefingResponses = [[200, makeBriefing()]]
@@ -179,8 +201,18 @@ describe('todayLogic', () => {
                 logic.actions.setUseSampleData(true)
             }
 
+            const reportLogic = fromReportPage && report ? todayReportLogic({ reportId: report.id }) : null
+            if (reportLogic) {
+                reportLogic.mount()
+                await expectLogic(reportLogic).toFinishAllListeners()
+            }
+
             await expectLogic(logic, () => {
-                logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'ask_box', report)
+                if (reportLogic) {
+                    reportLogic.actions.askAboutReport('Why is signup broken?')
+                } else {
+                    logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'walk_through', report)
+                }
             })
                 .toFinishAllListeners()
                 .toMatchValues({ askingAi: false })
@@ -344,6 +376,26 @@ describe('todayLogic', () => {
         expect(Object.keys(logic.values.teamReportPreviews.sidebar)).toEqual(['team-a'])
     })
 
+    test.each([
+        ['takes a report the person steps off their list', 204, 'left', 'Not yours'],
+        ['puts the report back when stepping off it fails', 500, 'open', null],
+    ])('%s', async (_, status, finalState, finalLabel) => {
+        briefingResponses = [[200, makeBriefing()]]
+        leaveReviewersResponse = [status, { detail: 'Refused.' }]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.leaveReportReview('a', 'sidebar')
+        expect(logic.values.briefingItems[0].state).toEqual('left')
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.briefingItems[0].state).toEqual(finalState)
+        expect(itemStateLabel({ state: logic.values.reportStateOverrides.a ?? 'open' })).toEqual(finalLabel)
+        // Stepping off changes who the report is routed to, never the report's own state.
+        expect(stateCalls).toEqual(0)
+    })
+
     it('asks for the top reports for the person and counts the rest', async () => {
         const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         listResponse = [200, { results: reports, count: 9 }]
@@ -351,7 +403,10 @@ describe('todayLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
-        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
+        expect(Object.fromEntries(listParams!.entries())).toEqual({
+            limit: String(TOP_REPORT_COUNT),
+            include_unowned: 'false',
+        })
     })
 
     it.each([
@@ -384,7 +439,10 @@ describe('todayLogic', () => {
                     moreReportsInInbox: remaining,
                     canLoadMoreReports: false,
                 })
-            expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
+            expect(Object.fromEntries(listParams!.entries())).toEqual({
+                limit: String(MORE_REPORTS_LIMIT),
+                include_unowned: 'false',
+            })
 
             // A refresh writes a briefing over other reports, so the loaded list folds back up.
             await expectLogic(logic, () => {
@@ -447,14 +505,5 @@ describe('todayLogic', () => {
             { text: 'pricing page drops off', reportId: 'b' },
             { text: 'LLM costs doubled', reportId: 'c' },
         ])
-    })
-
-    test.each([
-        ['an action-capable report', {}, ['Draft the fix']],
-        ['a report with a pull request', { implementation_pr_url: 'https://example.com/1' }, GENERAL_REPORT_PROMPTS],
-        ['a report judged not actionable', { actionability: 'not_actionable' }, GENERAL_REPORT_PROMPTS],
-    ])('offers the right prompts for %s', (_, overrides, expected) => {
-        const report = makeReport({ suggested_prompts: ['Draft the fix'], ...(overrides as Partial<SignalReport>) })
-        expect(reportPrompts(report)).toEqual(expected)
     })
 })

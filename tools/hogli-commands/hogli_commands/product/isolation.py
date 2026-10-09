@@ -26,6 +26,7 @@ import tomllib
 import functools
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from .ast_helpers import (
@@ -53,6 +54,7 @@ from .import_resolution import (
     source_file,
 )
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
+from .wiring_interfaces import WiringInterfaceResolver, WiringVerdict
 
 # ---------------------------------------------------------------------------
 # tach.toml parsing
@@ -148,8 +150,9 @@ def names_from_pattern(pattern: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def is_isolated_product(backend_dir: Path) -> bool:
-    """A product is in the strict isolation regime once it has a contracts module."""
+def has_contracts_module(backend_dir: Path) -> bool:
+    """The Strict rung: a contracts module turns on the strict lint. The file alone is no evidence of
+    isolation, because an empty contracts.py satisfies it."""
     return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
 
 
@@ -586,6 +589,7 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("customer_analytics", "TeamCustomerAnalyticsConfig"),
         ("tasks", "Task"),
+        ("workflows", "TeamWorkflowsConfig"),
     }
 )
 
@@ -614,6 +618,7 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
         ("warehouse_sources", "PendingSourceCredential"),
         ("warehouse_sources", "WarehouseColumnAnnotation"),
         ("warehouse_sources", "WarehouseColumnStatistics"),
+        ("workflows", "HogFlow"),
     }
 )
 
@@ -830,6 +835,66 @@ def facade_class_imports(backend_dir: Path, name: str) -> list[FacadeClassImport
     genuinely used inside function bodies, AND separately imported by core anyway — core-side misuse
     this lint doesn't chase."""
     return list(_split_facade_reexports(backend_dir, name).leaks)
+
+
+@dataclass(frozen=True)
+class UnapprovedWiringClass:
+    """A class a facade hands out from a wiring location without an approved interface."""
+
+    facade_module: str  # path inside facade/, e.g. "destinations/s3.py"
+    class_name: str  # the name the facade exports, unique within its module
+    source_path: str  # backend-relative, e.g. "backend/temporal/destinations/s3_batch_export.py"
+    verdict: WiringVerdict  # UNAPPROVED or UNRESOLVED
+
+
+def _backend_module(name: str, source_path: str) -> str:
+    """The dotted module of a backend-relative path: 'backend/temporal/x.py' -> 'products.<name>.backend.temporal.x'."""
+    relative = source_path.removeprefix("backend").strip("/").removesuffix(".py")
+    parts = [part for part in relative.split("/") if part]
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join([f"products.{name}.backend", *parts])
+
+
+def facade_unapproved_wiring(backend_dir: Path, name: str) -> list[UnapprovedWiringClass]:
+    """Classes a facade hands out from a wiring location that implement no approved interface.
+
+    The class re-export check accepts a wiring location by its path. This check reads the class:
+    a location is necessary but not enough under § Wiring couplings, which also requires an approved
+    decorator or base (APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS)."""
+    resolver = WiringInterfaceResolver(REPO_ROOT, roots={f"products.{name}.backend": backend_dir})
+    findings: dict[str, UnapprovedWiringClass] = {}
+    for module_file in _iter_facade_modules(backend_dir):
+        module_key = _facade_module_key(backend_dir, module_file)
+        if module_key in ("contracts.py", "enums.py"):
+            continue
+        tree = ast_parse_safe(module_file)
+        if tree is None:
+            continue
+        for handed in _iter_handed_out_names(tree, backend_dir, _facade_package_parts(module_key)):
+            if not handed.source_path.startswith(GARAGE_PREFIXES):
+                continue
+            qualified = f"{_backend_module(name, handed.source_path)}.{handed.original}"
+            # The resolver follows absolute and chained re-exports, which _name_is_class stops at.
+            if resolver.is_class(qualified):
+                exported = {handed.bound: qualified}
+            else:
+                # A collection such as WORKFLOWS hands out every class it holds, and core registers
+                # each one.
+                members = resolver.collection_members(qualified)
+                if members is None:
+                    finding = UnapprovedWiringClass(
+                        module_key, handed.bound, handed.source_path, WiringVerdict.UNRESOLVED
+                    )
+                    findings[f"{module_key}:{handed.bound}"] = finding
+                    continue
+                exported = {member.rpartition(".")[2]: member for member in members if resolver.is_class(member)}
+            for class_name, class_qualified in exported.items():
+                verdict = resolver.verdict(class_qualified)
+                if verdict is not WiringVerdict.APPROVED:
+                    finding = UnapprovedWiringClass(module_key, class_name, handed.source_path, verdict)
+                    findings[f"{module_key}:{class_name}"] = finding
+    return list(findings.values())
 
 
 def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:
@@ -1629,10 +1694,19 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
 # ---------------------------------------------------------------------------
 
 
+class IsolationRung(StrEnum):
+    """The isolation ladder. Each rung includes the one before it."""
+
+    LENIENT = "Lenient"
+    STRICT = "Strict"
+    SEALED = "Sealed"
+    ISOLATED = "Isolated"
+
+
 @dataclass(frozen=True)
 class IsolationStatus:
     name: str
-    is_isolated: bool  # has facade/contracts.py — in the strict regime
+    has_facade_contracts: bool  # has facade/contracts.py, which puts the product on the Strict rung
     has_real_facade: bool
     has_tach_interface: bool
     has_legacy_leaks: bool
@@ -1663,6 +1737,9 @@ class IsolationStatus:
     # product fails to keep in its contract-check inputs; every narrowed product must watch them.
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()
+    # Classes from wiring locations without an approved interface (see facade_unapproved_wiring).
+    # Information below the Isolated rung; on an Isolated product each one needs a ledger row.
+    unapproved_wiring: tuple[UnapprovedWiringClass, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -1676,21 +1753,33 @@ class IsolationStatus:
     @property
     def internally_sealed(self) -> bool:
         """Presentation reaches internals only through the facade — no open bypasses."""
-        return self.is_isolated and self.deferred_count == 0
+        return self.has_facade_contracts and self.deferred_count == 0
 
     @property
-    def eligible_for_isolated_tests(self) -> bool:
-        """Prerequisites for the contract-check skip, mirroring the lint gate's package.json
-        check exactly. Deliberately does NOT include `has_tach_interface` — the external
-        boundary is required too, but it's enforced separately (TachCheck demands the
-        interface; IsolationChainCheck blocks a script without it). Callers that gate a
-        "ready" *display* should additionally require `externally_sealed`."""
-        return self.is_isolated and self.has_real_facade and not self.has_legacy_leaks and self.deferred_count == 0
+    def is_sealed(self) -> bool:
+        """The Sealed rung: both seals hold and facade/api.py defines real functions."""
+        return self.externally_sealed and self.internally_sealed and self.has_real_facade
 
     @property
-    def isolated_tests_enabled(self) -> bool:
+    def test_skip_configured(self) -> bool:
         """The skip is physically wired up right now (script present + turbo narrowed)."""
         return self.has_contract_check_script and self.has_narrowed_turbo
+
+    @property
+    def isolation_enabled(self) -> bool:
+        """The Isolated rung: a sealed product whose test skip is configured. A configured skip on an
+        unsealed product does not count, because the lint rejects that state."""
+        return self.is_sealed and self.test_skip_configured
+
+    @property
+    def rung(self) -> IsolationRung:
+        if self.isolation_enabled:
+            return IsolationRung.ISOLATED
+        if self.is_sealed:
+            return IsolationRung.SEALED
+        if self.has_facade_contracts:
+            return IsolationRung.STRICT
+        return IsolationRung.LENIENT
 
 
 def compute_isolation_status(
@@ -1698,7 +1787,7 @@ def compute_isolation_status(
     product_dir: Path,
     backend_dir: Path,
     *,
-    is_isolated: bool | None = None,
+    has_facade_contracts: bool | None = None,
     tach_content: str | None = None,
     pyproject_text: str | None = None,
     repo_root: Path | None = None,
@@ -1708,8 +1797,8 @@ def compute_isolation_status(
 
     `driven_wiring_locations` is the evidence `unwatched_garages` reads. Without it, every present wiring
     location must stay watched."""
-    if is_isolated is None:
-        is_isolated = is_isolated_product(backend_dir)
+    if has_facade_contracts is None:
+        has_facade_contracts = has_contracts_module(backend_dir)
     if tach_content is None:
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
     if repo_root is None:
@@ -1720,7 +1809,7 @@ def compute_isolation_status(
     carveout_modules = reexports.carveout_modules
     return IsolationStatus(
         name=name,
-        is_isolated=is_isolated,
+        has_facade_contracts=has_facade_contracts,
         has_real_facade=has_real_facade(backend_dir),
         has_tach_interface=has_tach_interface(name, tach_content),
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
@@ -1740,4 +1829,5 @@ def compute_isolation_status(
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
+        unapproved_wiring=tuple(facade_unapproved_wiring(backend_dir, name)),
     )

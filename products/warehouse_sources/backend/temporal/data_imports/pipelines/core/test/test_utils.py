@@ -104,6 +104,17 @@ def test_table_from_py_list_inconsistent_other_types():
     )
 
 
+def test_table_from_py_list_keeps_the_key_order_of_the_rows():
+    table = table_from_py_list(
+        [
+            {"zeta": 1, "alpha": "a", "mid": None, "beta": 2.5, "omega": "o", "gamma": True, "delta": 3},
+            {"zeta": 2, "alpha": "b", "mid": "m", "beta": 3.5, "omega": "p", "gamma": False, "delta": 4, "late": "x"},
+        ]
+    )
+
+    assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
+
+
 def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
     with pytest.raises(TypeError) as exc_info:
         table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
@@ -1940,6 +1951,59 @@ def test_append_partition_key_missing_column_buckets_into_fallback(
     assert result is not None
     assert result.partition_mode == mode
     assert result.table.column(PARTITION_KEY).to_pylist() == [expected, expected, expected]
+
+
+@pytest.mark.parametrize(
+    "partition_keys,expected_hash_inputs",
+    [
+        (["id"], ["a1", "b2", "None", "d4"]),
+        (
+            ["seen_at", "id"],
+            [
+                "2024-03-01 10:00:00|a1",
+                "2024-03-01 10:00:00.250000|b2",
+                "None|None",
+                "2024-03-02 00:00:00|d4",
+            ],
+        ),
+        (["id", "dropped_field", "count"], ["a1|None|1", "b2|None|2", "None|None|3", "d4|None|None"]),
+        (["id", "id"], ["a1|a1", "b2|b2", "None|None", "d4|d4"]),
+    ],
+)
+def test_append_partition_key_md5_hashes_only_the_key_values_in_key_order(partition_keys, expected_hash_inputs):
+    rows = pa.table(
+        {
+            "payload": pa.array([{"n": 1}, {"n": 2}, None, {"n": 4}]),
+            "count": pa.array([1, 2, 3, None], type=pa.int64()),
+            "id": pa.array(["a1", "b2", None, "d4"]),
+            "seen_at": pa.array(
+                [
+                    datetime.datetime(2024, 3, 1, 10),
+                    datetime.datetime(2024, 3, 1, 10, 0, 0, 250000),
+                    None,
+                    datetime.datetime(2024, 3, 2),
+                ],
+                type=pa.timestamp("us"),
+            ),
+        }
+    )
+    table = pa.concat_tables([rows.slice(0, 1), rows.slice(1)])
+
+    result = append_partition_key_to_table(
+        table=table,
+        partition_count=45,
+        partition_size=None,
+        partition_keys=partition_keys,
+        partition_mode="md5",
+        partition_format=None,
+        logger=cast(FilteringBoundLogger, structlog.get_logger()),
+    )
+
+    assert result is not None
+    assert result.table.column_names == [*table.column_names, PARTITION_KEY]
+    assert result.table.column(PARTITION_KEY).to_pylist() == [
+        str(int(hashlib.md5(value.encode()).hexdigest(), 16) % 45) for value in expected_hash_inputs
+    ]
 
 
 def test_billing_limit_exception_is_non_reportable_error():

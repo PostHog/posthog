@@ -37,7 +37,7 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -56,10 +56,11 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { PartOfWholeChart } from '~/queries/nodes/DataVisualization/Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from '~/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { SqlMetricCard } from '~/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard'
+import { partOfWholeChartData } from '~/queries/nodes/DataVisualization/Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
@@ -867,6 +868,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        showQueryScan: !biMode,
         isEmbeddedMode,
     }
     const sharedActionsProps = {
@@ -1084,15 +1086,14 @@ function InternalDataTableVisualization(
                 />
             </BindLogic>
         )
-    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+    } else if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-2"
-                xData={_xData}
-                yData={_yData}
+                xData={pieData.xData}
+                yData={pieData.yData}
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
@@ -1219,7 +1220,13 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     )
 }
 
-const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
+const ErrorState = ({
+    responseError,
+    sourceQuery,
+    queryCancelled,
+    response,
+    showQueryScan,
+}: any): JSX.Element | null => {
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
@@ -1242,7 +1249,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                         <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                     }
                 />
-                <EditorQueryScanBanner />
+                {showQueryScan && <EditorQueryScanBanner />}
             </div>
         </div>
     )
@@ -1279,9 +1286,10 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    showQueryScan,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
-    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
     const { loadingTimeSeconds } = useValues(dataNodeLogic)
@@ -1340,6 +1348,7 @@ const Content = ({
                 sourceQuery={sourceQuery}
                 queryCancelled={queryCancelled}
                 response={response}
+                showQueryScan={showQueryScan}
             />
         )
     }
@@ -1355,16 +1364,18 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <WarehouseWizardHint
-                        className="max-w-140"
-                        fallback={
-                            <MCPUseCaseCard
-                                surfaceKey="sql.execute"
-                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                                className="max-w-140"
-                            />
-                        }
-                    />
+                    {showAgentHints ? (
+                        <WarehouseWizardHint
+                            className="max-w-140"
+                            fallback={
+                                <MCPUseCaseCard
+                                    surfaceKey="sql.execute"
+                                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                    className="max-w-140"
+                                />
+                            }
+                        />
+                    ) : null}
                 </div>
             )
         }
@@ -1372,7 +1383,7 @@ const Content = ({
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
-                <EditorQueryScanBanner />
+                {showQueryScan && <EditorQueryScanBanner />}
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1422,20 +1433,28 @@ const Content = ({
                 className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary max-w-xl">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
-                    statements with <code>;</code> to run them independently.
-                </span>
-                <WarehouseWizardHint
-                    className="max-w-140"
-                    fallback={
-                        <MCPUseCaseCard
-                            surfaceKey="sql.execute"
-                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
-                            className="max-w-140"
-                        />
-                    }
-                />
+                {singleStatement ? (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    </span>
+                ) : (
+                    <span className="text-secondary max-w-xl">
+                        {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate
+                        multiple statements with <code>;</code> to run them independently.
+                    </span>
+                )}
+                {showAgentHints ? (
+                    <WarehouseWizardHint
+                        className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
+                    />
+                ) : null}
             </div>
         )
     }
@@ -1444,7 +1463,7 @@ const Content = ({
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
-                <EditorQueryScanBanner />
+                {showQueryScan && <EditorQueryScanBanner />}
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (
