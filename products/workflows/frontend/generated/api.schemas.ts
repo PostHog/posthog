@@ -288,12 +288,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `wizard` - Wizard
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    Wizard: 'wizard',
 } as const
 
 /**
@@ -664,7 +666,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `wizard` - Wizard */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -765,7 +768,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `wizard` - Wizard */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -866,7 +870,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `wizard` - Wizard */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -2135,6 +2140,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
+    Wizard: 'wizard',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
