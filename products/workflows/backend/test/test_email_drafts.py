@@ -153,7 +153,12 @@ class TestEmailDrafts(APIBaseTest):
         assert response.status_code == 404, response.json()
 
     @parameterized.expand(
-        [("error_tracking", "not-a-uuid"), ("cohort", "abc"), ("survey", "00000000-0000-0000-0000-000000000000")]
+        [
+            ("error_tracking", "not-a-uuid"),
+            ("cohort", "abc"),
+            ("feature_flag", "²"),
+            ("survey", "00000000-0000-0000-0000-000000000000"),
+        ]
     )
     def test_unknown_source_id_is_not_found(self, source: str, source_id: str) -> None:
         assert self._draft(source, source_id).status_code == 404
@@ -186,3 +191,22 @@ class TestEmailDrafts(APIBaseTest):
 
         assert response.status_code == 403, response.json()
         assert "subject" not in response.json()
+
+    @parameterized.expand(
+        [
+            (["hog_flow:write"], 403),
+            (["hog_flow:write", "early_access_feature:read"], 200),
+        ]
+    )
+    @patch(f"{SERVICE}._draft_flag_enabled", return_value=False)
+    def test_a_scoped_key_needs_read_access_to_the_source(self, scopes: list[str], status: int, _flag) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_email_drafts/",
+            {"source": "early_access", "source_id": self.sources["early_access"]},
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status, response.json()

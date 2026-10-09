@@ -207,9 +207,10 @@ def _context_fields(
                 *[EmailDraftContextField(label="Survey question", value=question) for question in questions],
             ]
         case EmailDraftSource.FEATURE_FLAG:
+            row_id = _as_row_id(source_id)
             flag = (
-                FeatureFlag.objects.filter(team_id=team.id, id=int(source_id), deleted=False).first()
-                if source_id.isdigit()
+                FeatureFlag.objects.filter(team_id=team.id, id=row_id, deleted=False).first()
+                if row_id is not None
                 else None
             )
             if flag is None:
@@ -220,10 +221,9 @@ def _context_fields(
                 EmailDraftContextField(label="Feature flag description", value=flag.name or ""),
             ]
         case EmailDraftSource.COHORT:
+            row_id = _as_row_id(source_id)
             cohort = (
-                Cohort.objects.filter(team_id=team.id, id=int(source_id), deleted=False).first()
-                if source_id.isdigit()
-                else None
+                Cohort.objects.filter(team_id=team.id, id=row_id, deleted=False).first() if row_id is not None else None
             )
             if cohort is None:
                 return None
@@ -237,6 +237,11 @@ def _context_fields(
 def _check_view(entity: Model, can_view: Callable[[Model], bool]) -> None:
     if not can_view(entity):
         raise EmailDraftSourceForbidden()
+
+
+def _as_row_id(value: str) -> int | None:
+    # str.isdigit() accepts characters such as "²" that int() rejects.
+    return int(value) if value.isascii() and value.isdigit() else None
 
 
 def _as_uuid(value: str) -> UUID | None:

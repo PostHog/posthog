@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -61,6 +62,13 @@ class EmailDraftSerializer(serializers.Serializer):
 class WorkflowEmailDraftViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     serializer_class = EmailDraftRequestSerializer
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # A scoped token must also be able to read the source, since the draft carries its text.
+        source = request.data.get("source") if isinstance(request.data, dict) else None
+        if self.action != "create" or source not in EmailDraftSource.values:
+            return None
+        return ["hog_flow:write", f"{_SOURCE_RESOURCE[EmailDraftSource(source)]}:read"]
 
     @validated_request(
         EmailDraftRequestSerializer,
