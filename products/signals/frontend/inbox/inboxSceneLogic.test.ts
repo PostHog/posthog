@@ -238,14 +238,20 @@ describe('inboxSceneLogic routing', () => {
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {
-        it('keeps the trials page separate from a scout named comparisons', () => {
-            mountWithRedesign(true)
-            router.actions.push(urls.inboxScoutTrials())
-            expect(logic.values.selectedScoutSkillName).toBeNull()
-            expect(router.values.location.pathname.endsWith('/scout-trials')).toBe(true)
-            router.actions.push(urls.inboxScout('comparisons'))
-            expect(logic.values.selectedScoutSkillName).toBe('comparisons')
-        })
+        it.each([true, false])(
+            'keeps trials separate from an existing scout named trials with redesign=%p',
+            (redesign) => {
+                mountWithRedesign(redesign)
+                router.actions.push(urls.inboxScoutTrials())
+                expect(logic.values.selectedScoutSkillName).toBeNull()
+                expect(router.values.location.pathname.endsWith('/inbox/scout-trials')).toBe(true)
+                router.actions.push(urls.inboxScout('trials'))
+                expect(logic.values.selectedScoutSkillName).toBe('trials')
+                router.actions.push(urls.inboxScout('trials', 'finding-1'))
+                expect(logic.values.selectedScoutSkillName).toBe('trials')
+                expect(logic.values.selectedScoutFindingId).toBe('finding-1')
+            }
+        )
 
         it.each(['runs', 'trials'] as const)('opens the %s tab a reloaded URL names', (tab) => {
             mountWithRedesign(true)

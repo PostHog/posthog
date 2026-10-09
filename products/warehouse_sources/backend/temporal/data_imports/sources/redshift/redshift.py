@@ -84,6 +84,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    ClientDeadlineExceededError,
+    client_side_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -113,6 +117,52 @@ __all__ = [
 # keepalives a dead peer is detected in ~30-60s and raised as a fast,
 # retryable `OperationalError` instead. These only fire when the peer stops
 # responding, so they never interrupt a healthy long-running streaming sync.
+# Session statement timeout for a connection that reads metadata. The keepalives below end a query
+# whose peer went away. This ends a catalog query that the cluster accepts and then never answers,
+# for example one that waits behind a lock. Schema discovery must end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 5
+
+# Client-side limits on the wait for one batch of rows. The connection that reads the rows has no
+# session statement timeout, because that limit covers the statement as a whole and would end a
+# long read that is in good health. These limits cover one silent wait, and each batch starts a new
+# one. The first batch includes the query, which sorts the full result of an incremental read
+# before it returns a row.
+STREAM_FIRST_BATCH_DEADLINE_SECONDS = 30 * 60
+STREAM_NEXT_BATCH_DEADLINE_SECONDS = 10 * 60
+
+# Stable prefix, matched by `RedshiftSource.get_retryable_errors`.
+REDSHIFT_READ_TIMEOUT_ERROR = "Redshift sent no rows"
+
+_END_OF_BATCHES: Any = object()
+
+
+class RedshiftReadTimeoutError(Exception):
+    """Redshift sent no batch of rows before the deadline. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{REDSHIFT_READ_TIMEOUT_ERROR} for {timeout_seconds:g} seconds, so PostHog ended the read")
+
+
+def _batches_with_idle_deadline(connection: psycopg.Connection, batches: Iterator[Any]) -> Iterator[Any]:
+    """Yield `batches`, and end the statement when one batch does not come in time.
+
+    At the deadline the statement gets a cancel request, and the socket is shut down if that has
+    no effect (see `client_side_deadline`).
+    """
+    timeout_seconds: float = STREAM_FIRST_BATCH_DEADLINE_SECONDS
+    while True:
+        try:
+            with client_side_deadline(connection, timeout_seconds):
+                batch = next(batches, _END_OF_BATCHES)
+        except ClientDeadlineExceededError as e:
+            raise RedshiftReadTimeoutError(timeout_seconds) from e
+        if batch is _END_OF_BATCHES:
+            return
+        yield batch
+        timeout_seconds = STREAM_NEXT_BATCH_DEADLINE_SECONDS
+
+
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
@@ -576,6 +626,22 @@ def _rollback_if_aborted(connection: psycopg.Connection) -> None:
         connection.rollback()
 
 
+def _set_session_statement_timeout(connection: psycopg.Connection, timeout_ms: int) -> None:
+    """Set the session statement timeout on a new connection.
+
+    Commits, because a `SET` is undone when its transaction rolls back, and because the callers
+    switch the connection to autocommit, which psycopg refuses inside a transaction. Best-effort:
+    a cluster that rejects the setting keeps its own default.
+    """
+    try:
+        connection.execute(sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(timeout_ms)))
+        connection.commit()
+    except psycopg.Error as e:
+        if _is_transient_connection_drop_error(e):
+            raise
+        _rollback_if_aborted(connection)
+
+
 def _recover_after_failed_probe(connection: psycopg.Connection) -> None:
     """Roll back a best-effort probe's aborted transaction, swallowing a lost connection."""
     try:
@@ -797,17 +863,23 @@ def _stream_arrow_batches(
 
     try:
         with connection.cursor() as stream_cursor:
-            for batch in _stream_rows_as_arrow_batches(
-                stream_cursor,
-                query,
-                chunk_size,
-                arrow_schema,
-                primary_keys=primary_keys,
-                binary_reporter=binary_reporter,
+            for batch in _batches_with_idle_deadline(
+                connection,
+                _stream_rows_as_arrow_batches(
+                    stream_cursor,
+                    query,
+                    chunk_size,
+                    arrow_schema,
+                    primary_keys=primary_keys,
+                    binary_reporter=binary_reporter,
+                ),
             ):
                 yielded = True
                 yield batch
         return
+    except RedshiftReadTimeoutError:
+        # The cursor fallback runs the same query on the same silent cluster.
+        raise
     except Exception as e:
         if yielded:
             raise
@@ -823,18 +895,26 @@ def _stream_arrow_batches(
             # `close()` is a no-op while the transaction is aborted (psycopg checks the status
             # first), so this never masks the original failure with a CLOSE error.
             with connection.cursor(name=cursor_name) as server_cursor:
-                server_cursor.execute(query)
-                for batch in _fetch_arrow_batches(
-                    server_cursor,
-                    chunk_size,
-                    arrow_schema,
-                    fetch_size,
-                    primary_keys=primary_keys,
-                    binary_reporter=binary_reporter,
+                with client_side_deadline(connection, STREAM_FIRST_BATCH_DEADLINE_SECONDS):
+                    server_cursor.execute(query)
+                for batch in _batches_with_idle_deadline(
+                    connection,
+                    _fetch_arrow_batches(
+                        server_cursor,
+                        chunk_size,
+                        arrow_schema,
+                        fetch_size,
+                        primary_keys=primary_keys,
+                        binary_reporter=binary_reporter,
+                    ),
                 ):
                     yielded = True
                     yield batch
             return
+        except ClientDeadlineExceededError as e:
+            raise RedshiftReadTimeoutError(STREAM_FIRST_BATCH_DEADLINE_SECONDS) from e
+        except RedshiftReadTimeoutError:
+            raise
         except Exception as e:
             if yielded:
                 raise
@@ -975,7 +1055,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: RedshiftSourceConfig, *, team_id: int | None = None) -> Iterator[psycopg.Connection]:
+    def connect(
+        self,
+        config: RedshiftSourceConfig,
+        *,
+        team_id: int | None = None,
+        statement_timeout_ms: int | None = METADATA_STATEMENT_TIMEOUT_MS,
+    ) -> Iterator[psycopg.Connection]:
         """Open a psycopg connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) and connects with the
@@ -986,6 +1072,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         Redshift speaks the Postgres wire protocol through the same libpq, so it dials the
         addresses it validated the same way: `pinned_host_kwargs` resolves the host once, checks
         that answer against the host policy, and pins it through the `host`/`hostaddr` pair.
+
+        `statement_timeout_ms` is the session statement timeout. The default suits metadata work.
+        Pass None for the connection that reads the rows.
         """
         with open_ssh_tunnel(config, team_id) as (host, port):
             connect_kwargs: dict[str, Any] = {
@@ -1002,6 +1091,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 conn.adapters.register_loader("date", SafeDateLoader)
                 conn.adapters.register_loader("timestamp", SafeTimestampLoader)
                 conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                if statement_timeout_ms is not None:
+                    _set_session_statement_timeout(conn, statement_timeout_ms)
                 yield conn
 
     # ------------------------------------------------------------------
@@ -2038,10 +2129,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 # yet. `ExitStack.enter_context` only registers cleanup after `__enter__` succeeds,
                 # so a failed attempt leaves nothing to tear down and the next attempt opens clean.
                 streaming_connection = _retry_on_transient_connection_drop(
-                    lambda: stack.enter_context(self.connect(config, team_id=inputs.team_id)), logger
+                    lambda: stack.enter_context(
+                        self.connect(config, team_id=inputs.team_id, statement_timeout_ms=None)
+                    ),
+                    logger,
                 )
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
-                projection = _refreshed_projection(streaming_connection)
+                # This connection has no statement timeout, so the catalog re-read gets a client one.
+                with client_side_deadline(streaming_connection, METADATA_STATEMENT_TIMEOUT_MS / 1000):
+                    projection = _refreshed_projection(streaming_connection)
                 table = projection.table
                 arrow_schema = table.to_arrow_schema()
                 query = _build_query(

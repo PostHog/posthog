@@ -154,7 +154,7 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, and ducklake compilation (`posthog/ducklake/client.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, ducklake compilation (`posthog/ducklake/client.py`), and the web analytics team digest and team achievements sweep (`products/web_analytics/backend/weekly_digest.py`, `products/web_analytics/backend/achievements/evaluators.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
 # Background materialization job: no user exists, so bypass explicitly.
@@ -177,6 +177,7 @@ Hides sensitive event, person, and group properties (e.g. `email`) from query re
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
 Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
+Rules that target a role also need the `ROLE_BASED_ACCESS` entitlement. Without it the resolver loads no roles for the user, so role rules are skipped.
 
 ### Enforcement: masking, not errors
 

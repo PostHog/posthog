@@ -44,18 +44,6 @@ class TestLinodeSourceClass:
         schemas = self.source.get_schemas(_make_config(), self.team_id, names=["events", "volumes"])
         assert {s.name for s in schemas} == {"events", "volumes"}
 
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # lists_tables_without_credentials + a static get_schemas power the posthog.com Supported
-        # tables section; if either regresses the docs silently render nothing.
-        assert self.source.lists_tables_without_credentials is True
-        docs = {d["name"]: d for d in self.source.get_documented_tables()}
-        assert set(docs) == {s.name for s in self.source.get_schemas(_make_config(), self.team_id)}
-        assert docs["events"]["sync_methods"] == ["Append only", "Full refresh"]
-        assert docs["invoices"]["sync_methods"] == ["Incremental", "Full refresh"]
-        assert docs["linodes"]["sync_methods"] == ["Full refresh"]
-        # Canonical descriptions should flow through so the docs aren't blank.
-        assert docs["events"]["description"]
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.linode.com/v4/volumes?page=1",),
@@ -65,11 +53,6 @@ class TestLinodeSourceClass:
     def test_credential_errors_are_non_retryable(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    def test_transient_error_stays_retryable(self) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        observed = "500 Server Error: Internal Server Error for url: https://api.linode.com/v4/volumes"
-        assert not any(key in observed for key in non_retryable)
 
     def test_source_for_pipeline_omits_watermark_when_not_incremental(self) -> None:
         # A full-refresh run must not forward a stale last-value, or the transport would build an

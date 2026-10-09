@@ -169,7 +169,6 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (nodes: DataModelingNode[]): DataModelingNode[] =>
                 nodes.filter((node) => node.last_run_status === 'Failed'),
         ],
-        // The saved-query list response omits `suspended`, so read it off the nodes.
         /**
          * Only a marker on the serving engine means scheduled runs stopped. The shadow engine marks
          * its own failures, and those leave the schedule firing.

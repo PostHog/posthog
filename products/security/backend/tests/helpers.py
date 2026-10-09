@@ -1,5 +1,9 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from itertools import count
 from typing import Any
+
+from unittest.mock import patch
 
 from products.security.backend.logic.snapshot import reset_memo, write_snapshot
 
@@ -21,3 +25,13 @@ def exempt_rule(**overrides: Any) -> dict[str, Any]:
 def seed_rules(*rules: dict[str, Any]) -> None:
     write_snapshot(f"test-{next(_ids)}", list(rules))
     reset_memo()
+
+
+@contextmanager
+def enforcing(*surfaces: str) -> Iterator[None]:
+    """Turns refusals on for these surfaces, as the enforcement flag's payload would."""
+    with patch(
+        "products.security.backend.logic.enforcement._enforcement_payload",
+        return_value=dict.fromkeys(surfaces, True),
+    ):
+        yield

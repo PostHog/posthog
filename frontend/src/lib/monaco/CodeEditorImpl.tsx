@@ -6,10 +6,10 @@ import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useBodyIsDark } from 'lib/hooks/useBodyIsDark'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { themeLogic } from 'lib/logic/themeLogic'
 import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -56,6 +56,8 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     originalValue?: string
     /** Enable vim keybindings */
     enableVimMode?: boolean
+    /** Vim commands to run when vim mode starts, one per line */
+    vimrc?: string
 }
 let codeEditorIndex = 0
 
@@ -163,9 +165,10 @@ export function CodeEditor({
     metadataQueryOffset,
     originalValue,
     enableVimMode,
+    vimrc,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
+    const isDarkModeOn = useBodyIsDark()
     const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
@@ -210,6 +213,10 @@ export function CodeEditor({
 
     const { vimCommandHistory } = useValues(builtCodeEditorLogic)
     const { appendVimCommand } = useActions(builtCodeEditorLogic)
+    // Vim mode reads the history only when it starts. Each ex command appends to the history, so a dependency
+    // on it would restart Vim mode after every command and undo `:set` and `:map` changes made in the editor.
+    const vimCommandHistoryRef = useRef(vimCommandHistory)
+    vimCommandHistoryRef.current = vimCommandHistory
 
     const { isVisible } = usePageVisibility()
 
@@ -402,8 +409,9 @@ export function CodeEditor({
                     return
                 }
                 vimModeRef.current = setupVimMode(editor, statusBar, {
-                    initialHistory: vimCommandHistory,
+                    initialHistory: vimCommandHistoryRef.current,
                     onCommandExecuted: appendVimCommand,
+                    vimrc,
                 })
             })
         } else if (vimModeRef.current) {
@@ -418,7 +426,7 @@ export function CodeEditor({
                 vimModeRef.current = null
             }
         }
-    }, [editor, enableVimMode, vimCommandHistory, appendVimCommand])
+    }, [editor, enableVimMode, vimrc, appendVimCommand])
 
     // The wrapper calls `editor.updateOptions` whenever this object's identity changes, and
     // Monaco revalidates every option on each call, so only rebuild it when an input changes.

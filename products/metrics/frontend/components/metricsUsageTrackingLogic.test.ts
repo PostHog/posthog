@@ -13,7 +13,6 @@ import { metricsQueryCreate, metricsSamplesCreate, metricsNamesRetrieve } from '
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsSceneLogic } from '../metricsSceneLogic'
-import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
@@ -90,7 +89,22 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsViewerLogic.actions.setAggregation('p95'),
             { aggregation: 'p95' },
         ],
+        [
+            'metrics viewer range function changed',
+            () => metricsViewerLogic.actions.setRangeFunction('rate'),
+            { range_function: 'rate' },
+        ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
+        [
+            'metrics viewer display type changed',
+            () => metricsViewerLogic.actions.setDisplayType('stat'),
+            { display_type: 'stat' },
+        ],
+        [
+            'metrics viewer value reducer changed',
+            () => metricsViewerLogic.actions.setReduce('mean'),
+            { reduce: 'mean', display_type: 'line' },
+        ],
         [
             'metrics viewer date range changed',
             () => metricsViewerLogic.actions.setDateFrom('-24h'),
@@ -109,12 +123,12 @@ describe('metricsUsageTrackingLogic', () => {
         [
             'metrics add to dashboard clicked',
             () => metricsViewerLogic.actions.addToDashboard(),
-            { aggregation: 'sum', clause_count: 1, has_formula: false },
+            { aggregation: null, range_function: null, clause_count: 1, has_formula: false },
         ],
         [
             // Reports the aggregation persisted on the insight, not the viewer's
             // current one — those diverge when the user changes the aggregation
-            // while the save request is in flight (viewer state here is 'sum').
+            // while the save request is in flight (viewer state here has none).
             'metrics insight saved',
             () =>
                 metricsViewerLogic.actions.saveAsInsightSuccess(
@@ -124,7 +138,7 @@ describe('metricsUsageTrackingLogic', () => {
                     } as any,
                     {} as any
                 ),
-            { aggregation: 'p95', clause_count: 1, has_formula: false },
+            { aggregation: 'p95', range_function: null, clause_count: 1, has_formula: false },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
@@ -161,10 +175,13 @@ describe('metricsUsageTrackingLogic', () => {
     // Restoring a shared /metrics link replays the viewer setters; counting those dispatches
     // as interactions would inflate the usage tiles on every link open or refresh.
     it('a URL restore captures no viewer interactions', async () => {
+        metricsViewerLogic.actions.setDisplayType('heatmap')
+        jest.mocked(posthog.capture).mockClear()
         await expectLogic(logic, () => {
             router.actions.push('/metrics', {
                 metricName: SECRET_METRIC,
                 aggregation: 'p95',
+                rangeFunction: 'rate',
                 dateFrom: '-24h',
                 groupBy: '["env"]',
             })
@@ -172,17 +189,10 @@ describe('metricsUsageTrackingLogic', () => {
 
         expect(captures('metrics viewer metric selected')).toHaveLength(0)
         expect(captures('metrics viewer aggregation changed')).toHaveLength(0)
+        expect(captures('metrics viewer range function changed')).toHaveLength(0)
         expect(captures('metrics viewer date range changed')).toHaveLength(0)
         expect(captures('metrics viewer group by changed')).toHaveLength(0)
-    })
-
-    // Selecting a metric auto-applies its recommended aggregation; counting that dispatch as a
-    // user action would inflate the feature-adoption tile on every metric switch.
-    it('the auto-applied recommended aggregation is not an aggregation change', () => {
-        metricNamePickerLogic.actions.loadItemsSuccess([{ name: SECRET_METRIC, metric_type: 'sum' }] as any)
-        metricsViewerLogic.actions.setMetricName(SECRET_METRIC)
-        expect(metricsViewerLogic.values.aggregation).toBe('increase')
-        expect(captures('metrics viewer aggregation changed')).toHaveLength(0)
+        expect(captures('metrics viewer display type changed')).toHaveLength(0)
     })
 
     it('query completed reports shape counts and timing, never series labels', async () => {
@@ -209,7 +219,8 @@ describe('metricsUsageTrackingLogic', () => {
                     series_count: 2,
                     point_count: 3,
                     load_ms: expect.any(Number),
-                    aggregation: 'sum',
+                    aggregation: null,
+                    range_function: null,
                     has_group_by: false,
                     has_filters: false,
                 },

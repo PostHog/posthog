@@ -1,7 +1,7 @@
 """Golden-dataset quality suite for Replay Vision scanner prompts.
 
 Each case re-runs the production scan pipeline (same Jinja templates, response schemas, events
-tool, and citation handling, via run_scan) against a collected session video plus its event
+round, and citation handling, via run_scan) against a collected session video plus its event
 snapshot, then scores the fresh output against the recorded output and its human thumbs label.
 Edit the templates under backend/temporal/scanners/prompts/ and re-run to compare experiments
 in the local logs (this suite is private; nothing is sent to Braintrust).

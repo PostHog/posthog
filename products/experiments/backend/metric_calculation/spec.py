@@ -44,8 +44,8 @@ from products.experiments.backend.metric_resolution import (
     resolve_experiment_metrics,
     resolve_saved_metric_definition,
     resolve_scheduled_metrics,
+    saved_metric_link_role,
     saved_metric_links,
-    saved_metric_role,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -340,7 +340,7 @@ def saved_metric_calculation_keys(experiment: Experiment, settings: ExperimentCa
         if isinstance(query, dict):
             spec = settings.spec_for(
                 metric_id=query.get("uuid") or "",
-                role=saved_metric_role(link.metadata),
+                role=saved_metric_link_role(link),
                 definition=resolve_saved_metric_definition(query, link.metadata),
             )
             keys[link.id] = spec.calculation_key()

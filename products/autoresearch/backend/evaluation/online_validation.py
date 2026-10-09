@@ -47,9 +47,9 @@ from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, 
 
 logger = structlog.get_logger(__name__)
 
-# A validation run does two bounded queries and a scoring run is bounded by its sandbox
-# timeouts, so a RUNNING row older than this belongs to a worker that died mid-run and the
-# exception handler never ran. Neither kind may hold a date forever.
+# A validation run does one bounded query per model plus the labels query, and a scoring run
+# is bounded by its sandbox timeouts, so a RUNNING row older than this belongs to a worker that
+# died mid-run and the exception handler never ran. Neither kind may hold a date forever.
 STALE_RUN_AFTER = timedelta(hours=6)
 
 # An outcome event timestamped just before the window closes can still be in the ingestion
@@ -472,6 +472,10 @@ def _fetch_predictions(
     ``rows_scored``: fewer means ingestion has not caught up with a backfill yet, more
     means events the run did not emit. Either way the metrics would be wrong, so the date
     fails and is retried.
+
+    Each model is fetched in its own query. HogQL returns at most 50,000 rows whatever
+    LIMIT the query asks for. One run scores fewer people than that, but the champion and
+    its shadow models together can score more.
     """
     # argMax picks the latest emission per (model, person). Backfills stamp every event of
     # a date at the same instant, so the event UUID breaks those ties rather than leaving
@@ -486,28 +490,27 @@ def _fetch_predictions(
         f" WHERE{_prediction_filter()}"
         " GROUP BY model_id, person_id"
     )
-    result = _query(
-        team=team,
-        sql=sql,
-        values=_prediction_values(pipeline, pending),
-        user=user,
-        limit=pending.expected_rows + 1,
-        what="Predictions",
-        query_context=query_context,
-    )
-
     roles: dict[str, str] = {}
     scores: dict[str, dict[str, float]] = {}
-    for model_id, person_id, p_y, emitted_role in result.rows:
-        if p_y is None:
-            raise OnlineValidationError(
-                f"Prediction for person {person_id} of model {model_id} carries a non-numeric $autoresearch_p_y; "
-                "refusing to compute metrics from it"
-            )
-        scores.setdefault(str(model_id), {})[str(person_id)] = float(p_y)
-        roles.setdefault(str(model_id), str(emitted_role or ""))
-
     for model_id, expected in pending.expected_rows_by_model.items():
+        result = _query(
+            team=team,
+            sql=sql,
+            values={**_prediction_values(pipeline, pending), "model_ids": (model_id,)},
+            user=user,
+            limit=expected + 1,
+            what="Predictions",
+            query_context=query_context,
+        )
+        for row_model_id, person_id, p_y, emitted_role in result.rows:
+            if p_y is None:
+                raise OnlineValidationError(
+                    f"Prediction for person {person_id} of model {row_model_id} carries a non-numeric "
+                    "$autoresearch_p_y; refusing to compute metrics from it"
+                )
+            scores.setdefault(str(row_model_id), {})[str(person_id)] = float(p_y)
+            roles.setdefault(str(row_model_id), str(emitted_role or ""))
+
         found = len(scores.get(model_id, {}))
         if found < expected:
             raise OnlineValidationError(

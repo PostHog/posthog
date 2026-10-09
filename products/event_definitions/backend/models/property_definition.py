@@ -36,6 +36,15 @@ def effective_project_id_expr() -> Coalesce:
     return Coalesce(F("project_id"), F("team_id"), output_field=models.BigIntegerField())
 
 
+def group_type_index_key_expr() -> Coalesce:
+    """
+    `group_type_index` as `posthog_propdef_proj_uniq` and `index_property_def_query_proj` store it, with -1 for no group.
+
+    A filter or an ordering must use this exact expression, or Postgres cannot use those index columns for it.
+    """
+    return Coalesce(F("group_type_index"), -1, output_field=models.IntegerField())
+
+
 class PropertyFormat(models.TextChoices):
     UnixTimestamp = "unix_timestamp", "Unix Timestamp in seconds"
     UnixTimestampMilliseconds = (

@@ -795,7 +795,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
         return {
             [urls.inbox()]: applyFromUrl,
-            [urls.inbox(':tab')]: applyFromUrl,
+            [urls.inbox(':tab')]: ({ tab }, searchParams) => {
+                if (tab !== 'scout-trials') {
+                    applyFromUrl({ tab }, searchParams)
+                }
+            },
             [urls.inboxScratchpad()]: applyFromUrl,
             [urls.inboxFindings()]: applyFromUrl,
             [urls.inboxRuns()]: applyFromUrl,

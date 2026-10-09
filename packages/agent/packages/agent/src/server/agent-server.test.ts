@@ -2135,6 +2135,31 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    it("persists the gateway rejection message from a sanitized adapter cause", async () => {
+      const testServer = createFailureTestServer();
+
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.internalError(
+          {
+            classification: "upstream_request_rejected",
+            result: "router rejected request",
+          },
+          "The agent stopped before completing this request. Please try again.",
+        ),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: "upstream_request_rejected: router rejected request",
+        }),
+      );
+    });
+
     it("sanitizes an unstructured provider cause before persistence", async () => {
       const testServer = createFailureTestServer();
 

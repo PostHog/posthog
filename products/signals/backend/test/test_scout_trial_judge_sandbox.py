@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
@@ -7,7 +8,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -17,7 +18,6 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, judge_trial_run
 from products.signals.backend.test.test_scout_trial_judge import _snapshot, _verdict
 from products.signals.backend.trial_judging_types import TrialJudgeVerdicts
-from products.tasks.backend.facade.agents import TurnPollResult
 from products.tasks.backend.models import Task, TaskRun
 
 MODULE = "products.signals.backend.scout_harness.trial_judge"
@@ -95,19 +95,54 @@ class TestSandboxJudgeLifecycle(SimpleTestCase):
 
 
 class TestSandboxJudgeDispatch(BaseTest):
-    def test_private_inputs_are_attached_before_dispatch_and_retry_cannot_create_another_run(self) -> None:
+    @parameterized.expand([("valid_json", False), ("invalid_json", True)])
+    @override_settings(DEBUG=False)
+    def test_ordinary_task_attaches_evidence_and_retries_json_in_same_run(self, _name: str, retry_json: bool) -> None:
         snapshot = _snapshot().model_copy(update={"team_id": self.team.id, "user_id": self.user.id})
         evidence = snapshot.runs[0]
         output = TrialJudgeVerdicts.model_validate({"summary": "Synthetic assessment.", "criteria": [_verdict()]})
-        workflow_handle = MagicMock(signal=AsyncMock())
+        dispatched: list[TaskRun] = []
+        log_lines: list[str] = []
+        followup_messages: list[str] = []
+
+        def append_response(text: str) -> None:
+            log_lines.extend(
+                [
+                    json.dumps(
+                        {
+                            "notification": {
+                                "method": "session/update",
+                                "params": {
+                                    "update": {
+                                        "sessionUpdate": "agent_message",
+                                        "content": {"type": "text", "text": text},
+                                    }
+                                },
+                            }
+                        }
+                    ),
+                    json.dumps({"notification": {"result": {"stopReason": "end_turn"}}}),
+                ]
+            )
+
+        append_response("The synthetic check passed." if retry_json else output.model_dump_json())
+
+        async def signal(signal: object, message: str | None = None, **_kwargs: object) -> None:
+            if message is not None:
+                followup_messages.append(message)
+                self.assertIn("Return the complete JSON object", message)
+                append_response(output.model_dump_json())
+
+        workflow_handle = MagicMock(signal=AsyncMock(side_effect=signal))
         client = MagicMock()
         client.get_workflow_handle.return_value = workflow_handle
-        dispatched: list[TaskRun] = []
 
         def dispatch(run: TaskRun, **_kwargs: object) -> None:
             run.refresh_from_db()
-            self.assertEqual(run.state["scout_trial_judge"]["source_task_run_id"], str(evidence.task_run_id))
-            self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "signals_scout_judge")
+            self.assertEqual(run.task.origin_product, Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS)
+            self.assertFalse(run.task.is_scout_experiment)
+            self.assertNotIn("scout_trial_judge", run.state)
+            self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], [])
             self.assertEqual(run.state["pending_user_message_id"], str(run.id))
             self.assertEqual(run.state["pending_user_artifact_ids"], [item["id"] for item in run.artifacts])
             self.assertEqual([item["name"] for item in run.artifacts], [file.filename for file in evidence.files])
@@ -115,31 +150,29 @@ class TestSandboxJudgeDispatch(BaseTest):
             self.assertEqual(run.state["model"], snapshot.judge_model)
             self.assertEqual(run.state["reasoning_effort"], "high")
             self.assertEqual(run.state["mcp_gateway_server_ids"], [])
+            self.assertFalse(run.state["include_live_context"])
+            self.assertEqual(run.task.mcp_builtin_agent_key, "scout")
+            self.assertEqual(run.task.mcp_gateway_server_allowlist, [])
             self.assertIsNone(run.task.repository)
             self.assertTrue(run.task.internal)
             for artifact in run.artifacts:
                 self.assertIn(f"/{snapshot.team_id}/evaluations/{snapshot.evaluation_id}/", artifact["storage_path"])
                 self.assertIn(str(evidence.launch_id), artifact["storage_path"])
+
             dispatched.append(run)
 
         with (
             team_scope(self.team.id, canonical=True),
             patch(f"{MODULE}._assert_scout_available"),
             patch(f"{MODULE}.read_trial_evidence_sources", return_value=evidence.sources),
-            patch(f"{MODULE}.get_or_create_signals_sandbox_env", return_value=None),
+            patch("posthoganalytics.feature_enabled", return_value=False),
             patch(
                 "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow",
                 side_effect=dispatch,
             ),
             patch(f"{SESSION_MODULE}.async_connect", new=AsyncMock(return_value=client)),
-            patch(
-                f"{SESSION_MODULE}.poll_for_turn",
-                new=AsyncMock(
-                    return_value=TurnPollResult(
-                        last_message=output.model_dump_json(), full_log=None, total_lines=2, printed_lines=0
-                    )
-                ),
-            ),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch("posthog.storage.object_storage.read", side_effect=lambda *_args, **_kwargs: "\n".join(log_lines)),
         ):
             result = async_to_sync(judge_trial_run)(snapshot, evidence)
             self.assertEqual(result.status, "judged")
@@ -150,4 +183,8 @@ class TestSandboxJudgeDispatch(BaseTest):
                 Task.objects.filter(team_id=self.team.id, origin_key__startswith="scout-trial-judge:").count(), 1
             )
             self.assertEqual(TaskRun.objects.filter(team_id=self.team.id, task=dispatched[0].task).count(), 1)
+            dispatched[0].refresh_from_db()
+            self.assertFalse(dispatched[0].state["include_live_context"])
             self.assertEqual(workflow_handle.signal.call_args.kwargs["args"], ["completed", None])
+            self.assertEqual(result.criteria[0].verdict, "pass")
+            self.assertEqual(len(followup_messages), int(retry_json))
