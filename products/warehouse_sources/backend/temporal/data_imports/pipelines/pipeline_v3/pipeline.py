@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_column_name,
     normalize_table_column_names,
     observe_and_project_table,
+    project_rows_to_enabled_columns,
     reconcile_batch_to_accumulated_schema,
     source_uses_delta_write_column_selection,
 )
@@ -782,7 +783,7 @@ class PipelineV3(Generic[ResumableData]):
                     )
 
                     self._confirm_resume_state()
-                    self._batcher.batch(item)
+                    self._batcher.batch(self._project_source_item(item))
 
                     # A single batched table may be split into several when a string/binary/list
                     # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
@@ -915,6 +916,33 @@ class PipelineV3(Generic[ResumableData]):
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
+    def _partition_key_columns(self) -> list[str]:
+        return [
+            *(self._schema.partitioning_keys_override or []),
+            *(self._schema.partitioning_keys or []),
+            *(self._resource.partition_keys or []),
+        ]
+
+    def _project_source_item(self, item: Any) -> Any:
+        """Drop deselected columns from source rows before the batcher infers their Arrow types.
+
+        Arrow tables keep the write-side projection in `_process_batch`. A dropped column has no
+        inferred type, so the column picker lists it by name only.
+        """
+        if not self._uses_delta_write_column_selection or not isinstance(item, list | dict):
+            return item
+        rows, dropped_keys = project_rows_to_enabled_columns(
+            [item] if isinstance(item, dict) else item,
+            self._schema.enabled_columns,
+            self._resource.primary_keys,
+            self._schema.incremental_field,
+            self._partition_key_columns(),
+        )
+        for key in dropped_keys:
+            name = normalize_column_name(key)
+            self._observed_columns.setdefault(name, {"name": name})
+        return rows[0] if isinstance(item, dict) else rows
+
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
@@ -925,11 +953,7 @@ class PipelineV3(Generic[ResumableData]):
                 self._schema.enabled_columns,
                 self._resource.primary_keys,
                 self._schema.incremental_field,
-                [
-                    *(self._schema.partitioning_keys_override or []),
-                    *(self._schema.partitioning_keys or []),
-                    *(self._resource.partition_keys or []),
-                ],
+                self._partition_key_columns(),
                 self._observed_columns,
                 self._logger,
                 "V3 Pipeline: Dropped non-enabled columns before write",

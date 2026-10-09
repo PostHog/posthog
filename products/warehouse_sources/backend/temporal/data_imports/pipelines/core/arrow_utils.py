@@ -504,6 +504,22 @@ def _fold_column_name_for_match(name: str) -> str:
         return name
 
 
+def _retained_column_match_names(
+    enabled_columns: list[str],
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+) -> set[str]:
+    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
+    for primary_key in primary_keys or []:
+        retained.add(_fold_column_name_for_match(primary_key))
+    if incremental_field:
+        retained.add(_fold_column_name_for_match(incremental_field))
+    for partition_key in partition_keys or []:
+        retained.add(_fold_column_name_for_match(partition_key))
+    return retained
+
+
 def apply_enabled_columns_projection(
     table: pa.Table,
     enabled_columns: list[str] | None,
@@ -528,14 +544,7 @@ def apply_enabled_columns_projection(
     if enabled_columns is None:
         return table, []
 
-    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
-    for primary_key in primary_keys or []:
-        retained.add(_fold_column_name_for_match(primary_key))
-    if incremental_field:
-        retained.add(_fold_column_name_for_match(incremental_field))
-    for partition_key in partition_keys or []:
-        retained.add(_fold_column_name_for_match(partition_key))
-
+    retained = _retained_column_match_names(enabled_columns, primary_keys, incremental_field, partition_keys)
     kept_names = [
         name
         for name in table.column_names
@@ -547,6 +556,36 @@ def apply_enabled_columns_projection(
     if all(name in INTERNAL_COLUMN_NAMES for name in kept_names):
         return table, []
     return table.select(kept_names), dropped_names
+
+
+def project_rows_to_enabled_columns(
+    rows: list[Any],
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+) -> tuple[list[Any], list[str]]:
+    """Row-level counterpart of `apply_enabled_columns_projection`. Returns `(rows, dropped_keys)`.
+
+    Runs before the batcher infers Arrow types, so a deselected column never reaches type
+    inference: its values can't fail the sync, for example a property that flips from a number
+    to text. The same columns are retained, and the same empty-projection fallback applies.
+    Rows that aren't mappings pass through unchanged, so the batcher still rejects them.
+    """
+    if enabled_columns is None:
+        return rows, []
+
+    retained = _retained_column_match_names(enabled_columns, primary_keys, incremental_field, partition_keys)
+    keys = dict.fromkeys(key for row in rows if isinstance(row, Mapping) for key in row)
+    kept_keys = {key for key in keys if key in INTERNAL_COLUMN_NAMES or _fold_column_name_for_match(key) in retained}
+    dropped_keys = [key for key in keys if key not in kept_keys]
+    if not dropped_keys or all(key in INTERNAL_COLUMN_NAMES for key in kept_keys):
+        return rows, []
+    projected = [
+        {key: value for key, value in row.items() if key in kept_keys} if isinstance(row, Mapping) else row
+        for row in rows
+    ]
+    return projected, dropped_keys
 
 
 async def observe_and_project_table(
@@ -617,7 +656,8 @@ def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:
 def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed_columns: list[dict[str, Any]]) -> None:
     """Union observed column entries into `sync_type_config["schema_metadata"]["columns"]` in place.
 
-    Existing entries keep their position and are refreshed with the observed type/nullability;
+    Existing entries keep their position and are refreshed with the observed type/nullability
+    (a name-only entry, for a column dropped before type inference, refreshes nothing);
     columns previously observed but absent from this run stay listed (union, not replace) so a
     projection or an upstream removal never shrinks the picker. Designed as a `mutate` callback
     for `update_sync_type_config_keys`.
@@ -637,7 +677,7 @@ def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed
         existing = entries_by_name.get(observed["name"])
         if existing is None:
             columns.append(observed)
-        else:
+        elif "data_type" in observed:
             existing["data_type"] = observed["data_type"]
             existing["is_nullable"] = observed["is_nullable"]
 

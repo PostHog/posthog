@@ -1287,6 +1287,43 @@ async def _run_expecting(pipeline: PipelineV3, redis: MagicMock, exc: type[BaseE
             await pipeline.run()
 
 
+class TestDeselectedColumnsSkipTypeInference:
+    @pytest.mark.asyncio
+    async def test_a_deselected_column_that_flips_from_number_to_text_does_not_fail_the_sync(self) -> None:
+        def items():
+            yield [{"id": 1, "time": 10, "new_value": 1.5}]
+            yield [{"id": 2, "time": 20, "new_value": "not a number"}]
+
+        pipeline = _runnable_pipeline(_manager(), items)
+        pipeline._resumable_source_manager = None
+        pipeline._uses_delta_write_column_selection = True
+        pipeline._schema.configure_mock(  # type: ignore[attr-defined]
+            enabled_columns=["time"],
+            incremental_field=None,
+            partitioning_keys_override=None,
+            partitioning_keys=None,
+        )
+        pipeline._finalize = AsyncMock()  # type: ignore[method-assign]
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            for name in ("validate_incremental_sync", "record_source_item_stats"):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}"))
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+            await pipeline.run()
+
+        staged = [call.kwargs["pa_table"] for call in cast(AsyncMock, pipeline._process_batch).await_args_list]
+        assert [table.column_names for table in staged] == [["id", "time"]]
+        assert staged[0].to_pylist() == [{"id": 1, "time": 10}, {"id": 2, "time": 20}]
+        assert pipeline._observed_columns == {"new_value": {"name": "new_value"}}
+
+
 class _MemoryRedis:
     def __init__(self) -> None:
         self.store: dict[str, str] = {}

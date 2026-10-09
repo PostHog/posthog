@@ -1803,6 +1803,8 @@ def test_merge_observed_columns_unions_and_refreshes():
         [
             {"name": "id", "data_type": "int64", "is_nullable": False},
             {"name": "brand_new", "data_type": "string", "is_nullable": True},
+            {"name": "deselected"},
+            {"name": "deselected_new"},
         ],
     )
 
@@ -1810,6 +1812,7 @@ def test_merge_observed_columns_unions_and_refreshes():
         {"name": "id", "data_type": "int64", "is_nullable": False},
         {"name": "deselected", "data_type": "string", "is_nullable": True},
         {"name": "brand_new", "data_type": "string", "is_nullable": True},
+        {"name": "deselected_new"},
     ]
     assert config["schema_metadata"]["source_table_name"] == "customers"
 
