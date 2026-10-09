@@ -764,14 +764,12 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
 
     links = "[ENG-123](https://linear.app/acme/issue/ENG-123), [#42](https://github.com/acme/repo/issues/42)"
     assert (f"Source issues: {links}" in description) is expect_references
-    # The refs ride the established PR footer convention with their concrete links: an agent told
-    # merely to "reference the source issue" has nothing to link, which is the gap this feature closes.
-    assert (f", addressing {links}.' -" in description) is expect_references
-    # No references must mean the plain footer and no dangling block, not an empty label.
+    assert ("Link them in the PR description" in description) is expect_references
     if not expect_references:
         assert "Source issues" not in description
-        assert "addressing" not in description
-        assert "inbox/reports/0198c0de-0000-7000-8000-000000000001).' -" in description
+    # The harness owns the footer wording, so the description must not prescribe a second one.
+    assert "Created with" not in description
+    assert "inbox/reports/0198c0de-0000-7000-8000-000000000001" in description
 
 
 def test_autostart_description_opens_the_pr_before_the_simplify_pass():
