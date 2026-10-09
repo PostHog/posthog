@@ -88,7 +88,6 @@ The connection flow preserves return URLs, labels, access mode, and origin metad
 The `warehouse source connect completed` event records the originating entry point.
 Users complete platform authorization through the connection flow.
 
-
 ## Google Ads campaign trends
 
 Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
