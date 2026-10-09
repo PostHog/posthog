@@ -132,8 +132,14 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [dimensions, outsideRoom]
     )
 
+    // `useChartTheme` rereads the CSS variables on any class change on <html> or <body>, and returns
+    // an equal palette in a new array. Keying on the values keeps that from rebuilding the layout,
+    // because a new layout clears the hover and its tooltip.
+    const paletteKey = theme.colors.join('\n')
+
     // Nodes that share a label share a palette slot, so the same tool in two columns keeps one hue.
     const colorForLabel = useMemo(() => {
+        const palette = paletteKey.split('\n')
         const slots = new Map<string, string>()
         for (const node of nodes) {
             if (node.color) {
@@ -141,11 +147,11 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             const label = node.label ?? node.id
             if (!slots.has(label)) {
-                slots.set(label, theme.colors[slots.size % theme.colors.length] || FALLBACK_NODE_COLOR)
+                slots.set(label, palette[slots.size % palette.length] || FALLBACK_NODE_COLOR)
             }
         }
-        return (label: string): string => slots.get(label) ?? (theme.colors[0] || FALLBACK_NODE_COLOR)
-    }, [nodes, theme.colors])
+        return (label: string): string => slots.get(label) ?? (palette[0] || FALLBACK_NODE_COLOR)
+    }, [nodes, paletteKey])
 
     const layout = useMemo<SankeyChartLayout<NodeMeta, LinkMeta>>(
         () =>
