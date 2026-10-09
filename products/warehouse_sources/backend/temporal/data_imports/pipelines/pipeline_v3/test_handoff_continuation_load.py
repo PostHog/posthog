@@ -74,7 +74,7 @@ class _Staging:
         )
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Import:
     """One schema, its source rows, its queue and its table on local disk."""
 
