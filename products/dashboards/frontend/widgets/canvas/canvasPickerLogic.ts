@@ -17,6 +17,7 @@ export interface canvasPickerLogicValues {
     currentProjectId: number | string // teamLogic
     canvasOptions: CanvasApi[]
     canvasOptionsLoading: boolean
+    canvasOptionsFailed: boolean
     hasLoadedOptions: boolean
     search: string
     selectedCanvas: CanvasApi | null
@@ -30,6 +31,9 @@ export interface canvasPickerLogicActions {
     }
     ensureSelectedLoaded: (canvasId: string) => {
         canvasId: string
+    }
+    retryLoadOptions: () => {
+        value: true
     }
     loadOptions: ({ debounce }?: { debounce: boolean }) => {
         debounce: boolean
@@ -103,12 +107,14 @@ export const canvasPickerLogic = kea<canvasPickerLogicType>([
     actions({
         setSearch: (search: string) => ({ search }),
         ensureOptionsLoaded: true,
+        retryLoadOptions: true,
         ensureSelectedLoaded: (canvasId: string) => ({ canvasId }),
     }),
 
     reducers({
         search: ['', { setSearch: (_: string, { search }: { search: string }) => search }],
         hasLoadedOptions: [false, { loadOptionsSuccess: () => true }],
+        canvasOptionsFailed: [false, { loadOptions: () => false, loadOptionsFailure: () => true }],
     }),
 
     loaders(({ values }) => ({
@@ -156,6 +162,9 @@ export const canvasPickerLogic = kea<canvasPickerLogicType>([
             if (!values.hasLoadedOptions && !values.canvasOptionsLoading) {
                 actions.loadOptions({ debounce: false })
             }
+        },
+        retryLoadOptions: () => {
+            actions.loadOptions({ debounce: false })
         },
         ensureSelectedLoaded: ({ canvasId }) => {
             if (values.selectedCanvas?.id === canvasId && !values.selectedCanvasLoading) {
