@@ -141,6 +141,21 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.groupByKeys).toEqual([])
     })
 
+    it('adds a sum aggregation when grouping a clause without one', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setGroupByKeys(['container'])
+        expect(logic.values.aggregation).toBe('sum')
+        expect(logic.values.groupByKeys).toEqual(['container'])
+    })
+
+    it('keeps the chosen aggregation when grouping', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('max')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setGroupByKeys([])
+        expect(logic.values.aggregation).toBe('max')
+    })
+
     // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
     // silently saves insights that re-run a different query than the viewer showed.
     it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
