@@ -25,6 +25,7 @@ from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
+from posthog.models.oauth import find_oauth_access_token
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -77,6 +78,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.signals.backend.scout_harness.trial_state import initial_trial_state
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
@@ -130,6 +132,25 @@ def _authenticate_as_scout(
         include_internal_scopes=True,
         sandbox_task_id=sandbox_task_id,
     )
+    if sandbox_task_id is not None:
+        access_token = find_oauth_access_token(token)
+        assert access_token is not None
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = (
+            TaskRun.objects.filter(task_id=sandbox_task_id, team_id=team_id if team_id is not None else test.team.id)
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if run is not None:
+            TaskRun.update_state_atomic(
+                run.id,
+                updates={
+                    "sandbox_oauth_token_ids": [
+                        *(run.state or {}).get("sandbox_oauth_token_ids", []),
+                        str(access_token.pk),
+                    ]
+                },
+            )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -166,6 +187,15 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
         "skill_version": 1,
     }
     defaults.update(overrides)
+    if metadata := defaults.get("metadata"):
+        marker = metadata.get("scout_trial")
+        if isinstance(marker, dict) and marker.get("version") == 1:
+            marker = {"launch_id": str(uuid4()), **marker}
+            defaults["metadata"] = {**metadata, "scout_trial": marker}
+            defaults.setdefault("trial_state", initial_trial_state())
+            task = defaults["task_run"].task
+            task.origin_key = f"scout-trial:{marker['launch_id']}"
+            task.save(update_fields=["origin_key"])
     return SignalScoutRun.objects.create(team=team, **defaults)
 
 

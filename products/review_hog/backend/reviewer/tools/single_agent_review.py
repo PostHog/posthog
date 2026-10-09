@@ -33,7 +33,7 @@ from products.review_hog.backend.reviewer.constants import (
     priority_rank,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
     DroppedIssue,
@@ -351,9 +351,8 @@ def _dropped_duplicate(
     *,
     dedup_fallback: bool,
     turn_issues: dict[str, Issue],
-    prior_keys: set[str],
 ) -> DroppedIssue:
-    """Record a dedup drop with the survivor it repeats: a finding of this turn, an earlier turn's finding, or a comment."""
+    """Record a dedup drop with the survivor it repeats: a finding of this turn or an earlier turn's finding."""
     named = duplicate.duplicate_of
     target = turn_issues.get(named) if named is not None else None
     disposition: DropDisposition
@@ -365,11 +364,8 @@ def _dropped_duplicate(
         )
         disposition = "dedup_anchor" if repeats_anchor else "dedup_sibling"
         duplicate_of = target
-    elif named in prior_keys:
-        disposition = "dedup_prior"
     else:
-        disposition = "dedup_comment"
-        duplicate_of = f"comment:{named}"
+        disposition = "dedup_prior"
     return DroppedIssue(
         issue=duplicate.issue, disposition=disposition, duplicate_of=duplicate_of, dedup_fallback=dedup_fallback
     )
@@ -597,7 +593,6 @@ async def dedupe_flash_findings(
     user_id: int,
     issues: list[Issue],
     pr_metadata: PRMetadata,
-    pr_comments: list[PRComment],
     prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
     branch: str,
     repository: str,
@@ -605,21 +600,18 @@ async def dedupe_flash_findings(
     workflow_id_prefix: str | None = None,
     fall_back_on_any_error: bool = False,
     changed_since: ChangedSinceReview | None = None,
-    against_pr_comments: bool = False,
 ) -> FlashSelection:
     """Deduplicate a single-agent turn's main and lens findings, then keep the few it posts.
 
-    Two dedup calls run in parallel. The main findings dedup against earlier turns, and against PR comments
-    only with `against_pr_comments`: by default a review posts what it finds whatever other comments say.
-    The lens findings dedup against those too and against the main findings as anchors, so a lens
+    Two dedup calls run in parallel. The main findings dedup against earlier turns only: Flash posts what it
+    finds whatever other comments on the PR say. The lens findings dedup against those too and against the
+    main findings as anchors, so a lens
     finding can lose to a main finding but never the other way around. A removal holds only when what
     it repeats survives (`_resolve_duplicates`). A finding that survives takes the priority of the most
     severe duplicate removed in its favor. `fall_back_on_any_error` lets a dedup
     call fall back to the positional pre-filter on any failure, for the activity's last attempt.
     On a follow-up turn, `changed_since` drops the P2 and P3 findings on unchanged code before dedup.
     """
-    if not against_pr_comments:
-        pr_comments = []
     old_code = _old_code_findings(issues, changed_since)
     old_code_ids = {issue.id for issue in old_code}
     reviewed = [issue for issue in issues if issue.id not in old_code_ids]
@@ -631,7 +623,7 @@ async def dedupe_flash_findings(
             user_id=user_id,
             issues=main,
             pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
+            pr_comments=[],
             prior_findings=prior_findings,
             branch=branch,
             repository=repository,
@@ -644,7 +636,7 @@ async def dedupe_flash_findings(
             user_id=user_id,
             issues=lens,
             pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
+            pr_comments=[],
             prior_findings=prior_findings,
             branch=branch,
             repository=repository,
@@ -655,8 +647,7 @@ async def dedupe_flash_findings(
         ),
     )
     prior_keys = {finding.issue_key for finding, _ in prior_findings}
-    comment_ids = {str(comment.id) for comment in pr_comments if comment.id is not None}
-    held = _resolve_duplicates(main, lens, main_outcome, lens_outcome, earlier_ids=prior_keys | comment_ids)
+    held = _resolve_duplicates(main, lens, main_outcome, lens_outcome, earlier_ids=prior_keys)
     removed_ids = {removal.duplicate.issue.id for removal in held}
     kept_main = [issue for issue in main if issue.id not in removed_ids]
     kept_lens = [issue for issue in lens if issue.id not in removed_ids]
@@ -664,9 +655,7 @@ async def dedupe_flash_findings(
     composed = compose_flash_findings(kept_main, kept_lens, lens_part_count=lens_part_count, group_levels=group_levels)
     turn_issues = {issue.id: issue for issue in issues}
     dedup_drops = [
-        _dropped_duplicate(
-            removal.duplicate, dedup_fallback=removal.fell_back, turn_issues=turn_issues, prior_keys=prior_keys
-        )
+        _dropped_duplicate(removal.duplicate, dedup_fallback=removal.fell_back, turn_issues=turn_issues)
         for removal in held
     ]
     logger.info(

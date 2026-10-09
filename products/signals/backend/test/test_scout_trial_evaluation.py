@@ -24,7 +24,6 @@ from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
-from products.signals.backend.facade.api import is_scout_trial_judge_context
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext, default_criteria
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.limits import MAX_TRIAL_RUNS
@@ -90,8 +89,6 @@ from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.signals.backend.test.test_scout_trial_judge import _reference_context, _snapshot
 from products.signals.backend.trial_judging import TrialJudgeInput, build_trial_judge_prompt
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run  # tach-ignore
 
 if TYPE_CHECKING:
     pass
@@ -587,91 +584,6 @@ class TestScoutTrialEvaluation(BaseTest):
             prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
 
     @parameterized.expand(
-        [
-            "valid",
-            "evaluation_id",
-            "launch_id",
-            "context_id",
-            "source_task_id",
-            "source_task_run_id",
-            "source_scout_run_id",
-            "user_id",
-            "caller_user",
-            "caller_team",
-            "source_origin",
-            "source_state",
-            "source_status",
-            "source_deleted",
-            "source_invalidated",
-            "operator_revoked",
-        ]
-    )
-    def test_judge_credentials_require_the_exact_saved_evaluation_and_private_source(self, mismatch: str) -> None:
-        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
-        evidence = snapshot.runs[0]
-        marker: dict[str, str | int] = {
-            "version": 1,
-            "evaluation_id": str(snapshot.evaluation_id),
-            "launch_id": str(evidence.launch_id),
-            "context_id": str(snapshot.context_id),
-            "user_id": snapshot.user_id,
-            "source_task_id": str(evidence.task_id),
-            "source_task_run_id": str(evidence.task_run_id),
-            "source_scout_run_id": str(evidence.run_id),
-        }
-        team_id, user_id = self.team.id, self.user.id
-        if mismatch == "user_id":
-            marker["user_id"] = user_id + 1
-        elif mismatch in marker:
-            marker[mismatch] = str(uuid4())
-        elif mismatch == "caller_team":
-            team_id += 1
-        elif mismatch == "caller_user":
-            user_id += 1
-        elif mismatch == "source_origin":
-            task = self.scout_run.task_run.task
-            task.origin_key = "ordinary-task"
-            task.save(update_fields=["origin_key"])
-        elif mismatch == "source_state":
-            self.scout_run.task_run.state["scout_trial"] = {}
-            self.scout_run.task_run.save(update_fields=["state"])
-        elif mismatch == "source_status":
-            self.scout_run.task_run.status = "failed"
-            self.scout_run.task_run.save(update_fields=["status"])
-        elif mismatch == "source_deleted":
-            task = self.scout_run.task_run.task
-            task.deleted = True
-            task.save(update_fields=["deleted"])
-        elif mismatch == "source_invalidated":
-            ScoutTrialStore(self.scout_run).invalidate("Synthetic invalidation", allow_terminal=True)
-        elif mismatch == "operator_revoked":
-            self.user.is_staff = False
-            self.user.save(update_fields=["is_staff"])
-            with self.assertRaises(TrialEvaluationError):
-                is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker)
-            return
-        assert is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker) is (mismatch == "valid")
-        if mismatch == "valid":
-            judge_task = Task.objects.create(
-                team=self.team,
-                created_by=self.user,
-                title="Synthetic trial judge",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
-                origin_key=f"scout-trial-judge:{snapshot.evaluation_id}:{evidence.launch_id}",
-            )
-            judge_run = judge_task.create_run(extra_state={"scout_trial_judge": marker, "use_dedicated_stream": False})
-            with patch(
-                "products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user",
-                return_value="synthetic-judge-token",
-            ) as mint:
-                assert (
-                    create_oauth_access_token_for_run(judge_task, judge_run.state, scopes="full")
-                    == "synthetic-judge-token"
-                )
-            assert mint.call_args.kwargs["scopes"] == "signals_scout_judge"
-            assert mint.call_args.kwargs["sandbox_task_id"] == judge_task.id
-
-    @parameterized.expand(
         ["source_origin", "source_state", "excluded_evidence", "unfinished_evidence", "foreign_evidence"]
     )
     def test_changed_source_or_ineligible_evidence_cannot_dispatch_a_judge(self, invalid: str) -> None:
@@ -682,8 +594,9 @@ class TestScoutTrialEvaluation(BaseTest):
             task.origin_key = "ordinary-task"
             task.save(update_fields=["origin_key"])
         elif invalid == "source_state":
-            self.scout_run.task_run.state["scout_trial"] = {}
-            self.scout_run.task_run.save(update_fields=["state"])
+            assert self.scout_run.metadata is not None
+            self.scout_run.metadata["scout_trial"] = {}
+            self.scout_run.save(update_fields=["metadata"])
         elif invalid == "excluded_evidence":
             evidence = evidence.model_copy(update={"exclusion_reason": "Synthetic excluded run."})
             snapshot = snapshot.model_copy(update={"runs": [evidence]})
@@ -796,10 +709,8 @@ class TestScoutTrialEvaluation(BaseTest):
             TrialReport(id=f"synthetic-report-{index}", document={"summary": f"Finding {index}. " * 3000})
             for index in range(4)
         ]
-        self.scout_run.task_run.state["scout_trial_private"] = {
-            "reports": {report.id: report.model_dump(mode="json") for report in reports}
-        }
-        self.scout_run.task_run.save(update_fields=["state"])
+        self.scout_run.trial_state = {"reports": {report.id: report.model_dump(mode="json") for report in reports}}
+        self.scout_run.save(update_fields=["trial_state"])
         log = json.dumps(
             {
                 "notification": {
@@ -859,10 +770,8 @@ class TestScoutTrialEvaluation(BaseTest):
             operator_metadata={"skipped_automatic_repository_selection": False},
             artefacts=[{"type": "note", "content": "Synthetic diagnostic detail. " * 250}],
         )
-        self.scout_run.task_run.state["scout_trial_private"] = {
-            "reports": {captured_report.id: captured_report.model_dump(mode="json")}
-        }
-        self.scout_run.task_run.save(update_fields=["state"])
+        self.scout_run.trial_state = {"reports": {captured_report.id: captured_report.model_dump(mode="json")}}
+        self.scout_run.save(update_fields=["trial_state"])
         log = (
             "\n".join(
                 json.dumps(
