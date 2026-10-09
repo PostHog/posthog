@@ -745,12 +745,30 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
-    # TODO: messaging presentation wave — the recipient preferences page moved out of posthog/views.py
-    # unchanged, so it still reads messaging models and services directly. Route each read through
-    # the facade and delete each entry. Only delete entries here: a new import goes through the facade.
+    # TODO: messaging presentation wave — the moved views still read messaging models and services
+    # directly. Each lane thins its own modules to parse -> facade -> serialize and deletes only its
+    # own entries, keeping its header. backend:contract-check stays off until this list is empty.
+    # Only delete entries here: a new import from these views goes through the facade.
+    # Lane A: suppression
+    "products.messaging.backend.presentation.views.message_suppression -> products.messaging.backend.models.message_suppression",
+    # Lane B: categories, Customer.io config and the Customer.io webhook
+    "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.message_category",
+    "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.message_preferences",
+    "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.optout_sync_config",
+    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.message_category",
+    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.optout_sync_config",
+    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.services.customerio_import_service",
+    # Lane C: preferences and the recipient preferences page
+    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_category",
+    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_preferences",
+    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.services.opt_out_service",
+    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.tasks",
     "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_category",
     "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_preferences",
     "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.services.customerio_sync_service",
+    # Lane D: templates
+    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_category",
+    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_template",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
@@ -799,10 +817,6 @@ ignore_imports = [
     "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.batch_imports",
     "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.support_batch_imports",
     "products.marketing_analytics.backend.routes -> products.marketing_analytics.backend.api",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_categories",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_preferences",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_suppression",
-    "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
     "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",
     "products.product_tours.backend.routes -> products.product_tours.backend.api",
     "products.pulse.backend.routes -> products.pulse.backend.api.brief",
