@@ -98,7 +98,9 @@ class MetricNamesQueryRunner:
                 """
                     SELECT
                         metric_name,
-                        uniqExact(service_name) AS matching_services
+                        uniqExact(service_name) AS matching_services,
+                        -- Rows written before the names table had a type read ''.
+                        anyIf(metric_type, metric_type != '') AS name_metric_type
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
                     GROUP BY metric_name
@@ -114,7 +116,9 @@ class MetricNamesQueryRunner:
                 """
                     SELECT
                         metric_name,
-                        uniqExact(service_name) AS matching_services
+                        uniqExact(service_name) AS matching_services,
+                        -- Rows written before the names table had a type read ''.
+                        anyIf(metric_type, metric_type != '') AS name_metric_type
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
                       AND metric_name ILIKE {search_pattern}
@@ -192,6 +196,17 @@ class MetricNamesQueryRunner:
         # A join does not keep the page order, so the outer query sorts by the same keys.
         query.order_by = [clone_expr(order) for order in names_query.order_by or []]
         return query
+
+    def run_picker(self) -> list[dict[str, str]]:
+        """Names and types only. Reads `metric_names` alone, which is much smaller than `metric_series`."""
+        response = execute_hogql_query(
+            query_type="MetricNamesQuery",
+            query=self._names_query(),
+            team=self.team,
+            workload=Workload.LOGS,
+            settings=_SPARKLINE_QUERY_SETTINGS if self.names else _QUERY_SETTINGS,
+        )
+        return [{"name": name, "metric_type": metric_type} for name, _services, metric_type in response.results]
 
     def run(self) -> list[dict[str, Any]]:
         settings = _SPARKLINE_QUERY_SETTINGS if self.names else _QUERY_SETTINGS

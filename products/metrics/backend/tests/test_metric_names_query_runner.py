@@ -9,6 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 
 from products.metrics.backend.facade.api import list_metric_picker_names
@@ -160,11 +162,11 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(run.call_count, 4)
 
     def test_picker_names_do_not_cache(self):
-        with patch.object(MetricNamesQueryRunner, "run") as run:
-            run.return_value = [{"name": "m1", "metric_type": "gauge"}]
-            self.assertEqual(list_metric_picker_names(team=self.team), run.return_value)
-            self.assertEqual(list_metric_picker_names(team=self.team), run.return_value)
-            self.assertEqual(run.call_count, 2)
+        with patch.object(MetricNamesQueryRunner, "run_picker") as run_picker:
+            run_picker.return_value = [{"name": "m1", "metric_type": "gauge"}]
+            self.assertEqual(list_metric_picker_names(team=self.team), run_picker.return_value)
+            self.assertEqual(list_metric_picker_names(team=self.team), run_picker.return_value)
+            self.assertEqual(run_picker.call_count, 2)
 
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -314,9 +316,15 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
+        with patch(
+            "products.metrics.backend.metric_names_query_runner.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/names/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": [{"name": "m1", "metric_type": "gauge"}]})
+        # The picker reads only the small names table, never the series table.
+        self.assertEqual(execute.call_count, 1)
+        self.assertNotIn("metric_series", str(execute.call_args.kwargs["query"]))
 
     def test_values_search_param(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
