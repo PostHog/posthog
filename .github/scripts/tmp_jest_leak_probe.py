@@ -34,6 +34,7 @@ class Variant:
     heap_mb: int = 16384
     retain_maps_off: bool = False
     forced_gc: bool = False
+    worker_idle_memory_limit: str | None = None
     node_major: int | None = None
 
 
@@ -41,7 +42,8 @@ VARIANTS = {
     "today": Variant(),
     "retainmaps": Variant(retain_maps_off=True),
     "retainmaps-gc": Variant(retain_maps_off=True, forced_gc=True),
-    "retainmaps-heap4g": Variant(retain_maps_off=True, heap_mb=4096),
+    "workerlimit": Variant(worker_idle_memory_limit="2GB"),
+    "retainmaps-workerlimit": Variant(retain_maps_off=True, worker_idle_memory_limit="2GB"),
     "node22": Variant(node_major=22),
 }
 
@@ -99,6 +101,7 @@ def run_jest(name: str, variant: Variant, shards: int, selection: list[str], wor
         f"--cacheDirectory={work_dir / f'jest-cache-{name}'}",
         f"--shard=1/{shards}",
         *(["--config", PROBE_CONFIG] if variant.retain_maps_off else []),
+        *([f"--workerIdleMemoryLimit={variant.worker_idle_memory_limit}"] if variant.worker_idle_memory_limit else []),
         *selection,
     ]
     log_path = work_dir / f"jest-{name}.log"

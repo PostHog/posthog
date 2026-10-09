@@ -24,15 +24,20 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                fix: [retainmaps, retainmaps-gc, retainmaps-heap4g, node22]
+                fix: [retainmaps, retainmaps-gc, workerlimit, retainmaps-workerlimit, node22]
                 order: [today-first, today-second]
                 # Two shards is the workload the timeouts came from. Three is what master runs now.
                 shards: [2, 3]
                 exclude:
-                    - fix: retainmaps-heap4g
+                    - fix: retainmaps-gc
+                      shards: 3
+                    - fix: retainmaps-workerlimit
                       shards: 3
                     - fix: node22
                       shards: 3
+                    # An earlier run of this probe measured the worker limit on two shards.
+                    - fix: workerlimit
+                      shards: 2
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
