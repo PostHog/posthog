@@ -1482,12 +1482,12 @@ export interface HeatmapSettings {
 }
 
 export interface PieChartSettings {
-    /** What to render on each slice. Defaults to labels. */
+    /** What to render on each slice. Defaults to values. */
     sliceContent?: 'labels' | 'values' | 'none'
     /** Whether slice values show as absolute amounts or shares of the total. Only applies when
      *  `sliceContent` is `values`. */
     valueDisplay?: 'absolute' | 'percentage'
-    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    /** Whether to show the aggregation total. Defaults to on only when slices show values. */
     showTotal?: boolean
 }
 
@@ -4866,6 +4866,9 @@ export type MetricsAggregation =
     | 'increase'
     | 'histogram_quantile'
 
+/** Counter-aware transform applied to each series before any aggregation */
+export type MetricsRangeFunction = 'rate' | 'increase'
+
 export interface MetricsQueryFilter {
     key: string
     op: MetricsFilterOp
@@ -4882,7 +4885,10 @@ export interface MetricsQueryClause {
     /** Alias a formula refers to (e.g. "a"); must be unique within the query */
     name: string
     metricName: string
-    aggregation: MetricsAggregation
+    /** Omit to get one line per series (at most 100), without combining them */
+    aggregation?: MetricsAggregation
+    /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+    rangeFunction?: MetricsRangeFunction
     /** Series identity includes the OTel type — one name can exist as e.g. both a
      * counter and a gauge — so a clause pins it to avoid blending distinct series. */
     metricType?: MetricsOtelType
@@ -5769,6 +5775,45 @@ export interface ExperimentApiRetentionStart extends Omit<ExperimentApiEventSour
     kind: 'EventsNode' | 'ActionsNode' | 'ExperimentExposureNode'
 }
 
+/** 'all_events' is excluded: the experiment funnel query rejects it. */
+export type ExperimentApiBreakdownAttributionType = 'first_touch' | 'last_touch' | 'step'
+
+export type ExperimentApiPropertyBreakdownType = 'event' | 'person' | 'session'
+
+/** Breakdown by an event, person or session property. */
+export interface ExperimentApiPropertyBreakdown {
+    /** Property name to break down by. */
+    property: string
+    /** Where the property lives. Defaults to 'event'. */
+    type?: ExperimentApiPropertyBreakdownType
+}
+
+/** Breakdown by a group property. */
+export interface ExperimentApiGroupBreakdown {
+    /** Property name to break down by. */
+    property: string
+    type: 'group'
+    /** Which group type the property belongs to. */
+    group_type_index: 0 | 1 | 2 | 3 | 4
+}
+
+/** Slim breakdown entry for experiment API payloads. Narrower than the full
+ *  Breakdown type: the experiment query only resolves event, person, session
+ *  and group properties, so the other breakdown types are not accepted here. */
+export type ExperimentApiBreakdown = ExperimentApiPropertyBreakdown | ExperimentApiGroupBreakdown
+
+/** Slim breakdown config for experiment API payloads. Only the fields the
+ *  experiment query runner reads; the full BreakdownFilter's other knobs
+ *  (breakdown, breakdown_type, attribution, …) are ignored for experiment
+ *  metrics, so exposing them would only invite no-op input. */
+export interface ExperimentApiBreakdownFilter {
+    /** Properties to break the metric results down by.
+     *  @maxItems 3 */
+    breakdowns?: ExperimentApiBreakdown[]
+    /** Maximum number of breakdown values to compute results for. */
+    breakdown_limit?: integer
+}
+
 /** Experiment metric for API create/update. All metric-type-specific
  *  fields are optional; discriminated by metric_type at runtime. */
 export interface ExperimentApiMetric {
@@ -5831,6 +5876,13 @@ export interface ExperimentApiMetric {
     retention_window_end?: integer
     retention_window_unit?: FunnelConversionWindowTimeUnit
     start_handling?: 'first_seen' | 'last_seen'
+    /** Break the metric results down by up to 3 event, person, session or group properties. */
+    breakdownFilter?: ExperimentApiBreakdownFilter
+    /** For funnel metrics with breakdowns: which step the breakdown value is read from.
+     *  'all_events' is not supported for experiment funnels. */
+    breakdownAttributionType?: ExperimentApiBreakdownAttributionType
+    /** When breakdownAttributionType is 'step', the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: integer
 }
 
 export interface ExperimentParameters {
@@ -6247,6 +6299,35 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+export type ExperimentExposureHealthFindingCode = 'zero_exposures' | 'srm' | 'bias_risk_multiple_excluded'
+
+export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
+
+export type ExperimentExposureHealthFindingActionKind =
+    | 'edit_exposure_criteria'
+    | 'adjust_distribution'
+    | 'use_first_seen_variant'
+
+/** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
+export interface ExperimentExposureHealthFinding {
+    /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
+    code: ExperimentExposureHealthFindingCode
+    /** The case within the code, when a code covers several. Null when the code has one case. */
+    subcode: string | null
+    /** How much the problem affects the results: critical, warning, or info. */
+    severity: ExperimentExposureHealthFindingSeverity
+    /** One-line summary of the problem. */
+    title: string
+    /** What is wrong, what it does to the experiment, and how to fix it. */
+    detail: string
+    /** The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code. */
+    evidence: Record<string, string | number | null>
+    /** The actions that fix the problem, in order of preference. */
+    actions: ExperimentExposureHealthFindingActionKind[]
+    /** The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none. */
+    diagnostic_ref: string | null
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -6254,6 +6335,8 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    /** Health check diagnostics that read the exposures: zero exposures, a sample ratio mismatch, and bias. Empty when every check passed. */
+    health_findings?: ExperimentExposureHealthFinding[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }
@@ -8192,6 +8275,10 @@ export interface MarketingAnalyticsSearchMetrics {
     cpc: number | null
     cpa: number | null
     position?: number | null
+    /** Fraction of Google Search ad impressions shown among the top ads. */
+    topImpressionRate?: number | null
+    /** Fraction of Google Search ad impressions shown as the first ad. */
+    absoluteTopImpressionRate?: number | null
 }
 
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {

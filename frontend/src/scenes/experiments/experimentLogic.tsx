@@ -90,12 +90,16 @@ import {
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
     type ExperimentHealthFindingOpenKind,
+    type ExperimentViewedHealthProperties,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    experimentHealthUi,
+    experimentHealthStateEventProperties,
     experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import { type HealthPanelFinding, healthPanelFindings } from 'products/experiments/frontend/health/healthPanelFindings'
 import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
@@ -141,6 +145,7 @@ import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     type ExperimentSavedMetric,
     type ExperimentUpdatePayload,
+    type ExperimentUpdateRequest,
     getDisplayOrderedIndices,
     getExperimentVariants,
     getOrderedMetricsWithResults,
@@ -549,6 +554,8 @@ export interface experimentLogicValues {
     currentTeamId: number | null // teamLogic
     trendResults: TrendResult[] // trendsDataLogic
     actualRunningTime: number
+    browserExperimentWarning: ExperimentWarning | null
+    browserNoMetricsWarning: boolean
     compatibleSharedMetrics: SharedMetric[]
     currentRefresh: CurrentRefreshSnapshot | null
     editingPrimaryMetricUuid: string | null
@@ -583,6 +590,7 @@ export interface experimentLogicValues {
         result: any
     }[]
     hasMinimumExposureForResults: boolean
+    healthFindings: HealthPanelFinding[] | null
     hogfettiTrigger: (() => void) | null
     isCreatingExperimentDashboard: boolean
     isExperimentDraft: boolean
@@ -594,6 +602,7 @@ export interface experimentLogicValues {
     launchExperimentLoading: boolean
     minimumDetectableEffect: number
     notifyWhenResultsReady: boolean
+    openDatePicker: 'end' | 'start' | null
     orderedPrimaryMetricsWithResults: {
         displayIndex: number
         error: any
@@ -708,10 +717,12 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null
+        duration: number | null,
+        healthProperties: ExperimentViewedHealthProperties
     ) => {
         duration: number | null
         experiment: Experiment
+        healthProperties: ExperimentViewedHealthProperties
     } // eventUsageLogic
     updateExperiments: (experiment: Experiment) => Experiment // experimentsLogic
     setFeatureFlags: (
@@ -730,6 +741,9 @@ export interface experimentLogicActions {
             id: number
         }
     } // featureFlagsLogic
+    closeCupedModal: () => {
+        value: true
+    } // modalsLogic
     closeFinishExperimentModal: () => {
         value: true
     } // modalsLogic
@@ -743,6 +757,9 @@ export interface experimentLogicActions {
         value: true
     } // modalsLogic
     closeSecondaryMetricModal: () => {
+        value: true
+    } // modalsLogic
+    closeStatsEngineModal: () => {
         value: true
     } // modalsLogic
     openPrimaryMetricModal: (uuid: string) => {
@@ -1127,6 +1144,9 @@ export interface experimentLogicActions {
     setNotifyWhenResultsReady: (notify: boolean) => {
         notify: boolean
     }
+    setOpenDatePicker: (boundary: 'end' | 'start' | null) => {
+        boundary: 'end' | 'start' | null
+    }
     setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => {
         results: CachedNewExperimentQueryResponse[]
     }
@@ -1218,7 +1238,7 @@ export interface experimentLogicActions {
         rolloutPercentage: number | undefined
         variants: MultivariateFlagVariant[]
     }
-    updateExperiment: (update: ExperimentUpdatePayload) => ExperimentUpdatePayload
+    updateExperiment: (request: ExperimentUpdateRequest) => ExperimentUpdateRequest
     updateExperimentFailure: (
         error: string,
         errorObject?: any
@@ -1229,15 +1249,19 @@ export interface experimentLogicActions {
     updateExperimentMetrics: () => {
         value: true
     }
-    updateExperimentSettings: (update: Partial<Experiment>) => {
+    updateExperimentSettings: (
+        update: Partial<Experiment>,
+        fromModal?: 'cuped' | 'statsMethod'
+    ) => {
+        fromModal: 'cuped' | 'statsMethod' | undefined
         update: Partial<Experiment>
     }
     updateExperimentSuccess: (
         experimentUpdate: Experiment,
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdateRequest
     ) => {
         experimentUpdate: Experiment
-        payload?: ExperimentUpdatePayload
+        payload?: ExperimentUpdateRequest
     }
     updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => {
         variantPreviewMediaIds: Record<string, string[]>
@@ -1324,7 +1348,7 @@ export interface experimentLogicMeta {
         actualRunningTime: (experiment: Experiment) => number
         isSingleVariantShipped: (experiment: Experiment) => boolean
         shippedVariantKey: (experiment: Experiment) => string | null
-        experimentWarning: (
+        browserExperimentWarning: (
             experiment: Experiment,
             isExperimentRunning: boolean,
             isExperimentDraft: boolean,
@@ -1332,6 +1356,15 @@ export interface experimentLogicMeta {
             isSingleVariantShipped: boolean,
             shippedVariantKey: string | null
         ) => ExperimentWarning | null
+        experimentWarning: (
+            experiment: Experiment,
+            browserExperimentWarning: ExperimentWarning | null
+        ) => ExperimentWarning | null
+        healthFindings: (
+            experiment: Experiment,
+            exposures: any,
+            isExperimentDraft: boolean
+        ) => HealthPanelFinding[] | null
         firstPrimaryMetric: (
             experiment: Experiment
         ) => ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery | undefined
@@ -1383,6 +1416,23 @@ export interface experimentLogicMeta {
             metricIndex: number
             result: any
         }[]
+        browserNoMetricsWarning: (
+            orderedPrimaryMetricsWithResults: {
+                displayIndex: number
+                error: any
+                metric: ExperimentMetricUnion
+                metricIndex: number
+                result: any
+            }[],
+            orderedSecondaryMetricsWithResults: {
+                displayIndex: number
+                error: any
+                metric: ExperimentMetricUnion
+                metricIndex: number
+                result: any
+            }[],
+            isExperimentLaunched: boolean
+        ) => boolean
         statsMethod: (experiment: Experiment) => ExperimentStatsMethod
     }
 }
@@ -1466,6 +1516,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
+                'closeCupedModal',
+                'closeStatsEngineModal',
             ],
         ],
     })),
@@ -1517,9 +1569,13 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         updateExperimentMetrics: true,
         updateExposureCriteria: true,
-        updateExperimentSettings: (update: Partial<Experiment>) => ({ update }),
+        updateExperimentSettings: (update: Partial<Experiment>, fromModal?: 'cuped' | 'statsMethod') => ({
+            update,
+            fromModal,
+        }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
+        setOpenDatePicker: (boundary: 'start' | 'end' | null) => ({ boundary }),
         launchExperiment: true,
         endExperiment: (
             openCleanupPr: boolean = false,
@@ -1761,8 +1817,11 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     const updated = { ...state, ...experiment }
-                    // Findings about the previous flag would show a stale banner until the next load.
-                    return replacesFlagWithoutHealth(experiment) ? { ...updated, health: undefined } : updated
+                    // Findings about the previous flag would show a stale banner until the next load. A null
+                    // `health` stays null, because null means the reader does not have the health findings flag.
+                    return replacesFlagWithoutHealth(experiment) && updated.health
+                        ? { ...updated, health: undefined }
+                        : updated
                 },
                 setExposureCriteria: (
                     state,
@@ -2113,6 +2172,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
+        // In the logic, so that the date change listeners close the picker only after a successful save.
+        openDatePicker: [
+            null as 'start' | 'end' | null,
+            {
+                setOpenDatePicker: (_, { boundary }) => boundary,
+            },
+        ],
         launchExperimentLoading: [
             false,
             {
@@ -2268,7 +2334,16 @@ export const experimentLogic = kea<experimentLogicType>([
         loadExperimentSuccess: async ({ experiment, payload }) => {
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             // eslint-disable-next-line no-unused-expressions
-            experiment && actions.reportExperimentViewed(experiment, duration)
+            experiment &&
+                actions.reportExperimentViewed(
+                    experiment,
+                    duration,
+                    experimentHealthStateEventProperties(
+                        experiment,
+                        values.browserExperimentWarning,
+                        values.browserNoMetricsWarning
+                    )
+                )
 
             // Load metrics for launched experiments (will set up auto-refresh after load completes).
             // refreshExperimentResults branches on the recalculation feature flag internally.
@@ -2311,9 +2386,16 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             // Read the old date before the save, because the save stores the response in values.experiment.
             const oldStartDate = values.experiment?.start_date
-            actions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            actions.updateExperiment({
+                start_date: startDate,
+                update_feature_flag_params: false,
+                discardOnConflict: true,
+            })
             if (!(await inflightUpdateSaved(cache))) {
                 return
+            }
+            if (values.openDatePicker === 'start') {
+                actions.setOpenDatePicker(null)
             }
             if (values.experiment) {
                 posthog.capture('experiment start date changed', {
@@ -2327,9 +2409,12 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: async ({ endDate }) => {
             // Read the old date before the save, because the save stores the response in values.experiment.
             const oldEndDate = values.experiment?.end_date
-            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            actions.updateExperiment({ end_date: endDate, update_feature_flag_params: false, discardOnConflict: true })
             if (!(await inflightUpdateSaved(cache))) {
                 return
+            }
+            if (values.openDatePicker === 'end') {
+                actions.setOpenDatePicker(null)
             }
             if (values.experiment) {
                 posthog.capture('experiment end date changed', {
@@ -2565,6 +2650,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        health_ui: experimentHealthUi(values.experiment),
                         ...exposureHealthEventProperties(
                             values.exposures,
                             values.exposureCriteria?.multiple_variant_handling
@@ -2686,12 +2772,19 @@ export const experimentLogic = kea<experimentLogicType>([
             }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
-        updateExperimentSettings: async ({ update }) => {
+        updateExperimentSettings: async ({ update, fromModal }) => {
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
-            actions.updateExperiment({ ...update, update_feature_flag_params: false })
+            // A save sends the whole stats_config object, also the keys that this user did not edit. After a conflict,
+            // a kept copy would send those stale keys over the other edit, so the controls show the server's copy.
+            actions.updateExperiment({ ...update, update_feature_flag_params: false, discardOnConflict: true })
             if (!(await inflightUpdateSaved(cache))) {
                 return
+            }
+            if (fromModal === 'cuped') {
+                actions.closeCupedModal()
+            } else if (fromModal === 'statsMethod') {
+                actions.closeStatsEngineModal()
             }
             // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
             lemonToast.success(
@@ -3506,7 +3599,8 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentUpdate: [
             null as Experiment | null,
             {
-                updateExperiment: async (update: ExperimentUpdatePayload) => {
+                updateExperiment: async (request: ExperimentUpdateRequest) => {
+                    const { discardOnConflict, ...update } = request
                     // The concurrency payload is built inside `send`, when the request actually
                     // runs, so a queued update reads the version absorbed from its predecessor's
                     // response instead of the one both dispatches started from.
@@ -3536,7 +3630,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 // Reload so the next save carries the current version and base state,
                                 // but keep this update's rejected scalar fields in local state so the
                                 // user's edit isn't lost — they can review the fresh state and save again.
-                                const preserved = conflictPreservedFields(update)
+                                const preserved = discardOnConflict ? {} : conflictPreservedFields(update)
                                 try {
                                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                                     const fresh: Experiment = await api.get(
@@ -3547,11 +3641,23 @@ export const experimentLogic = kea<experimentLogicType>([
                                 } catch {
                                     actions.loadExperiment()
                                 }
+                            } else if (isApprovalRequiredError(error)) {
+                                showApprovalRequiredToast(error.data.change_request_id, undefined, error.data.code)
+                                dispatchChangeRequestCreated({
+                                    resourceType: 'feature_flag',
+                                    resourceId: values.experiment.feature_flag?.id ?? '',
+                                })
                             } else if (error?.status === undefined) {
                                 // The loader onFailure handler in initKea toasts only errors that carry an HTTP
                                 // status. Without this toast, a request that got no response (offline, blocked,
                                 // dropped) would fail with no feedback.
                                 lemonToast.error('Could not save the experiment. Check your connection and try again.')
+                            } else if (error.status === 409) {
+                                // The loader onFailure handler in initKea skips every 409, because the conflict and
+                                // approval flows above show their own message. This 409 is neither of them.
+                                lemonToast.error(
+                                    error.detail || 'Could not save the experiment. Reload the page and try again.'
+                                )
                             }
                             throw error
                         }
@@ -3561,7 +3667,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     // carrying the same version, so the loser 409s even though its change saved.
                     // A dispatch identical to the in-flight one (double click, twin listeners)
                     // shares its request; a different one queues behind it.
-                    const key = JSON.stringify(update)
+                    const key = JSON.stringify(request)
                     const inflight: { key: string; promise: Promise<Experiment> } | undefined = cache.inflightUpdate
                     if (inflight && inflight.key === key) {
                         return inflight.promise
@@ -3798,7 +3904,9 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment: Experiment): string | null => getShippedVariantKey(experiment),
         ],
-        experimentWarning: [
+        // The page's own flag-state rules. products/experiments/backend/health/checks/flag_state.py is a port
+        // of them, so change both together.
+        browserExperimentWarning: [
             (s) => [
                 s.experiment,
                 s.isExperimentRunning,
@@ -3815,12 +3923,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
-                // The server computes the same warning (products/experiments/backend/health/checks/flag_state.py)
-                // for people with the experiment-health-findings flag. The rules below cover everyone else.
-                if (experiment.health) {
-                    return experimentWarningFromHealth(experiment.health)
-                }
-
                 // A deleted flag distributes no traffic, so flag-state warnings don't apply.
                 if (experiment.feature_flag?.deleted) {
                     return null
@@ -3854,6 +3956,18 @@ export const experimentLogic = kea<experimentLogicType>([
 
                 return null
             },
+        ],
+        experimentWarning: [
+            (s) => [s.experiment, s.browserExperimentWarning],
+            (experiment: Experiment, browserExperimentWarning: ExperimentWarning | null): ExperimentWarning | null =>
+                // The server sends health findings to people with the experiment-health-findings flag. The
+                // browser's rules cover everyone else.
+                experiment.health ? experimentWarningFromHealth(experiment.health) : browserExperimentWarning,
+        ],
+        healthFindings: [
+            (s) => [s.experiment, s.exposures, s.isExperimentDraft],
+            (experiment: Experiment, exposures: any, isExperimentDraft: boolean): HealthPanelFinding[] | null =>
+                healthPanelFindings(experiment.health, exposures, isExperimentDraft),
         ],
         firstPrimaryMetric: [
             (s) => [s.experiment],
@@ -3986,6 +4100,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     result: any
                 }[]
             ) => getOrderedMetricsWithResults(true),
+        ],
+        // The page's own rule for "No metrics defined", for people without health findings.
+        browserNoMetricsWarning: [
+            (s) => [s.orderedPrimaryMetricsWithResults, s.orderedSecondaryMetricsWithResults, s.isExperimentLaunched],
+            (
+                orderedPrimaryMetricsWithResults: unknown[],
+                orderedSecondaryMetricsWithResults: unknown[],
+                isExperimentLaunched: boolean
+            ): boolean =>
+                isExperimentLaunched &&
+                orderedPrimaryMetricsWithResults.length === 0 &&
+                orderedSecondaryMetricsWithResults.length === 0,
         ],
         statsMethod: [
             (s) => [s.experiment],

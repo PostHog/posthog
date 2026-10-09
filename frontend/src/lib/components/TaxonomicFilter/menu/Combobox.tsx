@@ -13,7 +13,7 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MutableRefObject, ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
 import {
@@ -43,6 +43,7 @@ import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLo
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
+import { HiddenEventExplanation } from '../HiddenEventExplanation'
 import { useGroupList } from '../hooks/useGroupList'
 import {
     OPEN_AS_SELF_ON_REOPEN,
@@ -720,7 +721,7 @@ export function MenuFilterCombobox({
     //     resolved. Names the active category for context.
     //   - "no items" — initial render with no search and no resolved
     //     entries (rare for finite groups).
-    const emptyState = useMemo<{ title: string; body?: string } | null>(() => {
+    const emptyState = useMemo<{ title: string; body?: ReactNode } | null>(() => {
         if (filtered.length > 0) {
             return null
         }
@@ -754,7 +755,7 @@ export function MenuFilterCombobox({
             // is absent, and neither of them can bring back an excluded name.
             return {
                 title: `${hiddenEventSearched} isn't available here`,
-                body: "PostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results. To see how a flag is used, open the flag and check its Usage tab.",
+                body: <HiddenEventExplanation />,
             }
         }
         const categoryLabel = singleGroup?.name ?? null
