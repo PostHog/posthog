@@ -34,7 +34,7 @@ describe('scannerAlertNotificationLogic', () => {
         logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
 
         await expectLogic(logic).toMatchValues({
-            selectedSlackIntegrationId: 1,
+            selectedSlackIntegrationId: null,
             selectedSlackIntegration: firstWorkspace,
         })
 
@@ -57,6 +57,31 @@ describe('scannerAlertNotificationLogic', () => {
                     slackChannelName: 'alerts',
                 },
             ],
+            slackChannelValue: null,
+        })
+    })
+
+    it('preserves the selected channel on reload unless its workspace was removed', async () => {
+        const firstWorkspace = makeSlackIntegration(1)
+        const secondWorkspace = makeSlackIntegration(2)
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+        logic.actions.setSlackChannelValue('C123|#general')
+
+        logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegrationId: null,
+            selectedSlackIntegration: firstWorkspace,
+            slackChannelValue: 'C123|#general',
+        })
+
+        logic.actions.setSelectedSlackIntegrationId(2)
+        logic.actions.setSlackChannelValue('C456|#alerts')
+        logic.actions.loadIntegrationsSuccess([firstWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegrationId: null,
+            selectedSlackIntegration: firstWorkspace,
             slackChannelValue: null,
         })
     })

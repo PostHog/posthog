@@ -98,7 +98,10 @@ export function buildVisionAlertFilterConfig(alertId: string): CyclotronJobFilte
     }
 }
 
-export function groupVisionAlertDestinations(hogFunctions: HogFunctionType[]): VisionAlertDestinationGroup[] {
+export function groupVisionAlertDestinations(
+    hogFunctions: HogFunctionType[],
+    slackIntegrations: IntegrationType[] | undefined
+): VisionAlertDestinationGroup[] {
     const groups = new Map<string, VisionAlertDestinationGroup>()
     for (const hf of hogFunctions) {
         const templateId = hf.template_id ?? hf.template?.id
@@ -112,7 +115,15 @@ export function groupVisionAlertDestinations(hogFunctions: HogFunctionType[]): V
         if (templateId === 'template-slack') {
             type = VISION_ALERT_NOTIFICATION_TYPE_SLACK
             key = `slack:${slackWorkspaceValue ?? 'unknown'}:${slackChannelValue ?? hf.id}`
-            label = 'Slack'
+            const workspaceName = slackIntegrations?.find(
+                (integration) => integration.id === slackWorkspaceValue
+            )?.display_name
+            const channelName =
+                hf.name
+                    .split(' → ')
+                    .at(-1)
+                    ?.replace(/^Slack /, '') ?? '#channel'
+            label = `${workspaceName ?? 'Unknown workspace'} · ${channelName}`
         } else {
             type = VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `webhook:${webhookUrl ?? hf.id}`

@@ -131,7 +131,10 @@ export interface scannerAlertNotificationLogicMeta {
             slackChannelValue: string | null,
             webhookUrl: string
         ) => string | undefined
-        destinationGroups: (existingHogFunctions: HogFunctionType[]) => VisionAlertDestinationGroup[]
+        destinationGroups: (
+            existingHogFunctions: HogFunctionType[],
+            slackIntegrations: IntegrationType[] | undefined
+        ) => VisionAlertDestinationGroup[]
     }
 }
 
@@ -268,9 +271,11 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
             },
         ],
         destinationGroups: [
-            (s) => [s.existingHogFunctions],
-            (hogFunctions: HogFunctionType[]): VisionAlertDestinationGroup[] =>
-                groupVisionAlertDestinations(hogFunctions),
+            (s) => [s.existingHogFunctions, s.slackIntegrations],
+            (
+                hogFunctions: HogFunctionType[],
+                slackIntegrations: IntegrationType[] | undefined
+            ): VisionAlertDestinationGroup[] => groupVisionAlertDestinations(hogFunctions, slackIntegrations),
         ],
     }),
 
@@ -307,9 +312,10 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
         loadIntegrationsSuccess: ({ integrations }) => {
             const availableSlackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
             if (
+                values.selectedSlackIntegrationId !== null &&
                 !availableSlackIntegrations.some((integration) => integration.id === values.selectedSlackIntegrationId)
             ) {
-                actions.setSelectedSlackIntegrationId(availableSlackIntegrations[0]?.id ?? null)
+                actions.setSelectedSlackIntegrationId(null)
             }
             if (availableSlackIntegrations.length === 0) {
                 actions.setSelectedType(VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK)

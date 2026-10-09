@@ -43,15 +43,37 @@ describe('scannerAlertUtils', () => {
                 },
             }) as unknown as HogFunctionType
 
-        const groups = groupVisionAlertDestinations([
-            slackHogFunction('hf-workspace-1-firing', 1),
-            slackHogFunction('hf-workspace-1-resolved', 1),
-            slackHogFunction('hf-workspace-2', 2),
-        ])
+        const groups = groupVisionAlertDestinations(
+            [
+                slackHogFunction('hf-workspace-1-firing', 1),
+                slackHogFunction('hf-workspace-1-resolved', 1),
+                slackHogFunction('hf-workspace-2', 2),
+            ],
+            undefined
+        )
 
         expect(groups.map(({ key }) => key)).toEqual(['slack:1:C123', 'slack:2:C123'])
         expect(groups).toHaveLength(2)
         expect(groups.map(({ hogFunctions }) => hogFunctions.length)).toEqual([2, 1])
+    })
+
+    it('includes the Slack workspace and channel in a saved destination', () => {
+        const hogFunction = {
+            id: 'hf-workspace-2',
+            name: 'Replay vision alert — Checkout alert (firing) → Slack #alerts',
+            enabled: true,
+            template_id: 'template-slack',
+            inputs: {
+                slack_workspace: { value: 2 },
+                channel: { value: 'C123' },
+            },
+        } as unknown as HogFunctionType
+        const integrations = [
+            { id: 1, display_name: 'Workspace one' },
+            { id: 2, display_name: 'Workspace two' },
+        ] as IntegrationType[]
+
+        expect(groupVisionAlertDestinations([hogFunction], integrations)[0].label).toBe('Workspace two · #alerts')
     })
 
     it('includes the Slack workspace name in a pending destination', () => {
