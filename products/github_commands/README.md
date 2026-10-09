@@ -4,6 +4,7 @@ People with write access to a repository can ask PostHog to do something on a pu
 
 ```text
 @posthog review
+@posthog review --full
 @posthog stamp
 @posthog qa the signup form
 @posthog loop Triage PR
@@ -13,13 +14,18 @@ People with write access to a repository can ask PostHog to do something on a pu
 Each command dispatches into the product that owns the work.
 This product owns the parsing, the checks and the replies, and owns no work of its own.
 
-| Command                  | Dispatches to                                  | What happens                                                                                                                       |
-| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `@posthog review [full]` | PostHog Review (`review_hog` facade `reviews`) | Starts a Flash review, or the full review with `full`, with the commenter as the acting user. It never pushes fixes to the branch. |
-| `@posthog stamp`         | Stamphog (`stamphog` facade `review_requests`) | Queues a Stamphog review. Stamphog alone decides whether to approve.                                                               |
-| `@posthog qa [focus]`    | PostHog Code (`tasks` facade `api`)            | Starts a task that runs the `qa-frontend` skill on the pull request head.                                                          |
-| `@posthog loop <name>`   | Loops (`tasks` facade `loops`)                 | Fires one of the commenter's own loops, with the pull request as its input.                                                        |
-| `@posthog help`          | none                                           | Lists the commands.                                                                                                                |
+[`COMMANDS.generated.md`](COMMANDS.generated.md) lists every command, and [`commands.generated.json`](commands.generated.json) is the same reference for tools.
+Both are generated from `backend/logic/schema.py`, like the `@posthog help` reply.
+
+## Grammar
+
+- A command is a line that starts with `@posthog`, then the command name.
+- Options come next. A flag is `--name`, such as `--full`. An option with a value is `--name value` or `--name=value`. Names are lowercase, with no short forms.
+- Option reading stops at the first word that does not start with `--`. Everything from there to the end of the line is the command's text, kept as typed, such as the focus in `@posthog qa the signup form`. A command has at most one text field.
+- A lone `--` also stops option reading, so the text can start with `--`: `@posthog qa -- --verbose flags`.
+- Quotes and apostrophes are plain text. Nothing splits the text like a shell does.
+- Some commands have another name. `@posthog approve` runs `stamp`. Replies and help use the main name.
+- An unknown option, an option given twice, a missing value, a value that is not allowed, text for a command that takes none, or missing required text runs nothing. The reply shows the correct usage.
 
 ## How a comment becomes a command
 
@@ -30,10 +36,11 @@ This product owns the parsing, the checks and the replies, and owns no work of i
 
 ## Adding a command
 
-Write a handler in `logic/handlers.py` that calls the target product's facade.
-Declare it in `logic/registry.py`.
+Declare the command in `logic/schema.py`: an args dataclass built with `flag()`, `option()` and `text()`, and a `CommandDeclaration` in `COMMAND_DECLARATIONS`.
 Set `access` when the target product has a resource in PostHog access control, at the level its own API asks for the same action.
 Leave `allows_forks` off unless the command reads nothing from the pull request head.
+Write a handler in `logic/handlers.py` that takes the args dataclass and calls the target product's facade, then bind the two in `logic/registry.py`.
+Run `hogli build:projections` and commit the regenerated command reference.
 
 A product that wants a command does not need Loops, and does not need to know about GitHub comments.
 It needs a facade function that takes a project, a user and the pull request identifiers.

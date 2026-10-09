@@ -1,57 +1,70 @@
-"""The commands `@posthog` understands on a pull request.
+"""Binds each command declared in ``schema.py`` to the handler that runs it.
 
-To add a command, write a handler that calls the target product's facade, then declare it here.
-Give it `access` when the target product has a resource in PostHog access control, at the level
-the product's own API asks for the same action. Dispatch applies every check before the handler runs.
+To add a command, declare it in ``schema.py``, write a handler that calls the target product's
+facade, then bind the two here. Dispatch applies every check before the handler runs.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
-from .commands import CommandSpec, ResourceAccess
+from posthog.dataclasses import frozen
+
+from .commands import CommandContext, CommandOutcome
 from .handlers import handle_loop, handle_qa, handle_review, handle_stamp
+from .schema import (
+    COMMAND_DECLARATIONS,
+    LOOP,
+    QA,
+    REVIEW,
+    STAMP,
+    ArgumentError,
+    CommandDeclaration,
+    help_table,
+    parse_arguments,
+)
 
-# Answered by dispatch itself: it needs no PostHog account, project or pull request state.
-HELP_VERB = "help"
+
+@frozen
+class Invocation[A]:
+    """A command whose arguments parsed, ready to run once dispatch has the context."""
+
+    spec: "CommandSpec[A]"
+    args: A
+
+    def run(self, context: CommandContext) -> CommandOutcome:
+        return self.spec.handler(context, self.args)
 
 
-COMMANDS: Mapping[str, CommandSpec] = {
-    spec.verb: spec
-    for spec in (
-        CommandSpec(
-            verb="review",
-            summary="Start a Flash review of this pull request. Add `full` for the full review.",
-            usage="@posthog review [full]",
-            handler=handle_review,
-            accepts_argument=True,
-        ),
-        CommandSpec(
-            verb="stamp",
-            summary="Ask Stamphog to review this pull request. Stamphog decides whether to approve.",
-            usage="@posthog stamp",
-            handler=handle_stamp,
-            access=ResourceAccess(resource="stamphog", level="editor"),
-        ),
-        CommandSpec(
-            verb="qa",
-            summary="Run frontend QA on this pull request in PostHog Code and post a report.",
-            usage="@posthog qa [what to focus on]",
-            handler=handle_qa,
-            accepts_argument=True,
-        ),
-        CommandSpec(
-            verb="loop",
-            summary="Run one of your own Loops with this pull request as its input.",
-            usage="@posthog loop <loop name>",
-            handler=handle_loop,
-            accepts_argument=True,
-        ),
+@frozen
+class CommandSpec[A]:
+    declaration: CommandDeclaration[A]
+    handler: Callable[[CommandContext, A], CommandOutcome]
+
+    def parse(self, raw_argument: str) -> Invocation[A] | ArgumentError:
+        args = parse_arguments(self.declaration, raw_argument)
+        if isinstance(args, ArgumentError):
+            return args
+        return Invocation(spec=self, args=args)
+
+
+def _index(specs: tuple[CommandSpec[Any], ...]) -> Mapping[str, CommandSpec[Any]]:
+    """Specs by canonical verb. Raises ValueError unless every declaration has exactly one handler."""
+    bound = [spec.declaration.verb for spec in specs]
+    declared = [declaration.verb for declaration in COMMAND_DECLARATIONS]
+    if sorted(bound) != sorted(declared):
+        raise ValueError(f"Bind each declared command to one handler: declared {declared}, bound {bound}")
+    return {spec.declaration.verb: spec for spec in specs}
+
+
+COMMANDS: Mapping[str, CommandSpec[Any]] = _index(
+    (
+        CommandSpec(declaration=REVIEW, handler=handle_review),
+        CommandSpec(declaration=STAMP, handler=handle_stamp),
+        CommandSpec(declaration=QA, handler=handle_qa),
+        CommandSpec(declaration=LOOP, handler=handle_loop),
     )
-}
+)
 
 
 def help_text() -> str:
-    rows = "\n".join(
-        [f"| `{spec.usage}` | {spec.summary} |" for spec in COMMANDS.values()]
-        + ["| `@posthog help` | List these commands. |"]
-    )
-    return f"Commands you can use on a pull request:\n\n| Command | What it does |\n| --- | --- |\n{rows}"
+    return f"Commands you can use on a pull request:\n\n{help_table()}"

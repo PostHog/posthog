@@ -11,7 +11,7 @@ Every command passes the same checks, in this order, before its handler runs:
 4. GitHub says the commenter's account, matched by its numeric id, can write to the repository.
    The webhook's `author_association` only filtered noise; organization members can lack write
    access to a given repository.
-5. The command exists, and the comment holds exactly one.
+5. The comment holds exactly one command, the command exists, and its arguments match its grammar.
 6. The commenter's GitHub account is linked to exactly one active PostHog user, and that user is a
    member of a rolled-out project whose GitHub integration uses this installation.
 7. The pull request is open, and the command allows forks if the head is a fork.
@@ -22,7 +22,7 @@ no way to make it post. Everyone past them gets a reply that says what happened.
 """
 
 from collections.abc import Callable
-from typing import Literal
+from typing import Any, Literal
 
 from django.core.cache import cache
 
@@ -39,11 +39,13 @@ from posthog.models.user import User
 from posthog.permissions import UserAccessControl, posthog_feature_flag_enabled
 from posthog.token_bucket import BucketDecision, Budget, consume
 
-from .commands import CommandContext, CommandSpec, ResourceAccess
+from .commands import CommandContext
 from .github import CommandGitHub, GitHubCallFailed, InstallationGitHub
 from .identity import Commenter, resolve_commenter
 from .intake import CommentCommandRequest
-from .registry import COMMANDS, HELP_VERB, help_text
+from .parsing import HELP_VERB
+from .registry import COMMANDS, CommandSpec, Invocation, help_text
+from .schema import ArgumentError, ResourceAccess, resolve_verb, usage
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +67,7 @@ DispatchOutcome = Literal[
     "ambiguous",
     "help",
     "unknown_command",
-    "unexpected_argument",
+    "invalid_arguments",
     "unlinked",
     "no_project",
     "pull_request_unavailable",
@@ -85,10 +87,12 @@ GITHUB_COMMANDS_TOTAL = Counter(
 
 
 def dispatch_comment_command(request: CommentCommandRequest, *, github: CommandGitHub | None = None) -> DispatchOutcome:
-    spec = COMMANDS.get(request.verb)
+    verb = resolve_verb(request.verb)
+    spec = COMMANDS.get(verb) if verb is not None else None
     outcome = _dispatch(request, spec, github)
-    # Unknown verbs share one label value, so a comment cannot mint a metric series.
-    verb_label = spec.verb if spec else (HELP_VERB if request.verb == HELP_VERB else "unknown")
+    # Unknown verbs share one label value, so a comment cannot mint a metric series. Aliases count
+    # under their canonical verb.
+    verb_label = spec.declaration.verb if spec else (HELP_VERB if request.verb == HELP_VERB else "unknown")
     GITHUB_COMMANDS_TOTAL.labels(verb=verb_label, outcome=outcome).inc()
     logger.info(
         "github_command_dispatched",
@@ -116,7 +120,7 @@ class _Answer:
 
 
 def _dispatch(
-    request: CommentCommandRequest, spec: CommandSpec | None, github: CommandGitHub | None
+    request: CommentCommandRequest, spec: CommandSpec[Any] | None, github: CommandGitHub | None
 ) -> DispatchOutcome:
     admitted = _admit(request, github)
     if not isinstance(admitted, _Admitted):
@@ -132,7 +136,7 @@ def _dispatch(
         reply(command.message)
         return command.outcome
 
-    context = _command_context(request, command, github, admitted.rolled_out_team_ids)
+    context = _command_context(request, command.spec, github, admitted.rolled_out_team_ids)
     if isinstance(context, _Answer):
         reply(context.message)
         return context.outcome
@@ -167,7 +171,7 @@ def _admit(request: CommentCommandRequest, github: CommandGitHub | None) -> _Adm
     return _Admitted(github=github, rolled_out_team_ids=rolled_out_team_ids)
 
 
-def _runnable_command(request: CommentCommandRequest, spec: CommandSpec | None) -> CommandSpec | _Answer:
+def _runnable_command(request: CommentCommandRequest, spec: CommandSpec[Any] | None) -> Invocation[Any] | _Answer:
     """The command to run, or the answer to a request that needs no PostHog account: help, and
     comments with no runnable command."""
     if request.ambiguous:
@@ -176,16 +180,19 @@ def _runnable_command(request: CommentCommandRequest, spec: CommandSpec | None) 
         return _Answer(outcome="help", message=help_text())
     if spec is None:
         return _Answer(outcome="unknown_command", message="I don't know that command.\n\n" + help_text())
-    if request.argument and not spec.accepts_argument:
-        return _Answer(
-            outcome="unexpected_argument", message=f"`{spec.verb}` takes nothing after it. Use `{spec.usage}`."
-        )
-    return spec
+    invocation = spec.parse(request.argument)
+    if isinstance(invocation, ArgumentError):
+        return _Answer(outcome="invalid_arguments", message=f"{invocation.reason} Use `{usage(spec.declaration)}`.")
+    return invocation
 
 
 def _command_context(
-    request: CommentCommandRequest, spec: CommandSpec, github: CommandGitHub, rolled_out_team_ids: frozenset[int]
+    request: CommentCommandRequest,
+    spec: CommandSpec[Any],
+    github: CommandGitHub,
+    rolled_out_team_ids: frozenset[int],
 ) -> CommandContext | _Answer:
+    declaration = spec.declaration
     commenter = resolve_commenter(github_user_id=request.commenter_github_id, installation_id=request.installation_id)
     if not isinstance(commenter, Commenter):
         return _Answer(outcome="unlinked", message=_UNRESOLVED_MESSAGES[commenter.reason])
@@ -209,15 +216,16 @@ def _command_context(
         return _Answer(
             outcome="pull_request_closed", message="This pull request isn't open, so I won't run commands on it."
         )
-    if pull_request.is_fork and not spec.allows_forks:
-        return _Answer(outcome="fork_refused", message=f"`{spec.verb}` doesn't run on pull requests from forks.")
+    if pull_request.is_fork and not declaration.allows_forks:
+        return _Answer(outcome="fork_refused", message=f"`{declaration.verb}` doesn't run on pull requests from forks.")
 
-    if spec.access is not None:
-        team_ids = _teams_with_access(User.objects.get(id=commenter.user_id), team_ids, spec.access)
+    access = declaration.access
+    if access is not None:
+        team_ids = _teams_with_access(User.objects.get(id=commenter.user_id), team_ids, access)
         if not team_ids:
             return _Answer(
                 outcome="access_denied",
-                message=f"You need {spec.access.level} access to {spec.access.resource} in PostHog to use `{spec.verb}`.",
+                message=f"You need {access.level} access to {access.resource} in PostHog to use `{declaration.verb}`.",
             )
     return CommandContext(request=request, pull_request=pull_request, user_id=commenter.user_id, team_ids=team_ids)
 
@@ -231,17 +239,18 @@ _UNRESOLVED_MESSAGES = {
 
 
 def _run(
-    spec: CommandSpec, context: CommandContext, github: CommandGitHub, reply: Callable[[str], None]
+    command: Invocation[Any], context: CommandContext, github: CommandGitHub, reply: Callable[[str], None]
 ) -> DispatchOutcome:
+    verb = command.spec.declaration.verb
     try:
-        outcome = spec.handler(context)
+        outcome = command.run(context)
     except GitHubRateLimitError:
         reply("GitHub is limiting how fast PostHog can work on this repository. Try again in a few minutes.")
         return "failed"
     except Exception as error:
         capture_exception(error)
-        logger.exception("github_command_failed", verb=spec.verb, comment_id=context.request.comment_id)
-        reply(f"Something went wrong while running `{spec.verb}`. Try again in a few minutes.")
+        logger.exception("github_command_failed", verb=verb, comment_id=context.request.comment_id)
+        reply(f"Something went wrong while running `{verb}`. Try again in a few minutes.")
         return "failed"
     reply(outcome.message)
     if outcome.accepted:

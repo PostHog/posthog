@@ -13,6 +13,8 @@ import unicodedata
 from posthog.dataclasses import frozen
 
 MENTION = "@posthog"
+# A line with the bare mention asks for help, so the parser owns this verb.
+HELP_VERB = "help"
 MAX_ARGUMENT_LENGTH = 200
 
 _FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
@@ -51,7 +53,7 @@ def parse_command(body: str) -> ParseResult:
     commands: list[ParsedCommand] = []
     for line in _live_lines(body):
         if _BARE_MENTION_RE.match(line):
-            commands.append(ParsedCommand(verb="help", argument=""))
+            commands.append(ParsedCommand(verb=HELP_VERB, argument=""))
             continue
         match = _COMMAND_LINE_RE.match(line)
         if match is None:

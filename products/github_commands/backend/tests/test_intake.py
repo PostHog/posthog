@@ -36,7 +36,7 @@ def _payload(body: str = "@posthog stamp", **overrides: Any) -> dict[str, Any]:
     "body,expected",
     [
         ("@posthog stamp", ParsedCommand(verb="stamp", argument="")),
-        ("@PostHog Review flash", ParsedCommand(verb="review", argument="flash")),
+        ("@PostHog Review --full", ParsedCommand(verb="review", argument="--full")),
         ("Looks good.\n\n@posthog qa the billing page", ParsedCommand(verb="qa", argument="the billing page")),
         ("@posthog", ParsedCommand(verb="help", argument="")),
         # Talking about the bot is not asking it to do something.

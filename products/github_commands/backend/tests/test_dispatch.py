@@ -23,6 +23,7 @@ from products.github_commands.backend.logic.dispatch import dispatch_comment_com
 from products.github_commands.backend.logic.github import Reaction
 from products.github_commands.backend.logic.handlers import handle_loop, handle_qa
 from products.github_commands.backend.logic.intake import CommentCommandRequest
+from products.github_commands.backend.logic.schema import LoopArgs, QaArgs
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
@@ -226,6 +227,19 @@ class TestDispatchCommentCommand(BaseTest):
         assert outcome == expected
         request_review.assert_not_called()
 
+    def test_invalid_arguments_reply_with_the_usage_and_run_nothing(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub()
+
+        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
+            outcome = dispatch_comment_command(self._request(verb="approve", argument="--now"), github=github)
+
+        assert outcome == "invalid_arguments"
+        request_review.assert_not_called()
+        assert github.replies == [
+            "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. Use `@posthog stamp`."
+        ]
+
     def test_an_installation_outside_the_rollout_stays_silent(self) -> None:
         self._link_github_login()
         self.flag.return_value = False
@@ -252,7 +266,7 @@ class TestDispatchCommentCommand(BaseTest):
             patch(LIST_LOOPS, return_value=[teammates_loop]),
             patch(FIRE_LOOP) as fire,
         ):
-            outcome = handle_loop(context)
+            outcome = handle_loop(context, LoopArgs(name="Triage PR"))
 
         assert not outcome.accepted
         fire.assert_not_called()
@@ -269,7 +283,7 @@ class TestDispatchCommentCommand(BaseTest):
             patch(DESKTOP_ACCESS, return_value=DesktopAccessDecision.SIGNUPS_PAUSED),
             patch(CREATE_TASK) as create_task,
         ):
-            outcome = handle_qa(context)
+            outcome = handle_qa(context, QaArgs(focus=""))
 
         assert not outcome.accepted
         create_task.assert_not_called()

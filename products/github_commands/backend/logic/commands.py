@@ -1,19 +1,13 @@
-"""The command contract: what a handler receives, what it answers, and how a command is declared.
+"""The command contract: what a handler receives and what it answers.
 
 A handler is the only place that knows the product it dispatches into. Everything that decides
 whether a command may run at all lives in ``dispatch.py`` and runs before any handler, so a new
-command inherits the full set of checks by being declared here.
+command inherits the full set of checks by being declared in ``schema.py``.
 """
 
-from collections.abc import Callable
-from typing import Literal
-
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
 
 from .intake import CommentCommandRequest
-
-AccessLevel = Literal["viewer", "editor", "manager"]
 
 
 @frozen
@@ -52,28 +46,3 @@ class CommandOutcome:
     # PostHog or GitHub produced, never from the comment, so a reply cannot be made to say
     # something the commenter wrote.
     message: str
-
-
-@frozen
-class ResourceAccess:
-    """A PostHog access-control resource the commenter needs on a project for the command."""
-
-    resource: APIScopeObject
-    level: AccessLevel
-
-
-@frozen
-class CommandSpec:
-    verb: str
-    summary: str
-    usage: str
-    handler: Callable[[CommandContext], CommandOutcome]
-    access: ResourceAccess | None = None
-    # A fork's head is code nobody with write access has vetted. Commands that run or approve it
-    # must refuse forks; only a command that reads nothing from the head may allow them.
-    allows_forks: bool = False
-    accepts_argument: bool = False
-
-    def __post_init__(self) -> None:
-        if not self.verb.isascii() or not self.verb.islower() or " " in self.verb:
-            raise ValueError(f"Command verb must be one lowercase word, got {self.verb!r}")
