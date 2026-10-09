@@ -218,13 +218,17 @@ describe("SettingsManager per-repo persistence", () => {
     expect(manager.checkPermission("mcp__acp__Read", {})).toEqual({
       decision: "ask",
     });
-    expect(manager.getSettings().availableModels).not.toContain("repo-model");
+    expect(manager.getSettings().availableModels ?? []).not.toContain(
+      "repo-model",
+    );
     expect(manager.getSettings().model).not.toBe("local-model");
 
     manager.dispose();
     await manager.initialize();
     expect(manager.checkPermission("mcp__acp__Read", {}).decision).toBe("ask");
-    expect(manager.getSettings().availableModels).not.toContain("repo-model");
+    expect(manager.getSettings().availableModels ?? []).not.toContain(
+      "repo-model",
+    );
   });
 });
 
