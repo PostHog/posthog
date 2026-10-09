@@ -24,6 +24,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1074,16 +1075,110 @@ describe('featureFlagLogic', () => {
             expect(router.values.location.pathname).toBe(embeddedPathname)
         })
 
+        const approvalRequired = (): ApiError =>
+            new ApiError(undefined, 409, undefined, {
+                code: 'approval_required',
+                status: 'approval_required',
+                detail: 'A change request has been created and is pending approval.',
+                change_request_id: 'cr-1',
+            })
+
+        const editOnFlagPage = async (name: string): Promise<void> => {
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { edit: true })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name })
+        }
+
         it('keeps the current route when an embedded editor save requires approval', async () => {
             const notebookUrl = urls.notebook('embedded-flag')
             router.actions.push(notebookUrl)
             const embeddedPathname = router.values.location.pathname
+            jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
 
             await expectLogic(logic, () => {
-                logic.actions.saveFeatureFlagFailure('Approval required', { status: 409 })
+                logic.actions.saveFeatureFlagFailure('Approval required', approvalRequired())
             }).toFinishAllListeners()
 
             expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+
+        it('shows the stored flag without a leave prompt when an edit needs approval', async () => {
+            await editOnFlagPage('Unapproved name')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(approvalRequired())
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure', 'loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(confirmSpy).not.toHaveBeenCalled()
+            expect(approvalToast).toHaveBeenCalledTimes(1)
+            expect(router.values.searchParams.edit).toBeUndefined()
+            expect(logic.values).toMatchObject({
+                isEditingFlag: false,
+                hasUnsavedChanges: false,
+                featureFlag: partial({ name: MOCK_FEATURE_FLAG.name }),
+            })
+        })
+
+        it('opens the change request when creating a flag needs approval', async () => {
+            router.actions.push(urls.featureFlag('new'))
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            try {
+                await expectLogic(newLogic).toFinishAllListeners()
+                newLogic.actions.setFeatureFlag({ ...newLogic.values.featureFlag, key: 'gated-flag' })
+                jest.spyOn(api, 'create').mockRejectedValueOnce(approvalRequired())
+                const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+                const approvalToast = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+
+                await expectLogic(newLogic, () => {
+                    newLogic.actions.saveFeatureFlag(newLogic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(confirmSpy).not.toHaveBeenCalled()
+                expect(approvalToast).toHaveBeenCalledTimes(1)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.approval('cr-1'))
+            } finally {
+                newLogic.unmount()
+            }
+        })
+
+        it.each([
+            [
+                'a version conflict',
+                new ApiError(undefined, 409, undefined, {
+                    code: 'conflict',
+                    detail: 'The feature flag was updated by another user since you started editing it.',
+                }),
+                'The feature flag was updated by another user since you started editing it.',
+            ],
+            [
+                'a policy conflict',
+                new ApiError(undefined, 400, undefined, {
+                    code: 'policy_conflict',
+                    error: 'This change matches multiple approval policies',
+                }),
+                "Couldn't save the flag. These changes need approval under more than one policy, so save them one at a time.",
+            ],
+        ])('keeps the edit open and explains %s', async (_, error, message) => {
+            await editOnFlagPage('Edited name')
+            jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+            })
+                .toDispatchActions(['saveFeatureFlagFailure'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(message)
+            expect(logic.values).toMatchObject({ isEditingFlag: true, featureFlag: partial({ name: 'Edited name' }) })
         })
     })
 
