@@ -128,16 +128,17 @@ A live store that fails to open does not fall back either: the pod fails to star
 
 A cold start does not rebuild history.
 The consumers resume at their committed offsets, so the store only fills from new traffic, and every cohort's past membership has to come back through a backfill.
+Its slices begin when their workers spawn, so the processor withholds every run whose boundary is earlier (see [slice coverage](#slice-coverage)).
 A backfill cannot bring back everything.
 `performed_event` leaves with an hour or minute window refill only from new live events, and a cohort made only of references refills through cascades from the backfills of the cohorts it references.
 
 With durable restore on, the processor also:
 
-- deletes the slices of partitions it no longer owns, once its assignment settles,
+- deletes the slices of partitions it no longer owns, with their coverage records, once its assignment settles,
 - re-produces every transfer still waiting in the merge outbox,
 - seeks every owned events partition back to the first event it polled during boot and did not dispatch,
 - spawns a worker for every owned partition when boot ends, and each worker rebuilds its in-memory eviction queue from its behavioral rows,
-- wipes the old slice of a partition that moves in after boot, before its worker spawns.
+- wipes the old slice of a partition that moves in after boot, with its coverage record, before its worker spawns, so the slice begins anew.
 
 Nothing is dispatched to a worker, from the events consumer or a follower, until these boot steps end.
 [Processor runtime](processor-runtime.md#startup) lists them in order.
@@ -149,9 +150,41 @@ A failed attempt only logs a warning, and a checkpoint with no offsets for the t
 Either way the follower resumes at its broker-stored offsets.
 Those can be ahead of the restored state, and the inputs in between are never applied.
 
-When a partition is revoked, its worker drains and exits, and its slice is deleted.
+When a partition is revoked, its worker drains and exits, and its slice is deleted with its coverage record.
 State never moves between pods, which is why the processor runs as a single pod.
 [Processor runtime](processor-runtime.md#rebalance-and-the-single-pod-constraint) explains that constraint.
+
+## Slice coverage
+
+A slice is one partition's state in one store.
+A slice that lost its history looks like any other empty slice, so each slice carries a coverage record.
+The record says either that the slice is complete, or that it holds every event its partition delivered after an instant, and maybe some before.
+It lives in `cf_person_records` under a 3-byte key, `[partition][0xFE]`, which no person-record read reaches.
+
+| What happens                                                                                        | Coverage                                                                                                                   |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or a failed restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its worker spawns                       |
+| A store with the stamp reopens                                                                      | Each slice resumes its own record                                                                                          |
+| A store without the stamp reopens                                                                   | It predates coverage records. The open writes `complete` for every partition and the stamp in one batch, so it adopts once |
+| A revoke, the boot deletion of an unowned partition, or a move-in wipe                              | `delete_partition` deletes the record with the slice, and the next spawn begins the slice anew                             |
+| A checkpoint restore                                                                                | The record and the stamp travel inside the checkpoint. A checkpoint from before coverage records is adopted                |
+
+A reconcile certifies its partition only when the slice holds the run's history: the slice is complete, or it began at or before the run's boundary.
+Otherwise the partition withholds the run, as [the reconcile guard](seed-apply-and-reconcile.md#the-walk) describes, and its `covered_since` is the boundary a disaster-recovery run must pin.
+
+The record is written once and only deleted with its slice, which makes a rollback safe.
+An older image never reads the record or the stamp, and its own partition deletes remove records with their slices.
+A rolled-back image that recreates the store leaves a store without the stamp, and the next open adopts it as complete.
+That is the trust every store had before coverage records existed.
+
+Coverage does not detect a stale slice, one whose partition another writer advanced while this store held older state.
+With one pod, only a rollback of the store or a checkpoint restore produces one.
+
+Three metrics follow coverage:
+
+- `cohort_slices_adopted_total` rises by the partition count at an adopting open,
+- `cohort_slices_begun_total` counts slices that began without earlier history,
+- `cohort_slice_covered_since_seconds{partition}` is when each owned slice began, and 0 for a complete one.
 
 ## Keeping the store bounded
 

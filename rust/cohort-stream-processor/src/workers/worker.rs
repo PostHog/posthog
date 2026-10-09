@@ -18,7 +18,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use metrics::{counter, histogram};
+use cohort_core::seed::CoverageStartMs;
+use metrics::{counter, gauge, histogram};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -35,8 +36,9 @@ use crate::observability::metrics::{
     CASCADE_PRODUCE_ERRORS_TOTAL, COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH,
     EVICTION_QUEUE_REBUILT_KEYS_TOTAL, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
     MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
-    STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
+    SLICES_BEGUN_TOTAL, SLICE_COVERED_SINCE_SECONDS, STAGE1_EVENTS_PROCESSED,
+    STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION, STAGE1_STATE_DECODE_ERROR,
+    STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::router::WorkerInbox;
@@ -48,7 +50,7 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::store::{BehavioralKey, ReadLane, StoreHandle};
+use crate::store::{BehavioralKey, ReadLane, SliceCoverage, SliceTenure, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{
@@ -183,11 +185,14 @@ async fn run_worker(
 
     let mut queue = EvictionQueue::<BehavioralKey>::new();
     let mut sweep = SweepSchedule::new(partition_id);
+    // Before any message, so the slice holds every event from here on.
+    let coverage = resume_or_begin_slice(partition_id, &handle).await;
     let mut reconcile_queue = ReconcileQueue::new(
         partition_id,
         merge.reconcile.backlog.clone(),
         handle.clone(),
         catalog.clone(),
+        coverage,
     );
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule). A failed scan logs
     // and stops early, so the guard drops and the readiness gate cannot stick on a store error.
@@ -929,6 +934,39 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
+/// The worker's slice coverage, beginning the slice now when it has no record.
+async fn resume_or_begin_slice(partition_id: u16, handle: &StoreHandle) -> SliceCoverage {
+    let now = CoverageStartMs::now();
+    let coverage = match handle.resume_or_begin_slice(partition_id, now).await {
+        Ok(SliceTenure::Resumed(coverage)) => coverage,
+        Ok(SliceTenure::Begun(since)) => {
+            counter!(SLICES_BEGUN_TOTAL).increment(1);
+            info!(
+                partition_id,
+                covered_since_ms = since.0,
+                "slice begins without earlier history; runs with an earlier boundary will be withheld",
+            );
+            SliceCoverage::Since(since)
+        }
+        Err(err) => {
+            // Fails closed: this worker certifies less, never more.
+            warn!(
+                partition_id,
+                error = %err,
+                "slice coverage unreadable; withholding runs with an earlier boundary",
+            );
+            SliceCoverage::Since(now)
+        }
+    };
+    let covered_since_seconds = match coverage {
+        SliceCoverage::Complete => 0.0,
+        SliceCoverage::Since(since) => since.0 as f64 / 1000.0,
+    };
+    let partition: Arc<str> = Arc::from(partition_id.to_string());
+    gauge!(SLICE_COVERED_SINCE_SECONDS, "partition" => partition).set(covered_since_seconds);
+    coverage
+}
+
 /// Re-seed the per-worker [`EvictionQueue`] from `cf_behavioral`, scheduling every behavioral key on
 /// its stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX`
 /// deadlines (permanent). Corrupt records are counted and skipped — the event path re-derives them. A
@@ -1030,7 +1068,9 @@ mod tombstone_redirect_tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
+    use cohort_core::seed::{
+        BehavioralShapeHash, ReconcileScope, ReconcileTile, RunBoundaryMs, RunId,
+    };
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
@@ -1038,7 +1078,7 @@ mod tombstone_redirect_tests {
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, CaptureStreamEventSink,
-        CaptureTransferSink,
+        CaptureTransferSink, ReconcileMarker,
     };
     use crate::stage1::person_record::PersonRecord;
     use crate::stage1::state::AppliedOffsets;
@@ -1288,6 +1328,7 @@ mod tombstone_redirect_tests {
             CohortId(1),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
+            RunBoundaryMs(0),
         );
 
         // Bypass EventDispatcher's post-send seed ceiling accounting. The worker must establish the
@@ -1323,6 +1364,8 @@ mod tombstone_redirect_tests {
             CohortId(1),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             RunId(Uuid::from_u128(7)),
+            // After the slice begins, so the run certifies.
+            RunBoundaryMs(chrono::Utc::now().timestamp_millis() + 86_400_000),
         );
 
         // The drain tick must arrive after the tile is admitted, so the two lanes are driven by
@@ -1362,6 +1405,10 @@ mod tombstone_redirect_tests {
         assert!(membership.changes().is_empty());
         let markers = marker_sink.markers();
         assert_eq!(markers.len(), 1);
+        assert!(
+            matches!(markers[0], ReconcileMarker::Complete(_)),
+            "{markers:?}"
+        );
         assert_eq!(markers[0].partition(), 0);
         assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(7)));
         assert_eq!(seed_tracker.committable_offsets().get(&0), Some(&6));

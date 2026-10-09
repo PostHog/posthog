@@ -820,8 +820,8 @@ mod tests {
     use tempfile::TempDir;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, SChunkMs,
-        SeedTile,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile,
+        RunBoundaryMs, SChunkMs, SeedTile,
     };
 
     use crate::consumers::seeds::{SeedSkipReason, SeedWork};
@@ -837,7 +837,8 @@ mod tests {
     use crate::stage1::state::AppliedOffsets;
     use crate::stage2::state::Stage2State;
     use crate::store::{
-        CohortStore, OffloadConfig, OffloadMode, Stage2Key, StoreConfig, StoreHandle, TombstoneKey,
+        CohortStore, OffloadConfig, OffloadMode, SliceCoverage, Stage2Key, StoreConfig,
+        StoreHandle, TombstoneKey,
     };
     use crate::sweep::EvictionQueue;
     use crate::workers::event_path::{process_event_gated, EventNameGating};
@@ -1747,6 +1748,7 @@ mod tests {
             CohortId(cohort_id),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(run_id)),
+            RunBoundaryMs(0),
         )
     }
 
@@ -1858,6 +1860,7 @@ mod tests {
                 deps.reconcile.backlog.clone(),
                 handle.clone(),
                 catalog.clone(),
+                SliceCoverage::Complete,
             );
             Self {
                 _dir,
@@ -1933,6 +1936,7 @@ mod tests {
                 self.deps.reconcile.backlog.clone(),
                 self.handle.clone(),
                 self.catalog.clone(),
+                SliceCoverage::Complete,
             );
         }
 

@@ -214,22 +214,31 @@ class TestFold(SimpleTestCase):
         # (41..64); its markers must stay under their own cohort so RUN_1 does not read as a
         # false 64/64 for cohort 10.
         messages.extend(_marker(partition, run_id=RUN_1, cohort_id=20) for partition in range(41, 64))
+        # Withheld markers stay out of the membership fold.
+        withheld = {"type": "reconcile_withheld", "reason": "partial_coverage", "covered_since_ms": 1}
+        messages.append(_marker(50, run_id=RUN_1) | withheld)
+        messages.append(_marker(3, run_id=RUN_2, cohort_id=30) | withheld)
 
-        _state, stats = fold_membership_changes(messages, team_id=2, since=SINCE)
+        state, stats = fold_membership_changes(messages, team_id=2, since=SINCE)
 
         completeness = reconcile_completeness(stats, cohort_id=10)
         self.assertEqual(
-            [(run.run_id, run.partitions_seen, run.complete) for run in completeness],
-            [(RUN_1, 41, False), (RUN_2, 64, True)],
+            [(run.run_id, run.partitions_seen, run.complete, run.withheld) for run in completeness],
+            [(RUN_1, 41, False, ((50, "partial_coverage"),)), (RUN_2, 64, True, ())],
         )
         self.assertEqual(
             [(run.run_id, run.partitions_seen, run.complete) for run in reconcile_completeness(stats, cohort_id=20)],
             [(RUN_1, 23, False)],
         )
-        # Counts every accepted marker message, including the RUN_1 partition-0 duplicate — 129,
-        # not the 128 distinct partitions the completeness sets hold. Keeps the summary's
-        # folded + drops + markers == total accounting exact.
-        self.assertEqual(stats.reconcile_markers_recorded, 129)
+        self.assertEqual(
+            [(run.run_id, run.partitions_seen, run.withheld) for run in reconcile_completeness(stats, cohort_id=30)],
+            [(RUN_2, 0, ((3, "partial_coverage"),))],
+        )
+        self.assertEqual((state, stats.dropped_malformed), ({}, 0))
+        # Counts every accepted marker message, including the RUN_1 partition-0 duplicate and the
+        # two withheld markers — 131, not the 128 distinct partitions the completeness sets hold.
+        # Keeps the summary's folded + drops + markers == total accounting exact.
+        self.assertEqual(stats.reconcile_markers_recorded, 131)
 
     @parameterized.expand(
         [

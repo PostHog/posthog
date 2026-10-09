@@ -1,4 +1,4 @@
-//! Pure per-run fold of observed `reconcile_complete` markers into per-cohort partition bitmaps.
+//! Pure per-run fold of observed reconcile markers into per-cohort partition bitmaps.
 //!
 //! The marker watcher's dedicated task reads *all* marker partitions and hands each marker
 //! to the ledger of the run it names. Folding is a monotone set-union: a partition's bit, once set,
@@ -7,12 +7,17 @@
 //! consumes a [`SettleProof`] — the capability minted in [`super::completion`] once the watcher has
 //! read past the marker-topic end-watermarks captured at the liveness pass. No proof, no negative
 //! verdict.
+//!
+//! A withheld marker needs no proof: the next flush supersedes the cohort, which then leaves.
 
 use std::collections::BTreeMap;
 
 use cohort_core::filters::{CohortId, TeamId};
+use cohort_core::seed::WithheldReason;
 
-use super::completion::{MarkerNovelty, ObservedMarker, PartitionBitmap, SettleProof};
+use super::completion::{
+    MarkerNovelty, MarkerPartition, MarkerVerdict, ObservedMarker, PartitionBitmap, SettleProof,
+};
 use super::ids::RunId;
 
 /// How one observed marker was routed. Only [`Novel`](MarkerFold::Novel) mutates a bitmap; the rest
@@ -30,6 +35,8 @@ pub enum MarkerFold {
     ForeignTeam,
     /// This run, but a cohort it does not track (superseded and excluded by the caller, or garbage).
     UnknownCohort,
+    /// A withheld marker for one of this run's cohorts.
+    Withheld,
     /// No ledger names this run. Decided by the watcher before any ledger sees the marker, and the
     /// dominant outcome since the watcher tails a topic carrying every run's markers.
     Unwatched,
@@ -44,6 +51,7 @@ impl MarkerFold {
             Self::ForeignRun => "foreign_run",
             Self::ForeignTeam => "foreign_team",
             Self::UnknownCohort => "unknown_cohort",
+            Self::Withheld => "withheld",
             Self::Unwatched => "unwatched",
         }
     }
@@ -65,15 +73,24 @@ pub enum SettledVerdict {
     NoMarkers,
 }
 
+/// A cohort withheld from the run, as its first withheld marker reported it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WithheldCohort {
+    pub cohort_id: CohortId,
+    pub partition: MarkerPartition,
+    pub reason: WithheldReason,
+}
+
 /// One tracked cohort's fold state.
 #[derive(Debug, Clone, Copy)]
 struct CohortFold {
     bitmap: PartitionBitmap,
-    /// A bit was set since the last [`MarkerLedger::clear_dirty`]. Drives incremental flushes.
+    /// A bit was set since the last [`MarkerLedger::mark_persisted`]. Drives incremental flushes.
     dirty: bool,
-    /// The bitmap reached its full set since the last [`MarkerLedger::clear_dirty`]. Drives the
+    /// The bitmap reached its full set since the last [`MarkerLedger::mark_persisted`]. Drives the
     /// flush-on-completion trigger.
     newly_complete: bool,
+    withheld: Option<(MarkerPartition, WithheldReason)>,
 }
 
 /// A run's marker fold: its identity plus the per-cohort bitmaps it accumulates. Seeded from the bits
@@ -102,6 +119,7 @@ impl MarkerLedger {
                         bitmap,
                         dirty: false,
                         newly_complete: false,
+                        withheld: None,
                     },
                 )
             })
@@ -118,7 +136,7 @@ impl MarkerLedger {
     }
 
     /// Fold one observed marker. Routing is pure: team, then run, then cohort membership. Only a
-    /// marker naming this run and a tracked cohort touches a bitmap.
+    /// marker naming this run and a tracked cohort touches the cohort's state.
     pub fn observe(&mut self, marker: &ObservedMarker) -> MarkerFold {
         if marker.team_id != self.team_id {
             return MarkerFold::ForeignTeam;
@@ -129,15 +147,21 @@ impl MarkerLedger {
         let Some(fold) = self.cohorts.get_mut(&marker.cohort_id) else {
             return MarkerFold::UnknownCohort;
         };
-        match fold.bitmap.set(marker.partition) {
-            MarkerNovelty::Duplicate => MarkerFold::Duplicate,
-            MarkerNovelty::Novel => {
-                fold.dirty = true;
-                if fold.bitmap.is_complete() {
-                    fold.newly_complete = true;
-                }
-                MarkerFold::Novel
+        match marker.verdict {
+            MarkerVerdict::Withheld(reason) => {
+                fold.withheld.get_or_insert((marker.partition, reason));
+                MarkerFold::Withheld
             }
+            MarkerVerdict::Complete => match fold.bitmap.set(marker.partition) {
+                MarkerNovelty::Duplicate => MarkerFold::Duplicate,
+                MarkerNovelty::Novel => {
+                    fold.dirty = true;
+                    if fold.bitmap.is_complete() {
+                        fold.newly_complete = true;
+                    }
+                    MarkerFold::Novel
+                }
+            },
         }
     }
 
@@ -148,8 +172,9 @@ impl MarkerLedger {
         self.cohorts.values().all(|fold| fold.bitmap.is_complete())
     }
 
-    /// The cohorts whose bitmap changed since the last [`Self::clear_dirty`], with their current bits.
-    /// Flushed through the idempotent OR-merge persist, so re-flushing the same bits is a no-op.
+    /// The cohorts whose bitmap changed since the last [`Self::mark_persisted`], with their current
+    /// bits. Flushed through the idempotent OR-merge persist, so re-flushing the same bits is a
+    /// no-op.
     pub fn dirty_bitmaps(&self) -> Vec<(CohortId, PartitionBitmap)> {
         self.cohorts
             .iter()
@@ -158,18 +183,35 @@ impl MarkerLedger {
             .collect()
     }
 
-    pub fn has_dirty(&self) -> bool {
-        self.cohorts.values().any(|fold| fold.dirty)
+    /// The withheld cohorts the next flush supersedes.
+    pub fn dirty_withheld(&self) -> Vec<WithheldCohort> {
+        self.cohorts
+            .iter()
+            .filter_map(|(cohort_id, fold)| {
+                fold.withheld.map(|(partition, reason)| WithheldCohort {
+                    cohort_id: *cohort_id,
+                    partition,
+                    reason,
+                })
+            })
+            .collect()
     }
 
-    /// A cohort reached its full partition set since the last [`Self::clear_dirty`]. The watcher
+    pub fn has_dirty(&self) -> bool {
+        self.cohorts
+            .values()
+            .any(|fold| fold.dirty || fold.withheld.is_some())
+    }
+
+    /// A cohort reached its full partition set since the last [`Self::mark_persisted`]. The watcher
     /// flushes immediately on this so a completed cohort's outcome is durable without waiting a tick.
     pub fn completed_since_flush(&self) -> bool {
         self.cohorts.values().any(|fold| fold.newly_complete)
     }
 
-    /// Clear the incremental-flush flags after a successful persist. Bitmaps are untouched.
-    pub fn clear_dirty(&mut self) {
+    /// After a successful persist, clear the flush flags and drop the superseded cohorts.
+    pub fn mark_persisted(&mut self) {
+        self.cohorts.retain(|_, fold| fold.withheld.is_none());
         for fold in self.cohorts.values_mut() {
             fold.dirty = false;
             fold.newly_complete = false;
@@ -210,9 +252,8 @@ impl MarkerLedger {
 mod tests {
     use super::*;
     use cohort_core::partitioner::COHORT_PARTITION_COUNT;
+    use cohort_core::seed::{CatalogMiss, CoverageStartMs};
     use uuid::Uuid;
-
-    use crate::domain::MarkerPartition;
 
     fn marker(team: i32, cohort: i32, run: RunId, partition: u32) -> ObservedMarker {
         ObservedMarker {
@@ -220,6 +261,14 @@ mod tests {
             cohort_id: CohortId(cohort),
             partition: MarkerPartition::new(partition).unwrap(),
             run_id: run,
+            verdict: MarkerVerdict::Complete,
+        }
+    }
+
+    fn withheld(cohort: i32, partition: u32, reason: WithheldReason) -> ObservedMarker {
+        ObservedMarker {
+            verdict: MarkerVerdict::Withheld(reason),
+            ..marker(2, cohort, run(1), partition)
         }
     }
 
@@ -263,6 +312,49 @@ mod tests {
             ledger.observe(&marker(2, 99, run(1), 0)),
             MarkerFold::UnknownCohort
         );
+    }
+
+    #[test]
+    fn a_withheld_cohort_is_owed_one_supersede_with_its_first_reason_then_leaves() {
+        let first = WithheldReason::PartialCoverage {
+            covered_since: CoverageStartMs(1_791_547_200_000),
+        };
+        let mut ledger = ledger(&[10, 11]);
+        ledger.observe(&marker(2, 10, run(1), 0));
+        ledger.mark_persisted();
+        assert!(!ledger.has_dirty());
+
+        assert_eq!(
+            ledger.observe(&withheld(10, 7, first)),
+            MarkerFold::Withheld
+        );
+        assert_eq!(
+            ledger.observe(&withheld(
+                10,
+                9,
+                WithheldReason::Catalog(CatalogMiss::HashMismatch)
+            )),
+            MarkerFold::Withheld,
+        );
+        // A withheld cohort alone must trigger a flush.
+        assert!(ledger.has_dirty());
+        assert_eq!(
+            ledger.dirty_withheld(),
+            vec![WithheldCohort {
+                cohort_id: CohortId(10),
+                partition: MarkerPartition::new(7).unwrap(),
+                reason: first,
+            }],
+        );
+
+        ledger.mark_persisted();
+        assert!(ledger.dirty_withheld().is_empty(), "superseded once");
+        assert_eq!(
+            ledger.observe(&marker(2, 10, run(1), 1)),
+            MarkerFold::UnknownCohort,
+            "the superseded cohort is no longer tracked",
+        );
+        assert_eq!(ledger.observe(&marker(2, 11, run(1), 1)), MarkerFold::Novel);
     }
 
     #[test]
@@ -313,7 +405,7 @@ mod tests {
         complete_cohort(&mut ledger, 10);
         assert!(ledger.completed_since_flush());
 
-        ledger.clear_dirty();
+        ledger.mark_persisted();
         assert!(!ledger.has_dirty());
         assert!(!ledger.completed_since_flush());
         assert!(

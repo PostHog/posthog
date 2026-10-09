@@ -1,7 +1,7 @@
 //! The single global marker-watch task — the seeder's second lifecycle component.
 //!
 //! One dedicated consumer tails the whole marker topic, folding every observed
-//! `reconcile_complete` marker into the per-run [`MarkerLedger`] it names. Bits and the watcher's
+//! reconcile marker into the per-run [`MarkerLedger`] it names. Bits and the watcher's
 //! resume positions are flushed through the fenced [`persist_marker_observations`] on a cadence
 //! (every persist interval), a batch cap (every N consumed messages), or immediately when a cohort's
 //! bitmap completes — whichever comes first. The driver publishes the set of runs to watch via a
@@ -27,11 +27,14 @@ use tracing::{info, warn};
 
 use crate::domain::{
     DispatchEpoch, MarkerFold, MarkerLedger, NextOffset, PartitionBitmap, RunId, WatchPartition,
-    WatchPositions,
+    WatchPositions, WithheldCohort, WithheldReason,
 };
 use crate::kafka::markers::{MarkerWatcher, WatchError, WatchItem};
-use crate::observability::metrics::{RECONCILE_MARKERS_OBSERVED, RECONCILE_WATCH_TRUNCATED};
+use crate::observability::metrics::{
+    RECONCILE_COHORTS_WITHHELD, RECONCILE_MARKERS_OBSERVED, RECONCILE_WATCH_TRUNCATED,
+};
 use crate::store::completion::{persist_marker_observations, CompletionStoreError};
+use crate::store::runs::RunKind;
 
 /// One run the driver wants watched: its identity, dispatch fence, watcher start offsets, and the bits
 /// already persisted (so a resumed ledger continues rather than restarts).
@@ -39,6 +42,7 @@ use crate::store::completion::{persist_marker_observations, CompletionStoreError
 pub struct WatchDirective {
     pub run_id: RunId,
     pub team_id: TeamId,
+    pub kind: RunKind,
     pub epoch: DispatchEpoch,
     pub start: WatchPositions,
     pub seeded: Vec<(CohortId, PartitionBitmap)>,
@@ -86,11 +90,12 @@ pub trait MarkerFlush: Send {
         run_id: RunId,
         epoch: DispatchEpoch,
         bits: &[(CohortId, PartitionBitmap)],
+        withheld: &[WithheldCohort],
         positions: &WatchPositions,
     ) -> Result<(), CompletionStoreError>;
 }
 
-/// The real flush: the epoch-fenced OR-merge of bits plus the watcher positions.
+/// The real flush: the epoch-fenced OR-merge of bits, withheld supersedes and watcher positions.
 pub struct PgMarkerFlush {
     pool: PgPool,
     marker_topic: String,
@@ -109,6 +114,7 @@ impl MarkerFlush for PgMarkerFlush {
         run_id: RunId,
         epoch: DispatchEpoch,
         bits: &[(CohortId, PartitionBitmap)],
+        withheld: &[WithheldCohort],
         positions: &WatchPositions,
     ) -> Result<(), CompletionStoreError> {
         persist_marker_observations(
@@ -116,6 +122,7 @@ impl MarkerFlush for PgMarkerFlush {
             run_id,
             epoch,
             bits,
+            withheld,
             positions,
             &self.marker_topic,
         )
@@ -129,6 +136,7 @@ impl MarkerFlush for PgMarkerFlush {
 /// freshly added run cannot claim offsets the stream read before that run's ledger existed — its
 /// settlement proof rests on this.
 struct RunWatch {
+    kind: RunKind,
     epoch: DispatchEpoch,
     positions: WatchPositions,
     ledger: MarkerLedger,
@@ -137,6 +145,7 @@ struct RunWatch {
 impl RunWatch {
     fn from_directive(directive: &WatchDirective) -> Self {
         Self {
+            kind: directive.kind,
             epoch: directive.epoch,
             positions: directive.start.clone(),
             ledger: MarkerLedger::new(
@@ -439,13 +448,38 @@ impl<S: MarkerStream, F: MarkerFlush> WatchState<S, F> {
         if !run.ledger.has_dirty() && !self.positions_advanced {
             return true;
         }
-        let epoch = run.epoch;
+        let (kind, epoch) = (run.kind, run.epoch);
         let dirty = run.ledger.dirty_bitmaps();
+        let withheld = run.ledger.dirty_withheld();
         let positions = run.positions.clone();
-        match self.flush.persist(run_id, epoch, &dirty, &positions).await {
+        match self
+            .flush
+            .persist(run_id, epoch, &dirty, &withheld, &positions)
+            .await
+        {
             Ok(()) => {
                 if let Some(run) = self.runs.get_mut(&run_id) {
-                    run.ledger.clear_dirty();
+                    run.ledger.mark_persisted();
+                }
+                for cohort in &withheld {
+                    counter!(
+                        RECONCILE_COHORTS_WITHHELD,
+                        "kind" => kind.as_str(),
+                        "reason" => cohort.reason.as_str(),
+                    )
+                    .increment(1);
+                    let covered_since_ms = match cohort.reason {
+                        WithheldReason::PartialCoverage { covered_since } => Some(covered_since.0),
+                        WithheldReason::Catalog(_) => None,
+                    };
+                    warn!(
+                        run_id = ?run_id,
+                        cohort_id = cohort.cohort_id.0,
+                        partition = cohort.partition.get(),
+                        reason = cohort.reason.as_str(),
+                        covered_since_ms,
+                        "a partition withheld its reconcile certificate for this cohort",
+                    );
                 }
                 true
             }
@@ -577,7 +611,9 @@ mod tests {
     use cohort_core::partitioner::COHORT_PARTITION_COUNT;
     use uuid::Uuid;
 
-    use crate::domain::{MarkerPartition, ObservedMarker};
+    use crate::domain::{
+        CatalogMiss, MarkerPartition, MarkerVerdict, ObservedMarker, WithheldReason,
+    };
     use crate::store::completion::CompletionOperation;
 
     fn run(seed: u128) -> RunId {
@@ -602,6 +638,7 @@ mod tests {
         WatchDirective {
             run_id,
             team_id: TeamId(2),
+            kind: RunKind::Behavioral,
             epoch: epoch(epoch_secs),
             start,
             seeded: cohorts
@@ -625,6 +662,7 @@ mod tests {
                 cohort_id: CohortId(cohort),
                 partition: MarkerPartition::new(bit).unwrap(),
                 run_id,
+                verdict: MarkerVerdict::Complete,
             }),
         }
     }
@@ -666,6 +704,7 @@ mod tests {
     struct FlushCall {
         run_id: RunId,
         bits: Vec<(CohortId, PartitionBitmap)>,
+        withheld: Vec<WithheldCohort>,
         positions: WatchPositions,
     }
 
@@ -697,6 +736,7 @@ mod tests {
             run_id: RunId,
             _epoch: DispatchEpoch,
             bits: &[(CohortId, PartitionBitmap)],
+            withheld: &[WithheldCohort],
             positions: &WatchPositions,
         ) -> Result<(), CompletionStoreError> {
             if self
@@ -725,6 +765,7 @@ mod tests {
             self.calls.lock().unwrap().push(FlushCall {
                 run_id,
                 bits: bits.to_vec(),
+                withheld: withheld.to_vec(),
                 positions: positions.clone(),
             });
             Ok(())
@@ -785,16 +826,29 @@ mod tests {
         let mut state = make_state(flush, 10_000);
         state
             .apply_directives(&WatchDirectives {
-                runs: vec![directive(run_id, 100, start_at(0, 0), &[10])],
+                runs: vec![directive(run_id, 100, start_at(0, 0), &[10, 11])],
             })
             .await;
 
         state.ingest(marker_item(0, 1, run_id, 10, 5));
+        let mut withheld = marker_item(0, 2, run_id, 11, 6);
+        let reason = WithheldReason::Catalog(CatalogMiss::HashUnknown);
+        withheld.marker.as_mut().unwrap().verdict = MarkerVerdict::Withheld(reason);
+        state.ingest(withheld);
         state.flush().await;
         let first = state.flush.calls();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].run_id, run_id);
         assert_eq!(first[0].bits.len(), 1, "the dirty cohort is persisted");
+        assert_eq!(
+            first[0].withheld,
+            vec![WithheldCohort {
+                cohort_id: CohortId(11),
+                partition: MarkerPartition::new(6).unwrap(),
+                reason,
+            }],
+            "the withheld cohort's supersede rides the same persist",
+        );
 
         // A second flush with no new bits and no advanced positions is a no-op.
         state.flush().await;

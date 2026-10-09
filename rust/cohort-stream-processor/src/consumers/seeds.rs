@@ -853,7 +853,7 @@ mod tests {
 
     use cohort_core::seed::{
         BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileScope, ReconcileTile,
-        RunId, SChunkMs, ScannedAtMs,
+        RunBoundaryMs, RunId, SChunkMs, ScannedAtMs,
     };
     use uuid::Uuid;
 
@@ -1261,6 +1261,7 @@ mod tests {
                 .unwrap(),
             ),
             RunId(Uuid::nil()),
+            RunBoundaryMs(0),
         );
         let bytes = serde_json::to_vec(&reconcile).unwrap();
         assert!(matches!(
@@ -1302,6 +1303,7 @@ mod tests {
             CohortId(42),
             ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
+            RunBoundaryMs(0),
         );
         let reconcile_seed = |offset| ConsumedSeed {
             work: SeedWork::Reconcile(reconcile.clone()),

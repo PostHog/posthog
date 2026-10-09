@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use cohort_core::filters::{CohortId, TeamId};
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
+use cohort_core::seed::WithheldReason;
 use serde::de::Error as _;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -504,13 +505,20 @@ impl DispatchEpoch {
     }
 }
 
-/// One observed `reconcile_complete` marker, fed to the ledger fold.
+/// One observed reconcile marker, fed to the ledger fold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObservedMarker {
     pub team_id: TeamId,
     pub cohort_id: CohortId,
     pub partition: MarkerPartition,
     pub run_id: RunId,
+    pub verdict: MarkerVerdict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerVerdict {
+    Complete,
+    Withheld(WithheldReason),
 }
 
 /// Which of the two discoverable run statuses a completion row carries.
@@ -1032,6 +1040,7 @@ mod tests {
             cohort_id: CohortId(42),
             partition: marker(7),
             run_id: RunId(Uuid::nil()),
+            verdict: MarkerVerdict::Complete,
         };
         assert_eq!(observed.partition.get(), 7);
     }
