@@ -1126,6 +1126,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "ranking_pr_created_score",
         "ranking_action": "ranking_action_score",
         "ranking_open": "ranking_open_score",
+        "ranking_fixed": "ranking_fixed_score",
+        "ranking_discuss": "ranking_discuss_score",
+        "ranking_thumbs_up": "ranking_thumbs_up_score",
+        "ranking_reviewer_fix": "ranking_reviewer_fix_score",
+        "ranking_refund": "ranking_refund_score",
+        "ranking_dismiss_wrong": "ranking_dismiss_wrong_score",
+        "ranking_dismiss_lowvalue": "ranking_dismiss_lowvalue_score",
     }
     # Ordering field to the outcome head it reads from the served model of the latest ranking score.
     _RANKING_ORDERING_HEADS: dict[str, str] = {
@@ -1133,6 +1140,13 @@ class SignalReportViewSet(
         "ranking_pr_created": "pr_created",
         "ranking_action": "action",
         "ranking_open": "open",
+        "ranking_fixed": "fixed",
+        "ranking_discuss": "discuss",
+        "ranking_thumbs_up": "thumbs_up",
+        "ranking_reviewer_fix": "reviewer_fix",
+        "ranking_refund": "refund",
+        "ranking_dismiss_wrong": "dismiss_wrong",
+        "ranking_dismiss_lowvalue": "dismiss_lowvalue",
     }
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
@@ -2314,7 +2328,8 @@ class SignalReportViewSet(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
-                    "ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
+                    "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
+                    "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
                     "last in either direction. They are staff only: other users get a 400."
                 ),
