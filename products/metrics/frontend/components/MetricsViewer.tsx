@@ -27,8 +27,6 @@ import { switchMetricsQueryLanguage } from './metricsQueryLanguageSwitch'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
-import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
-import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { LIVE_REFRESH_MS, MAX_UNAGGREGATED_SERIES, metricsViewerLogic } from './metricsViewerLogic'
 
@@ -37,7 +35,6 @@ export const MetricsViewer = (): JSX.Element => {
     // The side panel's logic listens to this viewer's filter changes; mounting it
     // here keeps samples in sync even while the panel itself is off-screen.
     useMountedLogic(metricsSamplesLogic())
-    const { openModal: openStarterDashboardModal } = useActions(metricsStarterDashboardLogic)
     const {
         formula,
         queryFingerprint,
@@ -247,20 +244,9 @@ export const MetricsViewer = (): JSX.Element => {
                         >
                             Add to dashboard
                         </LemonButton>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            onClick={openStarterDashboardModal}
-                            tooltip="Create a dashboard with one insight per metric, charted as one line per series"
-                            data-attr="metrics-viewer-starter-dashboard"
-                            disabledReason={insightEditorDisabledReason}
-                        >
-                            New service dashboard
-                        </LemonButton>
                     </>
                 }
             />
-            <MetricsStarterDashboardModal />
             {savedInsight && (
                 <>
                     <AddToDashboardModal
