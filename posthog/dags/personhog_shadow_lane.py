@@ -276,10 +276,12 @@ class ShadowLaneStartConfig(dagster.Config):
     reset_offsets: bool = False
     consumer_replicas: int = Field(default=4, gt=0, le=512)
     processor_replicas: int = Field(default=8, gt=0, le=512)
+    processor_step_replicas: int = Field(default=64, gt=0, le=512)
     namespace: str = SHADOW_NAMESPACE
     consumer_deployment: str = SHADOW_CONSUMER_DEPLOYMENT
     processor_deployment: str = SHADOW_PROCESSOR_DEPLOYMENT
     shadow_db_env_var: str = SHADOW_DB_URL_ENV_VAR
+    # Applies to each processor step and to the consumers separately.
     ready_timeout_seconds: int = 600
     # How long the reset waits for in-flight writes to stop before truncating.
     reset_settle_poll_seconds: int = 10
@@ -402,6 +404,39 @@ def _reset_consumer_offsets(
     return True
 
 
+def processor_ramp(current: int, target: int, step: int) -> list[int]:
+    """Replica counts to scale the processors through, ending at target.
+
+    A scale down goes straight to target, since removing pods needs no new nodes.
+    """
+    if target <= current:
+        return [target]
+    return [*range(current + step, target, step), target]
+
+
+def _scale_and_wait(
+    context: dagster.OpExecutionContext,
+    config: ShadowLaneStartConfig,
+    apps: k8s_client.AppsV1Api,
+    deployment: str,
+    replicas: int,
+) -> None:
+    context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
+    scale_deployment(apps, config.namespace, deployment, replicas)
+
+    def is_ready(name: str) -> bool:
+        return deployment_ready_replicas(apps, config.namespace, name) >= replicas
+
+    if wait_for_deployments([deployment], is_ready, timeout_seconds=config.ready_timeout_seconds):
+        raise dagster.Failure(
+            description=(
+                f"{deployment} did not reach {replicas} ready replicas within {config.ready_timeout_seconds}s. "
+                "The scale was applied; check the pods in the lane namespace."
+            )
+        )
+    context.log.info(f"{deployment} is ready with {replicas} replica(s)")
+
+
 def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConfig, completed_at: float) -> None:
     Gauge(
         "posthog_personhog_shadow_lane_start_last_success_timestamp_seconds",
@@ -443,31 +478,14 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
     else:
         context.log.info("reset_offsets is false, the lane resumes from its committed offsets")
 
-    targets = [
-        (config.consumer_deployment, config.consumer_replicas),
-        (config.processor_deployment, config.processor_replicas),
-    ]
-    for deployment, replicas in targets:
-        context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
-        scale_deployment(apps, config.namespace, deployment, replicas)
-
-    wanted = dict(targets)
-
-    def is_ready(deployment: str) -> bool:
-        ready = deployment_ready_replicas(apps, config.namespace, deployment)
-        if ready < wanted[deployment]:
-            return False
-        context.log.info(f"{deployment} is ready with {ready} replica(s)")
-        return True
-
-    pending = wait_for_deployments(wanted, is_ready, timeout_seconds=config.ready_timeout_seconds)
-    if pending:
-        raise dagster.Failure(
-            description=(
-                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(sorted(pending))}. "
-                "The scale was applied; check the pods in the lane namespace."
-            )
-        )
+    # Every processor is ready before any consumer starts. A consumer that starts first pins its keys to the
+    # few processors already up, and those keys stay on them while they have work in flight.
+    current = apps.read_namespaced_deployment(name=config.processor_deployment, namespace=config.namespace)
+    for replicas in processor_ramp(
+        current.spec.replicas or 0, config.processor_replicas, config.processor_step_replicas
+    ):
+        _scale_and_wait(context, config, apps, config.processor_deployment, replicas)
+    _scale_and_wait(context, config, apps, config.consumer_deployment, config.consumer_replicas)
 
     with pushed_metrics_registry(f"{START_METRICS_JOB}_{config.namespace}") as registry:
         record_start_gauges(registry, config, time.time())
@@ -490,6 +508,8 @@ def personhog_shadow_lane_start_job():
     Set ops.start_shadow_lane.config.reset_state to true to truncate both
     paths' tables before starting, which every fresh validation run needs.
     Set reset_offsets to true to start from the end of the topic instead.
-    Both resets refuse to run while the lane has pods.
+    Both resets refuse to run while the lane has pods. Processors scale up in
+    steps of processor_step_replicas, and the consumers start only once every
+    processor is ready.
     """
     start_shadow_lane()
