@@ -32,7 +32,7 @@ import type { GitHubSourceApi, PullRequestListItemApi, PushCISampleApi } from '.
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { parsePullRequestReference, resolvePullRequestTarget } from '../lib/pullRequestReference'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
-import { scopeToValue, withScope } from '../lib/scope'
+import { scopeToValue, withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
 
@@ -1269,7 +1269,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         input_kind: reference?.kind ?? null,
                     })
                 }
-                if (!reference || !target) {
+                if (!target) {
                     const failure = reference ? 'needs_repository' : 'invalid'
                     capture(failure)
                     actions.failPullRequestJump(failure)
@@ -1281,7 +1281,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 const explorerUrl = urls.engineeringAnalyticsCIExplorer(target.owner, target.repo, target.number)
                 router.actions.push(
                     target.inScope
-                        ? withScope(explorerUrl, router.values.searchParams, values.sourceId)
+                        ? withCurrentScope(explorerUrl, values.sourceId)
                         : // The source and repo in scope belong to another repository. Without them the
                           // explorer reads from the source that syncs the pull request's own repository.
                           withScope(explorerUrl, { ...router.values.searchParams, repo: undefined }, null)

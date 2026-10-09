@@ -21,7 +21,7 @@ export function parsePullRequestReference(text: string): PullRequestReference | 
     const trimmed = text.trim()
     const link = LINK.exec(trimmed)
     const named = link ?? REPO_NUMBER.exec(trimmed)
-    // GitHub reserves `.` and `..`, and a browser resolves them as path segments of the explorer URL.
+    // GitHub reserves `.` and `..` as repository names, and a URL path treats them as dot segments.
     if (named && /^\.+$/.test(named[2])) {
         return null
     }
