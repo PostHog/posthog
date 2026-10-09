@@ -139,6 +139,17 @@ class TestHelpers:
         with pytest.raises(ValueError):
             _validate_app_id(value)
 
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("123456789", "id123456789"),
+            (" id123456789 ", "id123456789"),
+            ("com.example.app", "com.example.app"),
+        ],
+    )
+    def test_app_id_is_normalized(self, value, expected):
+        assert _validate_app_id(value) == expected
+
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -150,7 +161,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_substring",
         [
-            # 401 means the token is bad; 403/404 mean the app id (or subscription) is the problem.
+            # 401 means the token is bad; 403 means the token cannot reach the app; 404 means the app id is wrong.
             (401, "API token"),
             (403, "denied access"),
             (404, "app id"),
@@ -163,6 +174,37 @@ class TestValidateCredentials:
         with pytest.raises(AppsFlyerCredentialsError) as exc:
             validate_credentials("token", "id123")
         assert expected_substring in str(exc.value)
+
+    @pytest.mark.parametrize(
+        "body, expected_reason",
+        [
+            ("Pull API is not enabled\nfor this account", "AppsFlyer said: Pull API is not enabled for this account"),
+            ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
+            ("<html><body>Forbidden</body></html>", None),
+            ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+            ("", None),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_surfaces_appsflyer_reason(self, mock_session, body, expected_reason):
+        mock_session.return_value.get.return_value = _response(body, status=403)
+
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("secret-token", "id123")
+        message = str(exc.value)
+        if expected_reason is None:
+            assert "AppsFlyer said" not in message
+        else:
+            assert message.endswith(expected_reason)
+        assert "secret-token" not in message
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_requests_ios_app_with_id_prefix(self, mock_session):
+        mock_session.return_value.get.return_value = _response("", status=200)
+
+        validate_credentials("token", "123456789")
+
+        assert "/app/id123456789/" in mock_session.return_value.get.call_args.args[0]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_rejects_bad_app_id_without_request(self, mock_session):
