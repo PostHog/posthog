@@ -183,7 +183,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         language = self.query.language or MetricsQueryLanguage.BUILDER
         if language == MetricsQueryLanguage.BUILDER:
             return run_metric_query(team=self.team, request=self._to_request())
-        date_range = self._query_date_range()
+        date_range = metrics_query_date_range(self.team, self.query.dateRange)
         text = (self.query.promql if language == MetricsQueryLanguage.PROMQL else self.query.sql) or ""
         if not text.strip():
             raise ValueError(f"Write a {'PromQL' if language == MetricsQueryLanguage.PROMQL else 'SQL'} query first.")

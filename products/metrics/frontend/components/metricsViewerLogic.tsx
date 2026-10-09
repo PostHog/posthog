@@ -502,11 +502,10 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
-    rangeFunction: MetricRangeFunction | null
-    reduce: MetricsReducer
     queryText: string
     queryTextChanged: boolean
     rangeFunction: MetricRangeFunction | null
+    reduce: MetricsReducer
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -733,9 +732,6 @@ export interface metricsViewerLogicActions {
     }
     setReduce: (reduce: MetricsReducer) => {
         reduce: MetricsReducer
-    }
-    setRecommendedAggregation: (aggregation: MetricAggregation) => {
-        aggregation: MetricAggregation
     }
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
