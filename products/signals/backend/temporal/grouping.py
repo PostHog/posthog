@@ -730,6 +730,9 @@ class AssignAndEmitSignalOutput:
     timestamp: datetime
     run_count: int
     research_debounce_seconds: int = 0
+    # The title the report holds after assignment. It differs from `updated_title` when assignment keeps a
+    # researched title. None when no title is known, which includes results recorded before this field existed.
+    report_title: Optional[str] = None
 
 
 @frozen
@@ -749,6 +752,7 @@ class AssignAndEmitDbResult:
     next_research_bucket: Optional[int] = None
     # What the report's last completed pass covered, for the same reason.
     report_signals_researched: int = 0
+    report_title: Optional[str] = None
 
 
 def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
@@ -989,6 +993,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 promotion_suppressed=promotion_suppressed,
                 next_research_bucket=bucket,
                 report_signals_researched=signals_researched,
+                report_title=report.title,
             )
 
     try:
@@ -1125,6 +1130,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
             research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
+            report_title=db_result.report_title,
         )
     except Exception as e:
         logger.exception(
@@ -1481,7 +1487,9 @@ async def _process_signal_batch(
                 old_ctx = report_contexts.get(assign_result.report_id)
                 report_contexts[assign_result.report_id] = ReportContext(
                     report_id=assign_result.report_id,
-                    title=updated_title or (old_ctx.title if old_ctx else ""),
+                    title=assign_result.report_title
+                    if assign_result.report_title is not None
+                    else updated_title or (old_ctx.title if old_ctx else ""),
                     signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
                 )
             else:

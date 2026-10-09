@@ -1051,10 +1051,11 @@ async def test_specificity_title_only_renames_unresearched_reports(
     input_ = _build_input(ateam.id, _existing_match(str(report.id)))
     input_.updated_title = "specificity title"
 
-    await assign_and_emit_signal_activity(input_)
+    result = await assign_and_emit_signal_activity(input_)
 
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
     assert refreshed.title == expected_title
+    assert result.report_title == expected_title
     assert refreshed.signal_count == 5
 
 
