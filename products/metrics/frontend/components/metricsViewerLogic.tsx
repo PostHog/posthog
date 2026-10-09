@@ -20,6 +20,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { performQuery } from '~/queries/query'
 import {
     GoalLine,
     MetricsAttributeScope,
@@ -30,6 +31,7 @@ import {
     MetricsQueryClause,
     MetricsQueryFilter,
     MetricsReducer,
+    MetricsQueryLanguage,
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -60,6 +62,7 @@ import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames, metricsFilterGroup } from '../metricsLinks'
 import { METRICS_PANELS, resolveReducer } from '../panels/registry'
+import { metricsQueryText, queryLanguage } from '../queryLanguages/convert'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -336,10 +339,18 @@ export const singleAggregationForClause = (
     return !clause.aggregation || clause.aggregation === 'sum' ? clause.rangeFunction : null
 }
 
-const insightNameForViewerQuery = (clauses: MetricsViewerClause[], formula: string): string => {
+const insightNameForViewerQuery = (
+    language: MetricsQueryLanguage,
+    queryText: string,
+    clauses: MetricsViewerClause[],
+    formula: string
+): string => {
     const names = clauses.map((clause) => clause.metricName.trim())
     let name: string
-    if (formula) {
+    if (language !== 'builder') {
+        // A PromQL or SQL query has no named clauses, so its text names it.
+        name = `${language === 'promql' ? 'PromQL' : 'SQL'}: ${queryText.replace(/\s+/g, ' ').trim()}`
+    } else if (formula) {
         name = `${formula} (${names.join(', ')})`
     } else if (clauses.length > 1) {
         name = `${names.join(', ')} (${clauses.length} series)`
@@ -474,11 +485,13 @@ export interface metricsViewerLogicValues {
     groupByKeys: string[]
     groupBySearch: string
     hasMetricName: boolean
+    hasQuery: boolean
     hasResults: boolean
     heatmapEligible: boolean
     histogramQueryNode: MetricsHistogramQuery | null
     interval: string | null
     isAddToDashboardModalOpen: boolean
+    language: MetricsQueryLanguage
     lastSavedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     liveRefresh: boolean
     metricName: string
@@ -488,6 +501,7 @@ export interface metricsViewerLogicValues {
     pendingAddToDashboard: boolean
     pendingAlert: boolean
     queryAbortController: AbortController | null
+    queryDraft: string
     queryError: string | null
     queryFilters: _MetricFilterApi[]
     queryFingerprint: string
@@ -496,6 +510,8 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
+    queryText: string
+    queryTextChanged: boolean
     rangeFunction: MetricRangeFunction | null
     reduce: MetricsReducer
     savedInsight: InsightModel | null
@@ -541,6 +557,9 @@ export interface metricsViewerLogicActions {
     }
     addToDashboard: () => {
         value: true
+    }
+    applyQuery: (query: MetricsQuery) => {
+        query: MetricsQuery
     }
     backfillClauses: (updates: MetricsViewerClauseBackfill[]) => {
         updates: MetricsViewerClauseBackfill[]
@@ -640,6 +659,9 @@ export interface metricsViewerLogicActions {
     resetPendingAlert: () => {
         value: true
     }
+    runQueryText: () => {
+        value: true
+    }
     saveAsInsight: () => any
     saveAsInsightFailure: (
         error: string,
@@ -707,6 +729,12 @@ export interface metricsViewerLogicActions {
     setQueryAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
+    setQueryDraft: (queryDraft: string) => {
+        queryDraft: string
+    }
+    setQueryText: (queryText: string) => {
+        queryText: string
+    }
     setRangeFunction: (rangeFunction: MetricRangeFunction | null) => {
         rangeFunction: MetricRangeFunction | null
     }
@@ -750,12 +778,18 @@ export interface metricsViewerLogicMeta {
         filterGroup: (activeClause: MetricsViewerClause) => UniversalFiltersGroup
         namedClauses: (viewerClauses: MetricsViewerClause[]) => MetricsViewerClause[]
         hasMetricName: (namedClauses: MetricsViewerClause[]) => boolean
+        hasQuery: (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string) => boolean
         queryPayload: (
             namedClauses: MetricsViewerClause[],
             formula: string,
             interval: string | null
         ) => MetricsQueryRequestBody | null
-        queryFingerprint: (queryPayload: MetricsQueryRequestBody | null) => string
+        queryFingerprint: (
+            queryPayload: MetricsQueryRequestBody | null,
+            language: MetricsQueryLanguage,
+            queryText: string,
+            interval: string | null
+        ) => string
         anomalyQuery: (namedClauses: MetricsViewerClause[], formula: string) => MetricsAnomalyRequestBody | null
         anomalyFingerprint: (anomalyQuery: MetricsAnomalyRequestBody | null) => string
         metricsDisplay: (
@@ -770,9 +804,16 @@ export interface metricsViewerLogicMeta {
             dateFrom: string | null,
             dateTo: string | null,
             metricsDisplay: MetricsDisplaySettings | undefined,
-            interval: string | null
+            interval: string | null,
+            language: MetricsQueryLanguage,
+            queryText: string
         ) => MetricsQuery | null
-        heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
+        queryTextChanged: (queryDraft: string, queryText: string) => boolean
+        heatmapEligible: (
+            language: MetricsQueryLanguage,
+            namedClauses: MetricsViewerClause[],
+            formula: string
+        ) => boolean
         histogramQueryNode: (
             namedClauses: MetricsViewerClause[],
             heatmapEligible: boolean,
@@ -886,6 +927,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             value,
         }),
         setReduce: (reduce: MetricsReducer) => ({ reduce }),
+        // PromQL and SQL modes: the draft follows each keystroke, and only a run moves it into the
+        // query, so typing does not run a half-written query.
+        setQueryDraft: (queryDraft: string) => ({ queryDraft }),
+        setQueryText: (queryText: string) => ({ queryText }),
+        runQueryText: true,
+        // Replaces the whole query, as a language switch does.
+        applyQuery: (query: MetricsQuery) => ({ query }),
     }),
     reducers(({ props }) => ({
         // The clause list, active index, and formula live in one reducer so the
@@ -896,6 +944,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 ? queryStateFromNode(props.initialQuery)
                 : DEFAULT_QUERY_STATE) as MetricsViewerQueryState,
             {
+                applyQuery: (_, { query }) => queryStateFromNode(query),
                 setMetricName: (state, { metricName }) =>
                     withActiveClause(state, (clause) => ({ ...clause, metricName })),
                 // The picked metric's type, latched at pick time (and backfilled if the
@@ -984,6 +1033,25 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                               formula: sanitizeFormulaInput(formula),
                           }
                         : state,
+            },
+        ],
+        language: [
+            (props.initialQuery?.language ?? 'builder') as MetricsQueryLanguage,
+            { applyQuery: (_, { query }) => queryLanguage(query) },
+        ],
+        queryText: [
+            props.initialQuery ? metricsQueryText(props.initialQuery) : '',
+            {
+                setQueryText: (_, { queryText }) => queryText,
+                applyQuery: (_, { query }) => metricsQueryText(query),
+            },
+        ],
+        queryDraft: [
+            props.initialQuery ? metricsQueryText(props.initialQuery) : '',
+            {
+                setQueryDraft: (_, { queryDraft }) => queryDraft,
+                setQueryText: (_, { queryText }) => queryText,
+                applyQuery: (_, { query }) => metricsQueryText(query),
             },
         ],
         dateFrom: [
@@ -1127,8 +1195,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             }
         }
         // The heatmap display is valid only while the query stays eligible. Every change
-        // that can end eligibility (a formula, a second clause, a group-by, a URL restore)
-        // must fall back, or "heatmap" stays selected while the viewer renders a time
+        // that can end eligibility (a formula, a second clause, a group-by, a URL restore,
+        // a switch to PromQL or SQL) must fall back, or "heatmap" stays selected while the viewer renders a time
         // series and saving silently does nothing (savedQueryNode is null).
         const resetHeatmapIfIneligible = (): void => {
             if (values.displayType === 'heatmap' && !values.heatmapEligible) {
@@ -1150,6 +1218,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 resetHeatmapIfIneligible()
             },
             setFormula: resetHeatmapIfIneligible,
+            applyQuery: resetHeatmapIfIneligible,
             // `setFilterGroup` changes the active clause's chips; the clause-navigation
             // actions change which clause's chips are the scope.
             setFilterGroup: syncPickerServices,
@@ -1223,6 +1292,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
             saveAsInsightFailure: ({ error }) => {
                 lemonToast.error(`Failed to save insight: ${error}`)
+            },
+            runQueryText: () => {
+                actions.setQueryText(values.queryDraft.trim())
             },
             addToDashboard: () => {
                 if (!canCreateMetricsInsight() || !values.savedQueryNode) {
@@ -1323,6 +1395,25 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     if (!canViewMetrics()) {
                         return []
                     }
+                    if (values.language !== 'builder') {
+                        // PromQL and SQL run through the same query runner as a saved metrics insight.
+                        const node = values.metricsQueryNode
+                        if (!node || !values.queryText.trim()) {
+                            return []
+                        }
+                        await breakpoint(300)
+                        const controller = new AbortController()
+                        actions.cancelInProgressQuery(controller)
+                        const response = await performQuery(node, { signal: controller.signal })
+                        breakpoint()
+                        actions.setQueryAbortController(null)
+                        return response.results.map((series) => ({
+                            labels: series.labels,
+                            points: series.points,
+                            metric_name: series.metricName ?? null,
+                            clause: series.clause ?? null,
+                        }))
+                    }
                     const queryPayload = values.queryPayload
                     if (!queryPayload) {
                         return []
@@ -1364,7 +1455,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         return null
                     }
                     const insight = await insightsApi.create({
-                        name: insightNameForViewerQuery(values.namedClauses, values.formula),
+                        name: insightNameForViewerQuery(
+                            values.language,
+                            values.queryText,
+                            values.namedClauses,
+                            values.formula
+                        ),
                         query,
                         saved: true,
                     })
@@ -1470,6 +1566,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 clauses.filter((clause) => clause.metricName.trim().length > 0),
         ],
         hasMetricName: [(s) => [s.namedClauses], (namedClauses: MetricsViewerClause[]) => namedClauses.length > 0],
+        // Whether there is anything to run: a picked metric, or PromQL or SQL text.
+        hasQuery: [
+            (s) => [s.language, s.hasMetricName, s.queryText],
+            (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string): boolean =>
+                language === 'builder' ? hasMetricName : queryText.trim() !== '',
+        ],
         // The chart request minus the date range (resolved at fetch time). The fetch
         // loader sends this object verbatim, so the fingerprint below can't drift from
         // the real payload. Null when nothing queries anything yet.
@@ -1492,8 +1594,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // and a blank-row add/remove (which changes `viewerClauses` but not the request)
         // doesn't refetch the chart and cascade into samples/exemplar reloads.
         queryFingerprint: [
-            (s) => [s.queryPayload],
-            (queryPayload: MetricsQueryRequestBody | null): string => JSON.stringify(queryPayload),
+            (s) => [s.queryPayload, s.language, s.queryText, s.interval],
+            (
+                queryPayload: MetricsQueryRequestBody | null,
+                language: MetricsQueryLanguage,
+                queryText: string,
+                interval: string | null
+            ): string => JSON.stringify(language === 'builder' ? queryPayload : { language, queryText, interval }),
         ],
         // The characterize request minus the anomaly window, null when the badge is
         // suppressed: with several clauses (or a formula result) there is no single
@@ -1545,22 +1652,27 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         metricsQueryNode: [
-            (s) => [s.namedClauses, s.formula, s.dateFrom, s.dateTo, s.metricsDisplay, s.interval],
+            (s) => [
+                s.namedClauses,
+                s.formula,
+                s.dateFrom,
+                s.dateTo,
+                s.metricsDisplay,
+                s.interval,
+                s.language,
+                s.queryText,
+            ],
             (
                 namedClauses: MetricsViewerClause[],
                 formula: string,
                 dateFrom: string | null,
                 dateTo: string | null,
                 metricsDisplay: MetricsDisplaySettings | undefined,
-                interval: string | null
+                interval: string | null,
+                language: MetricsQueryLanguage,
+                queryText: string
             ): MetricsQuery | null => {
-                if (!namedClauses.length) {
-                    return null
-                }
-                return {
-                    kind: NodeKind.MetricsQuery,
-                    clauses: namedClauses.map(clauseToNodeClause),
-                    ...(formula ? { formula } : {}),
+                const shared = {
                     dateRange: {
                         date_from: dateFrom ?? DEFAULT_DATE_FROM,
                         ...(dateTo ? { date_to: dateTo } : {}),
@@ -1568,14 +1680,37 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     ...(interval ? { interval } : {}),
                     ...(metricsDisplay ? { display: metricsDisplay } : {}),
                 }
+                if (language !== 'builder') {
+                    return {
+                        kind: NodeKind.MetricsQuery,
+                        clauses: [],
+                        language,
+                        ...(language === 'promql' ? { promql: queryText } : { sql: queryText }),
+                        ...shared,
+                    }
+                }
+                if (!namedClauses.length) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: namedClauses.map(clauseToNodeClause),
+                    ...(formula ? { formula } : {}),
+                    ...shared,
+                }
             },
         ],
-        // The heatmap renders one distribution, so it needs exactly one non-formula clause on a
-        // distribution metric. The OTel type is latched at pick time (backfilled from the picker
+        queryTextChanged: [
+            (s) => [s.queryDraft, s.queryText],
+            (queryDraft: string, queryText: string): boolean => queryDraft.trim() !== queryText,
+        ],
+        // The heatmap renders one distribution, so it needs exactly one non-formula builder clause
+        // on a distribution metric. The OTel type is latched at pick time (backfilled from the picker
         // list), so this doesn't flicker as the live picker search results change.
         heatmapEligible: [
-            (s) => [s.namedClauses, s.formula],
-            (namedClauses: MetricsViewerClause[], formula: string): boolean =>
+            (s) => [s.language, s.namedClauses, s.formula],
+            (language: MetricsQueryLanguage, namedClauses: MetricsViewerClause[], formula: string): boolean =>
+                language === 'builder' &&
                 namedClauses.length === 1 &&
                 !formula &&
                 namedClauses[0].groupByKeys.length === 0 &&
