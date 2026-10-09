@@ -276,8 +276,6 @@ class TestReviewHogTriggerApi(APIBaseTest):
     )
     @patch(_START, return_value="wf-1")
     def test_configured_run_user_applies_only_where_it_is_an_active_member(self, _name, deactivate, mock_start):
-        # Any project can own a repository now, so the configured run user can belong to another
-        # organization. The owning project's own run user takes over.
         if deactivate:
             User.objects.filter(id=self.run_user.id).update(is_active=False)
         else:

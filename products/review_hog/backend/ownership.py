@@ -50,7 +50,6 @@ class RepositoryRef:
 class RepositoryOwner:
     team_id: int
     installation_id: str
-    # The owning project's row for the repository, if it has one.
     row: ReviewRepository | None
 
 

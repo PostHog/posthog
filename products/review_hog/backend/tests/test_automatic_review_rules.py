@@ -41,7 +41,6 @@ def rule(project: FlashRule, repository: FlashRule | None = None, *, review_bots
 class TestAutomaticReviewRule(SimpleTestCase):
     @parameterized.expand(
         [
-            # The project rule alone.
             ("project_everyone", rule(EVERYONE_EXCEPT_A), YOU, Default.FOLLOW, None, True, Reason.PROJECT_EVERYONE),
             (
                 "project_excepted",
