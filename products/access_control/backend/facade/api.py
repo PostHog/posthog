@@ -212,23 +212,14 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
 
 
-def terraform_account_user_id_for_team(*, team_id: int) -> int | None:
-    """The user behind the personal API key Terraform uses to manage this project's access rules,
-    or None when Terraform does not manage them. A filter rather than get_or_create_team_extension,
-    so that a read on the hot path never inserts a row."""
-    config = (
-        TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True, managed_by__isnull=False)
-        .select_related("managed_by")
-        .first()
-    )
-    return config.managed_by.user_id if config and config.managed_by else None
-
-
 def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
-    """When Terraform manages the project, only its account may change the rules. The check is on
-    the user behind the request, never on a client header, because any client can send any header."""
-    terraform_user_id = terraform_account_user_id_for_team(team_id=team_id)
-    return terraform_user_id is None or terraform_user_id == user_id
+    """True when the lock is disabled, or when the user is the Terraform account. An enabled lock
+    with no account refuses everyone until the first Terraform write. The check is on the user
+    behind the request and never on a client header, because any client can send any header."""
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True).first()
+    if config is None:
+        return True
+    return config.managed_by_id is not None and config.managed_by.user_id == user_id
 
 
 def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
@@ -238,7 +229,6 @@ def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
     return not (
         TeamAccessControlConfig.objects.filter(
             is_managed_by_terraform=True,
-            managed_by__isnull=False,
             team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
         )
         .exclude(managed_by__user_id=user_id)
