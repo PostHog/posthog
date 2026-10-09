@@ -823,8 +823,11 @@ class Database(BaseModel):
     _view_table_names: list[str] = []
     _table_slot_origins: dict[tuple[str, ...], str] = {}
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
-    # `models.<stored name>` -> stored chain, for authored saved queries. Resolved through the tree at lookup time.
+    # `models.<stored name>` -> stored chain, for authored saved queries. Only the deny check reads it.
     _models_aliases: dict[str, list[str]] = {}
+    # `models.<stored name>` -> the model's own view node. Resolution uses this and not the stored chain,
+    # because a warehouse table merged into the root first can hold the bare stored name.
+    _models_alias_nodes: dict[str, TableNode] = {}
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
@@ -884,6 +887,7 @@ class Database(BaseModel):
         self._table_slot_origins = {}
         self._denied_tables = set()
         self._models_aliases = {}
+        self._models_alias_nodes = {}
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
@@ -917,9 +921,8 @@ class Database(BaseModel):
             table_name = table_name.split(".")
         if self.tables.has_child(table_name):
             return True
-        alias_target = self._models_aliases.get(".".join(table_name))
-        if alias_target is not None and not self.is_table_access_denied(table_name):
-            return self.tables.has_child(alias_target)
+        if ".".join(table_name) in self._models_alias_nodes and not self.is_table_access_denied(table_name):
+            return True
         # A miss under a revenue prefix may just mean the deferred views are not built yet.
         if self._should_build_revenue_views_for(table_name):
             self._ensure_revenue_views_built()
@@ -940,10 +943,10 @@ class Database(BaseModel):
     def _models_alias_node(self, table_name: list[str]) -> TableNode | None:
         # The deny check comes before the alias, so a denied query stored as `models.x` is never
         # answered by the alias of an allowed `x`.
-        alias_target = self._models_aliases.get(".".join(table_name))
-        if alias_target is None or self.is_table_access_denied(table_name):
+        alias_node = self._models_alias_nodes.get(".".join(table_name))
+        if alias_node is None or self.is_table_access_denied(table_name):
             return None
-        return self.tables.get_child(alias_target)
+        return alias_node
 
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
         if isinstance(table_name, str):
@@ -1309,6 +1312,11 @@ class Database(BaseModel):
             name for name in self._warehouse_self_managed_table_names if name in allowed_table_names
         ]
         self._view_table_names = [name for name in self._view_table_names if name in allowed_table_names]
+        self._models_alias_nodes = {
+            alias: node
+            for alias, node in self._models_alias_nodes.items()
+            if ".".join(self._models_aliases[alias]) in allowed_table_names
+        }
         self._remove_lazy_joins_to_disallowed_tables(allowed_table_names)
 
     def apply_schema_scope(self) -> None:
@@ -2847,6 +2855,9 @@ class Database(BaseModel):
 
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
+        database._models_alias_nodes = {
+            alias: views.get_child(chain) for alias, chain in database._models_aliases.items() if views.has_child(chain)
+        }
         database._add_views(views)
 
         if deferred_revenue_handles:

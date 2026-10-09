@@ -22,6 +22,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 Origin = DataWarehouseSavedQuery.Origin
 
@@ -229,6 +230,22 @@ class TestModelsNamespaceDualRegistration(BaseTest):
         assert qualified_name not in database.get_view_names()
         assert qualified_name not in database.get_all_table_names()
         assert qualified_name not in database.tables.resolve_visible_table_names()
+
+    def test_the_models_name_reaches_the_model_when_a_warehouse_table_holds_the_bare_name(self) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="revenue",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        self._create("revenue")
+
+        database = Database.create_for(team=self.team)
+
+        assert isinstance(database.get_table("models.revenue"), SavedQuery)
 
     def test_a_stored_models_name_wins_over_a_derived_one(self) -> None:
         legacy = self._create("arr", query="SELECT 'legacy' AS id")
