@@ -1589,7 +1589,8 @@ describe('LogsIngestionConsumer', () => {
                     },
                 ],
             ])
-            const currentHour = DateTime.utc().startOf('hour')
+            // Mid-hour, so the rows show the truncation to the hour.
+            jest.spyOn(Date, 'now').mockReturnValue(DateTime.fromISO('2025-01-01T05:37:12Z').toMillis())
 
             await consumer['emitUsageMetrics'](usageStats)
 
@@ -1597,11 +1598,14 @@ describe('LogsIngestionConsumer', () => {
                 .filter((m) => m.topic === KAFKA_APP_METRICS_2)
                 .map((m) => parseMetricValue(m.value))
                 .filter((m) => m?.metric_name === 'retention_byte_days')
-                .map((m) => DateTime.fromFormat(m.timestamp, 'yyyy-MM-dd HH:mm:ss.u', { zone: 'utc' }))
-                .sort((a, b) => a.toMillis() - b.toMillis())
+                .map((m) => m.timestamp)
+                .sort()
 
-            expect(timestamps).toHaveLength(3)
-            expect(timestamps.map((t) => t.diff(currentHour, 'days').days)).toEqual([0, 30, 60])
+            expect(timestamps).toEqual([
+                '2025-01-01 05:00:00.000',
+                '2025-01-31 05:00:00.000',
+                '2025-03-02 05:00:00.000',
+            ])
         })
 
         it('should keep the longest retention within ClickHouse partitions-per-insert limit', async () => {
