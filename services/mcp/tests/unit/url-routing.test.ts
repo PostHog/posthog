@@ -348,6 +348,31 @@ describe('URL Routing', () => {
         })
     })
 
+    describe('tools allowlist parsing', () => {
+        it('parses x-posthog-tools and drops duplicates and invalid names', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    'x-posthog-tools': 'insights-list, insights-list, nope!, INSIGHTS-CREATE',
+                },
+            })
+            expect(parseRequestProperties(request, {}).tools).toEqual(['insights-list', 'insights-create'])
+        })
+
+        it('prefers the header over the tools query param', () => {
+            const request = new Request('https://example.com/mcp?tools=docs-search', {
+                headers: { 'x-posthog-tools': 'insights-list' },
+            })
+            expect(parseRequestProperties(request, {}).tools).toEqual(['insights-list'])
+        })
+
+        it('parses tools query param', () => {
+            const request = new Request('https://example.com/mcp?tools=docs-search', {
+                headers: {},
+            })
+            expect(parseRequestProperties(request, {}).tools).toEqual(['docs-search'])
+        })
+    })
+
     describe('excludeTools parsing', () => {
         it('parses x-posthog-exclude-tools and drops duplicates and invalid names', () => {
             const request = new Request('https://example.com/mcp', {

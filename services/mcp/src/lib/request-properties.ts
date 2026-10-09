@@ -13,6 +13,8 @@ export type RequestProperties = {
     suppressAnalytics?: boolean
     sessionId?: string | undefined
     features?: string[] | undefined
+    // Caller-supplied tool allowlist (`x-posthog-tools` header or `?tools=`). A sandboxed task
+    // run sends the tools its brief allowed; `always_available` tools bypass it.
     tools?: string[] | undefined
     region?: string | undefined
     organizationId?: string | undefined
@@ -64,9 +66,9 @@ function splitCsv(value: string | null): string[] | undefined {
 }
 
 const MCP_TOOL_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/i
-const MAX_EXCLUDE_TOOLS = 32
+const MAX_TOOL_NAMES = 32
 
-function parseExcludeTools(value: string | undefined): string[] | undefined {
+function parseToolNames(value: string | undefined): string[] | undefined {
     if (!value) {
         return undefined
     }
@@ -79,7 +81,7 @@ function parseExcludeTools(value: string | undefined): string[] | undefined {
         }
         seen.add(token)
         unique.push(token)
-        if (unique.length >= MAX_EXCLUDE_TOOLS) {
+        if (unique.length >= MAX_TOOL_NAMES) {
             break
         }
     }
@@ -105,7 +107,7 @@ export function parseRequestProperties(
         organizationId: header(request, 'x-posthog-organization-id') || params.get('organization_id') || undefined,
         projectId: header(request, 'x-posthog-project-id') || params.get('project_id') || undefined,
         features: splitCsv(params.get('features')),
-        tools: splitCsv(params.get('tools')),
+        tools: parseToolNames(sanitizeHeaderValue(header(request, 'x-posthog-tools'))) ?? splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
@@ -119,7 +121,7 @@ export function parseRequestProperties(
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
-        excludeTools: parseExcludeTools(
+        excludeTools: parseToolNames(
             sanitizeHeaderValue(header(request, 'x-posthog-exclude-tools') || params.get('exclude_tools') || undefined)
         ),
         transport,

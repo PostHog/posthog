@@ -10,6 +10,11 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
 )
+from products.tasks.backend.logic.services.mcp_tool_names import (
+    mcp_allowed_tools_from_state,
+    mcp_exclude_tools_from_state,
+    sanitize_mcp_tool_names,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
@@ -32,10 +37,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
-    mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
-    sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
 
@@ -424,6 +427,17 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
             omitted = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert all(header["name"] != "x-posthog-exclude-tools" for header in omitted[0].headers)
 
+    def test_allowed_tools_header(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
+            configs = get_sandbox_ph_mcp_configs(
+                self.TOKEN, self.PROJECT_ID, allowed_tools=["insights-list", "INSIGHTS-LIST", "not a tool"]
+            )
+            assert {"name": "x-posthog-tools", "value": "insights-list"} in configs[0].headers
+            omitted = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert all(header["name"] != "x-posthog-tools" for header in omitted[0].headers)
+
 
 class TestMcpExcludeTools(SimpleTestCase):
     @parameterized.expand(
@@ -433,13 +447,18 @@ class TestMcpExcludeTools(SimpleTestCase):
             ([], []),
         ]
     )
-    def test_sanitize_mcp_exclude_tools(self, names, expected) -> None:
-        assert sanitize_mcp_exclude_tools(names) == expected
+    def test_sanitize_mcp_tool_names(self, names, expected) -> None:
+        assert sanitize_mcp_tool_names(names) == expected
 
     def test_mcp_exclude_tools_from_state_requires_a_string_list(self) -> None:
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": ["docs-search", 1]}) == ["docs-search"]
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
+
+    def test_mcp_allowed_tools_from_state_requires_a_string_list(self) -> None:
+        assert mcp_allowed_tools_from_state({"mcp_allowed_tools": ["insights-list", 1]}) == ["insights-list"]
+        assert mcp_allowed_tools_from_state({"mcp_allowed_tools": "insights-list"}) == []
+        assert mcp_allowed_tools_from_state(None) == []
 
 
 class TestMcpServerConfigToDict(TestCase):
