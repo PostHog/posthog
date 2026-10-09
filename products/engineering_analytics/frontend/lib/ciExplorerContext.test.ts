@@ -45,13 +45,25 @@ function job(id: number, name: string, conclusion: string): WorkflowJobApi {
 }
 
 const WORKFLOWS = buildWorkflows([RUN], {
-    [WORKFLOW]: [job(1, 'Jest (1/2)', 'success'), job(2, 'Jest (2/2)', 'failure'), job(3, 'Lint', 'success')],
+    [WORKFLOW]: [
+        job(1, 'Jest (1/2)', 'success'),
+        job(2, 'Jest (2/2)', 'failure'),
+        job(3, 'Lint', 'success'),
+        job(4, 'Build (1/2)', 'cancelled'),
+        job(5, 'Build (2/2)', 'cancelled'),
+    ],
 })
 
 describe('ciExplorerContext', () => {
     test.each<[string, string, number | null, Partial<CIContextSelection>]>([
         ['a workflow', WORKFLOW, null, { kind: 'workflow', jobIds: [], runAttempt: 3, passed: false }],
         ['a matrix asks about every shard', `${WORKFLOW}/Jest`, null, { kind: 'matrix', passed: false }],
+        [
+            'a matrix whose shards were all cancelled',
+            `${WORKFLOW}/Build`,
+            null,
+            { kind: 'matrix', statusText: 'Cancelled', passed: false },
+        ],
         ['a shard', `${WORKFLOW}/Jest/1`, null, { kind: 'job', jobIds: [1], passed: true }],
         [
             'a step of the focused job',

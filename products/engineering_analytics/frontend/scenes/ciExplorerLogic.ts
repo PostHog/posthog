@@ -112,6 +112,10 @@ function jobInsightsKey(job: WorkflowJobApi): string {
     return `${job.ci_engine ?? ''}:${job.run_id}:${job.id}`
 }
 
+function viewedProperties(view: CIExplorerView, selectedHeadSha: string | null): Record<string, unknown> {
+    return { view, older_commit: selectedHeadSha !== null }
+}
+
 function runJobsKey(run: WorkflowRun): string | null {
     return run.runId === null ? null : jobCacheKey(run.runId, run.runAttempt, run.ciEngine)
 }
@@ -831,7 +835,11 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, selectors }) => {
+    listeners(({ actions, values, selectors, cache }) => {
+        const captureViewed = (): void => {
+            cache.viewCaptured = true
+            posthog.capture(EVENT_VIEWED, viewedProperties(values.view, values.selectedHeadSha))
+        }
         const loadMissingJobs = (): void => {
             const missing = values.workflowRuns.filter((run) => {
                 const cacheKey = runJobsKey(run)
@@ -849,12 +857,7 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 actions.loadLayouts(missing)
             }
         }
-        // A focused job shows its steps, so it is taller. Its workflow is placed again when it gains or loses the focus.
-        const onFocusChange = (previous: string | null): void => {
-            const resized = workflowsOfNodes(values.workflows, [previous, values.focusedNodeId])
-            if (resized.length && previous !== values.focusedNodeId) {
-                actions.loadLayouts(resized)
-            }
+        const loadFocusedJobInsights = (): void => {
             const job = values.focusedJob?.job
             if (
                 job &&
@@ -865,17 +868,30 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 actions.loadJobInsights(job)
             }
         }
+        // A focused job shows its steps, so it is taller. Its workflow is placed again when it gains or loses the focus.
+        const onFocusChange = (previous: string | null): void => {
+            const resized = workflowsOfNodes(values.workflows, [previous, values.focusedNodeId])
+            if (resized.length && previous !== values.focusedNodeId) {
+                actions.loadLayouts(resized)
+            }
+            loadFocusedJobInsights()
+        }
         return {
             setLocation: ({ location }, __, ___, previousState) => {
                 if (
                     location.view !== selectors.view(previousState) ||
                     location.headSha !== selectors.selectedHeadSha(previousState)
                 ) {
-                    posthog.capture(EVENT_VIEWED, { view: location.view, older_commit: location.headSha !== null })
+                    captureViewed()
                 }
                 loadMissingJobs()
                 loadMissingLayouts()
                 onFocusChange(selectors.focusedNodeId(previousState))
+            },
+            setView: ({ view }, __, ___, previousState) => {
+                if (view !== selectors.view(previousState)) {
+                    captureViewed()
+                }
             },
             setFocus: (_, __, ___, previousState) => onFocusChange(selectors.focusedNodeId(previousState)),
             // A refresh can change the jobs of a run, so every placed workflow that got jobs is placed again.
@@ -888,6 +904,8 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 if (stale.length) {
                     actions.loadLayouts(stale)
                 }
+                // A link can focus a job before its run's jobs arrive.
+                loadFocusedJobInsights()
             },
             // A node from a link that no longer exists gives way to the nearest level that does.
             loadLayoutsSuccess: () => {
@@ -915,6 +933,8 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 } else {
                     loadMissingJobs()
                 }
+                // A workflow whose jobs need no request gets no loadJobsSuccess to place it.
+                loadMissingLayouts()
                 const failed = values.pushes.some((push) => push.runs.some((run) => isDecisiveFailure(run.conclusion)))
                 if (failed && (values.failureLogs === null || selectors.refreshing(previousState))) {
                     actions.loadFailureLogs()
@@ -989,7 +1009,11 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
+        // The router has already read the URL. A link that opens on a view or a commit was captured then.
+        if (!cache.viewCaptured) {
+            posthog.capture(EVENT_VIEWED, viewedProperties(values.view, values.selectedHeadSha))
+        }
         actions.loadLifecycle()
         actions.loadPrRuns()
         actions.loadFreshness()

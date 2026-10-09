@@ -78,13 +78,20 @@ export function contextSelection(
     }
     const job = shard?.job ?? (item.id === nodeId ? item.job : null)
     if (!job) {
+        const shardJobs = jobsOf(item)
         // A matrix has a status and no conclusion of its own. Running maps to none, as it does for a job.
+        // A matrix that did not run takes the conclusion all its shards share, so it reads "Cancelled" or "Skipped".
+        const sharedConclusion = new Set(shardJobs.map((shardJob) => shardJob.conclusion)).size === 1
         return selection(
             'matrix',
             item.name,
-            item.status === 'running' ? null : item.status,
+            item.status === 'running'
+                ? null
+                : item.status === 'neutral' && sharedConclusion
+                  ? shardJobs[0].conclusion
+                  : item.status,
             item.durationSeconds,
-            jobsOf(item).map((shardJob) => shardJob.id)
+            shardJobs.map((shardJob) => shardJob.id)
         )
     }
     const step = stepNumber === null ? undefined : job.steps.find((s) => s.number === stepNumber)
