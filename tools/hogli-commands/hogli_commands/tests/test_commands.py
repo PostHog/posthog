@@ -11,6 +11,8 @@ from unittest.mock import patch
 from hogli_commands.telemetry_props import (
     _AGENT_ENV_MARKERS,
     _DEVBOX_ENV_MARKERS,
+    _STANDARD_AGENT_ENV_VARS,
+    _detect_actor,
     _detect_agent,
     _detect_environment,
     _infer_process_manager,
@@ -91,7 +93,7 @@ class TestDetectAgent:
     @pytest.fixture(autouse=True)
     def _no_ambient_agent(self, monkeypatch):
         monkeypatch.delenv("HOGLI_AGENT", raising=False)
-        for var, _ in _AGENT_ENV_MARKERS:
+        for var in (*(marker for marker, _ in _AGENT_ENV_MARKERS), *_STANDARD_AGENT_ENV_VARS):
             monkeypatch.delenv(var, raising=False)
 
     @pytest.mark.parametrize(
@@ -104,21 +106,43 @@ class TestDetectAgent:
             ({"POSTHOG_CODE_VERSION": "1.2.3", "CLAUDECODE": "1"}, "posthog-code"),
             ({"HOGLI_AGENT": " Goose "}, "goose"),
             ({"HOGLI_AGENT": "goose", "CLAUDECODE": "1"}, "goose"),
+            ({"AI_AGENT": "Cursor-CLI@1.2.3"}, "cursor-cli"),
+            ({"AGENT": "amp"}, "amp"),
+            ({"AI_AGENT": "claude-code_2-1-295_agent", "CLAUDECODE": "1"}, "claude-code"),
         ],
         ids=[
-            "human",
+            "undeclared",
             "claude_code",
             "codex",
             "posthog_code",
             "posthog_code_beats_claude",
             "declared_normalized",
             "declared_beats_sniffed",
+            "standard_var_drops_version",
+            "standard_agent_var",
+            "marker_beats_standard_var",
         ],
     )
     def test_detection(self, monkeypatch, env_vars, expected) -> None:
         for key, value in env_vars.items():
             monkeypatch.setenv(key, value)
         assert _detect_agent() == expected
+
+
+class TestDetectActor:
+    @pytest.mark.parametrize(
+        ("agent", "terminal_fds", "expected"),
+        [
+            ("claude-code", {0, 1, 2}, "agent"),
+            (None, {0, 1, 2}, "human"),
+            (None, {1, 2}, "human"),
+            (None, set(), "unknown"),
+        ],
+        ids=["agent_with_terminal", "terminal", "pre_push_hook_stdin_piped", "no_terminal_no_agent"],
+    )
+    def test_classification(self, monkeypatch, agent, terminal_fds, expected) -> None:
+        monkeypatch.setattr("hogli_commands.telemetry_props.os.isatty", lambda fd: fd in terminal_fds)
+        assert _detect_actor(agent) == expected
 
 
 class TestRepoCommitProperties:
