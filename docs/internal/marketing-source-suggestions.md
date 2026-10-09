@@ -11,15 +11,6 @@ It ranks below a source with 25 paid events, regardless of that source's total t
 
 These counts guide connection suggestions; they do not change report attribution or connected-source sync checks.
 
-## Source connection context
-
-Setup scan recommendations include a connection link with the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
-The `entry_point` query parameter identifies the originating surface separately from the visible return label.
-Marketing links identify MCP (`marketing_analytics_mcp`), onboarding, Setup, the integration menu, search suggestions, and search detail.
-The connection flow preserves return URLs, labels, access mode, and origin metadata through OAuth.
-The `warehouse source connect completed` event records the originating entry point.
-Users complete platform authorization through the connection flow.
-
 ## Search performance
 
 Spend and conversions require a synced ad platform source in the current search filters.
@@ -84,3 +75,12 @@ Table resolution uses schema metadata when available and otherwise recognizes so
 The setup plan caches event scans for seven days per project. Explicit refresh requests respect a one-hour cooldown.
 Source health polling refreshes metadata without forcing every dashboard query.
 Campaign reporting waits for all required schemas to complete their first sync.
+
+## Source connection context
+
+Setup scan recommendations include a connection link with the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
+The `entry_point` query parameter identifies the originating surface separately from the visible return label.
+Marketing links identify MCP (`marketing_analytics_mcp`), onboarding, Setup, the integration menu, search suggestions, and search detail.
+The connection flow preserves return URLs, labels, access mode, and origin metadata through OAuth.
+The `warehouse source connect completed` event records the originating entry point.
+Users complete platform authorization through the connection flow.
