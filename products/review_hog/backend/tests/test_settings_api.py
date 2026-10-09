@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -11,6 +11,8 @@ from products.review_hog.backend.api.settings import ReviewUserSettingsSerialize
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
 from products.skills.backend.models.skills import LLMSkill
 from products.stamphog.backend.facade.testing import seed_repo_config
+
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 
 class TestReviewUserSettingsAPI(APIBaseTest):
@@ -42,7 +44,6 @@ class TestReviewUserSettingsAPI(APIBaseTest):
                 "stamphog_review_inbox_prs": "default",
             },
             "project_defaults": {"urgency_threshold": "consider", "celebrate_clean_reviews": True},
-            "show_internal_features": False,
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
         assert not ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).exists()
@@ -105,11 +106,10 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             connected_by_user_id=connected_by_user_id,
         )
 
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+        with patch(_INTERNAL_FLAG, return_value=True):
             res = self.client.get(self.url)
 
         assert res.status_code == 200
-        assert res.json()["show_internal_features"] is True
         assert res.json()["stamphog_connected"] is expected
 
     def test_patch_rejects_an_unknown_threshold(self) -> None:

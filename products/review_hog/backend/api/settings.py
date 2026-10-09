@@ -1,18 +1,21 @@
 import logging
 from typing import cast
 
+from django.db import transaction
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+
 from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
-from django.db import transaction
 from products.review_hog.backend.preferences import (
     PREFERENCE_KEYS,
     DefaultReviewMode,
@@ -101,9 +104,6 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
         source="project",
         help_text="The project defaults the Full review preferences fall back to.",
     )
-    show_internal_features = serializers.SerializerMethodField(
-        help_text="Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews.",
-    )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
         "false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it "
@@ -112,10 +112,6 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
 
     def _team_id(self) -> int:
         return self.context["team_id"]
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_show_internal_features(self, instance: ReviewPreferences) -> bool:
-        return has_internal_features(self._team_id())
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewPreferences) -> bool:

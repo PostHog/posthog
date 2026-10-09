@@ -31,13 +31,13 @@ import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from pydantic import ValidationError
 
+from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -223,11 +223,11 @@ def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_num
 def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
     """The tier column plus the arm bundle a report placed in `tier` reviews on.
 
-    Tiered arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfood gate. Other teams
+    Tiered arms are rolled out per project through the `review-hog-internal` flag. Other projects
     keep the single default arm but still record their tier, so the label stays truthful and the
     tiers can be compared on their traffic before the rollout widens.
     """
-    arm = REVIEW_ARMS_BY_TIER[tier] if team_id in settings.REVIEWHOG_TEAM_IDS else DEFAULT_REVIEW_ARM
+    arm = REVIEW_ARMS_BY_TIER[tier] if has_internal_features(team_id) else DEFAULT_REVIEW_ARM
     return {
         "review_tier": tier.value,
         "review_runtime_adapter": arm.runtime_adapter.value,

@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import migrations
 
 import structlog
@@ -6,11 +5,12 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # The repositories the hardcoded allowlists covered: automatic Flash reviews ran only in
-# PostHog/posthog, and the label trigger also accepted PostHog/ai-gateway. The first ReviewHog team
-# selects both, so automatic reviews and the label trigger keep their project. The project rule
-# stays at its default, opt-in only, so only people who chose Flash get it.
+# PostHog/posthog, and the label trigger also accepted PostHog/ai-gateway. The project that ran those
+# automatic reviews selects both, so automatic reviews and the label trigger keep their project. The
+# project rule stays at its default, opt-in only, so only people who chose Flash get it.
 SEEDED_ACCOUNT = "PostHog"
 SEEDED_REPOSITORIES = ("PostHog/posthog", "PostHog/ai-gateway")
+AUTOMATIC_REVIEW_REPOSITORY = "PostHog/posthog"
 
 
 def _preferences_from_columns(row) -> dict:
@@ -110,18 +110,28 @@ def _seed_repository_rows(apps, team_id: int) -> None:
     logger.info("review_hog_seeded_repositories", team_id=team_id, installation_id=installation_id)
 
 
+def _automatic_review_team_id(apps) -> int | None:
+    """The project that ran automatic reviews of PostHog/posthog, or None on any other instance.
+
+    Only one project ever ran them, and only automatic reviews set `automatic_reviewed_head_sha`.
+    """
+    ReviewReport = apps.get_model("review_hog", "ReviewReport")
+    return (
+        ReviewReport.objects.filter(
+            repository__iexact=AUTOMATIC_REVIEW_REPOSITORY, automatic_reviewed_head_sha__isnull=False
+        )
+        .order_by("-updated_at")
+        .values_list("team_id", flat=True)
+        .first()
+    )
+
+
 def seed_review_settings(apps, schema_editor):
     copy_settings_into_preferences(apps, schema_editor)
 
-    # Only the first ReviewHog team received automatic and label-triggered reviews. Other instances
-    # leave the setting empty, or name a team that does not exist there.
-    if not settings.REVIEWHOG_TEAM_IDS:
-        logger.info("review_hog_seed_skipped", reason="no_reviewhog_team")
-        return
-    team_id = settings.REVIEWHOG_TEAM_IDS[0]
-    Team = apps.get_model("posthog", "Team")
-    if not Team.objects.filter(id=team_id).exists():
-        logger.warning("review_hog_seed_skipped", reason="team_missing", team_id=team_id)
+    team_id = _automatic_review_team_id(apps)
+    if team_id is None:
+        logger.info("review_hog_seed_skipped", reason="no_automatic_review_project")
         return
     _seed_repository_rows(apps, team_id)
 
