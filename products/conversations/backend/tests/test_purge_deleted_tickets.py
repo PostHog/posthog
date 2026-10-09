@@ -218,15 +218,30 @@ class TestPurgeDeletedTickets(BaseTest):
             distinct_id="person-1",
         )
         legacy = UploadedMedia.objects.create(team=self.team, file_name="old.png", media_location="uploads/old.png")
+        zendesk_legacy = UploadedMedia.objects.create(
+            team=self.team, file_name="zd.png", media_location="uploads/zd.png"
+        )
         unrelated = UploadedMedia.objects.create(
             team=self.team, file_name="card.png", media_location="uploads/card.png"
         )
+        older_team_file = UploadedMedia.objects.create(
+            team=self.team, file_name="chart.png", media_location="uploads/chart.png"
+        )
+        UploadedMedia.objects.filter(id=older_team_file.id).update(created_at=timezone.now() - timedelta(days=30))
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
             item_id=str(ticket.id),
-            content=f"![old.png](/uploaded_media/{legacy.id})",
+            content=f"![old.png](/uploaded_media/{legacy.id}) ![chart.png](/uploaded_media/{older_team_file.id})",
         )
+        zendesk_comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=f"![zd.png](/uploaded_media/{zendesk_legacy.id})",
+            item_context={"from_zendesk": True},
+        )
+        Comment.objects.filter(id=zendesk_comment.id).update(created_at=timezone.now() - timedelta(days=365))
         Ticket.all_objects.filter(id=ticket.id).update(
             deleted_at=timezone.now() - TICKET_HARD_DELETE_AFTER - timedelta(days=1)
         )
@@ -234,10 +249,11 @@ class TestPurgeDeletedTickets(BaseTest):
         backfill.tag_legacy_attachments(apps, None)
         purge_deleted_tickets()
 
-        delete_object.assert_called_once_with("uploads/old.png")
-        self.assertFalse(UploadedMedia.objects.filter(id=legacy.id).exists())
-        unrelated.refresh_from_db()
-        self.assertIsNone(unrelated.purpose)
+        self.assertEqual({call.args[0] for call in delete_object.call_args_list}, {"uploads/old.png", "uploads/zd.png"})
+        self.assertFalse(UploadedMedia.objects.filter(id__in=[legacy.id, zendesk_legacy.id]).exists())
+        for kept in (unrelated, older_team_file):
+            kept.refresh_from_db()
+            self.assertIsNone(kept.purpose)
 
     @patch("products.signals.backend.facade.api.retract_source_signals", return_value=0)
     def test_purge_leaves_tickets_inside_the_window(self, retract: MagicMock) -> None:
