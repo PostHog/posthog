@@ -43,7 +43,7 @@ class CustomerIOWebhookAuthentication(WebhookSignatureAuthentication):
         return found.secret
 
     def get_auth_context(self, request: Request) -> Any:
-        if self._integration_id is None:
+        if self._team_id is None or self._integration_id is None:
             return None
         return Integration.objects.filter(team_id=self._team_id, pk=self._integration_id).first()
 
