@@ -1,0 +1,31 @@
+{% extends "email/base.html" %}
+{% block heading %}A data warehouse destination is paused{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        PostHog paused the destination <b>{{ destination_name }}</b> in project <b>{{ team.name }}</b>. The last few syncs could not connect to it because of its settings.
+    </p>
+    <p>The last error was:</p>
+    <p><i>{{ latest_error }}</i></p>
+    <p>Tables that also sync to other destinations keep syncing there. Tables that sync only to this destination stop until you turn it back on.</p>
+    <p>To turn it back on, fix the problem, then open the destination and save it.</p>
+    <div class="mb mt text-center">
+        <a class="button" href="{{ destinations_url }}">Go to destinations</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ destinations_url }}">{{ destinations_url }}</a>
+        </p>
+    </div>
+{% endblock %}
+{% block footer %}
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.
+    <br />
+    <br />
+    <a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+{% endblock %}

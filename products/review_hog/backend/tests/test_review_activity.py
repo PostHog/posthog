@@ -21,7 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
     ReviewArm,
     review_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
@@ -37,6 +37,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    _current_pr_comments,
     lens_review_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -591,3 +592,39 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
         (IssuePriority.SHOULD_FIX, "P2", [LineRange(start=12)], None, expected_source),
         (IssuePriority.CONSIDER, "P3", [LineRange(start=9)], None, expected_source),
     ]
+
+
+def _comment(comment_id: int, line: int | None) -> PRComment:
+    return PRComment(id=comment_id, path="a.py", line=line, body="x", diff_hunk="", user="other-bot", created_at="c")
+
+
+@pytest.mark.parametrize(
+    "fetch_fails,current_head,expected_ids",
+    [
+        pytest.param(False, "sha1", [2, 1], id="the_new_read_adds_new_comments_and_drops_deleted_ones"),
+        pytest.param(True, "sha1", [1, 4], id="keeps_the_first_read_when_github_fails"),
+        pytest.param(False, "sha2", [1, 4], id="keeps_the_first_read_after_a_push_during_the_turn"),
+    ],
+)
+def test_full_dedup_reads_current_comments_without_outdated_ones(
+    fetch_fails: bool, current_head: str, expected_ids: list[int]
+) -> None:
+    # Other bots often post while a Full turn runs, so a start-of-turn read misses what they raise, and a comment
+    # deleted meanwhile must not keep a finding off the PR. A comment GitHub no longer places on a line is about
+    # code that changed, so it must not suppress a finding either. After a push during the turn, GitHub places
+    # comments on code the turn did not review, so the first read stays.
+    snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None), _comment(4, 30)]})
+    fetcher = MagicMock()
+    fetcher.return_value.fetch_pr_comments.return_value = [_comment(2, 20), _comment(1, 10)]
+    fetcher.return_value.fetch_head_sha.return_value = current_head
+    with (
+        patch(
+            f"{_MODULE}._installation_auth",
+            side_effect=RuntimeError("no installation") if fetch_fails else None,
+            return_value=("tok", None),
+        ),
+        patch(f"{_MODULE}.PRFetcher", fetcher),
+    ):
+        comments = _current_pr_comments(SandboxStageInput(**_single_agent_stage()), snapshot)
+
+    assert [comment.id for comment in comments] == expected_ids
