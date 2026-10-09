@@ -2019,4 +2019,6 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
             has_duplicate_primary_keys=has_duplicate_keys,
+            # The ordered query writes a temporary table, and the read of a table has no order.
+            sort_mode=None,
         )

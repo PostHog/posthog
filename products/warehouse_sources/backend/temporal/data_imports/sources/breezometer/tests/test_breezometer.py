@@ -340,7 +340,7 @@ class TestBreezometerSource:
         assert response.primary_keys == ["latitude", "longitude", "dt_iso"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["dt_iso"]
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_invalid_locations_raise(self):
         with pytest.raises(ValueError):

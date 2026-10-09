@@ -383,9 +383,8 @@ def _report_rows(
                 continue
 
             rows = client.download_report(url)
-            # Amazon does not order the file, and the pipeline advances the `date` cursor from
-            # each batch it writes, so a batch must never carry a date later than the rows
-            # still to come for this profile.
+            # Amazon does not order the file. The sort gives each report an ascending `date`, but
+            # the run has no order: the dates start again for each profile in a window.
             rows.sort(key=lambda row: str(row.get("date") or ""))
             yield from _batched_report_rows(rows, profile_id)
 
@@ -484,5 +483,4 @@ def amazon_ads_source(
         partition_mode="datetime" if is_report else None,
         partition_format="day" if is_report else None,
         partition_keys=["date"] if is_report else None,
-        sort_mode="asc",
     )

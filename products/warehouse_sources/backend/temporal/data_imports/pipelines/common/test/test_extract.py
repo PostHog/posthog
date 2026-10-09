@@ -1,11 +1,13 @@
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from redis import exceptions as redis_exceptions
@@ -20,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
     UNREADABLE_JOB_INPUTS_MESSAGE,
+    IncrementalFieldValues,
     _get_redis,
+    finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -31,12 +35,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     resolve_primary_keys,
     should_check_shutdown,
     trim_source_job_inputs,
+    update_incremental_field_values,
     validate_incremental_sync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
 
@@ -50,6 +57,7 @@ class TestShouldCheckShutdown:
             ("outside_activity", False, "asc", True, False, False, 1, 2, False),
             ("resumable_source", False, "asc", True, True, True, 2, 20, True),
             ("ascending_incremental", True, "asc", False, False, True, 2, 20, True),
+            ("unordered_incremental", True, None, False, False, True, 2, 20, True),
             ("descending_incremental", True, "desc", False, False, True, 2, 20, False),
         ]
     )
@@ -57,7 +65,7 @@ class TestShouldCheckShutdown:
         self,
         _name: str,
         is_incremental: bool,
-        sort_mode: str,
+        sort_mode: str | None,
         reset_pipeline: bool,
         source_is_resumable: bool,
         in_activity: bool,
@@ -77,6 +85,63 @@ class TestShouldCheckShutdown:
 
         if not in_activity:
             activity_info.assert_not_called()
+
+
+class TestIncrementalWatermark:
+    @parameterized.expand(
+        [
+            # name, sort_mode, uses_incremental_field, staged after each batch, staged at the end of the run
+            ("ascending", "asc", True, [("run-1", 5), ("run-1", 5)], []),
+            ("unordered", None, True, [("run-1", 5), ("run-1", 5)], []),
+            ("descending", "desc", True, [("run-1", None, 3), ("run-1", None, 1)], [("run-1", 5)]),
+            ("full_refresh_ascending", "asc", False, [], []),
+            ("full_refresh_unordered", None, False, [], []),
+            ("full_refresh_descending", "desc", False, [], []),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_the_staged_watermark_is_the_largest_value_read(
+        self,
+        _name: str,
+        sort_mode: SortMode | None,
+        uses_incremental_field: bool,
+        expected_per_batch: list[tuple[Any, ...]],
+        expected_at_end: list[tuple[Any, ...]],
+    ) -> None:
+        schema = MagicMock(
+            should_use_incremental_field=uses_incremental_field,
+            sync_type_config={"incremental_field": "n"},
+            incremental_field_type=IncrementalFieldType.Integer,
+        )
+        resource = SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"], sort_mode=sort_mode)
+        logger = MagicMock(adebug=AsyncMock())
+
+        async def call(fn: Any, *args: Any) -> Any:
+            return fn(*args)
+
+        with patch(
+            f"{_EXTRACT_MODULE}.database_sync_to_async_pool", lambda fn: lambda *args, **kwargs: call(fn, *args)
+        ):
+            values = IncrementalFieldValues(last_value=None, earliest_value=None)
+            # The largest value is in the first batch, so the last row of the run does not hold it.
+            for batch in ([3, 5, 4], [1, 2]):
+                values = await update_incremental_field_values(
+                    schema,
+                    pa.table({"n": batch}),
+                    resource,
+                    values.last_value,
+                    values.earliest_value,
+                    logger,
+                    staging_run_uuid="run-1",
+                )
+            staged_per_batch = [staged.args for staged in schema.stage_incremental_field_value.call_args_list]
+            schema.stage_incremental_field_value.reset_mock()
+            await finalize_desc_sort_incremental_value(
+                resource, schema, values.last_value, logger, staging_run_uuid="run-1"
+            )
+
+        assert staged_per_batch == expected_per_batch
+        assert [staged.args for staged in schema.stage_incremental_field_value.call_args_list] == expected_at_end
 
 
 class TestResolvePrimaryKeys:

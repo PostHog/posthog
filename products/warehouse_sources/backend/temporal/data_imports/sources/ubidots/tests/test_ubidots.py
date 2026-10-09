@@ -411,7 +411,7 @@ class TestUbidotsSourceResponse:
             assert response.sort_mode == "desc"
         else:
             assert response.primary_keys == ["id"]
-            assert response.sort_mode == "asc"
+            assert response.sort_mode is None
 
     @pytest.mark.parametrize(
         "api_version,expected_fn",

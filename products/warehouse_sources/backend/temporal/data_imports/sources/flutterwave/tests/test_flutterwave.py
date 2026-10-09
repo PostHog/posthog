@@ -255,9 +255,7 @@ class TestSourceResponseMetadata:
         response = _source(endpoint)
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        # Every endpoint is full-refresh, so the pipeline never consults sort_mode; it stays the
-        # framework default.
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
 

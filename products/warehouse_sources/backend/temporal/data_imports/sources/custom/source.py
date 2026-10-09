@@ -221,9 +221,8 @@ class _ManifestResource(BaseModel):
     name: str = Field(min_length=1)
     endpoint: _ManifestEndpoint
     # How the upstream API orders this resource's rows. Incremental syncs commit
-    # the high-watermark per batch for "asc"; for a source whose order is
-    # unknown or descending, declaring "desc" here avoids skipping rows on a
-    # resumed sync. Defaults to "asc" when omitted.
+    # the high-watermark per batch for "asc", so declare "asc" only when the API
+    # guarantees that order. When omitted, the rows have no declared order.
     sort_mode: Literal["asc", "desc"] | None = None
 
 
@@ -1343,9 +1342,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         else:
             primary_keys = None
 
-        # The manifest declares the upstream's row ordering; default "asc" to
-        # match PostHog's other REST sources. An incorrect "asc" assumption on a
-        # non-ascending API can skip rows on a resumed incremental sync.
+        # The manifest declares the upstream's row ordering. A manifest with no
+        # value gets no order: an incorrect "asc" on a non-ascending API can skip
+        # rows on a resumed incremental sync.
         #
         # "desc" only defers committing the high-watermark until the run finishes
         # (so a partial run can't advance the cursor past rows it never reached on
@@ -1362,7 +1361,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # rows arrive grouped per parent, never globally cursor-ascending, so an
         # "asc" per-batch commit after an interruption would set the watermark past
         # later parents' older rows and permanently skip them.
-        sort_mode: SortMode = "desc" if (chain.is_fanout_child or chosen.get("sort_mode") == "desc") else "asc"
+        declared_sort_mode = chosen.get("sort_mode")
+        sort_mode: SortMode | None
+        if chain.is_fanout_child or declared_sort_mode == "desc":
+            sort_mode = "desc"
+        elif declared_sort_mode == "asc":
+            sort_mode = "asc"
+        else:
+            sort_mode = None
 
         return SourceResponse(
             name=inputs.schema_name,

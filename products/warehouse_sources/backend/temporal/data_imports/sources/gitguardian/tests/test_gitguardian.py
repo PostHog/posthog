@@ -155,6 +155,7 @@ class TestLinkHeaderPagination:
                 db_incremental_field_last_value=value,
             )
         assert _query(fetched[0])["date_after"] == [expected]
+        assert _query(fetched[0])["ordering"] == ["date"]
 
     def test_cross_origin_next_link_is_refused(self, monkeypatch: Any) -> None:
         # Pagination URLs are fetched with the Authorization token attached; a tampered Link

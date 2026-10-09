@@ -4724,6 +4724,17 @@ def postgres_source(
             )
         )
 
+    # One statement with `ORDER BY <incremental field>` proves the order for the whole run. A read
+    # per partition, per window or per LIMIT/OFFSET page issues several statements, so it does not.
+    reads_one_ordered_statement = (
+        should_use_incremental_field
+        and incremental_field is not None
+        and xmin_bounds is None
+        and not is_duckdb
+        and not use_window_chunking
+        and not use_per_partition_chunking
+    )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4736,6 +4747,7 @@ def postgres_source(
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
         supports_resume=can_checkpoint and takes_keyset_path,
+        sort_mode="asc" if reads_one_ordered_statement else None,
     )
 
 

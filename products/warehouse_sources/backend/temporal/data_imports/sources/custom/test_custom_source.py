@@ -1704,7 +1704,7 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         assert client_config["base_url"] == manifest["client"]["base_url"]
 
     @parameterized.expand(
-        [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
+        [("default_unordered", None, None), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, mock_resources):
@@ -2294,8 +2294,8 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
             # the override that matters: per-batch asc commits on a child would
             # advance the watermark past later parents' older rows and skip them.
             ("child_overrides_declared_asc", "responses", "asc", "desc"),
-            # Top-level resource keeps its declaration (default "asc").
-            ("parent_keeps_declared", "forms", None, "asc"),
+            # Top-level resource keeps its declaration (no order when omitted).
+            ("parent_keeps_declared", "forms", None, None),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")

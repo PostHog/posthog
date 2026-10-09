@@ -742,7 +742,7 @@ class TestHarveySourceResponse:
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
         assert response.partition_mode == ("datetime" if partition_keys else None)
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_unknown_endpoint_raises(self) -> None:
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=mock.MagicMock()):
