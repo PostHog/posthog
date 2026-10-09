@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -120,6 +121,9 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        openModal: ({ comment }) => {
+            posthog.capture('comment send to slack opened', { scope: comment.scope })
+        },
         submit: async () => {
             const { comment, integrationId, channelId, currentProjectId } = values
             if (!comment || !integrationId || !channelId || !currentProjectId) {
@@ -139,10 +143,12 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
                 actions.submitFailure(e instanceof ApiError ? e.detail : null)
             }
         },
-        submitSuccess: () => {
+        submitSuccess: ({ comment }) => {
+            posthog.capture('comment sent to slack', { scope: comment.scope, source: 'menu', success: true })
             lemonToast.success('Discussion sent to Slack')
         },
         submitFailure: ({ detail }) => {
+            posthog.capture('comment sent to slack', { scope: values.comment?.scope, source: 'menu', success: false })
             lemonToast.error(detail || 'Could not send the discussion to Slack')
         },
     })),

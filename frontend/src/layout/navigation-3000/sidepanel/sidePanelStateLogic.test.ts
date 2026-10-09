@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -33,6 +34,13 @@ describe('sidePanelStateLogic', () => {
             selectedTab: SidePanelTab.Activity,
             selectedTabOptions: 'bug:analytics',
         })
+    })
+
+    it('captures one open event when a tab without options opens', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        logic.actions.openSidePanel(SidePanelTab.Discussion)
+        await expectLogic(logic).toMatchValues({ sidePanelOpen: true })
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'sidebar opened')).toHaveLength(1)
     })
 
     it('closes when closeSidePanel is called with no tab', async () => {

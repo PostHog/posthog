@@ -121,11 +121,13 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             if (panelHash) {
                 const [panel, ...panelOptions] = panelHash.split(':')
 
+                // A tab opened without options stores null, but its URL hash yields ''. Treat both as the
+                // same, or the URL update from actionToUrl opens the panel (and captures the event) again.
                 if (
                     panel &&
                     (panel !== values.selectedTab ||
                         !values.sidePanelOpen ||
-                        panelOptions.join(':') !== values.selectedTabOptions)
+                        panelOptions.join(':') !== (values.selectedTabOptions ?? ''))
                 ) {
                     actions.openSidePanel(panel as SidePanelTab, panelOptions.join(':'))
                 }

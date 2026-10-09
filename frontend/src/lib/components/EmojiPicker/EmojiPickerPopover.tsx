@@ -13,6 +13,8 @@ export interface EmojiPickerPopoverProps {
      * receives the emoji as a string
      */
     onSelect: (s: string) => void
+    /** Called each time the user opens the popover */
+    onOpen?: () => void
     /**
      * Whether to start with the popover open or closed
      * Defaults to false (closed)
@@ -31,6 +33,7 @@ export interface EmojiPickerPopoverProps {
 
 export function EmojiPickerPopover({
     onSelect,
+    onOpen,
     defaultOpen = false,
     size = 'small',
     'data-attr': dataAttr,
@@ -56,6 +59,9 @@ export function EmojiPickerPopover({
                 data-attr={dataAttr}
                 icon={<IconEmojiAdd />}
                 onClick={() => {
+                    if (!emojiPickerOpen) {
+                        onOpen?.()
+                    }
                     setEmojiPickerOpen(!emojiPickerOpen)
                 }}
                 size={size}
