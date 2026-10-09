@@ -1992,6 +1992,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             .filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
             .distinct()
             .select_related("subscription")
+            # content_snapshot holds full query results, so load only the fields the serializer returns.
+            .only("id", "subscription_id", "subscription__title", "target_type", "change_summary", "created_at")
             .annotate(period_start=Subquery(previous_delivery_at))
         )
         page = self.paginate_queryset(deliveries)
