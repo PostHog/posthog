@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from django.db.models import Prefetch
 
 from products.experiments.backend.facade.contracts import MetricCalculationKeys
-from products.experiments.backend.metric_calculation.spec import (
+from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     inline_metric_calculation_keys,
     saved_metric_calculation_keys,
@@ -24,9 +24,9 @@ def metric_calculation_keys_for_experiments(
     ask for every running experiment at once. Every requested id is in the result, with empty maps when
     the team has no experiment with that id.
 
-    Unlike `plan`, this keeps metrics that cannot be scheduled, and it keys each saved metric by its own
-    definition even when an inline metric has the same uuid. The daily discoveries hash each metric from
-    its own source, so they need these keys.
+    Unlike `build_calculation_configs`, this keeps metrics that cannot be scheduled, and it keys each saved
+    metric by its own definition even when an inline metric has the same uuid. The daily discoveries hash
+    each metric from its own source, so they need these keys.
     """
     keys = {experiment_id: MetricCalculationKeys(inline={}, saved={}) for experiment_id in team_id_by_experiment_id}
     if not keys:
@@ -48,7 +48,9 @@ def metric_calculation_keys_for_experiments(
     experiments = [experiment for experiment in rows if experiment.team_id == team_id_by_experiment_id[experiment.id]]
     team_configs = team_experiments_configs({experiment.team_id for experiment in experiments})
     for experiment in experiments:
-        settings = ExperimentCalculationSettings.of_experiment(experiment, team_config=team_configs[experiment.team_id])
+        settings = ExperimentCalculationSettings.from_experiment(
+            experiment, team_config=team_configs[experiment.team_id]
+        )
         keys[experiment.id] = MetricCalculationKeys(
             inline=inline_metric_calculation_keys(experiment, settings),
             saved=saved_metric_calculation_keys(experiment, settings),

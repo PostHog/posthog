@@ -39,8 +39,8 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.spec import plan_metric
-from products.experiments.backend.metric_resolution import build_metric, resolve_scheduled_metrics
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -132,7 +132,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         # recorded workflow histories carry that field name.
         metrics_to_recalculate = [
             ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
-            for metric in resolve_scheduled_metrics(experiment)
+            for metric in get_metrics_for_calculation(experiment)
         ]
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
@@ -347,7 +347,7 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         )
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
-        roles = [metric.role for metric in resolve_scheduled_metrics(experiment)]
+        roles = [metric.role for metric in get_metrics_for_calculation(experiment)]
         primary_metrics_count = roles.count("primary")
         secondary_metrics_count = roles.count("secondary")
         # Global client, like most Temporal workflows: the worker is long-lived, so its background flush
@@ -701,8 +701,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        spec = plan_metric(experiment, metric_uuid)
-        if spec is None:
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
             return _fail(
                 recalculation_id,
                 metric_uuid,
@@ -710,7 +710,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 f"Metric {metric_uuid} not found in experiment {experiment_id}",
                 error_type="validation_error",
             )
-        metric_dict = spec.definition
+        metric_dict = calculation_config.definition
 
         if not experiment.start_date:
             return _fail(
@@ -721,7 +721,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        recalc_fp = compute_recalc_fingerprint(spec.calculation_key())
+        recalc_fp = compute_recalc_fingerprint(calculation_config.calculation_key())
 
         # Skip the query if this metric is already computed for this exact config and window; a config change
         # changes the fingerprint, so a stale result won't match and recomputes.
