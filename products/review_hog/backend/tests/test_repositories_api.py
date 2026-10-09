@@ -138,6 +138,14 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert res.json()["conflicting_project"] == {"id": None, "name": None}
         assert "Secret" not in res.json()["error"]
 
+        taken = self.client.post(self._url("repositories/"), {**WEB, "selected": True}, format="json")
+
+        assert taken.status_code == 200, taken.json()
+        logged = ActivityLog.objects.get(team_id=stranger_team.id, scope="ReviewInstallationClaim", activity="updated")
+        assert logged.user is None
+        assert logged.detail is not None
+        assert logged.detail["changes"][0]["after"] == "A project in another organization"
+
     def test_switching_to_selected_removes_the_exceptions_of_repositories_that_leave(self) -> None:
         claim = self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
         for body in (

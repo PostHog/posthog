@@ -207,13 +207,13 @@ def log_repository_taken(*, claim: ReviewInstallationClaim, full_name: str, take
     """
     organization_id = _organization_id_for_team(claim.team_id)
     taker = Team.objects.filter(id=taken_by_team_id).values("name", "organization_id").first() or {}
-    # Project names stay inside their organization.
+    # Project names and their admins stay inside their organization.
     same_organization = taker.get("organization_id") == organization_id
     taken_by = taker.get("name") if same_organization else "A project in another organization"
     log_activity(
         organization_id=organization_id,
         team_id=claim.team_id,
-        user=user,
+        user=user if same_organization else None,
         was_impersonated=False,
         item_id=claim.id,
         scope="ReviewInstallationClaim",
