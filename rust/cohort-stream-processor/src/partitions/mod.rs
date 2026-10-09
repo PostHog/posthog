@@ -31,7 +31,7 @@ pub use partitioner::{
 };
 pub use pause::{ConsumerPauser, PartitionPauser};
 pub use positions::{
-    read_watermarks, FollowerGroup, InputGroups, InputPositions, InputTopic, ResumeOffset,
+    list_offsets, FollowerGroup, InputGroups, InputPositions, InputTopic, ResumeOffset,
 };
 pub use rebalance::{
     run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,

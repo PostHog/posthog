@@ -7,14 +7,13 @@
 //!    boot on the restore path, so a crash never reopens the restored store at the broker's old
 //!    offsets.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use metrics::counter;
 use rdkafka::error::{KafkaError, KafkaResult};
-use rdkafka::types::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -234,37 +233,30 @@ impl PendingRestore {
     /// Ends the restore once every position it kept still holds. Each kept position on a partition
     /// in `owned` is checked against its input's low watermark first: the plan was checked before
     /// boot, and a consumer whose position fell below the low watermark since then skips ahead
-    /// without a trace. Then `commit_events` commits the events group's restored positions, and only
-    /// then does the marker go. On any error the marker stays, so the next boot resumes the restore
-    /// and its window check resets what expired.
+    /// without a trace. `low_watermarks` reads all of them in one call, because the events consumer
+    /// blocks on it within its liveness deadline. It answers in the order it was asked. Then
+    /// `commit_events` commits the events group's restored positions, and only then does the marker
+    /// go. On any error the marker stays, so the next boot resumes the restore and its window check
+    /// resets what expired.
     pub(crate) fn settle(
         &self,
         owned: &HashSet<i32>,
-        watermarks: impl Fn(&InputTopic, &[u16]) -> KafkaResult<BTreeMap<u16, (i64, i64)>>,
+        low_watermarks: impl FnOnce(&[(&InputTopic, u16)]) -> KafkaResult<Vec<i64>>,
         commit_events: impl FnOnce() -> KafkaResult<()>,
     ) -> Result<(), SettleError> {
-        let mut kept: BTreeMap<&InputTopic, Vec<(u16, ResumeOffset)>> = BTreeMap::new();
-        for (partition, topic, position) in self.plan.kept() {
-            if owned.contains(&i32::from(partition)) {
-                kept.entry(topic).or_default().push((partition, position));
-            }
-        }
-        let mut expired = Vec::new();
-        for (topic, positions) in kept {
-            let partitions: Vec<u16> = positions.iter().map(|&(partition, _)| partition).collect();
-            let bounds = watermarks(topic, &partitions).map_err(SettleError::Watermarks)?;
-            for (partition, position) in positions {
-                let (low, _) = bounds
-                    .get(&partition)
-                    .copied()
-                    .ok_or(SettleError::Watermarks(KafkaError::OffsetFetch(
-                        RDKafkaErrorCode::UnknownPartition,
-                    )))?;
-                if position.get() < low {
-                    expired.push((topic.clone(), partition));
-                }
-            }
-        }
+        let (partitions, positions): (Vec<(&InputTopic, u16)>, Vec<ResumeOffset>) = self
+            .plan
+            .kept()
+            .filter(|&(partition, _, _)| owned.contains(&i32::from(partition)))
+            .map(|(partition, topic, position)| ((topic, partition), position))
+            .unzip();
+        let lows = low_watermarks(&partitions).map_err(SettleError::Watermarks)?;
+        let expired: Vec<(InputTopic, u16)> = partitions
+            .iter()
+            .zip(positions.iter().zip(lows))
+            .filter(|&(_, (position, low))| position.get() < low)
+            .map(|(&(topic, partition), _)| (topic.clone(), partition))
+            .collect();
         if !expired.is_empty() {
             return Err(SettleError::Expired(expired));
         }
@@ -487,11 +479,11 @@ mod tests {
         let merges = InputTopic::new(MERGES);
         let low = |events: i64, merge_low: i64| {
             let merges = merges.clone();
-            move |topic: &InputTopic,
-                  partitions: &[u16]|
-                  -> KafkaResult<BTreeMap<u16, (i64, i64)>> {
-                let low = if *topic == merges { merge_low } else { events };
-                Ok(partitions.iter().map(|&p| (p, (low, i64::MAX))).collect())
+            move |partitions: &[(&InputTopic, u16)]| -> KafkaResult<Vec<i64>> {
+                Ok(partitions
+                    .iter()
+                    .map(|&(topic, _)| if *topic == merges { merge_low } else { events })
+                    .collect())
             }
         };
         // Every position at its low watermark still replays.
