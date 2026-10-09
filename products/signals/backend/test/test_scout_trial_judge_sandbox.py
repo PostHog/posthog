@@ -150,6 +150,7 @@ class TestSandboxJudgeDispatch(BaseTest):
             self.assertEqual(run.state["model"], snapshot.judge_model)
             self.assertEqual(run.state["reasoning_effort"], "high")
             self.assertEqual(run.state["mcp_gateway_server_ids"], [])
+            self.assertFalse(run.state["include_live_context"])
             self.assertEqual(run.task.mcp_builtin_agent_key, "scout")
             self.assertEqual(run.task.mcp_gateway_server_allowlist, [])
             self.assertIsNone(run.task.repository)
@@ -182,6 +183,8 @@ class TestSandboxJudgeDispatch(BaseTest):
                 Task.objects.filter(team_id=self.team.id, origin_key__startswith="scout-trial-judge:").count(), 1
             )
             self.assertEqual(TaskRun.objects.filter(team_id=self.team.id, task=dispatched[0].task).count(), 1)
+            dispatched[0].refresh_from_db()
+            self.assertFalse(dispatched[0].state["include_live_context"])
             self.assertEqual(workflow_handle.signal.call_args.kwargs["args"], ["completed", None])
             self.assertEqual(result.criteria[0].verdict, "pass")
             self.assertEqual(len(followup_messages), int(retry_json))

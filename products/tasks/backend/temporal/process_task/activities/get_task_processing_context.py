@@ -1390,15 +1390,20 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    include_live_context = state.get("include_live_context") is not False
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        store_skills = (
-            None
-            if task.is_scout_trial_judge
-            else resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
-        )
+        if not include_live_context:
+            store_skills = []
+            state[STORE_SKILLS_STATE_KEY] = []
+        else:
+            store_skills = (
+                None
+                if task.is_scout_trial_judge
+                else resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+            )
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
         store_skills = None
@@ -1458,8 +1463,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
-    context_layer_enabled = not trial_origin and context_layer_facade.is_context_layer_enabled(
-        organization_id=organization_id, distinct_id=distinct_id
+    context_layer_enabled = (
+        include_live_context
+        and not trial_origin
+        and context_layer_facade.is_context_layer_enabled(organization_id=organization_id, distinct_id=distinct_id)
     )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,

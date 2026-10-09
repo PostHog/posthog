@@ -125,6 +125,7 @@ class _JudgeRun:
             "pending_user_message_id": str(run_id),
             "pending_user_artifact_ids": [file.id for file in files],
             "mcp_gateway_server_ids": [],
+            "include_live_context": False,
         }
 
     def fail_unfinished(self, error: str) -> None:
