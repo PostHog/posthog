@@ -2144,6 +2144,10 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work(#[case] kind: Sched
         !reaped.is_empty(),
         "the reaped worker keeps its in-flight batch"
     );
+    assert!(
+        rerouted.ends_with(&[4, 5, 6, 7]),
+        "batch 2 arrived after the drain started, so it re-routes: {rerouted:?}"
+    );
     assert_eq!(
         [reaped.clone(), rerouted.clone()].concat(),
         (0..8).collect::<Vec<_>>(),
