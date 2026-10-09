@@ -140,6 +140,17 @@ def test_comment_range_resolves_span_or_none() -> None:
     assert _comment_range(_ranged_comment(line=None, start_line=None)) is None
 
 
+@pytest.mark.parametrize("commented_file,is_candidate", [("src/auth.py", True), ("src/other.py", False)])
+def test_a_comment_anywhere_in_the_file_makes_an_issue_a_candidate(commented_file: str, is_candidate: bool) -> None:
+    # Full's review no longer sees other reviewers' comments, so it often raises their problem on other
+    # lines of the same file; a line-only match would post it again as a duplicate thread.
+    issues = [_issue("1-1", "src/auth.py", 45, 50)]
+
+    candidates, _ = _select_dedup_candidates(issues, prior_ranges=[], commented_files={commented_file})
+
+    assert bool(candidates) is is_candidate
+
+
 def test_multiline_comment_collides_across_its_whole_range() -> None:
     # Collapsing a multi-line comment (10-20) to its end line let a finding on 12-14 skip the LLM
     # dedup entirely and re-post what a reviewer already raised; only end-line hits collided.

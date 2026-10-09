@@ -369,7 +369,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
 5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
-   each with **no cross-perspective context** — overlap is left to dedup (7):
+   each with **no cross-perspective context** — overlap is left to dedup (7). The prompt quotes only the PR
+   author's own inline comments (intent and replies), never other reviewers', so the review judges the code
+   before dedup matches its findings against what others already raised. The chunking prompt gets the same
+   author-only comments, because its chunk summaries reach every review prompt:
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
@@ -389,7 +392,9 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    file/lines don't overlap the PR diff. Both pure, in-process.
 7. **Deduplicate** — `deduplicate_issues(issues, pr_metadata, pr_comments, …)` first runs a **deterministic
    positional pre-filter** (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with
-   another issue or **any prior inline comment** can be duplicates, so isolated issues survive **without** an LLM
+   another issue or an earlier turn's finding, or sitting in a file **any PR comment** is on, can be duplicates
+   (the review does not see other reviewers' comments, so it often raises their problem on other lines), so
+   isolated issues survive **without** an LLM
    call (and a zero-candidate run skips the LLM entirely). Colliding candidates go to the single LLM dedupe call
    (`IssueDeduplication`) — a **one-shot gateway call** within `DEDUP_ONESHOT_MAX_FINDINGS` (50 issues entering
    dedup; the prompt is pure text), the sandbox path above it pinned to the same Sonnet 5 @ xhigh via the
