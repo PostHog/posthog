@@ -353,6 +353,10 @@ export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimit
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -2761,6 +2765,22 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
                     ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -3057,6 +3077,10 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttri
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5473,6 +5497,22 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .nullish()
                     .describe(
                         'How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.'
+                    ),
+                marketing_frequency_cap_max_messages: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
+                    .nullish()
+                    .describe(
+                        'Most marketing messages one person can get in the window, across all workflows. Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off.'
+                    ),
+                marketing_frequency_cap_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
+                    .nullish()
+                    .describe(
+                        'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
                     ),
             })
             .optional(),
