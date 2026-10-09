@@ -1,5 +1,13 @@
-import { autoUpdate, flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
-import React, { useLayoutEffect, useMemo } from 'react'
+import {
+    autoUpdate,
+    computePosition,
+    flip,
+    FloatingPortal,
+    offset,
+    shift,
+    type VirtualElement,
+} from '@floating-ui/react'
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import type { TooltipContext } from '../core/types'
@@ -43,52 +51,70 @@ export function Tooltip<Meta = unknown>({
         anchorWidth = 0
     }
 
+    const [floating, setFloating] = useState<HTMLDivElement | null>(null)
+    const anchorRef = useRef({ x: anchorX, y: anchorY, width: anchorWidth })
+    const updateRef = useRef<(() => void) | null>(null)
+    const floatingPlacement = placement === 'follow-data' ? 'right' : 'right-start'
+
+    // Position outside React state: `useFloating` re-renders synchronously on every anchor move
+    // (`setPositionReference`, then `flushSync` with the new position), and on a busy page those
+    // renders count towards React's nested update limit (error #185).
     const virtualReference = useMemo<VirtualElement>(
         () => ({
             getBoundingClientRect() {
-                const left = anchorX - anchorWidth / 2
-                const right = anchorX + anchorWidth / 2
-                return {
-                    x: left,
-                    y: anchorY,
-                    width: anchorWidth,
-                    height: 0,
-                    top: anchorY,
-                    right,
-                    bottom: anchorY,
-                    left,
-                }
+                const { x, y, width } = anchorRef.current
+                const left = x - width / 2
+                const right = x + width / 2
+                return { x: left, y, width, height: 0, top: y, right, bottom: y, left }
             },
         }),
-        [anchorX, anchorY, anchorWidth]
+        []
     )
 
-    const { refs, floatingStyles } = useFloating({
-        placement: placement === 'follow-data' ? 'right' : 'right-start',
-        strategy: 'fixed',
-        middleware: TOOLTIP_MIDDLEWARE,
+    useLayoutEffect(() => {
+        anchorRef.current = { x: anchorX, y: anchorY, width: anchorWidth }
+        updateRef.current?.()
+    }, [anchorX, anchorY, anchorWidth])
+
+    useLayoutEffect(() => {
+        if (!floating) {
+            return
+        }
+        const update = (): void => {
+            void computePosition(virtualReference, floating, {
+                placement: floatingPlacement,
+                strategy: 'fixed',
+                middleware: TOOLTIP_MIDDLEWARE,
+            }).then(({ x, y }) => {
+                const dpr = window.devicePixelRatio || 1
+                floating.style.transform = `translate(${Math.round(x * dpr) / dpr}px, ${Math.round(y * dpr) / dpr}px)`
+            })
+        }
+        updateRef.current = update
         // Re-run the middleware (notably `flip`/`shift`) once the portaled tooltip reaches its
         // real `max-content` size and whenever the page scrolls/resizes — without this the first
         // position is computed against a still-zero-width element, so `flip` never kicks in and
         // the tooltip can stay clipped off the right edge (e.g. on the last bar of a chart).
-        whileElementsMounted: autoUpdate,
-    })
-
-    useLayoutEffect(() => {
-        refs.setPositionReference(virtualReference)
-    }, [virtualReference, refs])
+        const cleanup = autoUpdate(virtualReference, floating, update)
+        return () => {
+            updateRef.current = null
+            cleanup()
+        }
+    }, [floating, virtualReference, floatingPlacement])
 
     return (
         <FloatingPortal>
             <div
-                ref={refs.setFloating}
+                ref={setFloating}
                 // Marker so useChartInteraction can identify events originating inside the
                 // tooltip — it lives outside the chart wrapper via FloatingPortal, so DOM
                 // ancestry can't be used to detect it.
                 data-hog-charts-tooltip=""
                 className={context.isPinned ? 'hog-charts-tooltip--pinned' : undefined}
                 style={{
-                    ...floatingStyles,
+                    position: 'fixed',
+                    left: 0,
+                    top: 0,
                     pointerEvents: context.isPinned ? 'auto' : 'none',
                     width: 'max-content',
                     zIndex,
