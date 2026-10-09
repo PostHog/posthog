@@ -341,9 +341,7 @@ export function builderToSql(query: BuilderQuery): ConversionResult<string> {
         usable.map((clause) => (clause.groupBy ?? []).map((g) => normalizeLabelKey(g.key)).join(','))
     )
     if (groupSets.size > 1) {
-        issues.push(
-            'The formula combines series grouped by different labels. In SQL, a series without a label does not spread over the others.'
-        )
+        issues.push('The formula mixes series with different group-by labels.')
     }
     const used = usable.filter((clause) => new RegExp(`\\b${clause.name}\\b`).test(formula))
     const unused = usable.filter((clause) => !used.includes(clause))

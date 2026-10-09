@@ -29,9 +29,10 @@ import { MAX_CLAUSES, metricsViewerLogic } from './metricsViewerLogic'
 const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
 const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table']
 
-const LANGUAGE_HINTS: Record<Exclude<MetricsQueryLanguage, 'builder'>, string> = {
-    promql: 'Runs as a range query at the chart interval. Leave out the range, as in rate(x), to use the interval. Dashboard label filters do not apply.',
-    sql: 'Return a time column and a value column. Other columns become series labels. Use {date_from}, {date_to}, {interval} and {interval_seconds} to follow the date range.',
+// Shown in an empty editor, so the expected shape is visible without help text.
+const PLACEHOLDERS: Record<Exclude<MetricsQueryLanguage, 'builder'>, string> = {
+    promql: 'sum by (service_name) (rate(http_requests_total))',
+    sql: 'SELECT … AS time, … AS value FROM posthog.metrics WHERE timestamp >= {date_from}',
 }
 
 export function MetricsQueryLanguagePicker({
@@ -94,7 +95,7 @@ function MetricsQueryTextEditor({
     language: Exclude<MetricsQueryLanguage, 'builder'>
     disabledReason: string | null
 }): JSX.Element {
-    const { queryDraft, queryTextChanged } = useValues(metricsViewerLogic)
+    const { queryDraft } = useValues(metricsViewerLogic)
     const { setQueryDraft, runQueryText } = useActions(metricsViewerLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -109,37 +110,34 @@ function MetricsQueryTextEditor({
     }, [language, currentTeamId])
 
     return (
-        <div className="flex flex-col gap-2 flex-1 min-w-[16rem]" data-attr={`metrics-query-editor-${language}`}>
+        <div className="w-full" data-attr={`metrics-query-editor-${language}`}>
             <CodeEditorResizeable
                 // HogQL validation would flag the date placeholders, so SQL gets plain SQL highlighting.
                 language={language === 'promql' ? 'promql' : 'sql'}
                 value={queryDraft}
                 onChange={(value) => setQueryDraft(value ?? '')}
                 onPressCmdEnter={() => runQueryText()}
-                minHeight={language === 'sql' ? '10rem' : '3rem'}
+                minHeight={language === 'sql' ? '8rem' : '2.5rem'}
                 maxHeight="24rem"
                 options={{
                     readOnly: !!disabledReason,
+                    placeholder: PLACEHOLDERS[language],
                     minimap: { enabled: false },
                     wordWrap: 'on',
                     scrollBeyondLastLine: false,
                     lineNumbers: language === 'sql' ? 'on' : 'off',
+                    folding: false,
+                    glyphMargin: false,
+                    lineDecorationsWidth: 10,
+                    overviewRulerLanes: 0,
+                    hideCursorInOverviewRuler: true,
+                    renderLineHighlight: 'none',
+                    padding: { top: 6, bottom: 6 },
+                    scrollbar: { useShadows: false, verticalScrollbarSize: 8, alwaysConsumeMouseWheel: false },
                     // Label values and quoted OTel names are typed inside strings.
                     quickSuggestions: { other: true, comments: false, strings: true },
                 }}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-secondary flex-1 min-w-[12rem]">{LANGUAGE_HINTS[language]}</span>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={() => runQueryText()}
-                    disabledReason={disabledReason ?? (queryTextChanged ? undefined : 'Change the query to run it')}
-                    data-attr={`metrics-query-editor-run-${language}`}
-                >
-                    Run
-                </LemonButton>
-            </div>
         </div>
     )
 }
@@ -155,8 +153,9 @@ function MetricsQueryEditorControls({
 }): JSX.Element {
     const { viewerClauses, activeClauseIndex, formula, namedClauses, dateFrom, dateTo, interval } =
         useValues(metricsViewerLogic)
-    const { displayType, metricsQueryNode, language } = useValues(metricsViewerLogic)
-    const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType } = useActions(metricsViewerLogic)
+    const { displayType, metricsQueryNode, language, queryTextChanged } = useValues(metricsViewerLogic)
+    const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType, runQueryText } =
+        useActions(metricsViewerLogic)
     const logic = useMountedLogic(metricsViewerLogic)
     const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
@@ -207,81 +206,107 @@ function MetricsQueryEditorControls({
 
     const showFormulaInput = viewerClauses.length > 1 || formula !== ''
 
-    return (
-        <div className="flex flex-col gap-2" data-attr="metrics-query-editor">
-            {onSwitchLanguage && (
-                <div>
-                    <MetricsQueryLanguagePicker
-                        value={language}
-                        onChange={switchLanguage}
-                        disabledReason={disabledReason}
-                    />
-                </div>
-            )}
-            <div className="flex flex-wrap items-start gap-2 justify-between">
-                {language !== 'builder' ? (
-                    <MetricsQueryTextEditor language={language} disabledReason={disabledReason} />
-                ) : (
-                    <div className="flex flex-col gap-2 flex-1 min-w-[16rem]">
-                        {viewerClauses.map((clause, index) => (
-                            <MetricsClauseRow
-                                key={clause.name}
-                                clause={clause}
-                                index={index}
-                                isActive={index === activeClauseIndex}
-                                showAlias={viewerClauses.length > 1}
-                                disabledReason={disabledReason}
-                            />
-                        ))}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={<IconPlusSmall />}
-                                onClick={() => addClause()}
-                                disabledReason={
-                                    disabledReason ??
-                                    (viewerClauses.length >= MAX_CLAUSES
-                                        ? `A query can have at most ${MAX_CLAUSES} series`
-                                        : undefined)
-                                }
-                                data-attr="metrics-query-editor-add-series"
-                            >
-                                Add series
-                            </LemonButton>
-                            {showFormulaInput && <MetricsFormulaInput disabledReason={disabledReason} />}
-                        </div>
-                    </div>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
-                    <DateFilter
-                        size="small"
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        dateOptions={METRICS_DATE_OPTIONS}
-                        onChange={(changedDateFrom, changedDateTo) => {
-                            setDateFrom(changedDateFrom)
-                            setDateTo(changedDateTo)
-                        }}
-                        allowTimePrecision
-                        allowFixedRangeWithTime
-                        allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
-                        use24HourFormat
-                        disabledReason={disabledReason}
-                    />
-                    <MetricsIntervalPicker value={interval} onChange={setInterval} disabledReason={disabledReason} />
-                </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <LemonSelect
-                    size="small"
-                    value={displayType}
-                    options={displayTypeOptions}
-                    onChange={setDisplayType}
-                    data-attr="metrics-query-editor-display-type"
+    const dateControls = (
+        <div className="flex flex-wrap items-center gap-2">
+            <DateFilter
+                size="small"
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                dateOptions={METRICS_DATE_OPTIONS}
+                onChange={(changedDateFrom, changedDateTo) => {
+                    setDateFrom(changedDateFrom)
+                    setDateTo(changedDateTo)
+                }}
+                allowTimePrecision
+                allowFixedRangeWithTime
+                allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
+                use24HourFormat
+                disabledReason={disabledReason}
+            />
+            <MetricsIntervalPicker value={interval} onChange={setInterval} disabledReason={disabledReason} />
+        </div>
+    )
+
+    const builderControls = (
+        <div className="flex flex-col gap-2 flex-1 min-w-[16rem]">
+            {viewerClauses.map((clause, index) => (
+                <MetricsClauseRow
+                    key={clause.name}
+                    clause={clause}
+                    index={index}
+                    isActive={index === activeClauseIndex}
+                    showAlias={viewerClauses.length > 1}
                     disabledReason={disabledReason}
                 />
-                <MetricsChartSettings />
+            ))}
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconPlusSmall />}
+                    onClick={() => addClause()}
+                    disabledReason={
+                        disabledReason ??
+                        (viewerClauses.length >= MAX_CLAUSES
+                            ? `A query can have at most ${MAX_CLAUSES} series`
+                            : undefined)
+                    }
+                    data-attr="metrics-query-editor-add-series"
+                >
+                    Add series
+                </LemonButton>
+                {showFormulaInput && <MetricsFormulaInput disabledReason={disabledReason} />}
+            </div>
+        </div>
+    )
+
+    return (
+        <div className="flex flex-col gap-2" data-attr="metrics-query-editor">
+            {onSwitchLanguage ? (
+                <>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <MetricsQueryLanguagePicker
+                            value={language}
+                            onChange={switchLanguage}
+                            disabledReason={disabledReason}
+                        />
+                        {dateControls}
+                    </div>
+                    {language === 'builder' ? (
+                        builderControls
+                    ) : (
+                        <MetricsQueryTextEditor language={language} disabledReason={disabledReason} />
+                    )}
+                </>
+            ) : (
+                <div className="flex flex-wrap items-start gap-2 justify-between">
+                    {builderControls}
+                    {dateControls}
+                </div>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonSelect
+                        size="small"
+                        value={displayType}
+                        options={displayTypeOptions}
+                        onChange={setDisplayType}
+                        data-attr="metrics-query-editor-display-type"
+                        disabledReason={disabledReason}
+                    />
+                    <MetricsChartSettings />
+                </div>
+                {language !== 'builder' && (
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => runQueryText()}
+                        disabledReason={disabledReason ?? (queryTextChanged ? undefined : 'No changes to run')}
+                        data-attr={`metrics-query-editor-run-${language}`}
+                    >
+                        Run
+                    </LemonButton>
+                )}
             </div>
         </div>
     )

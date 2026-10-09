@@ -583,16 +583,20 @@ describe('metrics query languages', () => {
             }
         })
 
-        it.each(PROMQL_CASES.filter(([, expected, kind]) => expected && kind === 'lossless'))(
-            'switching %s to the builder and back is lossless',
-            (text) => {
-                const conversion = convertMetricsQuery(metricsQuery({ language: 'promql', promql: text }), 'builder')
-                expect(conversion.issues).toEqual([])
-                const back = convertMetricsQuery(conversion.query, 'promql')
-                expect(back.issues).toEqual([])
-                expect(canonicalPromQL(back.query.promql!)).toEqual(canonicalPromQL(text))
-            }
-        )
+        it.each(
+            PROMQL_CASES.filter(
+                ([, expected, kind]) =>
+                    expected &&
+                    kind === 'lossless' &&
+                    expected.clauses.every((clause) => clause.aggregation !== 'histogram_quantile')
+            )
+        )('switching %s to the builder and back is lossless', (text) => {
+            const conversion = convertMetricsQuery(metricsQuery({ language: 'promql', promql: text }), 'builder')
+            expect(conversion.issues).toEqual([])
+            const back = convertMetricsQuery(conversion.query, 'promql')
+            expect(back.issues).toEqual([])
+            expect(canonicalPromQL(back.query.promql!)).toEqual(canonicalPromQL(text))
+        })
     })
 
     describe('builder → PromQL', () => {
@@ -725,6 +729,14 @@ describe('metrics query languages', () => {
                 metricsQuery({
                     language: 'sql',
                     sql: "select toStartOfMinute(timestamp) as time, count() as value from posthog.metrics where metric_name = 'up' group by time limit 10",
+                }),
+                'builder',
+            ],
+            [
+                'a histogram quantile, which the builder can chart but not edit',
+                metricsQuery({
+                    language: 'promql',
+                    promql: 'histogram_quantile(0.5, sum by (le) (rate({"http.server.duration_bucket"})))',
                 }),
                 'builder',
             ],
