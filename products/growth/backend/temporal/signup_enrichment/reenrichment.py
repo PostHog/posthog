@@ -127,9 +127,8 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
         due_for_retry = Q(data__has_key=ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY) & Q(
             **{f"data__{ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY}__lte": attempt_cutoff}
         )
-        # An org whose signup email is not a work email gets no provider lookup, so keep it out of
-        # the window. Excluding data__work_email=False instead would also drop every record without
-        # the key, for the same missing-key NULL reason as above.
+        # Excluding data__work_email=False instead would also drop every record without the key,
+        # for the same missing-key NULL reason as above.
         not_work_email = Q(data__contains={"work_email": False})
         attempt_eligible = {
             str(record.organization_id): record.data.get(ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY)
