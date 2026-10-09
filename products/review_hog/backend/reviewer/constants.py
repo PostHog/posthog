@@ -114,12 +114,12 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
     (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 1),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
 }
 
 
 def reviewhog_version_for_mode(review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE) -> str:
-    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-1`."""
+    """The version id a turn of this mode and design reports, like a model id: `reviewhog-flash-2-2`."""
     major, minor = REVIEWHOG_VERSIONS[(review_mode, review_design)]
     return f"reviewhog-{review_mode}-{major}-{minor}"
 
