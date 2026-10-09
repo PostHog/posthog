@@ -1,22 +1,15 @@
 import { useValues } from 'kea'
-import { Suspense, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCode2 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { LazyModalLoading } from 'lib/components/LazyModalLoading/LazyModalLoading'
+import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
-import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AvailableFeature } from '~/types'
-
-// Loaded on demand like the dashboard export, so the exporters stay out of the settings bundle
-const TerraformExportModal = lazyWithRetry(() =>
-    import('lib/components/TerraformExporter/TerraformExportModal').then((m) => ({ default: m.TerraformExportModal }))
-)
 
 /** The "Manage with Terraform" button on the access control settings page, and the export modal it opens */
 export function AccessControlTerraformExport(): JSX.Element | null {
@@ -24,7 +17,6 @@ export function AccessControlTerraformExport(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [modalOpen, setModalOpen] = useState(false)
-    const shouldRenderModal = useKeepMountedWhileOpen(modalOpen)
 
     if (!currentTeam || !currentOrganization) {
         return null
@@ -44,23 +36,19 @@ export function AccessControlTerraformExport(): JSX.Element | null {
                     Manage with Terraform
                 </span>
             </LemonButton>
-            {shouldRenderModal ? (
-                <Suspense fallback={<LazyModalLoading isOpen={modalOpen} onClose={() => setModalOpen(false)} />}>
-                    <TerraformExportModal
-                        isOpen={modalOpen}
-                        onClose={() => setModalOpen(false)}
-                        resource={{
-                            type: 'access_control',
-                            data: {
-                                projectId: currentTeam.id,
-                                projectName: currentTeam.name,
-                                organizationId: currentOrganization.id,
-                            },
-                        }}
-                        data-attr="access-control-terraform-modal"
-                    />
-                </Suspense>
-            ) : null}
+            <TerraformExportModal
+                isOpen={modalOpen}
+                onClose={() => setModalOpen(false)}
+                resource={{
+                    type: 'access_control',
+                    data: {
+                        projectId: currentTeam.id,
+                        projectName: currentTeam.name,
+                        organizationId: currentOrganization.id,
+                    },
+                }}
+                data-attr="access-control-terraform-modal"
+            />
         </>
     )
 }
