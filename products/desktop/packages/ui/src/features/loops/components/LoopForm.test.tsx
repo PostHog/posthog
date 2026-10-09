@@ -24,9 +24,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled", () => ({
   useLoopsHogFlowsEnabled: () => mocks.workflowBacked,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useBluebirdFlag", () => ({
-  useBluebirdFlag: () => false,
-}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));

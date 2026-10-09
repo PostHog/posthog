@@ -6,7 +6,6 @@ import {
 } from "@posthog/core/sidebar/selection";
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
@@ -15,7 +14,6 @@ import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { placeTasksInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
@@ -26,9 +24,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 const log = logger.scope("sidebar-bulk-actions");
-
-/** Stable empty list, so a gated-off channels array keeps a steady identity. */
-const EMPTY_CHANNELS: Channel[] = [];
 
 /** Clause after "Disabled because …" (see `@posthog/ui/primitives/Button`). */
 const NO_SELECTION = "you haven't selected any sessions";
@@ -82,17 +77,7 @@ export function useSidebarBulkActions(
   const { pinnedTaskIds, setPinnedMany, isSettingPinnedMany } =
     usePinnedTasks();
 
-  // "File to…" is a Project Bluebird feature. `enabled` only stops the fetch, and
-  // an ungated surface elsewhere can still have filled the shared cache, so the
-  // flag has to gate the list itself rather than just the request.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const { channels: fetchedChannels } = useChannels({
-    enabled: bluebirdEnabled,
-  });
-  const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
+  const { channels } = useChannels();
   const { fileTask } = useChannelTaskMutations();
 
   const liveTaskIds = useLiveTaskIds(selectedCount > 0);

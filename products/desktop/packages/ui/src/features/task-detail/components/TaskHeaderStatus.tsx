@@ -4,7 +4,6 @@ import type { WorkspaceMode } from "@posthog/shared";
 import { getErrorMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useTaskStatusInput } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
-import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
 import {
   RowTooltip,
   TaskStatusDot,
@@ -28,16 +27,13 @@ import { type ReactNode, useState } from "react";
 const ICON_SIZE = 12;
 
 /**
- * The session's state for the window header, or `null` where the header keeps
- * its old workspace-mode glyph — outside project-bluebird, and before the
- * task's state has landed.
+ * The session's state for the window header, or `null` before the task's state
+ * has landed, where the header keeps its old workspace-mode glyph.
  */
 function useHeaderStatus(task: Task): TaskStatusInput | null {
-  const bluebird = useBluebirdFlag();
   // The PR lookup is the one part that reaches the host, so it goes no further
   // than the surface that draws it.
-  const status = useTaskStatusInput(task, { withPrStatus: bluebird });
-  return bluebird ? status : null;
+  return useTaskStatusInput(task, { withPrStatus: true });
 }
 
 /**

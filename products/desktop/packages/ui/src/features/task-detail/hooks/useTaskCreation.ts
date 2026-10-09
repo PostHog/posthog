@@ -18,7 +18,6 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   type ModelAccess,
-  PROJECT_BLUEBIRD_FLAG,
   SERVER_AGENT_INSTRUCTIONS_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
@@ -268,13 +267,6 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me channel so they
-  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
-  // cannot collide across teammates; before the list loads the task is created unfiled.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   const serverInstructionsEnabled = useFeatureFlag(
     SERVER_AGENT_INSTRUCTIONS_FLAG,
   );
@@ -282,7 +274,7 @@ export function useTaskCreation({
   const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
-  const { personalChannel } = useTaskChannels({ enabled: bluebirdEnabled });
+  const { personalChannel } = useTaskChannels();
 
   const hasRequiredPath = allowNoRepo
     ? true
@@ -461,10 +453,12 @@ export function useTaskCreation({
 
         try {
           const settings = useSettingsStore.getState();
+          // Tasks created without a channel default into the user's private #me
+          // channel so they surface in the Channels space instead of staying
+          // unfiled. #me is per-user, so this cannot collide across teammates;
+          // before the list loads the task is created unfiled.
           const defaultedChannelId =
-            bluebirdEnabled && !channelId && !channelName
-              ? personalChannel?.id
-              : undefined;
+            !channelId && !channelName ? personalChannel?.id : undefined;
 
           const localMcpServersForRun = partitionLocalMcpServersForRun(
             localMcpServers,
@@ -729,7 +723,6 @@ export function useTaskCreation({
       channelId,
       channelContextId,
       allowNoRepo,
-      bluebirdEnabled,
       personalChannel?.id,
       localMcpServers,
       localMcpServersLoading,
