@@ -337,6 +337,11 @@ None of these are reasons to split:
 
 When you are unsure, name the single change, or the single feature whose logic every signal lives in, that would resolve the group. If you can name it, they belong in one PR. Split only when the signals belong to different features or products, or when the new signal is too vague to tie to the group's fix.
 
+The group can include a RESEARCHED CAUSE. This means that an engineer already investigated the group and named its cause and its fix. The group's PR is that fix. For such a group, the rule is stricter:
+- Accept the new signal only when the researched fix also resolves it.
+- Reject the new signal when it needs a different fix, even when it is in the same feature, on the same page, or in the same product area.
+- A shared page, a shared HTTP status (such as a 404), or a shared error message is not a shared cause.
+
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
 
@@ -348,6 +353,7 @@ class SpecificityResult(BaseModel):
 
 
 MAX_SIGNALS_IN_SPECIFICITY_CONTEXT = 8
+MAX_RESEARCHED_SUMMARY_CHARS = 2000
 
 
 def _build_matching_prompt(
@@ -403,11 +409,16 @@ def _build_specificity_prompt(
     new_signal_source_type: str,
     report_title: str,
     group_signals: list[SignalData],
+    researched_summary: str | None = None,
 ) -> str:
     """Build prompt for the PR-specificity verification gate."""
     prompt = f"""EXISTING GROUP:
 - Title: {report_title or "(untitled)"}
-- Signals ({len(group_signals)} total):
+"""
+    if researched_summary:
+        prompt += f"""- Researched cause: {researched_summary[:MAX_RESEARCHED_SUMMARY_CHARS]}
+"""
+    prompt += f"""- Signals ({len(group_signals)} total):
 """
     for i, sig in enumerate(group_signals[:MAX_SIGNALS_IN_SPECIFICITY_CONTEXT]):
         prompt += f"""
@@ -601,6 +612,7 @@ async def verify_match_specificity(
     new_signal_source_type: str,
     report_title: str,
     group_signals: list[SignalData],
+    researched_summary: str | None = None,
 ) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     specificity_prompt = _build_specificity_prompt(
@@ -609,6 +621,7 @@ async def verify_match_specificity(
         new_signal_source_type=new_signal_source_type,
         report_title=report_title,
         group_signals=group_signals,
+        researched_summary=researched_summary,
     )
 
     specificity = await call_llm(
@@ -629,12 +642,28 @@ async def verify_match_specificity(
     )
 
 
+def _researched_summary(team_id: int, report_id: str) -> str | None:
+    """The summary of a report that a research pass completed, or None when no research pass covers it.
+
+    Before research, the summary is only the matcher's first guess, so it must not constrain later signals.
+    """
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    if report is None or report.researched_signal_count == 0 or not report.summary:
+        return None
+    if _is_safety_suppressed(report_id, team_id):
+        return None
+    return report.summary
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
+        researched_summary = await database_sync_to_async(_researched_summary, thread_sensitive=False)(
+            input.team_id, input.report_id
+        )
         result = await verify_match_specificity(
             team_id=input.team_id,
             new_signal_description=input.new_signal_description,
@@ -642,6 +671,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             new_signal_source_type=input.new_signal_source_type,
             report_title=input.report_title,
             group_signals=input.group_signals,
+            researched_summary=researched_summary,
         )
 
         logger.debug(
@@ -836,7 +866,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     report.total_weight += input.weight
                     report.signal_count += 1
                     update_fields = ["total_weight", "signal_count", "updated_at"]
-                    if input.updated_title:
+                    # A research pass writes the title together with the summary. A later signal must
+                    # not rename the report away from the cause that the summary explains.
+                    if input.updated_title and report.researched_signal_count == 0:
                         report.title = input.updated_title
                         update_fields.append("title")
                     report.save(update_fields=update_fields)

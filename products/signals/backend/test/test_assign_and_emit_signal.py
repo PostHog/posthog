@@ -24,8 +24,11 @@ from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
     MatchSignalToReportInput,
+    SpecificityResult,
+    VerifyMatchSpecificityInput,
     assign_and_emit_signal_activity,
     match_signal_to_report_activity,
+    verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
@@ -1019,6 +1022,77 @@ async def test_non_promoting_states_increment_counters_but_do_not_promote(ateam,
     assert refreshed.status == starting_status
     assert refreshed.total_weight == pytest.approx(1.5)
     assert refreshed.signal_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "signals_researched", "expected_title"),
+    [
+        (SignalReport.Status.POTENTIAL, None, "specificity title"),
+        (SignalReport.Status.READY, 4, "researched title"),
+    ],
+)
+async def test_specificity_title_only_renames_unresearched_reports(ateam, status, signals_researched, expected_title):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=status,
+        total_weight=0.5,
+        signal_count=4,
+        signals_researched=signals_researched,
+        title="researched title",
+        summary="researched summary",
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)))
+    input_.updated_title = "specificity title"
+
+    await assign_and_emit_signal_activity(input_)
+
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.title == expected_title
+    assert refreshed.signal_count == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("signals_researched", "expect_summary_in_prompt"),
+    [
+        (None, False),
+        (4, True),
+    ],
+)
+async def test_specificity_gate_judges_against_the_researched_cause(
+    ateam, signals_researched, expect_summary_in_prompt
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY if signals_researched else SignalReport.Status.POTENTIAL,
+        total_weight=0.5,
+        signal_count=4,
+        signals_researched=signals_researched,
+        title="Handle failed source config loads",
+        summary="The settings page crashes when the source config request fails.",
+    )
+    call_llm = AsyncMock(return_value=SpecificityResult(pr_title="t", specific_enough=False, reason="r"))
+
+    with patch(f"{GROUPING_MODULE_PATH}.call_llm", call_llm):
+        await verify_match_specificity_activity(
+            VerifyMatchSpecificityInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                report_title=report.title,
+                new_signal_description="Saving an autonomy setting returns a 500",
+                new_signal_source_product="session_replay",
+                new_signal_source_type="observation",
+                group_signals=[],
+            )
+        )
+
+    user_prompt = call_llm.call_args.kwargs["user_prompt"]
+    assert ("The settings page crashes when the source config request fails." in user_prompt) is (
+        expect_summary_in_prompt
+    )
 
 
 # ---------------------------------------------------------------------------
