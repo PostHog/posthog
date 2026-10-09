@@ -74,6 +74,16 @@ pub struct DurabilityConfig {
     /// local staleness must be tighter because if a pod was down for longer than this, another pod
     /// likely consumed the partition and local data is behind.
     pub local_checkpoint_max_staleness: Duration,
+
+    /// Age past which the next upload is full: it bounds how far back a restore's chain of
+    /// incremental uploads reaches.
+    pub full_upload_interval: Duration,
+
+    /// Average read rate one upload may take from the store's disk.
+    pub upload_max_bytes_per_sec: u64,
+
+    /// Budget for the final checkpoint's upload on a graceful stop.
+    pub final_upload_timeout: Duration,
 }
 
 impl Default for DurabilityConfig {
@@ -99,6 +109,9 @@ impl Default for DurabilityConfig {
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
             ),
+            full_upload_interval: Duration::from_secs(86_400),
+            upload_max_bytes_per_sec: 64 * 1024 * 1024,
+            final_upload_timeout: Duration::from_secs(45),
         }
     }
 }
