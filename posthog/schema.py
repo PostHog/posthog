@@ -212,6 +212,7 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
@@ -4907,10 +4908,14 @@ class AssistantTrendsFilter(BaseModel):
             " with one bar per breakdown value or series; good for categorical data"
             ' such as "top pages" or "failures by reason". `ActionsPie` - total value'
             " pie chart; good for visualizing proportions. `ActionsDonut` - total value"
-            " donut chart; same use as `ActionsPie`. `ActionsTable` - total value"
-            " table; good when using breakdown to list users or other entities."
-            " `WorldMap` - total value world map; use when breaking down by country"
-            " using property `$geoip_country_code`, and only then."
+            " donut chart; same use as `ActionsPie`. `ActionsProportionBar` - total"
+            " value chart that shows the parts of one whole as a single flat bar, with"
+            " one segment per breakdown value or series. Use it to show the share of"
+            " each part in a total. It cannot compare to a previous period, so do not"
+            " set `compareFilter.compare` with it. `ActionsTable` - total value table;"
+            " good when using breakdown to list users or other entities. `WorldMap` -"
+            " total value world map; use when breaking down by country using property"
+            " `$geoip_country_code`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -6846,7 +6851,10 @@ class MetricsQueryClause(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation: MetricsAggregation
+    aggregation: MetricsAggregation | None = Field(
+        default=None,
+        description=("Omit to get one line per series (at most 100), without combining them"),
+    )
     filters: list[MetricsQueryFilter] | None = None
     groupBy: list[MetricsQueryGroupBy] | None = None
     metricName: str
@@ -6865,6 +6873,10 @@ class MetricsQueryClause(BaseModel):
     quantile: float | None = Field(
         default=None,
         description=("In (0, 1); required for `quantile` / `histogram_quantile` aggregations"),
+    )
+    rangeFunction: MetricsRangeFunction | None = Field(
+        default=None,
+        description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
 
 

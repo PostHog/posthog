@@ -5,6 +5,7 @@ import {
     DEFAULT_CHART_CONFIG,
     defaultChartType,
     isBarFamily,
+    pieViewFromTrendsFilter,
     resolveChartView,
     supportsPercentStack,
 } from '../../src/ui-apps/components/chartSettingsConfig'
@@ -91,6 +92,41 @@ describe('trends chart settings', () => {
 
         it.each(['line', 'area', 'bar', 'stacked-bar'] as const)('passes %s through unchanged', (chartType) => {
             expect(resolveChartView(chartType, 7).effectiveType).toBe(chartType)
+        })
+    })
+
+    describe('pieViewFromTrendsFilter', () => {
+        it.each([
+            ['no trendsFilter', undefined, { showValueOnSlice: false, sliceValueDisplay: 'value', isPercent: false }],
+            [
+                'values on series',
+                { showValuesOnSeries: true },
+                { showValueOnSlice: true, sliceValueDisplay: 'value', isPercent: false },
+            ],
+            [
+                'percent view',
+                { showPercentStackView: true },
+                { showValueOnSlice: true, sliceValueDisplay: 'percent', isPercent: true },
+            ],
+            [
+                'values and percent view',
+                { showValuesOnSeries: true, showPercentStackView: true },
+                { showValueOnSlice: true, sliceValueDisplay: 'both', isPercent: true },
+            ],
+        ] as Array<[string, TrendsFilter | undefined, object]>)('slice labels for %s', (_, trendsFilter, expected) => {
+            expect(pieViewFromTrendsFilter(trendsFilter, false).config).toMatchObject(expected)
+        })
+
+        it.each([
+            [false, undefined],
+            [true, 0.6],
+        ])('donut=%s gives innerRadiusRatio %s', (isDonut, innerRadiusRatio) => {
+            expect(pieViewFromTrendsFilter(undefined, isDonut).config.innerRadiusRatio).toBe(innerRadiusRatio)
+        })
+
+        it('keeps the axis format in percent view', () => {
+            const trendsFilter: TrendsFilter = { showPercentStackView: true, aggregationAxisFormat: 'duration' }
+            expect(pieViewFromTrendsFilter(trendsFilter, false).valueFormat).toMatchObject({ format: 'duration' })
         })
     })
 })

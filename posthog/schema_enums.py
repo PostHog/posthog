@@ -583,6 +583,7 @@ class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
@@ -2195,6 +2196,11 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsRangeFunction(StrEnum):
+    RATE = "rate"
+    INCREASE = "increase"
 
 
 class MetricsReducer(StrEnum):

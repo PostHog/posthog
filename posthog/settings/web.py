@@ -624,6 +624,9 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # The anomaly and explain bodies keep this name; the metrics query clause's own
+            # aggregation adds 'none' and is named by its MetricQueryAggregation class.
+            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #
@@ -1477,6 +1480,16 @@ WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
 
 WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
     "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
+)
+
+# Stale-while-revalidate grace for user-facing web analytics precompute reads:
+# windows that expired within this many seconds are served from their
+# complete-but-stale rows instantly (with a background revalidation enqueued)
+# instead of recomputing inline. Lowering it bounds the staleness a user can
+# see at the cost of more reads falling through to the live query. Must stay
+# well under the precompute framework's 48h ClickHouse expiry buffer.
+WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS", 4 * 60 * 60, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

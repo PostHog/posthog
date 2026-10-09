@@ -271,6 +271,15 @@ export namespace Schemas {
       human_readable_error?: string | null;
     }
 
+    export interface AcceptWarehouseSuggestion {
+      /**
+         * Materialize only: refresh interval to use instead of the proposed one, in seconds.
+         * @minimum 1
+         * @maximum 2592000
+         */
+      refresh_interval_seconds?: number;
+    }
+
     export interface AccessControlResourceDefault {
       /**
          * The stored default level for this resource type. Null when the PostHog default applies.
@@ -55897,8 +55906,17 @@ export namespace Schemas {
       Summary: 'summary',
     } as const;
 
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
     export interface MetricsQueryClause {
-      aggregation: MetricsAggregation;
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
       filters?: MetricsQueryFilter[] | null;
       groupBy?: MetricsQueryGroupBy[] | null;
       metricName: string;
@@ -55908,6 +55926,8 @@ export namespace Schemas {
       name: string;
       /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
       quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
     }
 
     export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
@@ -58992,6 +59012,36 @@ export namespace Schemas {
       /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
+
+    /**
+     * * `visible_error` - Error on screen
+     * * `silent_failure` - Action silently failed
+     * * `unresponsive` - Clicks went nowhere
+     * * `slow_or_stuck` - Slow or stuck
+     * * `blocked` - Blocked
+     * * `cant_find` - Couldn't find it
+     * * `confused` - Confused
+     * * `workaround` - Took a workaround
+     * * `abandoned` - Gave up
+     * * `churn_signal` - Churn signal
+     * * `success` - Worked well
+     */
+    export type JevWatchReasonEnum = typeof JevWatchReasonEnum[keyof typeof JevWatchReasonEnum];
+
+
+    export const JevWatchReasonEnum = {
+      VisibleError: 'visible_error',
+      SilentFailure: 'silent_failure',
+      Unresponsive: 'unresponsive',
+      SlowOrStuck: 'slow_or_stuck',
+      Blocked: 'blocked',
+      CantFind: 'cant_find',
+      Confused: 'confused',
+      Workaround: 'workaround',
+      Abandoned: 'abandoned',
+      ChurnSignal: 'churn_signal',
+      Success: 'success',
+    } as const;
 
     export interface JiraIssueSignalExtra {
       key: string;
@@ -65082,6 +65132,34 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `none` - none
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `min` - min
+     * * `max` - max
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
+     */
+    export type MetricQueryAggregationEnum = typeof MetricQueryAggregationEnum[keyof typeof MetricQueryAggregationEnum];
+
+
+    export const MetricQueryAggregationEnum = {
+      None: 'none',
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    /**
      * * `second_15` - second_15
      * * `second_30` - second_30
      * * `minute` - minute
@@ -65107,6 +65185,18 @@ export namespace Schemas {
       Hour6: 'hour_6',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    /**
+     * * `rate` - rate
+     * * `increase` - increase
+     */
+    export type MetricRangeFunctionEnum = typeof MetricRangeFunctionEnum[keyof typeof MetricRangeFunctionEnum];
+
+
+    export const MetricRangeFunctionEnum = {
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     /**
@@ -71305,6 +71395,7 @@ export namespace Schemas {
      * * `implementation_handover` - Implementation Handover
      * * `ranking_score` - Ranking Score
      * * `impact_measurement_plan` - Impact Measurement Plan
+     * * `source_suggestion` - Source Suggestion
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -71342,6 +71433,7 @@ export namespace Schemas {
       ImplementationHandover: 'implementation_handover',
       RankingScore: 'ranking_score',
       ImpactMeasurementPlan: 'impact_measurement_plan',
+      SourceSuggestion: 'source_suggestion',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -71646,6 +71738,34 @@ export namespace Schemas {
       minimum_data_points?: number | null;
     }
 
+    /**
+     * * `logs` - Logs
+     * * `session_replay` - Session replay
+     * * `error_tracking` - Error tracking
+     * * `llm_analytics` - AI observability
+     */
+    export type SuggestedSourceProductEnum = typeof SuggestedSourceProductEnum[keyof typeof SuggestedSourceProductEnum];
+
+
+    export const SuggestedSourceProductEnum = {
+      Logs: 'logs',
+      SessionReplay: 'session_replay',
+      ErrorTracking: 'error_tracking',
+      LlmAnalytics: 'llm_analytics',
+    } as const;
+
+    export interface ReportSourceSuggestion {
+      /** The product the team does not use and could turn on to give reports like this one better evidence.
+       *
+       * * `logs` - Logs
+       * * `session_replay` - Session replay
+       * * `error_tracking` - Error tracking
+       * * `llm_analytics` - AI observability */
+      product: SuggestedSourceProductEnum;
+      /** One sentence on what the product would have shown for this report. */
+      reason: string;
+    }
+
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
 
 
@@ -71902,6 +72022,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetricList[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
+      readonly source_suggestion: ReportSourceSuggestion | null;
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -74967,6 +75089,51 @@ export namespace Schemas {
       results: WarehouseColumnStatistics[];
     }
 
+    export interface WarehouseSuggestionCertifyPayload {
+      /** Name of the view or table to certify. */
+      subject_name: string;
+    }
+
+    export interface WarehouseSuggestionDeprecatePayload {
+      /** Name of the unread view to deprecate. */
+      subject_name: string;
+      /** Time its refreshes take in a month, in seconds. */
+      refresh_seconds_per_month: number;
+      /** Bytes its refreshes read in a month. */
+      refresh_bytes_per_month: number;
+    }
+
+    export interface WarehouseSuggestionVisibleSources {
+      /** Names of the sources the caller may see. */
+      names: string[];
+      /** How many more sources exist that the caller may not see. */
+      hidden_count: number;
+    }
+
+    export interface WarehouseSuggestionMaterializePayload {
+      /** Sources that are always current, such as PostHog tables and direct connections. */
+      live_sources: WarehouseSuggestionVisibleSources;
+      /** Sources with no sync schedule, so their freshness is unknown. */
+      unknown_sources: WarehouseSuggestionVisibleSources;
+      /** Name of the view to materialize. */
+      subject_name: string;
+      /** Proposed refresh interval, in seconds. */
+      refresh_interval_seconds: number;
+      /** Query time materializing saves in a month, in seconds. */
+      saves_seconds_per_month: number;
+      /** Bytes materializing saves from scanning in a month. */
+      saves_bytes_per_month: number;
+      /**
+         * How old the view's data can be today, in seconds. Null when its sources are live.
+         * @nullable
+         */
+      freshness_today_seconds: number | null;
+      /** How old the data can be once materialized, in seconds. */
+      freshness_after_seconds: number;
+    }
+
+    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
+
     export interface WarehouseSuggestionReviewer {
       /** User id. */
       id: number;
@@ -75035,11 +75202,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * What accepting this suggestion would create or change. Shape depends on kind.
-     */
-    export type WarehouseSuggestionPayload = { [key: string]: unknown };
-
-    /**
      * The usage numbers that led to this suggestion.
      */
     export type WarehouseSuggestionEvidence = { [key: string]: unknown };
@@ -75052,7 +75214,7 @@ export namespace Schemas {
 
     export interface WarehouseSuggestion {
       /** What accepting this suggestion would create or change. Shape depends on kind. */
-      payload: WarehouseSuggestionPayload;
+      readonly payload: WarehouseSuggestionPayload;
       /** The usage numbers that led to this suggestion. */
       evidence: WarehouseSuggestionEvidence;
       /**
@@ -92854,6 +93016,8 @@ export namespace Schemas {
       readonly metrics: readonly ReportMetric[];
       /** Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it. */
       readonly suggested_prompts: readonly string[];
+      /** A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse. */
+      readonly source_suggestion: ReportSourceSuggestion | null;
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -97832,7 +97996,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
-      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -109642,6 +109806,27 @@ export namespace Schemas {
       schema_name: string | null;
     }
 
+    export interface WarehouseSuggestionStatus {
+      /** False when the project turned suggestions off. */
+      enabled: boolean;
+      /** Whether the project reads its views often enough to get suggestions. */
+      eligible: boolean;
+      /** Days of read history the last run had, up to the window. */
+      days_with_data: number;
+      /** Days of read history a full window holds. */
+      window_days: number;
+      /**
+         * Why new suggestions stopped showing. Null while they show.
+         * @nullable
+         */
+      paused_reason: string | null;
+      /**
+         * When the daily job last ran for this project.
+         * @nullable
+         */
+      refreshed_at: string | null;
+    }
+
     /**
      * * `user_created` - user_created
      * * `posthog_ai` - posthog_ai
@@ -109886,6 +110071,20 @@ export namespace Schemas {
          * @nullable
          */
       notability_reason?: string | null;
+      /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
+       *
+       * * `visible_error` - Error on screen
+       * * `silent_failure` - Action silently failed
+       * * `unresponsive` - Clicks went nowhere
+       * * `slow_or_stuck` - Slow or stuck
+       * * `blocked` - Blocked
+       * * `cant_find` - Couldn't find it
+       * * `confused` - Confused
+       * * `workaround` - Took a workaround
+       * * `abandoned` - Gave up
+       * * `churn_signal` - Churn signal
+       * * `success` - Worked well */
+      watch_reason?: JevWatchReasonEnum;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable
@@ -109929,6 +110128,11 @@ export namespace Schemas {
        * * `weighted-score` - weighted-score
        * * `jev` - jev */
       ranker: RankerEnum;
+      /**
+         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+         * @nullable
+         */
+      ranker_variant: string | null;
     }
 
     export interface WebAnalyticsBotCondition {
@@ -112461,6 +112665,7 @@ export namespace Schemas {
       metricType?: OtelMetricTypeEnum | null;
       /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
        *
+       * * `none` - none
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
@@ -112470,7 +112675,12 @@ export namespace Schemas {
        * * `rate` - rate
        * * `increase` - increase
        * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
+      aggregation?: MetricQueryAggregationEnum;
+      /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+       *
+       * * `rate` - rate
+       * * `increase` - increase */
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile'.
          * @minimum 0
@@ -112587,8 +112797,9 @@ export namespace Schemas {
        * * `exponential_histogram` - exponential_histogram
        * * `summary` - summary */
       metricType?: OtelMetricTypeEnum | null;
-      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+      /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
        *
+       * * `none` - none
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
@@ -112598,7 +112809,12 @@ export namespace Schemas {
        * * `rate` - rate
        * * `increase` - increase
        * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
+      aggregation?: MetricQueryAggregationEnum;
+      /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+       *
+       * * `rate` - rate
+       * * `increase` - increase */
+      rangeFunction?: MetricRangeFunctionEnum | null;
       /**
          * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
          * @minimum 0
