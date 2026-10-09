@@ -208,11 +208,11 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             assert response.json()["count"] == len(expected)
             assert [row["id"] for row in response.json()["results"]] == [str(ids[name]) for name in expected]
 
-    def _token(self, scopes: list[str]) -> dict[str, str]:
+    def _bearer(self, scopes: list[str]) -> str:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
         self.client.logout()
-        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        return f"Bearer {token}"
 
     @parameterized.expand(
         [
@@ -235,12 +235,14 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             "view": self._suggest(self.view.id).id,
             "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
         }
-        auth = self._token(scopes)
+        bearer = self._bearer(scopes)
 
-        listed = self.client.get(f"{self.url}/", **auth)
+        listed = self.client.get(f"{self.url}/", HTTP_AUTHORIZATION=bearer)
         dismissed = {
             name: self.client.post(
-                f"{self.url}/{suggestion_id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}, **auth
+                f"{self.url}/{suggestion_id}/dismiss/",
+                {"reason": WarehouseSuggestionDismissalReason.NOT_NOW},
+                HTTP_AUTHORIZATION=bearer,
             ).status_code
             for name, suggestion_id in ids.items()
         }
@@ -259,7 +261,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         response = self.client.post(
             f"{self.url}/{suggestion.id}/dismiss/",
             {"reason": WarehouseSuggestionDismissalReason.NOT_NOW},
-            **self._token(["warehouse_view:read"]),
+            HTTP_AUTHORIZATION=self._bearer(["warehouse_view:read"]),
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
