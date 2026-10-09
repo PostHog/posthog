@@ -9,7 +9,7 @@ from products.workflows.backend.services.email_sending_controls import ensure_wo
 def _forget_memoized_config() -> None:
     # Team.workflows_config is memoized for the whole process, so a write that bypasses the
     # memoized row would keep serving the old sender to this team's next request.
-    Team.workflows_config.fget.cache_clear()  # type: ignore[attr-defined]
+    Team.workflows_config.fget.cache_clear()
 
 
 def set_default_email_sender_if_unset(team_id: int, integration_id: int) -> bool:

@@ -1046,8 +1046,11 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
     def validate_default_email_integration_id(self, value: int | None) -> int | None:
         if self.parent or value is None:
             return value
-        team_id = self.instance.team_id if self.instance is not None else None
-        sender = Integration.objects.filter(team_id=team_id, kind="email", id=value).only("config").first()
+        sender = (
+            Integration.objects.filter(team_id=self.instance.team_id, kind="email", id=value).only("config").first()
+            if self.instance is not None
+            else None
+        )
         if sender is None:
             raise serializers.ValidationError("Choose an email sender from this project.")
         if not sender.config.get("verified"):
