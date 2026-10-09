@@ -707,20 +707,25 @@ def send_region_proxy_request(
         return None
 
 
-def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests.Response | None:
+def _proxy_event_to_region(
+    request: HttpRequest, target_domain: str, extra_headers: dict[str, str] | None = None
+) -> requests.Response | None:
     """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
     return send_region_proxy_request(
         method=request.method or "POST",
         target_url=_proxy_target_url(request, target_domain),
-        headers=_proxy_request_headers(request),
+        headers={**_proxy_request_headers(request), **(extra_headers or {})},
         params=dict(request.GET.lists()) if request.GET else None,
         body=request.body or None,
     )
 
 
-def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> str:
+def _proxy_event_and_return_route(
+    request: HttpRequest, target_domain: str, extra_headers: dict[str, str] | None = None
+) -> str:
     """Forward and translate the upstream result into a routing outcome string."""
-    return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
+    upstream = _proxy_event_to_region(request, target_domain, extra_headers)
+    return ROUTE_PROXIED if upstream is not None else ROUTE_PROXY_FAILED
 
 
 def _is_top_level_channel_post(event: dict[str, Any]) -> bool:
@@ -2544,16 +2549,7 @@ def _route_untagged_question(
     # answer when EU receives the post. This region already emitted the post and queued a mirror,
     # so the forwarded copy tells the receiver to skip its emit.
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
-        headers = _proxy_request_headers(request)
-        headers[ALREADY_EMITTED_HEADER] = "1"
-        upstream = send_region_proxy_request(
-            method=request.method or "POST",
-            target_url=_proxy_target_url(request, other_domain),
-            headers=headers,
-            params=dict(request.GET.lists()) if request.GET else None,
-            body=request.body or None,
-        )
-        return ROUTE_PROXIED if upstream is not None else ROUTE_PROXY_FAILED
+        return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
 
     # Ahead of user resolution, which can call Slack's users.info for every author.
     if not is_slack_app_unprompted_answers_enabled(workspace_result.candidates[0]):
