@@ -111,6 +111,8 @@ class TestSandboxLogParser(SimpleTestCase):
         with_repos = build_sandbox_prompt("Can I get a refund?", "", repo_tools=True)
         assert BK_REPO_SEARCH_TOOL in with_repos
         assert BK_REPO_FILE_TOOL in with_repos
+        assert "If that search returns no chunks" in with_repos
+        assert "includes its description" in with_repos
 
     def test_accepts_direct_tool_names_and_exact_docs_search(self) -> None:
         direct = json.dumps(
