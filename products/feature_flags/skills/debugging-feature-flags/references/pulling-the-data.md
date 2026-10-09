@@ -3,13 +3,13 @@
 Run this read-only before diagnosing or asking the customer anything. It produces the config, the
 reproduced evaluation, and the usage numbers you'll cite back to them.
 
-## 1. Flag config — `feature-flag-get-definition-by-key`
+## 1. Flag config — `posthog:feature-flag-get-definition-by-key`
 
 Pull these fields; they are inputs to almost every cause:
 
 - `key`, `active` — a `false` here means the flag is inactive: it returns false for everyone, and the
-  reproduction tools name that state `disabled` (`evaluation-reasons`) / `flag_not_found`
-  (`test-evaluation`), not `flag_disabled`.
+  reproduction tools name that state `disabled` / `flag_not_found` (see the SKILL's `disabled`
+  expansion for why they differ).
 - `filters.groups[]` — the **release conditions**. Per group read `properties` (the targeting),
   `rollout_percentage`, and `variant` (a non-null variant is a forced assignment for that group, not
   randomized).
@@ -17,15 +17,17 @@ Pull these fields; they are inputs to almost every cause:
   hash walks them in this order).
 - `filters.feature_enrollment` (plus the person property `$feature_enrollment/<key>`) — **early-access
   enrollment**: an early-return override evaluated _before_ the release conditions (reason
-  `super_condition_value`). If a value contradicts the visible conditions, it's usually this.
-  (`filters.super_groups` is the legacy encoding; current flags don't use it.)
+  `super_condition_value`); see the SKILL's `super_condition_value` expansion. (`filters.super_groups`
+  is a legacy key: dropped on write and not read by the matcher.)
 - `filters.holdout` — a global holdout; matched users return the holdout value, reason
-  `holdout_condition_value`. Cross-check `experiment-holdouts-list`.
+  `holdout_condition_value`. Cross-check `posthog:experiment-holdouts-list`.
 - `filters.aggregation_group_type_index` — if set, the flag is **group-aggregated**: every SDK
   evaluation must pass the matching `groups`, or it returns false (`no_group_type`).
 - Flag dependencies — a property of type `flag` in `filters.groups[].properties` means this flag
-  gates on another flag and fails **closed** (`missing_dependency`). List the chain with
-  `feature-flags-dependent-flags-retrieve`.
+  gates on another flag and fails **closed** (`missing_dependency`) when the parent is absent (deleted
+  or part of a cycle). The `"type": "flag"` entry holds the parent's numeric ID — pass it to
+  `posthog:feature-flag-get-definition`. (`posthog:feature-flags-dependent-flags-retrieve` goes the other way: it lists
+  flags that depend on _this_ one.)
 - `ensure_experience_continuity` — if `true`, assignment hashes a stored override key so a user's
   value is pinned across anonymous→identified transitions (and the offline hash check below is
   unreliable).
@@ -36,21 +38,21 @@ Pull these fields; they are inputs to almost every cause:
 
 PostHog evaluates the flag for you server-side and returns the **match reason** — no guessing:
 
-- **`feature-flags-evaluation-reasons-retrieve`** — give a `distinct_id`, and **scope it with
+- **`posthog:feature-flags-evaluation-reasons-retrieve`** — give a `distinct_id`, and **scope it with
   `flag_keys`** to the flag(s) you're debugging (omitting it returns an entry for every flag in the
   project). Pass `groups` (a JSON object string) for a group-aggregated flag. Returns the evaluated
   value and reason for that user. Start here.
-- **`feature-flags-test-evaluation-create`** — single flag for a specific user, with detailed
+- **`posthog:feature-flags-test-evaluation-create`** — single flag for a specific user, with detailed
   reasoning, at an optional point in time. Use for a deep dive or to check a historical moment.
-- **`feature-flags-status-retrieve`** — health/staleness (active / stale / deleted / unknown).
-- **`feature-flags-user-blast-radius-create`** — how many users a release condition would match;
+- **`posthog:feature-flags-status-retrieve`** — health/staleness (active / stale / deleted / unknown).
+- **`posthog:feature-flags-user-blast-radius-create`** — how many users a release condition would match;
   run this **before** recommending the customer widen a condition.
 
 Map the returned reason with the reason table in [SKILL.md](../SKILL.md#known-cause-catalog--the-evaluation-reason-start-here).
 If the reproduced value **matches** what the customer expected but they still report the wrong value,
 the cause is client-side — go to the SDK catalog in the SKILL.
 
-## 3. Historical usage — `execute-sql`
+## 3. Historical usage — `posthog:execute-sql`
 
 The `$feature_flag_called` event records what real clients actually got. Useful properties:
 `$feature_flag` (the key), `$feature_flag_response` (the returned value/variant), `$feature_flag_reason`
@@ -99,11 +101,11 @@ If the flag records **no** `$feature_flag_called` at all despite being read, tha
 catalog in the SKILL (events disabled, bulk/payload accessor, or local eval without per-call events)
 — not evidence the flag isn't evaluating.
 
-## 4. Change history — `feature-flags-activity-retrieve`
+## 4. Change history — `posthog:feature-flags-activity-retrieve`
 
-`feature-flags-activity-retrieve { id: <flag_id> }` gives field-level diffs (who changed the
+`posthog:feature-flags-activity-retrieve { id: <flag_id> }` gives field-level diffs (who changed the
 conditions/rollout/variants, and when). Most "it changed / it used to work" surprises are a condition
-or rollout edit visible here. Note the `advanced-activity-logs-list` "feature flag updated" row does
+or rollout edit visible here. Note the `posthog:advanced-activity-logs-list` "feature flag updated" row does
 **not** carry the flag key — use the per-flag activity endpoint when you need to prove _which_ flag
 changed.
 

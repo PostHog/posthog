@@ -23,7 +23,8 @@ clear, no jargon.
   | `no_group_type`                        | the flag is **aggregated by a group** and the call didn't pass the group |
   | `super_condition_value`                | the user's **early access feature** enrollment decided it                 |
   | `holdout_condition_value`              | the user is in the **holdout**                                           |
-  | `missing_dependency`                   | this flag **depends on another flag** that didn't match                  |
+  | `missing_dependency`                   | this flag **depends on another flag** that isn't available               |
+  | `disabled` / `flag_not_found`          | the flag is **turned off** in your project                               |
   | multivariate `variant`                 | a **variant**                                                            |
   | `$feature_flag_called`                 | the flag being **called / evaluated** in your app                        |
 
@@ -32,8 +33,9 @@ clear, no jargon.
 - **Predict the expected outcome** so they can verify the fix ("once you pass `groups` in the
   call, that user will match the organization condition and get the flag").
 - **Async-first voice.** Don't offer to "hop on a call." Close with an offer to follow up.
-- **Never leak internals** — no MCP tool names, code paths, reason enum strings, Django admin, or
-  staff impersonation. Keep it to product concepts a customer recognizes.
+- **Never leak internals** — no MCP tool names, code paths, reason enum strings, Django admin, staff
+  impersonation, or anything belonging to another customer. Keep it to product concepts a customer
+  recognizes.
 - **Write like a person typed it.** No em dashes, no "here's the thing" preambles, no rule-of-three
   padding. If a humanizer skill is available, run the draft through it before sending.
 
@@ -98,9 +100,12 @@ group to evaluate the condition against and safely returns false. That's why a u
 organization still sees it off.
 
 **The fix:**
-1. **Pass the group in the flag call.** In posthog-js that's the `groups` option, for example
-   `posthog.getFeatureFlag('your-flag', { groups: { organization: 'org_123' } })`, and the matching
-   group properties need to be set on that organization.
+1. **Pass the group in the flag call.** In posthog-js, set the group once at identify time with
+   `posthog.group('organization', 'org_123')`. That reloads the flags in the background, so read the
+   value inside `posthog.onFeatureFlags(() => posthog.getFeatureFlag('your-flag'))`. In server-side
+   SDKs it's a per-call option, for example
+   `posthog.getFeatureFlag('your-flag', distinctId, { groups: { organization: 'org_123' } })`. The
+   matching group properties also need to be set on that organization.
 
 Once the call includes the organization, that user will match the organization's release condition
 and get the flag.
