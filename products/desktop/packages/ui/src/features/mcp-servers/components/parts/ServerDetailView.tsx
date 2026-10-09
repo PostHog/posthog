@@ -379,7 +379,12 @@ export function ServerDetailView({
               ) : (
                 <>
                   <ToolGroup
-                    label="Read-only tools"
+                    label="Server-reported read-only"
+                    // readOnlyHint is an unverified claim from the MCP server itself;
+                    // a malicious server can set it on a destructive tool, so the
+                    // label must not read as a verified guarantee (see get_is_read_only
+                    // in products/mcp_store/backend/presentation/views.py).
+                    labelTooltip="The MCP server reported these tools as read-only via its readOnlyHint annotation. This cannot be verified, so treat it as a hint, not a guarantee."
                     tools={groupedTools.readOnly}
                     teamScope={installation.scope === "shared"}
                     onToolApproval={setToolApproval}
@@ -441,6 +446,8 @@ interface ToolGroupProps {
     toolName: string;
     approval_state: McpApprovalState;
   }) => void;
+  /** Optional clarification shown on hover, e.g. to flag an unverified server claim. */
+  labelTooltip?: string;
 }
 
 function ToolGroup({
@@ -448,15 +455,24 @@ function ToolGroup({
   tools,
   teamScope,
   onToolApproval,
+  labelTooltip,
 }: ToolGroupProps) {
   if (tools.length === 0) return null;
 
   return (
     <Flex direction="column" gap="2">
       <Flex align="center" gap="2">
-        <Text color="gray" className="font-medium text-[13px]">
-          {label}
-        </Text>
+        {labelTooltip ? (
+          <Tooltip content={labelTooltip}>
+            <Text color="gray" className="font-medium text-[13px]">
+              {label}
+            </Text>
+          </Tooltip>
+        ) : (
+          <Text color="gray" className="font-medium text-[13px]">
+            {label}
+          </Text>
+        )}
         <Badge color="gray" variant="soft" size="1">
           {tools.length}
         </Badge>

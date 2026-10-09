@@ -217,7 +217,12 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                             key: 'read_only',
                             header: (
                                 <div className="flex items-center gap-2">
-                                    <span>Read-only tools</span>
+                                    {/* "is_read_only" reflects the server's own readOnlyHint annotation, which
+                                    is unverified and can be lied about by a malicious server. The label must
+                                    not read as a guarantee — see get_is_read_only() in views.py. */}
+                                    <Tooltip title="The MCP server reported these tools as read-only via its readOnlyHint annotation. PostHog cannot verify this claim, so treat it as a hint, not a guarantee.">
+                                        <span>Server-reported read-only</span>
+                                    </Tooltip>
                                     <LemonSnack>{readOnlyTools.length}</LemonSnack>
                                 </div>
                             ),
