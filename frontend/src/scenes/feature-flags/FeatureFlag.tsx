@@ -102,7 +102,7 @@ import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
-import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './featureFlagUsageQueries'
+import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './flagEvaluationsTable'
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'

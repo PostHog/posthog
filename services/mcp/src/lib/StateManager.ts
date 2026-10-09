@@ -111,7 +111,12 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            throw new Error(ErrorCode.INVALID_API_KEY)
+            // Only a 401 rejects the token. Any other failure means the check did not run, and a
+            // rejection would make the client discard a token that is still valid.
+            if (introspectionResult.error.message.includes(ErrorCode.INVALID_API_KEY)) {
+                throw new Error(ErrorCode.INVALID_API_KEY)
+            }
+            throw wrapError('Failed to introspect OAuth token', introspectionResult.error)
         }
 
         if (!introspectionResult.data.active) {

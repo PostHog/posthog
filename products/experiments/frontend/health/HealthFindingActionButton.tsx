@@ -22,7 +22,7 @@ export function HealthFindingActionButton({
     onClick: () => void
 }): JSX.Element | null {
     const { experiment, exposureCriteria } = useValues(experimentLogic)
-    const { openDistributionModal } = useActions(modalsLogic)
+    const { openDistributionModal, openReleaseConditionsModal } = useActions(modalsLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
@@ -89,6 +89,18 @@ export function HealthFindingActionButton({
                     }}
                 >
                     Edit exposure criteria
+                </LemonButton>
+            )
+        case 'edit_release_conditions':
+            return (
+                <LemonButton
+                    {...editProps}
+                    onClick={() => {
+                        onClick()
+                        openReleaseConditionsModal()
+                    }}
+                >
+                    Edit release conditions
                 </LemonButton>
             )
         case 'add_primary_metric':
