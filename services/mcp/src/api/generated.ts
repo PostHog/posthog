@@ -8012,14 +8012,44 @@ export namespace Schemas {
       config: ConversationsRecentTicketsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
+    export type CanvasAppWidgetAddRequestOpenApiWidgetType = typeof CanvasAppWidgetAddRequestOpenApiWidgetType[keyof typeof CanvasAppWidgetAddRequestOpenApiWidgetType];
+
+
+    export const CanvasAppWidgetAddRequestOpenApiWidgetType = {
+      CanvasApp: 'canvas_app',
+    } as const;
+
+    export interface CanvasAppWidgetConfig {
+      /** Canvas to render in the tile. Null until the user picks one in the widget settings. */
+      canvasId?: string | null;
+    }
+
+    export interface CanvasAppWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: CanvasAppWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the canvas app widget. */
+      config: CanvasAppWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi | CanvasAppWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -11250,7 +11280,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -20154,6 +20184,60 @@ export namespace Schemas {
       task_id: string;
     }
 
+    export type CanvasAppWidgetCatalogEntryOpenApiWidgetType = typeof CanvasAppWidgetCatalogEntryOpenApiWidgetType[keyof typeof CanvasAppWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const CanvasAppWidgetCatalogEntryOpenApiWidgetType = {
+      CanvasApp: 'canvas_app',
+    } as const;
+
+    export interface CanvasAppWidgetCatalogEntryOpenApi {
+      widget_type: CanvasAppWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: CanvasAppWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `canvas_app` - canvas_app
+     */
+    export type CanvasAppWidgetTypeEnum = typeof CanvasAppWidgetTypeEnum[keyof typeof CanvasAppWidgetTypeEnum];
+
+
+    export const CanvasAppWidgetTypeEnum = {
+      CanvasApp: 'canvas_app',
+    } as const;
+
+    export type CanvasAppWidgetUpdateRequestOpenApiWidgetType = typeof CanvasAppWidgetUpdateRequestOpenApiWidgetType[keyof typeof CanvasAppWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const CanvasAppWidgetUpdateRequestOpenApiWidgetType = {
+      CanvasApp: 'canvas_app',
+    } as const;
+
+    export interface CanvasAppWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: CanvasAppWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the canvas app widget. Omit to leave unchanged. */
+      config?: CanvasAppWidgetConfig;
+    }
+
     /**
      * One emitted file of a built canvas artifact.
      */
@@ -27365,6 +27449,7 @@ export namespace Schemas {
 
     /**
      * * `activity_events_list` - activity_events_list
+     * * `canvas_app` - canvas_app
      * * `conversations_recent_tickets` - conversations_recent_tickets
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
@@ -27379,6 +27464,7 @@ export namespace Schemas {
 
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
       ActivityEventsList: 'activity_events_list',
+      CanvasApp: 'canvas_app',
       ConversationsRecentTickets: 'conversations_recent_tickets',
       ErrorTrackingList: 'error_tracking_list',
       ExperimentResults: 'experiment_results',
@@ -27395,6 +27481,7 @@ export namespace Schemas {
       /** Widget type identifier (cannot be changed on update).
        *
        * * `activity_events_list` - activity_events_list
+       * * `canvas_app` - canvas_app
        * * `conversations_recent_tickets` - conversations_recent_tickets
        * * `error_tracking_list` - error_tracking_list
        * * `experiment_results` - experiment_results
@@ -84423,7 +84510,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi | CanvasAppWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -110480,7 +110567,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
