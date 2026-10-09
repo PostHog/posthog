@@ -51,6 +51,7 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
@@ -236,6 +237,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         activeTab,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
 
@@ -412,7 +414,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                 description={cohort.description || ''}
                                 // When the SceneMenuBar renders above the title, the title's default
                                 // negative top margin pulls it up under the bar — drop it in that case.
-                                className={featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR] ? 'mt-0' : undefined}
+                                className={
+                                    featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR] && !todayRailEnabled ? 'mt-0' : undefined
+                                }
                                 resourceType={{
                                     to: urls.cohorts(),
                                     type: RESOURCE_TYPE,

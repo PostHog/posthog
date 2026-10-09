@@ -1,6 +1,7 @@
 import { cn } from '@posthog/quill'
 
 import { TodayPaneOption } from './TodayPaneOption'
+import { selectionClick } from './todaySessionSelection'
 
 interface TodayPaneRowProps {
     value: string
@@ -12,6 +13,8 @@ interface TodayPaneRowProps {
     /** A control that sits on the row's right edge and shows on hover, outside the row's own link. */
     action?: JSX.Element | null
     dataAttr?: string
+    /** Runs when a plain click or Enter opens the row's page here. A modified click that opens a new tab skips it. */
+    onOpen?: () => void
 }
 
 export function TodayPaneRow({
@@ -23,6 +26,7 @@ export function TodayPaneRow({
     active = false,
     action,
     dataAttr,
+    onOpen,
 }: TodayPaneRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
@@ -32,6 +36,15 @@ export function TodayPaneRow({
                 active={active}
                 title={label}
                 data-attr={dataAttr}
+                onClick={
+                    onOpen
+                        ? (event: React.MouseEvent<HTMLElement>) => {
+                              if (selectionClick(event) === 'open') {
+                                  onOpen()
+                              }
+                          }
+                        : undefined
+                }
                 className={cn(action && 'pr-8')}
             >
                 {icon && (

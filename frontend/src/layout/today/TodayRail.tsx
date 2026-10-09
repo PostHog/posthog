@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ComponentPropsWithoutRef, forwardRef } from 'react'
 
-import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { IconSearch } from '@posthog/icons'
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -9,10 +9,9 @@ import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { isMac } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { TODAY_RAIL_ITEMS } from './todayRailItems'
+import { IconHideSidebar, IconShowSidebar, TODAY_RAIL_ITEMS, todaySidebarShortcutLabel } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
@@ -47,7 +46,7 @@ const RailUtility = forwardRef<
 
 export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
-    const { pickPane, toggleSidebar } = useActions(todayShellLogic)
+    const { clickRailPane, toggleSidebarFrom } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
@@ -66,8 +65,9 @@ export function TodayRail(): JSX.Element {
                     icon={icon}
                     active={activePane === pane}
                     to={railPaneHref(pane)}
-                    onClick={() => pickPane(pane)}
+                    onClick={() => clickRailPane(pane)}
                     dataAttr={`today-rail-${pane}`}
+                    hoverIcon={activePane === pane && sidebarVisible ? <IconHideSidebar /> : undefined}
                 />
             ))}
             <div className="mt-auto flex flex-col items-center gap-1">
@@ -101,11 +101,11 @@ export function TodayRail(): JSX.Element {
                 </RailUtility>
                 <RailUtility
                     label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
-                    shortcut={isMac() ? '⌘B' : 'Ctrl+B'}
+                    shortcut={todaySidebarShortcutLabel()}
                     data-attr="today-rail-toggle-sidebar"
-                    onClick={toggleSidebar}
+                    onClick={() => toggleSidebarFrom('rail')}
                 >
-                    {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
+                    {sidebarVisible ? <IconHideSidebar /> : <IconShowSidebar />}
                 </RailUtility>
             </div>
         </nav>

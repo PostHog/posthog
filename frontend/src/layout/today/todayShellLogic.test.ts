@@ -80,8 +80,8 @@ describe('todayShellLogic', () => {
     test.each([
         ['home', '/home'],
         ['spaces', '/spaces/new'],
-        ['views', '/views'],
-        ['products', '/tools'],
+        ['views', '/airplane'],
+        ['products', '/airplane'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
         const logic = todayShellLogic()
         logic.mount()
@@ -91,6 +91,21 @@ describe('todayShellLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
         expect(logic.values.activePane).toBe(pane)
     })
+
+    test.each(['home', 'spaces', 'views', 'products'] as const)(
+        'a second rail click on %s hides the sidebar it opened',
+        (pane) => {
+            const logic = todayShellLogic()
+            logic.mount()
+
+            logic.actions.setSidebarOpen(false)
+            logic.actions.clickRailPane(pane)
+            expect(logic.values.sidebarVisible).toBe(true)
+
+            logic.actions.clickRailPane(pane)
+            expect(logic.values.sidebarVisible).toBe(false)
+        }
+    )
 
     it('keeps the last pane open on pages that belong to no pane', () => {
         const logic = todayShellLogic()
@@ -114,6 +129,18 @@ describe('todayShellLogic', () => {
 
         logic.actions.setSidebarOpen(false)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+    })
+
+    it('hides the docked sidebar after a row opens a page, and a rail pick shows it again', () => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.setSidebarOpen(true)
+        logic.actions.collapseSidebarAfterPick()
+        expect(logic.values.sidebarVisible).toBe(false)
+
+        logic.actions.pickPane('products')
+        expect(logic.values.sidebarVisible).toBe(true)
     })
     it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
         const originalWidth = window.innerWidth

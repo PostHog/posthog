@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { Button, cn } from '@posthog/quill'
@@ -15,11 +15,13 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
 import { QuillSceneName } from './QuillSceneName'
-import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
+import { QuillSceneTrail } from './QuillSceneTrail'
 import { SceneDescription } from './SceneDescription'
+import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotMarginTop } from './sceneMenuBarSlot'
 import { sceneResourceIcon } from './sceneResourceIcon'
 import { SceneTitlePanelButton } from './SceneTitlePanelButton'
 import type { SceneMainTitleProps } from './SceneTitleSection'
+import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 
 export function QuillSceneTitleSection({
     name,
@@ -62,6 +64,12 @@ export function QuillSceneTitleSection({
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
         hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
+    const backTo = forceBackTo || (breadcrumbs.length > 2 ? breadcrumbs[breadcrumbs.length - 2] : undefined)
+    const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
+    const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
+    const [menuBarSlot, setMenuBarSlot] = useState<HTMLDivElement | null>(null)
+    useRegisterSceneMenuBarSlot(menuBarSlot)
+    const menuBarSlotMarginTop = useSceneMenuBarSlotMarginTop(menuBarSlot)
 
     return (
         <>
@@ -70,14 +78,16 @@ export function QuillSceneTitleSection({
                     'z-30 bg-[var(--scene-layout-background)] @2xl/main-content:sticky -top-[calc(var(--spacing)*4)]',
                     !noPadding && '-mx-4 -mt-4',
                     titleInPhoneHeader && 'hidden has-[>div>*]:flex',
-                    className
+                    className,
+                    // Last, so a caller's padding cannot move the row. The sidebar toggle must sit on the same spot in every scene.
+                    'px-4'
                 )}
                 back={
-                    !titleInPhoneHeader && (forceBackTo || breadcrumbs.length > 2) ? (
-                        <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
-                    ) : undefined
+                    <QuillSceneTrail
+                        parent={backTo && backPath ? { name: backTo.name, path: backPath } : undefined}
+                        icon={resourceIcon}
+                    />
                 }
-                icon={name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined}
                 title={
                     name !== null &&
                     !titleInPhoneHeader && (
@@ -119,9 +129,16 @@ export function QuillSceneTitleSection({
                     <>
                         {!hideProductSetupButton && <ProductSetupButton />}
                         {actions}
+                        <SceneTitleSettingsButton />
                         <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                     </>
                 }
+            />
+            {/* The scene menu bar portals in here. It sits outside the sticky header, so it scrolls away. */}
+            <div
+                ref={setMenuBarSlot}
+                className={cn('empty:hidden', !noPadding && '-mx-4')}
+                style={{ marginTop: menuBarSlotMarginTop }}
             />
             {descriptionShown && (
                 <div className={cn('[&_svg]:size-6', noPadding && cn('pl-4 pr-2', className))}>

@@ -16,6 +16,9 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products'
 
+/** What showed or hid the sidebar. `row_pick` is a click on a row that opens a page. */
+export type TodaySidebarToggleSource = 'rail' | 'shortcut' | 'pane_header' | 'scene_breadcrumb' | 'row_pick'
+
 export const TODAY_RAIL_WIDTH = 60
 export const TODAY_PHONE_MAX_WIDTH = 768
 export const TODAY_SIDEBAR_DEFAULT_WIDTH: number = 312
@@ -35,16 +38,15 @@ function isUnder(path: string, root: string): boolean {
     return path === root || path.startsWith(`${root}/`)
 }
 
-const RAIL_PANE_HOME: Record<TodayRailPane, () => string> = {
+// Views and Products are lists, not pages: picking them only opens the sidebar, and the open page stays.
+const RAIL_PANE_HOME: Partial<Record<TodayRailPane, () => string>> = {
     home: () => urls.projectHomepage(),
     spaces: () => urls.taskNewSession(),
-    views: () => urls.views(),
-    products: () => urls.tools(),
 }
 
-/** The page a rail pane opens. */
-export function railPaneHref(pane: TodayRailPane): string {
-    return RAIL_PANE_HOME[pane]()
+/** The page a rail pane opens, or undefined when the pane only opens the sidebar. */
+export function railPaneHref(pane: TodayRailPane): string | undefined {
+    return RAIL_PANE_HOME[pane]?.()
 }
 
 const PHONE_PAGE_LIMIT = 50
@@ -113,6 +115,7 @@ export interface todayShellLogicValues {
     phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
+    sidebarBreadcrumbShown: boolean
     sidebarOpen: boolean
     sidebarVisible: boolean
     sidebarWidth: number
@@ -142,6 +145,12 @@ export interface todayShellLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    clickRailPane: (pane: TodayRailPane) => {
+        pane: TodayRailPane
+    }
+    collapseSidebarAfterPick: () => {
+        value: true
+    }
     goBackOnPhone: () => {
         value: true
     }
@@ -162,6 +171,9 @@ export interface todayShellLogicActions {
     }
     toggleSidebar: () => {
         value: true
+    }
+    toggleSidebarFrom: (source: TodaySidebarToggleSource) => {
+        source: TodaySidebarToggleSource
     }
 }
 
@@ -187,6 +199,12 @@ export interface todayShellLogicMeta {
         ) => boolean
         phoneHeaderShown: (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean) => boolean
         phoneCanGoBack: (phonePages: TodayPhonePage[]) => boolean
+        sidebarBreadcrumbShown: (
+            todayRailEnabled: boolean,
+            phoneLayout: boolean,
+            mobileLayout: boolean,
+            sidebarVisible: boolean
+        ) => boolean
     }
 }
 
@@ -211,6 +229,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setSidebarWidth: (width: number) => ({ width }),
         toggleSidebar: true,
+        toggleSidebarFrom: (source: TodaySidebarToggleSource) => ({ source }),
+        collapseSidebarAfterPick: true,
+        clickRailPane: (pane: TodayRailPane) => ({ pane }),
     }),
     windowValues(() => ({
         phoneLayout: (window: Window) => window.innerWidth < TODAY_PHONE_MAX_WIDTH,
@@ -297,6 +318,18 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 todayRailEnabled && phoneLayout && !phoneHeaderHidden,
         ],
         phoneCanGoBack: [(s) => [s.phonePages], (phonePages: TodayPhonePage[]): boolean => phonePages.length > 1],
+        // The scene title row names the hidden sidebar's pane, so a click there opens it again. A floating sidebar
+        // covers the button instead of replacing it, so it stays and the title never shifts. Phones open the
+        // sidebar from the phone header.
+        sidebarBreadcrumbShown: [
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.mobileLayout, s.sidebarVisible],
+            (
+                todayRailEnabled: boolean,
+                phoneLayout: boolean,
+                mobileLayout: boolean,
+                sidebarVisible: boolean
+            ): boolean => todayRailEnabled && !phoneLayout && (mobileLayout || !sidebarVisible),
+        ],
     }),
     subscriptions(({ actions }) => ({
         mobileLayout: () => actions.setMobileSidebarOpen(false),
@@ -308,6 +341,22 @@ export const todayShellLogic = kea<todayShellLogicType>([
             } else {
                 actions.setSidebarOpen(!values.sidebarOpen)
             }
+        },
+        toggleSidebarFrom: ({ source }) => {
+            actions.toggleSidebar()
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today sidebar toggled', {
+                source,
+                open: values.sidebarVisible,
+                mobile_layout: values.mobileLayout,
+            })
+        },
+        collapseSidebarAfterPick: () => {
+            // The drawer closes on the route change, so only the docked sidebar needs to close here.
+            if (values.mobileLayout || !values.sidebarOpen) {
+                return
+            }
+            actions.toggleSidebarFrom('row_pick')
         },
         setMobileSidebarOpen: ({ open }) => {
             if (!open) {
@@ -333,10 +382,20 @@ export const todayShellLogic = kea<todayShellLogicType>([
             actions.setPhonePages(values.phonePages.slice(0, -1))
             router.actions.replace(previous.url)
         },
+        clickRailPane: ({ pane }) => {
+            if (values.activePane === pane && values.sidebarVisible) {
+                actions.toggleSidebarFrom('rail')
+                return
+            }
+            actions.pickPane(pane)
+        },
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
-            router.actions.push(railPaneHref(pane))
+            const href = railPaneHref(pane)
+            if (href) {
+                router.actions.push(href)
+            }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
             } else {

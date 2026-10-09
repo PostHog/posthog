@@ -3,7 +3,7 @@ import './TodayShell.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { Heading, Skeleton, ToastProvider } from '@posthog/quill'
+import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -17,11 +17,20 @@ import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
 import { TodayNewChatButton } from './TodayNewChatButton'
+import { TodayNewViewButton } from './TodayNewViewButton'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
+import { TODAY_PANE_TITLES } from './todayRailItems'
 import { todayRecentsLogic } from './todayRecentsLogic'
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_CLOSE_THRESHOLD,
+    TodayRailPane,
+    clampSidebarWidth,
+    todayShellLogic,
+} from './todayShellLogic'
+import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodayTabBar } from './TodayTabBar'
 
@@ -36,11 +45,9 @@ const NewSpaceDialog = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
-const PANE_LABELS = {
-    home: 'Today',
-    spaces: 'Chats',
-    views: 'Views',
-    products: 'Products',
+const PANE_ACTIONS: Partial<Record<TodayRailPane, () => JSX.Element>> = {
+    spaces: TodayNewChatButton,
+    views: TodayNewViewButton,
 }
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
@@ -49,13 +56,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         useValues(todayShellLogic)
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
-    const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar, toggleSidebarFrom } =
+        useActions(todayShellLogic)
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
         intent: 'Toggle collapse left navigation',
         interaction: 'function',
-        callback: toggleSidebar,
+        callback: () => toggleSidebarFrom('shortcut'),
         ignoreInEditable: true,
     })
     const sidebarRef = useRef<HTMLDivElement | null>(null)
@@ -110,16 +118,20 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         </Suspense>
     )
 
+    const PaneAction = PANE_ACTIONS[activePane]
     const pane = (
         <div className="TodayShell__pane">
             <QuillSceneHeader
-                className="border-b-0"
+                // Transparent, not removed: the scene header keeps its border inside the same height, so both headers
+                // center their buttons on the same line.
+                className="border-b-transparent"
+                back={<TodaySidebarCollapseButton />}
                 title={
                     <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">
-                        {PANE_LABELS[activePane]}
+                        {TODAY_PANE_TITLES[activePane]}
                     </h2>
                 }
-                actions={activePane === 'spaces' ? <TodayNewChatButton /> : undefined}
+                actions={PaneAction && <PaneAction />}
             />
             {paneContent}
         </div>
@@ -141,17 +153,11 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         tabIndex={-1}
                         className="TodayShell__sidebar TodayShell__page outline-none"
                         data-open={sidebarVisible}
-                        aria-label={PANE_LABELS[activePane]}
+                        aria-label={TODAY_PANE_TITLES[activePane]}
                         aria-hidden={!sidebarVisible}
                         {...(sidebarVisible ? {} : { inert: '' })}
                     >
-                        <div className="flex min-h-14 shrink-0 items-end gap-1 px-4 pt-3">
-                            <Heading render={<h1 />} size="2xl" className="m-0 flex-1 truncate leading-10">
-                                {PANE_LABELS[activePane]}
-                            </Heading>
-                            {activePane === 'spaces' && <TodayNewChatButton />}
-                        </div>
-                        <div className="TodayShell__pane">{paneContent}</div>
+                        {pane}
                         <TodaySidebarFooter />
                     </aside>
                     <TodayTabBar />
@@ -183,7 +189,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             tabIndex={-1}
                             className="TodayShell__sidebar TodayShell__drawer outline-none"
                             data-open={sidebarVisible}
-                            aria-label={PANE_LABELS[activePane]}
+                            aria-label={TODAY_PANE_TITLES[activePane]}
                             aria-hidden={!sidebarVisible}
                             {...(sidebarVisible ? {} : { inert: '' })}
                             // eslint-disable-next-line react/forbid-dom-props
@@ -198,7 +204,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <aside
                             ref={sidebarRef}
                             className="TodayShell__sidebar TodayShell__sidebar--framed relative"
-                            aria-label={PANE_LABELS[activePane]}
+                            aria-label={TODAY_PANE_TITLES[activePane]}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}
                         >

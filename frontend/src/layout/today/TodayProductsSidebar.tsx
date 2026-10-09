@@ -18,12 +18,14 @@ import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
 import { matchesPaneQuery } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { todayShellLogic } from './todayShellLogic'
 import { todayToolsLogic } from './todayToolsLogic'
 
 /** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
 export function TodayProductsSidebar(): JSX.Element {
     const { tools, toolGroups, recentTools, search } = useValues(todayToolsLogic)
     const { setSearch } = useActions(todayToolsLogic)
+    const { collapseSidebarAfterPick } = useActions(todayShellLogic)
     const { objectTypes } = useValues(libraryLogic)
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
@@ -58,6 +60,7 @@ export function TodayProductsSidebar(): JSX.Element {
                         to={href}
                         active={!!href && href === activeHref}
                         dataAttr={section.key === 'recent' ? 'today-tool-recent' : 'today-tool'}
+                        onOpen={collapseSidebarAfterPick}
                     />
                 )
             })}
@@ -90,6 +93,7 @@ export function TodayProductsSidebar(): JSX.Element {
                                         to={urls.library()}
                                         active={path === urls.library()}
                                         dataAttr="today-library-all"
+                                        onOpen={collapseSidebarAfterPick}
                                     />
                                 )}
                                 {libraryTypes.map((type) => (
@@ -106,6 +110,7 @@ export function TodayProductsSidebar(): JSX.Element {
                                         }
                                         action={<LibraryCreateButton objectType={type.value} />}
                                         dataAttr="today-library-type"
+                                        onOpen={collapseSidebarAfterPick}
                                     />
                                 ))}
                             </div>
