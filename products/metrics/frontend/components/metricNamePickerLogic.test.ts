@@ -199,6 +199,50 @@ describe('metricNamePickerLogic', () => {
         expect(logic.values.items).toEqual([ITEMS[2]])
     })
 
+    it('drops old-scope names when a new-scope search finishes before the new list', async () => {
+        const newScopeLoad = deferred<any>()
+        jest.mocked(metricsNamesRetrieve)
+            .mockResolvedValueOnce({ results: fullPage } as any)
+            .mockResolvedValueOnce({ results: [{ name: 'old.scope.metric' }] } as any)
+            .mockReturnValueOnce(newScopeLoad.promise)
+            .mockResolvedValueOnce({ results: [] } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('old')
+        }).toDispatchActions(['searchItemsSuccess'])
+
+        logic.actions.setServices(['api'])
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('queue')
+        }).toDispatchActions(['searchItemsSuccess'])
+        newScopeLoad.resolve({ results: [ITEMS[2]] })
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess']).toFinishAllListeners()
+
+        expect(logic.values.items.map((item) => item.name)).not.toContain('old.scope.metric')
+    })
+
+    it('keeps names a search found in the current scope when the list reloads', async () => {
+        jest.mocked(metricsNamesRetrieve)
+            .mockResolvedValueOnce({ results: fullPage } as any)
+            .mockResolvedValueOnce({ results: [{ name: 'found.by.search' }] } as any)
+            .mockResolvedValueOnce({ results: fullPage } as any)
+        logic = metricNamePickerLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadItemsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('found')
+        }).toDispatchActions(['searchItemsSuccess'])
+        logic.actions.setSearch('')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadItems()
+        }).toDispatchActions(['loadItemsSuccess'])
+
+        expect(logic.values.items.map((item) => item.name)).toContain('found.by.search')
+    })
+
     it('shows the old list again when the new scope fails to load', async () => {
         logic = metricNamePickerLogic()
         logic.mount()
