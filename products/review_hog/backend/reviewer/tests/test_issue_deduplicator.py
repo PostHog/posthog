@@ -13,20 +13,19 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
+    REVIEW_HOG_FINDING_MARKER,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import (
-    DuplicateIssue,
-    FlashDuplicateIssue,
-    FlashIssueDeduplication,
-    IssueDeduplication,
-)
+from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
+    AlreadyRaised,
     DedupOutcome,
+    Duplicate,
     _comment_range,
     _select_dedup_candidates,
+    already_raised,
     deduplicate_issues,
 )
 
@@ -68,6 +67,7 @@ def _prior_comment(path: str, line: int, user: str) -> PRComment:
     # A prior inline comment. The dedup never branches on the author — it's passed to the LLM as
     # context only.
     return PRComment(
+        id=77,
         path=path,
         line=line,
         body="x",
@@ -193,7 +193,7 @@ async def test_deduplicate_no_positional_collision_reaches_only_the_flash_llm_ca
         _issue("1-2", "src/b.py", 30, 40),
         _issue("1-3", "src/c.py", 50, 60),
     ]
-    flash_drops_one = FlashIssueDeduplication(duplicates=[FlashDuplicateIssue(id="1-2", duplicate_of="1-1")])
+    flash_drops_one = IssueDeduplication(duplicates=[DuplicateIssue(id="1-2", duplicate_of="1-1")])
 
     with (
         patch(f"{_MODULE}.run_oneshot_review") as mock_oneshot,
@@ -226,7 +226,7 @@ async def test_deduplicate_drops_llm_flagged_duplicate_keeps_isolated(pr_metadat
         _issue("2-1", "src/auth.py", 45, 50),
         _issue("1-2", "src/other.py", 10, 12),
     ]
-    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="2-1")])
+    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="2-1", duplicate_of="1-1")])
 
     with patch(f"{_MODULE}.run_oneshot_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
@@ -251,7 +251,7 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
     # one hardcoded bot), and nothing in our code branches on who wrote the comment.
     issues = [_issue("1-1", "src/auth.py", 45, 50)]
     comments = [_prior_comment("src/auth.py", 47, user="some-reviewer[bot]")]
-    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1")])
+    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1", duplicate_of=str(comments[0].id))])
 
     with patch(f"{_MODULE}.run_oneshot_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
@@ -266,6 +266,8 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
         )
 
     assert result.kept == []
+    # Full lists what a PR comment already raises, so the removal must keep which comment it repeats.
+    assert [duplicate.duplicate_of for duplicate in result.duplicates] == [str(comments[0].id)]
 
 
 @pytest.mark.asyncio
@@ -274,7 +276,7 @@ async def test_deduplicate_prior_turn_finding_makes_issue_a_candidate(pr_metadat
     # even with no other issue or comment nearby — otherwise it re-enters validation every turn.
     issues = [_issue("1-1", "src/auth.py", 45, 50)]
     prior = [_prior_finding("src/auth.py", 46, 48, dismissed=True)]
-    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1")])
+    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1", duplicate_of=prior[0][0].issue_key)])
 
     with patch(f"{_MODULE}.run_oneshot_review", create_mock_run_sandbox_review(dedup)):
         result = await deduplicate_issues(
@@ -309,12 +311,11 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
     # A Flash dedup skips the gate: it always runs on its own OpenAI pins, never on Anthropic ones.
     issues = [_issue(f"1-{i}", "src/auth.py", 45, 50) for i in range(issue_count)]
     keep_all = IssueDeduplication(duplicates=[])
-    flash_keep_all = FlashIssueDeduplication(duplicates=[])
 
     with (
         patch(f"{_MODULE}.run_oneshot_review", new=AsyncMock(return_value=keep_all)) as mock_oneshot,
         patch(f"{_MODULE}.run_sandbox_review", new=AsyncMock(return_value=keep_all)) as mock_sandbox,
-        patch(f"{_MODULE}.run_oneshot_openai_review", new=AsyncMock(return_value=flash_keep_all)) as mock_openai,
+        patch(f"{_MODULE}.run_oneshot_openai_review", new=AsyncMock(return_value=keep_all)) as mock_openai,
     ):
         result = await deduplicate_issues(
             team_id=1,
@@ -331,8 +332,9 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
     assert len(result.kept) == issue_count
     routes = {"oneshot": mock_oneshot, "sandbox": mock_sandbox, "openai": mock_openai}
     assert [name for name, mock in routes.items() if mock.called] == [expected_route]
+    # Every route asks what each duplicate repeats, because Full lists the comments its findings repeat.
     instructions = routes[expected_route].call_args.kwargs["prompt"].split("JSON Schema:")[0]
-    assert ("`duplicate_of`" in instructions) == for_flash
+    assert "`duplicate_of`" in instructions
     if expected_route == "sandbox":
         # The pin kwargs default to None, so dropping them at this call site would silently fall
         # back to the sandbox default model — same contract as the chunking and review pin tests.
@@ -430,3 +432,33 @@ async def test_flash_dedup_transient_failure_retries_before_the_last_attempt(pr_
     # dedup; falling back at once would trade it for the coarser positional one.
     with pytest.raises(ApplicationError):
         await _dedupe_with_a_failing_flash_call(pr_metadata, non_retryable=False, final_attempt=False)
+
+
+def test_already_raised_lists_each_other_reviewers_comment_once() -> None:
+    # The status comment says another reviewer already raised these. ReviewHog's own comments and earlier
+    # findings must not appear, a human who pastes ReviewHog's public marker must not leave the list, and
+    # several perspectives repeating one comment must not fill the list with copies of it.
+    def comment(comment_id: int, user: str, body: str = "Retries can double charge") -> PRComment:
+        return PRComment(id=comment_id, path="a.py", line=5, body=body, diff_hunk="", user=user, created_at="c")
+
+    own_body = f"**P2 · Old**\n\nx\n\n{REVIEW_HOG_FINDING_MARKER}"
+    comments = [
+        comment(1, "greptile-apps[bot]"),
+        comment(2, "posthog[bot]", own_body),
+        comment(3, "someone", own_body),
+    ]
+    must_fix = _issue("1-4", "a.py", 5, 6).model_copy(update={"priority": IssuePriority.MUST_FIX})
+    duplicates = [
+        Duplicate(issue=_issue("1-1", "a.py", 5, 6), duplicate_of="1"),
+        Duplicate(issue=must_fix, duplicate_of="1"),
+        Duplicate(issue=_issue("1-2", "a.py", 9, 9), duplicate_of="2"),
+        Duplicate(issue=_issue("1-3", "a.py", 20, 21), duplicate_of="r1:a.py:20"),
+        Duplicate(issue=_issue("1-5", "a.py", 5, 5), duplicate_of="3"),
+    ]
+
+    raised = already_raised(duplicates, comments)
+
+    assert raised == [
+        AlreadyRaised(title="Issue 1-4", level="P1", comment_id=1, commenter="greptile-apps[bot]"),
+        AlreadyRaised(title="Issue 1-5", level="P2", comment_id=3, commenter="someone"),
+    ]

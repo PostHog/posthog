@@ -112,8 +112,8 @@ def select_review_design(review_mode: str, *, kill_switch_on: bool) -> ReviewDes
 # Bump a (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[tuple[str, str], tuple[int, int]] = {
-    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 2),
-    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 2),
+    (REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE): (1, 3),
+    (REVIEW_MODE_FLASH, REVIEW_DESIGN_PIPELINE): (1, 3),
     (REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT): (2, 2),
 }
 
@@ -149,6 +149,16 @@ SINGLE_AGENT_FLASH_ARM = ReviewArm(
 SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
 SINGLE_AGENT_SOURCE = "flash-single-agent"
+
+# Hidden marker stamped on every ReviewHog inline finding comment (publish_review._format_issue_comment)
+# so the resolution stage can recognize its own threads by content. Installation bot logins vary per
+# deployment, so there is no stable login to match on; this marker is the reliable signal. Same
+# HTML-comment style as the review-body / promo / status markers, invisible in rendered markdown.
+REVIEW_HOG_FINDING_MARKER = "<!-- reviewhog:finding -->"
+
+# A long list would bury the turn's own outcome, so the status comment shows this many of the findings other
+# reviewers already raised, and counts the rest.
+ALREADY_RAISED_SHOWN = 10
 
 # The main and lens findings merge into one list by priority, cut so a turn's comments stay few. A larger
 # PR gets a few more, because each extra lens part covers more code: 4, 6, 8, 10 for 1-4 parts.
