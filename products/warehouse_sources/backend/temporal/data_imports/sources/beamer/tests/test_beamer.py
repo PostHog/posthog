@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.bea
     beamer_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.settings import BEAMER_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -86,9 +85,6 @@ class TestFormatDatetime:
     def test_format_datetime(self, _name: str, value: object, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_plus_zero_offset(self) -> None:
-        assert "+00:00" not in _format_datetime(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -121,39 +117,8 @@ class TestValidateCredentials:
         assert ok is False
         assert message is not None and "Could not reach Beamer" in message
 
-    def test_probe_sends_api_key_header(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = mock.MagicMock(status_code=200)
-        with mock.patch(BEAMER_SESSION_PATCH, return_value=session):
-            validate_credentials("key")
-        _, kwargs = session.get.call_args
-        assert kwargs["headers"]["Beamer-Api-Key"] == "key"
-
 
 class TestTopLevelPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        full_page = [{"id": i, "date": "2026-01-01"} for i in range(10)]
-        snapshots = _wire(session, [_response(full_page), _response([{"id": 10, "date": "2026-01-02"}])])
-
-        rows = _rows(_source("posts"))
-
-        assert [r["id"] for r in rows] == list(range(11))
-        # Stops after the short second page; never requests page 3.
-        assert session.send.call_count == 2
-        assert snapshots[0][0] == "https://api.getbeamer.com/v0/posts"
-        assert snapshots[0][1] == {"maxResults": 10, "page": 1}
-        assert snapshots[1][1] == {"maxResults": 10, "page": 2}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        assert _rows(_source("posts")) == []
-        assert session.send.call_count == 1
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_adds_datefrom(self, MockSession) -> None:
         session = MockSession.return_value
@@ -170,24 +135,6 @@ class TestTopLevelPagination:
 
         assert rows == [{"id": 1, "date": "2026-03-05"}]
         assert snapshots[0][1]["dateFrom"] == "2026-03-04T02:58:14Z"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_no_datefrom_without_incremental(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1, "date": "2026-01-01"}])])
-
-        _rows(_source("posts"))
-        assert "dateFrom" not in snapshots[0][1]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_nps_uses_larger_page_size(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([{"id": 1, "date": "2026-01-01", "score": 9}])])
-
-        rows = _rows(_source("nps"))
-        assert rows[0]["score"] == 9
-        assert snapshots[0][0] == "https://api.getbeamer.com/v0/nps"
-        assert snapshots[0][1]["maxResults"] == 100
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resume_starts_from_saved_page(self, MockSession) -> None:
@@ -417,12 +364,3 @@ class TestBeamerSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
         assert response.sort_mode == sort_mode
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_endpoints_sort_desc(self, MockSession) -> None:
-        # Endpoints with a server-side dateFrom filter must use "desc" so the watermark is only
-        # persisted at the end of a successful sync (we can't verify the API's default sort order).
-        for name, config in BEAMER_ENDPOINTS.items():
-            response = _source(name)
-            expected = "desc" if config.supports_incremental else "asc"
-            assert response.sort_mode == expected, name

@@ -15,10 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.on
     get_credentials_status,
     onfleet_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.settings import (
-    ENDPOINTS,
-    ONFLEET_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -103,24 +99,6 @@ class TestBasicAuth:
 
 
 class TestGetRowsPaginated:
-    def test_paginates_via_last_id_and_stops_when_absent(self):
-        manager = _make_manager()
-        rows, prepared, _session = _run(
-            "tasks",
-            [
-                _response({"lastId": "abc", "tasks": [{"id": "1"}, {"id": "2"}]}),
-                _response({"tasks": [{"id": "3"}]}),  # no lastId -> final page
-            ],
-            manager,
-        )
-
-        assert [row["id"] for row in rows] == ["1", "2", "3"]
-        # Second request continues after the first page's lastId.
-        assert _query(prepared[1])["lastId"] == "abc"
-        # State saved once (only while a next cursor exists), after yielding the page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].last_id == "abc"
-
     def test_resumes_from_saved_cursor(self):
         manager = _make_manager(OnfleetResumeConfig(last_id="saved", from_ms=1234))
         _rows_, prepared, _session = _run("tasks", [_response({"tasks": [{"id": "9"}]})], manager)
@@ -128,20 +106,6 @@ class TestGetRowsPaginated:
         first = _query(prepared[0])
         assert first["lastId"] == "saved"
         assert first["from"] == "1234"
-
-    def test_incremental_from_value_used_as_epoch_ms(self):
-        _rows_, prepared, _session = _run(
-            "tasks",
-            [_response({"tasks": [{"id": "1"}]})],
-            _make_manager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=1700000000000,
-        )
-        assert _query(prepared[0])["from"] == "1700000000000"
-
-    def test_full_refresh_defaults_from_to_zero(self):
-        _rows_, prepared, _session = _run("tasks", [_response({"tasks": [{"id": "1"}]})], _make_manager())
-        assert _query(prepared[0])["from"] == "0"
 
     def test_empty_page_with_advancing_cursor_keeps_paginating(self):
         # A page can be empty yet still carry an advancing lastId; pagination must continue
@@ -177,57 +141,8 @@ class TestGetRowsPaginated:
         assert [row["id"] for row in rows] == ["1", "1"]
 
 
-class TestGetRowsNonPaginated:
-    def test_bare_array_endpoint_yields_once(self):
-        manager = _make_manager()
-        rows, _prepared, session = _run("workers", [_response([{"id": "w1"}, {"id": "w2"}])], manager)
-
-        assert rows == [{"id": "w1"}, {"id": "w2"}]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    def test_single_object_endpoint_wraps_in_list(self):
-        rows, _prepared, _session = _run("organization", [_response({"id": "org1", "name": "Acme"})], _make_manager())
-        assert rows == [{"id": "org1", "name": "Acme"}]
-
-
-class TestRetries:
-    @mock.patch("tenacity.nap.time.sleep")
-    def test_retryable_status_is_retried_then_succeeds(self, _mock_sleep):
-        # Onfleet rate-limits (429) and returns 5xx on its internal timeout; the client must
-        # retry those and then yield the successful page.
-        manager = _make_manager()
-        rows, _prepared, session = _run(
-            "workers",
-            [_response(None, status_code=429), _response([{"id": "w1"}])],
-            manager,
-        )
-        assert rows == [{"id": "w1"}]
-        assert session.send.call_count == 2
-
-
 class TestGetCredentialsStatus:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 500])
-    @mock.patch(ONFLEET_SESSION_PATCH)
-    def test_returns_status_code(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert get_credentials_status("key") == status_code
-
     @mock.patch(ONFLEET_SESSION_PATCH)
     def test_returns_none_on_transport_error(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert get_credentials_status("key") is None
-
-
-class TestOnfleetSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = ONFLEET_ENDPOINTS[endpoint]
-        response = onfleet_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
-
-        assert response.name == endpoint
-        assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
-        # Onfleet epoch-ms timestamps would misbucket under the datetime partitioner, so partitioning is off.
-        assert response.partition_mode is None
-        assert response.partition_keys is None

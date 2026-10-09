@@ -211,19 +211,20 @@ def attio_source(
         "resources": [get_resource(endpoint)],
     }
 
-    # Attio's GET endpoints do not expose a stable ordering. Their numeric offsets can skip a
-    # live row when an earlier item is deleted between attempts, so only the explicitly sorted
-    # POST endpoints may restore and save offsets.
-    supports_resume = endpoint_config.method == "POST"
+    # The GET endpoints take no sort order, so a row deleted during the walk moves every later
+    # offset down by one and the walk misses one live row. A resumed attempt has the same exposure
+    # as one long attempt, because it continues at the offset after the last written page. Without
+    # resume, a walk of a large workspace cannot move to another worker, and a restart reads every
+    # page again.
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if supports_resume and resumable_source_manager.can_resume():
+    if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
             initial_paginator_state = {"offset": resume.offset}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # The framework calls this after it yields a page, and the offset points at the page after
-        # it, so a resume never skips a page that the pipeline has not written.
+        # The offset points at the page after the one that carries this state, so a resume never
+        # skips a page that the pipeline has not written.
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(AttioResumeConfig(offset=int(state["offset"])))
 
@@ -232,7 +233,7 @@ def attio_source(
         team_id,
         job_id,
         None,
-        resume_hook=save_checkpoint if supports_resume else None,
+        resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     ).add_map(_flatten_item)
 
@@ -246,5 +247,4 @@ def attio_source(
         partition_format="week",
         partition_keys=[endpoint_config.partition_key],
         sort_mode="asc",
-        supports_resume=supports_resume,
     )

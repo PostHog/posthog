@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class XsollaSourceConfig(config.Config):
-    pass
+    merchant_id: str
+    api_key: str

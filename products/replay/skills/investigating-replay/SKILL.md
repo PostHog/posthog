@@ -18,17 +18,17 @@ ask for each piece.
 
 ## Available tools
 
-| Tool                                         | Purpose                                                    |
-| -------------------------------------------- | ---------------------------------------------------------- |
-| `posthog:session-recording-get`              | Recording metadata (duration, counts, status)              |
-| `posthog:persons-retrieve`                   | Person profile (properties, distinct IDs)                  |
-| `posthog:execute-sql`                        | Query events, errors, and page views in session            |
-| `posthog:query-error-tracking-issues-list`   | Find error tracking issues linked to the session           |
-| `posthog:vision-observations-list`           | Check for an existing Replay Vision AI summary             |
-| `posthog:vision-observations-retrieve`       | Read one observation in full (`scanner_result`)            |
-| `posthog:vision-scanners-inline-scan-create` | Generate an AI summary of the session (slow, optional)     |
-| `posthog:vision-scanners-list`               | Find saved summarizer scanners (`scanner_type=summarizer`) |
-| `posthog:vision-scanners-scan-session`       | Run a saved summarizer scanner on the session (slow)       |
+| Tool                                       | Purpose                                                    |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| `posthog:session-recording-get`            | Recording metadata (duration, counts, status)              |
+| `posthog:persons-retrieve`                 | Person profile (properties, distinct IDs)                  |
+| `posthog:execute-sql`                      | Query events, errors, and page views in session            |
+| `posthog:query-error-tracking-issues-list` | Find error tracking issues linked to the session           |
+| `posthog:vision-observations-list`         | Check for an existing Replay Vision AI summary             |
+| `posthog:vision-observations-get`          | Read one observation in full (`scanner_result`)            |
+| `posthog:vision-scanners-inline-scan`      | Generate an AI summary of the session (slow, optional)     |
+| `posthog:vision-scanners-list`             | Find saved summarizer scanners (`scanner_type=summarizer`) |
+| `posthog:vision-scanners-scan-session`     | Run a saved summarizer scanner on the session (slow)       |
 
 ## Workflow
 
@@ -178,7 +178,7 @@ a scanner can only observe a given session once.
 
    The rows come back narrowed to `id`, `session_id`, `status`, `summary_line` and
    `scanner_id`. Look for one whose `status` is `succeeded`, then read it in full with
-   `vision-observations-retrieve` for that `id`: its `scanner_snapshot.scanner_type`
+   `vision-observations-get` for that `id`: its `scanner_snapshot.scanner_type`
    tells you whether it is a `summarizer`, and `scanner_result.model_output` carries
    `title`, `summary`, `intent`, `outcome`, `friction_points` and `keywords`. If you
    find one, you are done — no new scan needed.
@@ -189,7 +189,7 @@ a scanner can only observe a given session once.
    different prompt or `length` mints a separate scanner and a separate summary.
 
    ```json
-   posthog:vision-scanners-inline-scan-create
+   posthog:vision-scanners-inline-scan
    {
      "session_ids": ["<session_id>"],
      "scanner_type": "summarizer",

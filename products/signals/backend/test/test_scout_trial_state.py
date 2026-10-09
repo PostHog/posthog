@@ -16,7 +16,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import JsonValue
 
-from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
@@ -164,7 +164,13 @@ class TestScoutTrialState(APIBaseTest):
         assert store.search_memory(key="new", content_max_chars=8)[0].content == "Checkout"
 
 
-@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, AI_GATEWAY_URL="https://gateway.example/v1")
+@override_settings(
+    SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
+    SANDBOX_AI_GATEWAY_URL=None,
+    SANDBOX_AI_GATEWAY_MINT_KEY=None,
+)
 class TestScoutTrialReportCapture(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -230,11 +236,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
     def test_gateway_credential_is_narrow_and_revoked_after_safety_failure(self) -> None:
         token = create_trial_gateway_token(self.scout_run)
         assert token == "phe_synthetic_private_token"
+        gateway_config = AIGatewayConfig(url="https://gateway.example/v1", api_key="phs_synthetic_api_key")
         self.gateway_mint.assert_called_once_with(
-            team_id=self.team.id, user=self.user.distinct_id, expires_in_seconds=600
+            team_id=self.team.id, user=self.user.distinct_id, expires_in_seconds=600, gateway_config=gateway_config
         )
         revoke_trial_gateway_token(token)
-        self.gateway_revoke.assert_called_once_with(token)
+        self.gateway_revoke.assert_called_once_with(token, gateway_config=gateway_config)
         self.gateway_mint.reset_mock()
         self.gateway_revoke.reset_mock()
 
@@ -242,7 +249,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         with self.assertRaisesRegex(RuntimeError, "Synthetic safety failure"):
             self._emit()
         self.gateway_mint.assert_called_once()
-        self.gateway_revoke.assert_called_once_with(token)
+        self.gateway_revoke.assert_called_once_with(token, gateway_config=gateway_config)
 
     @parameterized.expand(["untrusted_run", "revoked_actor", "revoked_membership"])
     def test_gateway_credential_rejects_invalid_trial_identity(self, condition: str) -> None:
@@ -269,7 +276,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert self.judge.call_count == 1
         result = edit_report_sync(
             team=self.team,
-            run=self.scout_run,
+            author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=report_id,
             summary="A revised synthetic explanation.",
             append_note="A second fixture confirms it.",
@@ -311,7 +318,9 @@ class TestScoutTrialReportCapture(APIBaseTest):
         with time_machine.travel("2026-09-01T12:00:00Z", tick=False):
             report_id = self._emit()
         with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
-            result = edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, **change)
+            result = edit_report_sync(
+                team=self.team, author=ScoutRunReportAuthor(run=self.scout_run), report_id=report_id, **change
+            )
         assert result.changed
         draft = self.store.get_report(report_id)
         assert draft is not None
@@ -330,7 +339,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         )
         unchanged = edit_report_sync(
             team=self.team,
-            run=self.scout_run,
+            author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title=original.title,
         )
@@ -340,7 +349,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert unchanged_draft.artefacts == []
         edit_report_sync(
             team=self.team,
-            run=self.scout_run,
+            author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title="Privately revised title",
             append_note="Private supporting note",
@@ -362,7 +371,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
         )
 
         with pytest.raises(InvalidScoutReportError, match="not found"):
-            edit_report_sync(team=self.team, run=self.scout_run, report_id=str(original.id), title="Private revision")
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=str(original.id),
+                title="Private revision",
+            )
 
         assert self.store.get_report(str(original.id)) is None
         self.judge.assert_not_awaited()
@@ -379,7 +393,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         )
         edit_report_sync(
             team=self.team,
-            run=self.scout_run,
+            author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title="Private revision",
             append_evidence=[ReportEvidence(description="Private observation", source_id="private-observation")],
@@ -410,13 +424,23 @@ class TestScoutTrialReportCapture(APIBaseTest):
     def test_private_evidence_cap_includes_new_production_evidence(self) -> None:
         original = SignalReport.objects.create(team=self.team, title="Source report", signal_count=1)
         evidence = [ReportEvidence(description="Private observation", source_id="private-observation")]
-        edit_report_sync(team=self.team, run=self.scout_run, report_id=str(original.id), append_evidence=evidence)
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            append_evidence=evidence,
+        )
         before = self.store.get_report(str(original.id))
         SignalReport.objects.filter(pk=original.id).update(signal_count=MAX_REPORT_SIGNALS - 1)
         self.judge.reset_mock()
 
         with pytest.raises(InvalidScoutReportError, match="cap"):
-            edit_report_sync(team=self.team, run=self.scout_run, report_id=str(original.id), append_evidence=evidence)
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=str(original.id),
+                append_evidence=evidence,
+            )
 
         self.judge.assert_not_awaited()
         assert self.store.get_report(str(original.id)) == before
@@ -431,7 +455,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         with pytest.raises(InvalidScoutReportError, match="Implementation replacement is not supported"):
             edit_report_sync(
                 team=self.team,
-                run=self.scout_run,
+                author=ScoutRunReportAuthor(run=self.scout_run),
                 report_id=report_id,
                 summary="A private revision",
                 supersedes_implementation=True,
@@ -473,7 +497,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         ):
             result = edit_report_sync(
                 team=self.team,
-                run=self.scout_run,
+                author=ScoutRunReportAuthor(run=self.scout_run),
                 report_id=report_id,
                 repository=initial_repo if explicit else None,
                 summary=None if explicit else "Issue traced to https://github.com/example/gadgets/pull/2",
@@ -487,7 +511,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert selection["content"]["autostart_eligible"] is explicit
         if explicit:
             assert selection["content"]["reason"] == SCOUT_REPOSITORY_REASON
-            retry = edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, repository=initial_repo)
+            retry = edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=report_id,
+                repository=initial_repo,
+            )
             assert not retry.repository_set
             retried = self.store.get_report(report_id)
             assert retried is not None
@@ -539,7 +568,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         with self.assertRaises(InvalidScoutReportError):
             edit_report_sync(
                 team=self.team,
-                run=self.scout_run,
+                author=ScoutRunReportAuthor(run=self.scout_run),
                 report_id=report_id,
                 title=value if field == "title" else None,
                 summary=value if field == "summary" else None,
@@ -552,7 +581,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
         self.judge.return_value = SafetyJudgeResponse(choice=False, explanation="Rejected synthetic instruction")
 
         with self.assertRaisesMessage(InvalidScoutReportError, "rejected by the safety judge"):
-            edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, summary="Rejected replacement")
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=report_id,
+                summary="Rejected replacement",
+            )
         draft = self.store.get_report(report_id)
         assert draft is not None
         assert draft.document["summary"] == "The synthetic checkout handler returns an incorrect total."
@@ -584,7 +618,9 @@ class TestScoutTrialReportCapture(APIBaseTest):
         ):
             if operation == "edit":
                 assert report_id is not None
-                edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, links=links)
+                edit_report_sync(
+                    team=self.team, author=ScoutRunReportAuthor(run=self.scout_run), report_id=report_id, links=links
+                )
             else:
                 self._emit(links=links)
         assert self.store.invalid_reason() is not None
@@ -643,7 +679,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
                 team=self.team, title="Source report", status=SignalReport.Status.READY, metrics=[metric]
             )
             report_id = str(original.id)
-            edit_report_sync(team=self.team, run=self.scout_run, report_id=report_id, title="Private revision")
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=report_id,
+                title="Private revision",
+            )
         if mode != "source":
 
             def set_metrics(report: TrialReport) -> None:
@@ -685,7 +726,10 @@ class TestScoutTrialReportCapture(APIBaseTest):
         second = SignalReport.objects.create(team=self.team, title="Second report", summary="Original", status="ready")
         private_id = self._emit()
         edit_report_sync(
-            team=self.team, run=self.scout_run, report_id=str(first.id), title="A synthetic checkout revision"
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(first.id),
+            title="A synthetic checkout revision",
         )
         base = f"/api/projects/{self.team.id}/signals/reports/"
         with (
@@ -742,7 +786,10 @@ class TestScoutTrialReportCapture(APIBaseTest):
         )
         for report in (kept, dropped):
             edit_report_sync(
-                team=self.team, run=self.scout_run, report_id=str(report.id), title=f"Revised {report.title}"
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=str(report.id),
+                title=f"Revised {report.title}",
             )
         with (
             patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
@@ -798,7 +845,9 @@ def test_async_report_links_invalidate_comparison(team: Team, operation: str) ->
                 links=links,
             )
         else:
-            async_to_sync(edit_report)(team=team, run=run, report_id=str(uuid4()), links=links)
+            async_to_sync(edit_report)(
+                team=team, author=ScoutRunReportAuthor(run=run), report_id=str(uuid4()), links=links
+            )
     assert ScoutTrialStore(run).invalid_reason() is not None
     link_targets.assert_not_called()
     judge.assert_not_called()

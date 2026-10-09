@@ -1720,7 +1720,7 @@ class TestNotifyAlert:
 
     async def test_error_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
         with patch(
-            "posthog.tasks.alerts.utils.UserAccessControl.check_access_level_for_object",
+            "products.alerts.backend.logic.alert_email.UserAccessControl.check_access_level_for_object",
             return_value=False,
         ):
             recipients = await sync_to_async(get_alert_error_notification_recipients)(alert_with_user)

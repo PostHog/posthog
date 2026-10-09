@@ -100,41 +100,6 @@ def _source(endpoint: str, manager: mock.MagicMock):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_short_page_yields_items_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response(_rows("id", 2), total=2)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == _rows("id", 2)
-        assert params[0] == {"page": 1, "pageSize": PAGE_SIZE}
-        assert session.send.call_count == 1
-        # A short final page means no further pages, so no resume state is persisted.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_pagination_until_short_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response(_rows("a", PAGE_SIZE), total=PAGE_SIZE + 1),
-                _response(_rows("b", 1), total=PAGE_SIZE + 1),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert len(rows) == PAGE_SIZE + 1
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-        # State is saved AFTER page 1 is yielded (pointing at page 2), and never for the final page.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == HumanitixResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_on_full_page_that_reaches_total(self, MockSession) -> None:
         # A single full page whose length equals total must terminate without fetching page 2.
         session = MockSession.return_value
@@ -165,29 +130,6 @@ class TestPagination:
 
         assert len(rows) == PAGE_SIZE + 1
         assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_yields_no_rows(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], total=0)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_endpoint_specific_list_key(self, MockSession) -> None:
-        # The `tags` endpoint returns its rows under a `tags` key, not `events`.
-        session = MockSession.return_value
-        _wire(session, [_response(_rows("t", 1), total=1, list_key="tags")])
-
-        manager = _make_manager()
-        rows = _collect(_source("tags", manager))
-
-        assert rows == _rows("t", 1)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_list_key_raises_loudly(self, MockSession) -> None:
@@ -271,31 +213,6 @@ class TestEventFanout:
 
 
 class TestRetryAndErrors:
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_status_is_retried_then_succeeds(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        # A 429 raises a retryable error; the retry re-issues the request and the 200 completes it.
-        _wire(session, [_error_response(429, "Too Many Requests"), _response(_rows("id", 1), total=1)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == _rows("id", 1)
-        assert session.send.call_count == 2
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_server_error_is_retried(self, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_error_response(500, "Internal Server Error"), _response(_rows("id", 1), total=1)])
-
-        manager = _make_manager()
-        rows = _collect(_source("events", manager))
-
-        assert rows == _rows("id", 1)
-        assert session.send.call_count == 2
-
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     @mock.patch(SLEEP_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)

@@ -14,7 +14,6 @@ from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
-from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport, alertmanager_body
@@ -22,9 +21,16 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
     EvaluationAnnouncement,
+    MessageDetail,
+    SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
-from products.alerts_platform.backend.tests.delivery_messages import alert_message, announced_transition, pinned_post
+from products.alerts_platform.backend.tests.delivery_messages import (
+    ALERT_URL,
+    alert_message,
+    announced_transition,
+    pinned_post,
+)
 
 SECRET_URL = "https://hooks.example.com/services/T000/B000/not-a-real-token"
 TARGET = cast(AlertDestinationData, {"type": "webhook", "webhook_url": SECRET_URL})
@@ -47,6 +53,7 @@ class TestAlertmanagerBody(SimpleTestCase):
             "service": "checkout",
             "alertname": "API errors",
             "posthog_configuration_id": "cfg-1",
+            "posthog_source_kind": "logs",
             "posthog_event_kind": "firing",
         }
         annotations = {"summary": "API errors is firing", "description": "Value: 312\nThreshold: > 300", "value": "312"}
@@ -56,7 +63,11 @@ class TestAlertmanagerBody(SimpleTestCase):
             "truncatedAlerts": 0,
             "status": "firing",
             "receiver": "posthog",
-            "groupLabels": {"alertname": "API errors", "posthog_configuration_id": "cfg-1"},
+            "groupLabels": {
+                "alertname": "API errors",
+                "posthog_configuration_id": "cfg-1",
+                "posthog_source_kind": "logs",
+            },
             "commonLabels": labels,
             "commonAnnotations": annotations,
             "externalURL": "https://us.posthog.com",
@@ -67,7 +78,7 @@ class TestAlertmanagerBody(SimpleTestCase):
                     "annotations": annotations,
                     "startsAt": "2026-09-30T09:00:00+00:00",
                     "endsAt": "0001-01-01T00:00:00Z",
-                    "generatorURL": "",
+                    "generatorURL": ALERT_URL,
                     "fingerprint": body["alerts"][0]["fingerprint"],
                 }
             ],
@@ -179,6 +190,7 @@ class TestWebhookThreads(APIBaseTest):
 
     def _deliver(self, kind: AlertEventKind, evaluation_key: str) -> Any:
         announcement = EvaluationAnnouncement(
+            source=SourceKind.LOGS,
             configuration_id=str(self.configuration.id),
             alert_name="API errors",
             consecutive_failures=0,

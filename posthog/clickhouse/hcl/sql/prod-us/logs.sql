@@ -495,7 +495,9 @@ CREATE TABLE posthog.metrics4_names (
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
   original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
-  service_name LowCardinality(String)
+  service_name LowCardinality(String),
+  metric_types SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  metric_type String ALIAS metric_types[1]
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics4_samples (
   team_id Int32,
@@ -938,7 +940,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_span
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
