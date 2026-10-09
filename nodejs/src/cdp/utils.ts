@@ -79,6 +79,7 @@ export function convertToHogFunctionInvocationGlobals(
 
     const eventTimestamp = parseClickHouseEventTimestamp(event.timestamp)!
     const eventCapturedAt = parseClickHouseEventTimestamp(event.captured_at)
+    const eventUrl = `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -94,7 +95,12 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
-            url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+            // The events page reads flag calls from flag_evaluations only when the link names the event.
+            // On flag_evaluations_mode 2 a flag call has no events row, so a link without the name finds nothing.
+            url:
+                event.event === '$feature_flag_called'
+                    ? `${eventUrl}?event=${encodeURIComponent(event.event)}`
+                    : eventUrl,
         },
         person,
     }

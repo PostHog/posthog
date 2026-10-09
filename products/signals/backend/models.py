@@ -299,6 +299,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        MONITORING = "monitoring"
         RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
@@ -384,6 +385,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    monitoring_started_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the

@@ -3,6 +3,10 @@
         {
             "path": "AGENTS.md",
             "description": "Repository conventions: architecture guidelines, code style, commit and PR rules"
+        },
+        {
+            "path": "products/warehouse_sources/backend/temporal/data_imports/sources/AGENTS.md",
+            "description": "Rules for warehouse source tests: which tests not to write or ask for, and the shared test driver to use"
         }
     ]
 }

@@ -8264,6 +8264,7 @@ export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
     statsTable: string
     keywordTable?: string
+    placementTable?: string
     queryPageTable?: boolean
 }
 
@@ -8276,6 +8277,8 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     breakdown?: 'keyword' | 'page'
     keyword?: string
     page?: string
+    normalizePageUrls?: boolean
+    includePostHogConversions?: boolean
 }
 
 export interface MarketingAnalyticsSearchMetrics {
@@ -8293,6 +8296,18 @@ export interface MarketingAnalyticsSearchMetrics {
     absoluteTopImpressionRate?: number | null
 }
 
+export interface MarketingAnalyticsSearchConversionGoal {
+    id: string
+    name: string
+}
+
+export interface MarketingAnalyticsSearchConversion extends MarketingAnalyticsSearchConversionGoal {
+    conversions: number | null
+    costPerConversion: number | null
+    previousConversions?: number | null
+    previousCostPerConversion?: number | null
+}
+
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
     keyword: string | null
     page?: string | null
@@ -8300,10 +8315,15 @@ export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMet
     matchType: string | null
     currency: string | null
     previous?: MarketingAnalyticsSearchMetrics | null
+    posthogConversions?: MarketingAnalyticsSearchConversion[] | null
 }
 
 export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    placementUnavailable?: boolean
     results: MarketingAnalyticsSearchRow[]
+    posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[] | null
+    posthogConversionsWarning?: string | null
+    posthogAttributionMode?: AttributionMode | null
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>

@@ -189,6 +189,10 @@ export const productRoutes: Record<string, [string, string]> = {
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
     ],
+    '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number/ci-explorer': [
+        'EngineeringAnalyticsCIExplorer',
+        'engineeringAnalyticsCIExplorer',
+    ],
     '/engineering-analytics/repos/:repoOwner/:repoName/actions/runs/:runId': [
         'EngineeringAnalyticsWorkflowRun',
         'engineeringAnalyticsWorkflowRun',
@@ -844,6 +848,13 @@ export const productConfiguration: Record<string, any> = {
         name: 'Pull request',
         layout: 'app-container',
         description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
+        iconType: 'health',
+    },
+    EngineeringAnalyticsCIExplorer: {
+        projectBased: true,
+        name: 'CI explorer',
+        layout: 'app-container',
+        description: "A pull request's CI on one zoomable canvas: workflows, jobs, and matrix shards.",
         iconType: 'health',
     },
     EngineeringAnalyticsWorkflowRun: {
@@ -1509,6 +1520,8 @@ export const productUrls = {
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
+    engineeringAnalyticsCIExplorer: (repoOwner: string, repoName: string, number: number | string): string =>
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}/ci-explorer`,
     engineeringAnalyticsWorkflowRun: (
         repoOwner: string,
         repoName: string,
@@ -2504,6 +2517,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: [
             'EngineeringAnalytics',
             'EngineeringAnalyticsPullRequest',
+            'EngineeringAnalyticsCIExplorer',
             'EngineeringAnalyticsWorkflowRun',
             'EngineeringAnalyticsWorkflowRuns',
             'EngineeringAnalyticsAuthor',

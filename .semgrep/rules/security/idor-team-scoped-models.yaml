@@ -345,10 +345,15 @@ rules:
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
+                              |ReviewInstallationClaim
+                              |ReviewProjectSettings
                               |ReviewReport
                               |ReviewReportArtefact
+                              |ReviewRepository
+                              |ReviewRepositoryPerson
                               |ReviewSkillConfig
                               |ReviewUserSettings
+                              |ReviewUserRepositoryChoice
                               |SandboxCustomImage
                               |SandboxEnvironment
                               |SandboxSession
@@ -788,10 +793,15 @@ rules:
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
+                        |ReviewInstallationClaim
+                        |ReviewProjectSettings
                         |ReviewReport
                         |ReviewReportArtefact
+                        |ReviewRepository
+                        |ReviewRepositoryPerson
                         |ReviewSkillConfig
                         |ReviewUserSettings
+                        |ReviewUserRepositoryChoice
                         |SandboxCustomImage
                         |SandboxEnvironment
                         |SandboxSession
@@ -1001,6 +1011,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1082,6 +1093,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite

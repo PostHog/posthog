@@ -13098,6 +13098,35 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -36537,6 +36566,44 @@
             "enum": ["string", "integer", "number", "float", "datetime", "date", "boolean"],
             "type": "string"
         },
+        "MarketingAnalyticsSearchConversion": {
+            "additionalProperties": false,
+            "properties": {
+                "conversions": {
+                    "type": ["number", "null"]
+                },
+                "costPerConversion": {
+                    "type": ["number", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "previousConversions": {
+                    "type": ["number", "null"]
+                },
+                "previousCostPerConversion": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["conversions", "costPerConversion", "id", "name"],
+            "type": "object"
+        },
+        "MarketingAnalyticsSearchConversionGoal": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "MarketingAnalyticsSearchMetrics": {
             "additionalProperties": false,
             "properties": {
@@ -36589,6 +36656,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includePostHogConversions": {
+                    "type": "boolean"
+                },
                 "keyword": {
                     "type": "string"
                 },
@@ -36599,6 +36669,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "normalizePageUrls": {
+                    "type": "boolean"
                 },
                 "page": {
                     "type": "string"
@@ -36640,6 +36713,35 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "placementUnavailable": {
+                    "type": "boolean"
+                },
+                "posthogAttributionMode": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AttributionMode"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionGoals": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "posthogConversionsWarning": {
+                    "type": ["string", "null"]
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -36738,6 +36840,19 @@
                 "position": {
                     "type": ["number", "null"]
                 },
+                "posthogConversions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsSearchConversion"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "previous": {
                     "anyOf": [
                         {
@@ -36772,6 +36887,9 @@
             "additionalProperties": false,
             "properties": {
                 "keywordTable": {
+                    "type": "string"
+                },
+                "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
@@ -45091,6 +45209,35 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "placementUnavailable": {
+                            "type": "boolean"
+                        },
+                        "posthogAttributionMode": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/AttributionMode"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionGoals": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/MarketingAnalyticsSearchConversionGoal"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "posthogConversionsWarning": {
+                            "type": ["string", "null"]
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
