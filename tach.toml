@@ -143,6 +143,7 @@ depends_on = [
     "products.today",
     "products.tracing",
     "products.visual_review",
+    "products.warehouse_suggestions",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
@@ -179,11 +180,6 @@ expose = [
 from = [
     "products.aeo",
 ]
-
-[[modules]]
-path = "products.ai_gateway"
-depends_on = ["posthog"]
-layer = "modules"
 
 [[modules]]
 path = "products.alerts"
@@ -302,6 +298,8 @@ depends_on = [
     "products.product_analytics",
     "products.conversations",
     "products.surveys", "products.access_control",
+    # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
+    "products.canvas",
 ]
 layer = "modules"
 
@@ -1662,6 +1660,7 @@ path = "products.warehouse_suggestions"
 depends_on = [
     "posthog",
     "products.access_control",
+    "products.data_catalog",
     "products.data_modeling",
     "products.warehouse_sources",
 ]

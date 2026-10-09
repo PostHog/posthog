@@ -8,9 +8,10 @@ use std::time::Duration;
 use capture::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     config::CaptureMode,
-    outputs::{OutputRegistry, PublishEvents},
+    outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared},
     quota_limiters::CaptureQuotaLimiter,
     router::router,
+    sinks::sink::SinkResult,
     time::TimeSource,
     v0_request::{DataType, ProcessedEvent},
     v1::test_utils::TestStateBuilder,
@@ -1036,6 +1037,13 @@ impl PublishEvents for MemorySink {
     async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend_from_slice(&events);
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PublishPrepared for MemorySink {
+    async fn publish_prepared(&self, _events: Vec<PreparedEvent>) -> Vec<SinkResult> {
+        unreachable!("v0 endpoints publish events")
     }
 }
 

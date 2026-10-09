@@ -10,6 +10,7 @@ import {
     isTrendsResult,
 } from '@/ui-apps/components/infer-visualization'
 import {
+    buildProportionBarSeries,
     formatDate,
     formatDuration,
     formatNumber,
@@ -231,6 +232,38 @@ describe('insight visualizations', () => {
                 expect(getSeriesLabel({ label: 'Pageviews', action: { name: '$pageview' } }, 0)).toBe('Pageviews')
                 expect(getSeriesLabel({ action: { name: '$pageview' } }, 0)).toBe('$pageview')
                 expect(getSeriesLabel({}, 2)).toBe('Series 3')
+            })
+        })
+
+        describe('buildProportionBarSeries', () => {
+            it.each([
+                [
+                    'one part per row',
+                    [
+                        { label: 'Chrome', aggregated_value: 3 },
+                        { label: 'Safari', aggregated_value: 5 },
+                    ],
+                    [
+                        { label: 'Chrome', data: [3] },
+                        { label: 'Safari', data: [5] },
+                    ],
+                ],
+                [
+                    'no part for the previous period of a compare',
+                    [
+                        { label: 'Chrome', aggregated_value: 3, compare_label: 'current' },
+                        { label: 'Chrome', aggregated_value: 2, compare_label: 'previous' },
+                        { label: 'Safari', aggregated_value: 5, compare_label: 'current' },
+                    ],
+                    [
+                        { label: 'Chrome', data: [3] },
+                        { label: 'Safari', data: [5] },
+                    ],
+                ],
+            ])('draws %s', (_name, results, expected) => {
+                expect(
+                    buildProportionBarSeries(results, () => 'red').map(({ label, data }) => ({ label, data }))
+                ).toEqual(expected)
             })
         })
 

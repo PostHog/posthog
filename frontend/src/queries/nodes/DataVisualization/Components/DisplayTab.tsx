@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import {
@@ -21,13 +22,15 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     type MetricSummary,
 } from 'lib/components/Metric/metricSummary'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
+import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
+import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
     { value: 'labels', label: 'Labels' },
@@ -59,13 +62,24 @@ const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
 ]
 
 export const DisplayTab = (): JSX.Element => {
-    const { effectiveVisualizationType, xData } = useValues(dataVisualizationLogic)
+    const { effectiveVisualizationType, xData, yData, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const isDonutChart = effectiveVisualizationType === ChartDisplayType.ActionsDonut
+    const isProportionBar = effectiveVisualizationType === ChartDisplayType.ActionsProportionBar
+    const isPartOfWholeChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
+    const proportionBarPartCount = useMemo(() => {
+        if (!isProportionBar) {
+            return 0
+        }
+        const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
+        return buildPieSlices(pieData.xData, pieData.yData).length
+    }, [isProportionBar, seriesBreakdownData, xData, yData])
+    const showLegend = chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, proportionBarPartCount)
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
     const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
@@ -246,7 +260,7 @@ export const DisplayTab = (): JSX.Element => {
                                 <LemonSwitch
                                     className="flex-1 w-full"
                                     label="Show legend"
-                                    checked={chartSettings.showLegend ?? false}
+                                    checked={showLegend}
                                     onChange={(value) => {
                                         updateChartSettings({ showLegend: value })
                                     }}
@@ -255,12 +269,13 @@ export const DisplayTab = (): JSX.Element => {
                                     <LemonLabel>Legend position</LemonLabel>
                                     <LemonSelect
                                         className="w-full"
-                                        value={chartSettings.legendPosition ?? (isPieChart ? 'right' : 'top')}
+                                        value={
+                                            chartSettings.legendPosition ??
+                                            (isProportionBar ? 'bottom' : isPieChart ? 'right' : 'top')
+                                        }
                                         options={LEGEND_POSITION_OPTIONS}
                                         disabledReason={
-                                            chartSettings.showLegend
-                                                ? undefined
-                                                : 'Turn the legend on to set its position'
+                                            showLegend ? undefined : 'Turn the legend on to set its position'
                                         }
                                         onChange={(value) => updateChartSettings({ legendPosition: value })}
                                         fullWidth
@@ -287,39 +302,40 @@ export const DisplayTab = (): JSX.Element => {
                                         }}
                                     />
                                 )}
-                                {isPieChart ? (
+                                {isPartOfWholeChart ? (
                                     <>
-                                        <div className="flex flex-col gap-1">
-                                            <LemonLabel>Show on slices</LemonLabel>
-                                            <LemonSegmentedButton
-                                                className="w-full"
-                                                value={chartSettings.pie?.sliceContent ?? 'values'}
-                                                onChange={(value) =>
-                                                    updateChartSettings({ pie: { sliceContent: value } })
-                                                }
-                                                options={PIE_SLICE_CONTENT_OPTIONS}
-                                                fullWidth
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <LemonLabel>Show values as</LemonLabel>
-                                            <LemonSegmentedButton
-                                                className="w-full"
-                                                value={chartSettings.pie?.valueDisplay ?? 'absolute'}
-                                                onChange={(value) =>
-                                                    updateChartSettings({ pie: { valueDisplay: value } })
-                                                }
-                                                options={PIE_VALUE_DISPLAY_OPTIONS}
-                                                fullWidth
-                                            />
-                                        </div>
+                                        {isPieChart && (
+                                            <>
+                                                <div className="flex flex-col gap-1">
+                                                    <LemonLabel>Show on slices</LemonLabel>
+                                                    <LemonSegmentedButton
+                                                        className="w-full"
+                                                        value={chartSettings.pie?.sliceContent ?? 'values'}
+                                                        onChange={(value) =>
+                                                            updateChartSettings({ pie: { sliceContent: value } })
+                                                        }
+                                                        options={PIE_SLICE_CONTENT_OPTIONS}
+                                                        fullWidth
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                    <LemonLabel>Show values as</LemonLabel>
+                                                    <LemonSegmentedButton
+                                                        className="w-full"
+                                                        value={chartSettings.pie?.valueDisplay ?? 'absolute'}
+                                                        onChange={(value) =>
+                                                            updateChartSettings({ pie: { valueDisplay: value } })
+                                                        }
+                                                        options={PIE_VALUE_DISPLAY_OPTIONS}
+                                                        fullWidth
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
                                         <LemonSwitch
                                             className="flex-1 w-full"
                                             label={isDonutChart ? 'Show total in center' : 'Show total below chart'}
-                                            checked={
-                                                chartSettings.pie?.showTotal ??
-                                                (chartSettings.pie?.sliceContent ?? 'values') === 'values'
-                                            }
+                                            checked={showsPieTotal(chartSettings, isProportionBar)}
                                             onChange={(value) => {
                                                 updateChartSettings({ pie: { showTotal: value } })
                                             }}
@@ -473,7 +489,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart
+                    !isPartOfWholeChart
                         ? {
                               key: 'left-y-axis',
                               header: isHorizontalBarChart ? 'X-axis' : supportsRightYAxis ? 'Left Y-axis' : 'Y-axis',
@@ -481,7 +497,7 @@ export const DisplayTab = (): JSX.Element => {
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
-                    !isPieChart && supportsRightYAxis
+                    !isPartOfWholeChart && supportsRightYAxis
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
@@ -506,7 +522,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart && !isSingleAxisChart
+                    !isPartOfWholeChart && !isSingleAxisChart
                         ? {
                               key: 'goals',
                               header: (

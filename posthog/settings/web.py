@@ -57,7 +57,6 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
-    "products.ai_gateway.backend.apps.AIGatewayConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
@@ -625,6 +624,9 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # The anomaly and explain bodies keep this name; the metrics query clause's own
+            # aggregation adds 'none' and is named by its MetricQueryAggregation class.
+            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #
@@ -647,8 +649,6 @@ SPECTACULAR_SETTINGS = {
             ],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
-            # The API-only pin kind uses StrEnum; name its component without a Django Choices class.
-            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
@@ -672,7 +672,6 @@ SPECTACULAR_SETTINGS = {
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
             # distinct choice sets and this one needs its own name.
             "SignalSourceSyncStatusEnum": ["running", "completed", "failed"],
-            "RunSourceEnum": ["manual", "signal_report", "agent"],
             "TaskBootstrapRunSourceEnum": ["manual", "signal_report"],
             # Completion providers are a subset of LLMProvider that excludes evaluation-only models.
             "LLMCompletionProviderEnum": "products.ai_observability.backend.models.provider_keys.llm_completion_provider_choices",
@@ -771,12 +770,9 @@ SPECTACULAR_SETTINGS = {
             # The choices are computed: a subset or union of another definition, a plain
             # Python enum's values, or a per-widget constant. Converting each producer to
             # a TextChoices class would delete its entry here.
-            "TaskChannelWriteTypeEnum": "products.tasks.backend.facade.enums.CHANNEL_WRITE_TYPE_CHOICES",
             "ChannelTypeEnum": "products.error_tracking.backend.facade.alerts.ALERT_CHANNEL_TYPES",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
-            "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
-            "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
             "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
             "ReasoningEffortEnum": ["low", "medium", "high", "xhigh", "max", "ultracode", None],
             "TaskRunReasoningEffortEnum": [
@@ -792,39 +788,13 @@ SPECTACULAR_SETTINGS = {
             ],
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
-            "DataQualityScheduleIntervalEnum": "products.data_quality.backend.facade.enums.schedule_interval_choices",
-            "CanvasStateScopeEnum": ["user", "shared"],
-            "CanvasKindEnum": ["freeform", "grid", "component"],
-            "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
             "CanvasGridColumnsEnum": [(4, 4), (6, 6), (8, 8), (10, 10), (12, 12)],
             "CanvasLayoutSchemaVersionEnum": [(1, 1)],
-            "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
-            "ExperimentWatchCardKindEnum": ["behavior", "friction", "variant_only", "metric"],
-            "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
             "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
-            "ExperimentWatchEmptyReasonEnum": [
-                "too_early",
-                "no_separation",
-                "no_recordings",
-                "no_session_linked_exposures",
-            ],
             "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
             "OtelMetricTypeEnum": ["gauge", "sum", "histogram", "exponential_histogram", "summary"],
-            "VerdictEnum": ["yes", "no", "inconclusive"],
             "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
             "LoopTriggerTypeEnum": ["schedule", "github", "api"],
-            "CustomPropertyOptionColorEnum": [f"preset-{i}" for i in range(1, 11)],
-            "SavedQuerySyncFrequencyEnum": [
-                "never",
-                "15min",
-                "30min",
-                "1hour",
-                "6hour",
-                "12hour",
-                "24hour",
-                "7day",
-                "30day",
-            ],
             "MaterializeSyncFrequencyEnum": [
                 "15min",
                 "30min",
@@ -834,17 +804,6 @@ SPECTACULAR_SETTINGS = {
                 "24hour",
                 "7day",
                 "30day",
-            ],
-            "AssigneeTypeEnum": ["user", "role"],
-            "TaskRunArtifactTypeEnum": [
-                "plan",
-                "context",
-                "reference",
-                "output",
-                "artifact",
-                "tree_snapshot",
-                "user_attachment",
-                "skill_bundle",
             ],
             "ArtifactType2f0Enum": [
                 "slack_message",
@@ -858,10 +817,8 @@ SPECTACULAR_SETTINGS = {
             "AdapterEnum": ["slack_message", "slack_canvas", "slack_file", "document_connector", "github_pr"],
             "ActionStepMatchingEnum": ["contains", "regex", "exact"],
             "DetailModeValueEnum": ["minimal", "detailed"],
-            "RuntimeAdapterEnum": ["claude", "codex"],
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
-            "StaffCacheKindEnum": ["evaluation", "definitions"],
             "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
@@ -875,6 +832,7 @@ SPECTACULAR_SETTINGS = {
             "LogsListWidgetTypeEnum": ["logs_list"],
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
+            "CanvasAppWidgetTypeEnum": ["canvas_app"],
         }
     ),
 }
@@ -1311,6 +1269,10 @@ OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
+# IdPs issue ID-JAGs for immediate use (5 minutes is typical); the cap leaves headroom above that.
+ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS: int = get_from_env(
+    "ID_JAG_MAX_ASSERTION_LIFETIME_SECONDS", 60 * 10, type_cast=int
+)
 ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
@@ -1519,6 +1481,16 @@ WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
 
 WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
     "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
+)
+
+# Stale-while-revalidate grace for user-facing web analytics precompute reads:
+# windows that expired within this many seconds are served from their
+# complete-but-stale rows instantly (with a background revalidation enqueued)
+# instead of recomputing inline. Lowering it bounds the staleness a user can
+# see at the cost of more reads falling through to the live query. Must stay
+# well under the precompute framework's 48h ClickHouse expiry buffer.
+WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS", 4 * 60 * 60, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

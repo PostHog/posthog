@@ -113,7 +113,8 @@ class TestValidateCredentials:
     def test_invalid_on_error_status(self, mock_session, status_code) -> None:
         mock_session.return_value.get.return_value = _error_response(status_code)
         # The status flows back so the caller can tell a rejected token from a 5xx/unreachable one.
-        assert validate_credentials("token") == TokenCheck(is_valid=False, status=status_code)
+        check = validate_credentials("token")
+        assert (check.is_valid, check.status) == (False, status_code)
 
     @mock.patch(CLOUDFLARE_SESSION_PATCH)
     def test_transient_status_skips_the_fallback_probe(self, mock_session) -> None:
@@ -161,7 +162,16 @@ class TestValidateCredentials:
             _error_response(403),
             _error_response(403),
         ]
-        assert validate_credentials("token").is_transient is False
+        check = validate_credentials("token")
+        assert check.is_transient is False
+        assert check.is_malformed is False
+
+    @mock.patch(CLOUDFLARE_SESSION_PATCH)
+    def test_unparseable_authorization_header_is_malformed(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _rejected_response(400, "Invalid request headers", code=6003)
+        assert validate_credentials("token").is_malformed is True
+        # The probes send the same header, so a transient probe must not hide the malformed verdict.
+        assert mock_session.return_value.get.call_count == 1
 
 
 class TestPagination:
