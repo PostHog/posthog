@@ -47,7 +47,7 @@ export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
         private emailSuppressionService: EmailSuppressionService,
-        private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; redis: RedisV2 }
+        private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; valkey: RedisV2 }
     ) {}
 
     /** Counts this send toward the team's marketing frequency cap, or returns true when the person is over it. */
@@ -71,7 +71,7 @@ export class RecipientPreferencesService {
             if (!max_messages || !window_days) {
                 return false
             }
-            const capped = await this.frequencyCap.redis.useClient(
+            const capped = await this.frequencyCap.valkey.useClient(
                 { name: 'workflows-frequency-cap', failOpen: true },
                 (client) =>
                     client.eval(
@@ -86,8 +86,8 @@ export class RecipientPreferencesService {
             )
             return capped === 1
         } catch (error) {
-            // Fail open: a config or Redis pool error must never block a send. failOpen above only
-            // covers errors inside the Redis callback.
+            // Fail open: a config or Valkey pool error must never block a send. failOpen above only
+            // covers errors inside the Valkey callback.
             logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
             return false
         }
