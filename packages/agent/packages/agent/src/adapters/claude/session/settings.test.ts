@@ -215,6 +215,22 @@ describe("SettingsManager per-repo persistence", () => {
     const manager = new SettingsManager(worktree, false, true);
     await manager.initialize();
 
+    const localSettingsPath = path.join(
+      mainRepo,
+      ".claude",
+      "settings.local.json",
+    );
+    const localSettingsBefore = await fs.promises.readFile(
+      localSettingsPath,
+      "utf-8",
+    );
+    await manager.addAllowRules([{ toolName: "TodoWrite" }]);
+    await manager.addPostHogExecApproval("experiment-update");
+
+    expect(await fs.promises.readFile(localSettingsPath, "utf-8")).toBe(
+      localSettingsBefore,
+    );
+    expect(manager.hasPostHogExecApproval("experiment-update")).toBe(false);
     expect(manager.checkPermission("mcp__acp__Read", {})).toEqual({
       decision: "ask",
     });

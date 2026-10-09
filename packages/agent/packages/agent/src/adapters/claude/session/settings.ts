@@ -454,7 +454,7 @@ export class SettingsManager {
    * consistent if the process dies mid-write.
    */
   async addAllowRules(rules: PermissionRuleValue[]): Promise<void> {
-    if (rules.length === 0) return;
+    if (rules.length === 0 || this.untrustedCheckout) return;
     if (!this.initialized) await this.initialize();
     await this.writeMutex.acquire();
     try {
@@ -491,7 +491,7 @@ export class SettingsManager {
    * `addAllowRules` — serialised via `writeMutex`, atomic temp-file + rename.
    */
   async addPostHogExecApproval(subTool: string): Promise<void> {
-    if (!subTool) return;
+    if (!subTool || this.untrustedCheckout) return;
     if (!this.initialized) await this.initialize();
     await this.writeMutex.acquire();
     try {
