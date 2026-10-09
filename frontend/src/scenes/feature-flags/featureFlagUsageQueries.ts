@@ -21,6 +21,7 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -52,6 +53,16 @@ export interface FlagUsageChart<Q extends FlagUsageQuery = FlagUsageQuery> {
     title: string
     description: string
     query: Q
+    emptyState?: Pick<QueryContext, 'emptyStateHeading' | 'emptyStateDetail'>
+}
+
+// The generic empty state asks the user to change the query. For a new flag the query is right, but a
+// daily result stays cached for hours, so an empty result cached before the first calls arrived can
+// hide calls that the log below already lists. Point at Reload, which skips the cache, and at the log.
+const FLAG_CALLS_EMPTY_STATE: FlagUsageChart['emptyState'] = {
+    emptyStateHeading: 'No calls to this flag in this date range',
+    emptyStateDetail:
+        'New calls can take a few minutes to show in the charts. Click Reload to check again. The log below lists calls as they arrive.',
 }
 
 function flagCalledProperties({ flagKey, aggregationGroupTypeIndex }: FlagUsageQueryOptions): AnyPropertyFilter[] {
@@ -109,6 +120,7 @@ export function buildFlagCalledTotalVolumeChart(
             },
             ChartDisplayType.ActionsLineGraph
         ),
+        emptyState: FLAG_CALLS_EMPTY_STATE,
     }
 }
 
@@ -142,6 +154,7 @@ export function buildFlagCalledUniqueCallersChart(
             },
             ChartDisplayType.ActionsTable
         ),
+        emptyState: FLAG_CALLS_EMPTY_STATE,
     }
 }
 
