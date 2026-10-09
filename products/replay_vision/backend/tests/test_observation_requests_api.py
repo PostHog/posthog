@@ -162,9 +162,12 @@ class TestObservationRequestAPI(APIBaseTest):
         first = self._psak_client(scopes).post(self.url, payload, format="json")
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="child env")
 
-        # Requests are stored under the project's canonical team, so the child's lookup finds the parent's row.
+        # Requests are stored under the project's canonical team, so the child's lookup finds the parent's row. An
+        # inline question passes the child's own scanner check, which a parent scanner id would not.
         replay = self._psak_client(scopes, team=child).post(
-            f"/api/projects/{child.id}/vision/requests/", payload, format="json"
+            f"/api/projects/{child.id}/vision/requests/",
+            {"session_ids": ["s1"], "inline": {"prompt": "anything"}, "idempotency_key": "shared"},
+            format="json",
         )
 
         self.assertEqual((first.status_code, replay.status_code), (202, 409), replay.json())
