@@ -260,6 +260,7 @@ export type MinimalAppMetric = {
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
+        | 'message_frequency_capped'
         | 'email_suppressed'
         | 'email_suspended'
         | 'email_paused'
