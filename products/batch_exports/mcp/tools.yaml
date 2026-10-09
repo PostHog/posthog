@@ -171,14 +171,13 @@ tools:
             data_interval_start and data_interval_end, and optional hogql_modifiers, which override the project HogQL
             modifiers with the same names. Timestamps are exported in UTC unless the export or the project sets
             convertToProjectTimezone, for example {"convertToProjectTimezone": true} to export them in the project
-            timezone. It returns a permission error naming HogQL batch exports when the team does
-            not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit
-            hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under
-            stricter resource limits than the other models. The export splits into files of about 1024 MiB by default,
-            and a file can go a little over; set file.max_size_mb to change that size, or to null to write a single file
-            of any size. Use file-download-batch-exports-retrieve with the returned id to poll until status is
-            Completed, then follow the downloading-batch-export-files skill to download the files through the existing
-            REST download endpoint.
+            timezone. It returns a permission error naming HogQL batch exports when the team does not have it enabled,
+            in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a
+            WHERE clause to export only the data the user asked for, because user queries run under stricter resource
+            limits than the other models. The export splits into files of about 1024 MiB by default, and a file can go a
+            little over; set file.max_size_mb to change that size, or to null to write a single file of any size. Use
+            file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the
+            downloading-batch-export-files skill to download the files through the existing REST download endpoint.
     file-download-batch-exports-retrieve:
         operation: file_download_batch_exports_retrieve
         enabled: true
