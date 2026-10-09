@@ -130,11 +130,15 @@ export function QuestionCheckFields(): JSX.Element {
                 {preview && (
                     <>
                         <p className="mb-0 text-sm" data-attr="data-quality-question-preview-summary">
-                            {pluralize(preview.examined_row_count, 'row')} previewed.{' '}
-                            {pluralize(preview.reused_decision_count, 'decision')} reused, {preview.new_decision_count}{' '}
-                            new.
+                            {/* Each changing part is one element with one text child. Page translation
+                                swaps bare text nodes for <font> elements, so React's updates would go stale
+                                and removing the failure rate would throw NotFoundError (react#11538). */}
+                            <span>{`${pluralize(preview.examined_row_count, 'row')} previewed. `}</span>
+                            <span>
+                                {`${pluralize(preview.reused_decision_count, 'decision')} reused, ${preview.new_decision_count} new.`}
+                            </span>
                             {questionPreviewFailureRate !== null && (
-                                <> {(questionPreviewFailureRate * 100).toFixed(1)}% failed.</>
+                                <span>{` ${(questionPreviewFailureRate * 100).toFixed(1)}% failed.`}</span>
                             )}
                         </p>
                         <LemonTable<QuestionPreviewInputApi>
