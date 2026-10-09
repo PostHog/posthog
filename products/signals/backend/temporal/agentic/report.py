@@ -862,13 +862,16 @@ def _suggestable_products(team_id: int) -> list[SuggestedSourceProduct]:
 def _team_runs_scouts(team_id: int) -> bool:
     """Whether this team's scout fleet could take an `agent` check dispatched at it.
 
-    The enrollment half of the gate the check dispatcher applies, read at authoring time so the
-    research turn is never offered a kind whose lane does not exist. A project at its daily run
+    The enrollment and lane halves of the gate the check dispatcher applies, read at authoring time
+    so the research turn is never offered a kind whose lane does not exist. Research checks name no
+    skill, so the lane is the fleet's fallback scout. A paused lane still counts, because dispatch
+    waits for the resume. A project at its daily run
     budget still counts as running scouts: a research check stays pending until its report resolves
     and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
     throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
     kind, never the report.
     """
+    from products.signals.backend.report_check_agent import agent_check_lane_available  # noqa: PLC0415
     from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415
         ScoutRunRejectionKind,
         check_fleet_gates,
@@ -876,7 +879,10 @@ def _team_runs_scouts(team_id: int) -> bool:
 
     try:
         rejection = check_fleet_gates(team_id)
-        return rejection is None or rejection.kind == ScoutRunRejectionKind.THROTTLED
+        if rejection is not None and rejection.kind != ScoutRunRejectionKind.THROTTLED:
+            return False
+        team = Team.objects.only("id", "parent_team_id").get(id=team_id)
+        return agent_check_lane_available(team.parent_team_id or team.id)
     except Exception:
         logger.warning("scout fleet availability check failed", team_id=team_id, exc_info=True)
         return False
