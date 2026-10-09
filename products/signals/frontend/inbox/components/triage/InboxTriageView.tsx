@@ -110,7 +110,7 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
  * goes down.
  */
 function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: boolean }): JSX.Element {
-    const { unassignDisabledReason } = useValues(inboxTriageLogic)
+    const { unassignDisabledReason, isUnassigningCurrent } = useValues(inboxTriageLogic)
     const { dismissCurrent, unassignCurrent } = useActions(inboxTriageLogic)
 
     return commandKeyHeld ? (
@@ -118,6 +118,7 @@ function DismissOrUnassignButton({ commandKeyHeld }: { commandKeyHeld: boolean }
             type="secondary"
             size="small"
             onClick={unassignCurrent}
+            loading={isUnassigningCurrent}
             disabledReason={unassignDisabledReason}
             sideIcon={<KeyboardShortcut command u />}
             data-attr="inbox-triage-unassign-me"

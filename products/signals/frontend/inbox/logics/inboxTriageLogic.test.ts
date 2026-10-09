@@ -1,4 +1,5 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -141,6 +142,35 @@ describe('inboxTriageLogic', () => {
             expect(deleted).toEqual(unassigned)
         }
     )
+
+    it('sends one unassign request for the last report while the first one is pending', async () => {
+        const report = { ...makeReport('last'), is_suggested_reviewer: true }
+        const deleted: string[] = []
+        let finishDelete: () => void = () => {}
+        useMocks({
+            get: { [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] } },
+            delete: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': async ({ params }) => {
+                    deleted.push(String(params.id))
+                    await new Promise<void>((resolve) => (finishDelete = resolve))
+                    return [204, null]
+                },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.unassignCurrent()
+        logic.actions.unassignCurrent()
+        expect(logic.values.isUnassigningCurrent).toBe(true)
+        await waitFor(() => expect(deleted).toEqual(['last']))
+        finishDelete()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(deleted).toEqual(['last'])
+        expect(logic.values.isUnassigningCurrent).toBe(false)
+    })
 
     it('loads the next page when unassigning me moves triage near the end of the loaded reports', async () => {
         const mine = (reports: SignalReport[]): SignalReport[] =>

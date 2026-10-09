@@ -41,6 +41,7 @@ export interface inboxTriageLogicValues {
     reports: SignalReport[] // reportListLogic
     reportsLoadFailed: boolean // reportListLogic
     reportsResponseLoading: boolean // reportListLogic
+    unassigningReportIds: string[] // reportListLogic
     canCreatePr: boolean
     counter: string
     currentIndex: number
@@ -48,6 +49,7 @@ export interface inboxTriageLogicValues {
     currentReportUrl: string | null
     expanded: boolean
     isRestoringPosition: boolean
+    isUnassigningCurrent: boolean
     nextReport: SignalReport | null
     previousReport: SignalReport | null
     requestedIndex: number
@@ -187,7 +189,8 @@ export interface inboxTriageLogicMeta {
         nextReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         counter: (reports: SignalReport[], currentIndex: number, hasMore: boolean) => string
         canCreatePr: (currentReport: SignalReport | null) => boolean
-        unassignDisabledReason: (currentReport: SignalReport | null) => string | null
+        isUnassigningCurrent: (currentReport: SignalReport | null, unassigningReportIds: string[]) => boolean
+        unassignDisabledReason: (currentReport: SignalReport | null, isUnassigningCurrent: boolean) => string | null
         returnUrl: (currentReport: SignalReport | null, currentIndex: number) => string
         currentReportUrl: (currentReport: SignalReport | null, returnUrl: string) => string | null
     }
@@ -211,7 +214,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
     connect(() => ({
         values: [
             reportListLogic(TRIAGE_LIST_PROPS),
-            ['reports', 'hasMore', 'isLoaded', 'reportsResponseLoading', 'reportsLoadFailed'],
+            ['reports', 'hasMore', 'isLoaded', 'reportsResponseLoading', 'reportsLoadFailed', 'unassigningReportIds'],
             inboxTaskKickoffLogic,
             ['isCreatingPr', 'createPrDisabledReason'],
         ],
@@ -341,10 +344,19 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             (currentReport: SignalReport | null): boolean =>
                 currentReport !== null && canCreateImplementationPr(currentReport),
         ],
+        isUnassigningCurrent: [
+            (s) => [s.currentReport, s.unassigningReportIds],
+            (currentReport: SignalReport | null, unassigningReportIds: string[]): boolean =>
+                currentReport !== null && unassigningReportIds.includes(currentReport.id),
+        ],
         unassignDisabledReason: [
-            (s) => [s.currentReport],
-            (currentReport: SignalReport | null): string | null =>
-                currentReport && !currentReport.is_suggested_reviewer ? "You're not a reviewer on this report" : null,
+            (s) => [s.currentReport, s.isUnassigningCurrent],
+            (currentReport: SignalReport | null, isUnassigningCurrent: boolean): string | null =>
+                currentReport && !currentReport.is_suggested_reviewer
+                    ? "You're not a reviewer on this report"
+                    : isUnassigningCurrent
+                      ? 'Unassigning you…'
+                      : null,
         ],
         // The triage URL for the current spot; what a report opened from here returns to.
         returnUrl: [
