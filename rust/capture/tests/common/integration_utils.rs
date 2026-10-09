@@ -415,7 +415,7 @@ pub fn validate_single_event_payload(title: &str, got_events: Vec<ProcessedEvent
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        68_usize,
+        69_usize,
         props.len(),
         "mismatched event.properties length in case: {title}",
     );
@@ -532,7 +532,7 @@ pub fn validate_single_engage_event_payload(title: &str, got_events: Vec<Process
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        2_usize,
+        3_usize,
         props.len(),
         "mismatched event.properties length in case: {title}",
     );
@@ -763,7 +763,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        64_usize,
+        65_usize,
         props.len(),
         "mismatched event.properties length on $pageview in case: {title}",
     );
@@ -883,7 +883,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        71_usize,
+        72_usize,
         props.len(),
         "mismatched event.properties length on $pageleave in case: {title}",
     );
