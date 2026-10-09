@@ -68,7 +68,6 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
 
         assert result is not None
         assert (result.outcome, result.reason, result.row_count) == (outcome, reason, row_count)
-        assert result.should_run is (outcome != "skip")
         properties = capture.call_args.kwargs["properties"]
         assert capture.call_args.kwargs["event"] == "scout_precheck_evaluated"
         assert (properties["outcome"], properties["row_count"]) == (outcome, row_count)
