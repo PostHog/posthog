@@ -207,9 +207,6 @@ async fn run_pipeline(
     )
     .record(processing_start.elapsed().as_secs_f64());
 
-    // Serialize (parallel for large batches), then publish and merge results
-    // before building the response. serialize_batch consumes the events and
-    // hands them back, so we can keep correlating results to them.
     let (mut events, serialized) =
         serialize_batch(events, context, state.capture_v1_scatter_gather_min_batch).await;
 
@@ -302,14 +299,7 @@ fn drop_unparseable_gateway_props(ev: &mut WrappedEvent) {
 // SinkResult → WrappedEvent merge
 // ---------------------------------------------------------------------------
 
-/// Correlate serialize-step failures and per-event `SinkResult`s back to the
-/// batch of `WrappedEvent`s by UUID.
-///
-/// Events that were not published (`should_publish() == false`) are untouched.
-/// Published events receive updated `result` and `details`:
-/// - published → keep the existing result (Ok or Warning)
-/// - `RetryableSinkError` → `EventResult::Retry`
-/// - a serialize failure or any other sink error → `EventResult::Drop`
+/// Sets `result` and `details` on each published event from its serialize failure or sink result.
 pub fn merge_sink_results(
     events: &mut [WrappedEvent],
     failures: &[SerializationFailure],
@@ -320,6 +310,7 @@ pub fn merge_sink_results(
         Sink(&'a Outcome),
     }
 
+    // Uuids are unique here: validation rejects a batch with a duplicate.
     let by_uuid: HashMap<Uuid, Merged> = failures
         .iter()
         .map(|f| (f.uuid(), Merged::Serialization(f)))
@@ -340,7 +331,6 @@ pub fn merge_sink_results(
         };
 
         match merged {
-            // Leave event.result as-is (Ok or Warning from upstream processing)
             Merged::Sink(Outcome::Published) => {}
             Merged::Sink(Outcome::Failed(CaptureError::RetryableSinkError)) => {
                 event.result = EventResult::Retry;
