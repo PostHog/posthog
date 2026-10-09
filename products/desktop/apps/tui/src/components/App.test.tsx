@@ -1056,4 +1056,43 @@ describe("App", () => {
       close();
     }
   });
+
+  it("shows the mode a new local Claude Code chat starts in, and Ctrl+M steps it for new chats to come", async () => {
+    savePrefs({
+      newChatPlace: "local",
+      billing: "anthropic",
+      claudeMode: "auto",
+    });
+    saveLayout(initialLayout());
+    const { instance, output, type } = renderInTerminal(
+      <App
+        session={{
+          work: {
+            listRecent: () => new Promise(() => {}),
+          } as unknown as WorkList,
+          runs: { prefetch: async () => {} } as unknown as CloudRuns,
+          chats: {} as PiChats,
+          control: () => ({}) as PiControl,
+          startLocal: () => Promise.reject(new Error("no local")),
+        }}
+        login={async () => {}}
+        logout={() => {}}
+      />,
+    );
+    try {
+      await vi.waitFor(() => expect(output()).toContain("⏵⏵ Auto Mode"));
+      type("\x1b[109;5u");
+      await vi.waitFor(() => expect(loadPrefs().claudeMode).not.toBe("auto"));
+      const next = loadPrefs().claudeMode;
+      await vi.waitFor(() =>
+        expect(output()).not.toMatch(/⏵⏵ Auto Mode[^\n]*$/),
+      );
+      expect(next).not.toBe("auto");
+    } finally {
+      instance.unmount();
+      rmSync(join(homedir(), ".config", "posthog-tui", "prefs.json"), {
+        force: true,
+      });
+    }
+  });
 });

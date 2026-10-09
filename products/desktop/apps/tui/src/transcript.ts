@@ -14,6 +14,7 @@ import {
   type ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { z } from "zod";
+import type { Mode } from "./models";
 import { tokenCount } from "./usage";
 
 export type TranscriptLine =
@@ -77,6 +78,42 @@ export interface Transcript {
   turnStartedAt: number | null;
   // The wake-up the agent scheduled in its last turn (Claude Code's ScheduleWakeup), and why it waits.
   wake: { reason: string } | null;
+  // The modes a Claude Code or Codex session offers and the one it is in, from its config options; null without any.
+  modes: { available: Mode[]; current: string } | null;
+}
+
+// A session names its modes in the `mode` option of its opening result, and again whenever one changes.
+const modeOption = z.object({
+  id: z.literal("mode"),
+  currentValue: z.string(),
+  options: z.array(z.object({ value: z.string(), name: z.string() })),
+});
+const configOptions = z.object({
+  configOptions: z.array(z.unknown()),
+});
+
+function modesOf(entries: StoredLogEntry[]): Transcript["modes"] {
+  let modes: Transcript["modes"] = null;
+  for (const entry of entries) {
+    const notification = (entry as { notification?: unknown }).notification as
+      | { result?: unknown; params?: { update?: unknown } }
+      | undefined;
+    const holder =
+      configOptions.safeParse(notification?.result).data ??
+      configOptions.safeParse(notification?.params?.update).data;
+    for (const candidate of holder?.configOptions ?? []) {
+      const option = modeOption.safeParse(candidate).data;
+      if (option)
+        modes = {
+          available: option.options.map(({ value, name }) => ({
+            id: value,
+            name,
+          })),
+          current: option.currentValue,
+        };
+    }
+  }
+  return modes;
 }
 
 const WAKE_TOOL = "ScheduleWakeup";
@@ -151,6 +188,7 @@ export function transcriptFrom(
         }
       : null;
   const wake = lastTurn ? wakeOf(built.items) : null;
+  const modes = runtime === "pi" ? null : modesOf(entries);
   // The sandbox echoes a new chat's first message only once it boots, so show it until then.
   if (
     runtime === "pi" &&
@@ -166,9 +204,10 @@ export function transcriptFrom(
       lastTurn,
       turnStartedAt,
       wake,
+      modes,
     };
   }
-  return { lines, turnOpen, lastTurn, turnStartedAt, wake };
+  return { lines, turnOpen, lastTurn, turnStartedAt, wake, modes };
 }
 
 // The conversation builder keeps a message's text and drops its images, so each user line takes them back

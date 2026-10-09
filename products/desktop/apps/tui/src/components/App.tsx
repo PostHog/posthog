@@ -237,6 +237,7 @@ export function App({
     modelLabel,
     cycleMode,
     modeOf,
+    onModes,
   } = useModels({
     startingFor: (paneId) =>
       startingOptions(loadPrefs().billing, placeFor(paneId)),
@@ -449,7 +450,7 @@ export function App({
       })}
       billing={loadPrefs().billing}
       showContext={loadPrefs().showContext}
-      mode={modeOf(node.taskId)}
+      mode={modeOf(node.id, node.taskId)}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}
@@ -475,6 +476,7 @@ export function App({
         onRunLive(node.id, taskId, runId)
       }
       onTurn={(turn) => setTurn(node.id, turn)}
+      onModes={onModes}
       chips={
         isLocal(node.taskId) || !node.taskId
           ? statusChips(

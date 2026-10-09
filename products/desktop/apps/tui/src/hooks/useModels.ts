@@ -7,6 +7,7 @@ import { messageOf } from "../errors";
 import { findPane, type LayoutState } from "../layout";
 import type { LocalAgent } from "../local";
 import {
+  CLAUDE_MODES,
   type Effort,
   effortSheet,
   type Mode,
@@ -54,7 +55,12 @@ export interface Models {
   // Steps a running Claude Code chat's mode, wrapping within the modes it offers.
   cycleMode: (paneId: string, task: Task | undefined, step: 1 | -1) => void;
   // The mode a chat is in, for the composer's rule; nothing for a chat without modes.
-  modeOf: (taskId: string | null) => string | undefined;
+  modeOf: (paneId: string, taskId: string | null) => string | undefined;
+  // What a chat's log says about its modes, from the pane showing it.
+  onModes: (
+    taskId: string,
+    modes: { available: Mode[]; current: string } | null,
+  ) => void;
 }
 
 const without = <V>(map: Map<string, V>, key: string): Map<string, V> => {
@@ -300,44 +306,57 @@ export function useModels({
     );
   };
 
+  // A new chat on the Claude plan starts in the saved mode; the modes of a chat with a task come from its session.
+  const startsAsClaude = (paneId: string): boolean =>
+    startingFor(paneId).model?.provider === "claude";
+  const modesFor = (
+    paneId: string,
+    taskId: string | null,
+  ): { available: Mode[]; current: string } | undefined => {
+    if (taskId) return taskModes.get(taskId);
+    return startsAsClaude(paneId)
+      ? { available: CLAUDE_MODES, current: loadPrefs().claudeMode }
+      : undefined;
+  };
+
   const openModeSheet = (paneId: string, task: Task | undefined): void => {
-    const live = liveTarget(paneId, task)?.control;
-    const modes = live?.modes;
-    const setMode = live?.setMode;
-    if (!modes || !setMode) {
-      flashNotice("Only a running Claude Code chat has modes", { paneId });
+    const taskId = findPane(layout, paneId)?.taskId ?? null;
+    const known = modesFor(paneId, taskId);
+    if (!known) {
+      flashNotice("Only a Claude Code chat has modes", { paneId });
       return;
     }
-    const taskId = findPane(layout, paneId)?.taskId;
-    modes().then(
-      ({ available, current }) =>
-        openModal(paneId, modeSheet(available, current), (index) =>
-          switchMode(paneId, taskId ?? null, available, available[index]),
-        ),
-      (error: unknown) =>
-        flashNotice(`Couldn't load modes: ${messageOf(error)}`, { paneId }),
+    openModal(paneId, modeSheet(known.available, known.current), (index) =>
+      switchMode(paneId, task, known.available, known.available[index]),
     );
   };
 
+  // A live chat switches now, through its own agent or the sandbox; a new chat changes what it will start in.
   const switchMode = (
     paneId: string,
-    taskId: string | null,
+    task: Task | undefined,
     available: Mode[],
     mode: Mode,
   ): void => {
-    const setMode = taskId
-      ? localSessions.get(taskId)?.control.setMode
-      : undefined;
-    if (!setMode) return;
-    setMode(mode.id).then(
-      () => {
-        track("chat setting changed", { setting: "mode", to: mode.id });
+    const taskId = findPane(layout, paneId)?.taskId ?? null;
+    const setMode = liveTarget(paneId, task)?.control.setMode;
+    const remember = (): void => {
+      track("chat setting changed", { setting: "mode", to: mode.id });
+      if (CLAUDE_MODES.some((entry) => entry.id === mode.id))
         savePrefs({ claudeMode: mode.id });
-        if (taskId) rememberMode(taskId, available, mode.id);
-        flashNotice(`${mode.name} on`, { paneId });
-      },
-      (error: unknown) =>
-        flashNotice(`Couldn't switch mode: ${messageOf(error)}`, { paneId }),
+      if (taskId) rememberMode(taskId, available, mode.id);
+      flashNotice(`${mode.name} on`, { paneId });
+    };
+    if (!taskId) {
+      remember();
+      return;
+    }
+    if (!setMode) {
+      flashNotice("This chat is not running, so it keeps its mode", { paneId });
+      return;
+    }
+    setMode(mode.id).then(remember, (error: unknown) =>
+      flashNotice(`Couldn't switch mode: ${messageOf(error)}`, { paneId }),
     );
   };
 
@@ -346,14 +365,13 @@ export function useModels({
     task: Task | undefined,
     step: 1 | -1,
   ): void => {
-    const target = liveTarget(paneId, task);
-    const known = target && taskModes.get(target.taskId);
-    if (!target || !known) {
-      flashNotice("Only a running Claude Code chat has modes", { paneId });
+    const known = modesFor(paneId, findPane(layout, paneId)?.taskId ?? null);
+    if (!known) {
+      flashNotice("Only a Claude Code chat has modes", { paneId });
       return;
     }
     const mode = nextMode(known.available, known.current, step);
-    if (mode) switchMode(paneId, target.taskId, known.available, mode);
+    if (mode) switchMode(paneId, task, known.available, mode);
   };
 
   // Each live run's slash commands, fetched once and handed to the composer of the pane showing it.
@@ -457,6 +475,7 @@ export function useModels({
     return {
       ...(model && { model: model.id }),
       ...(picks.effort && { effort: picks.effort }),
+      ...(startsAsClaude(paneId) && { mode: loadPrefs().claudeMode }),
     };
   };
 
@@ -510,10 +529,20 @@ export function useModels({
     },
     pickFor,
     cycleMode,
-    modeOf: (taskId) => {
-      const known = taskId ? taskModes.get(taskId) : undefined;
+    modeOf: (paneId, taskId) => {
+      const known = modesFor(paneId, taskId);
       const mode = known?.available.find((entry) => entry.id === known.current);
       return mode && modeStatus(mode);
+    },
+    onModes: (taskId, modes) => {
+      if (!modes) return;
+      const known = taskModes.get(taskId);
+      if (
+        known?.current === modes.current &&
+        known.available.length === modes.available.length
+      )
+        return;
+      rememberMode(taskId, modes.available, modes.current);
     },
   };
 }

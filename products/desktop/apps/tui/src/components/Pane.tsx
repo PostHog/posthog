@@ -10,6 +10,7 @@ import { claudePlan } from "../claudeLocal";
 import type { Composer } from "../composer";
 import { faint } from "../faint";
 import type { LocalAgent } from "../local";
+import type { Mode } from "../models";
 import { type Picker, renderPicker } from "../picker";
 import {
   agentUp,
@@ -134,6 +135,7 @@ export function Pane({
   onComposerBox,
   onRunLive,
   onTurn,
+  onModes,
   focused,
   notice: paneNotice,
   reopening,
@@ -199,6 +201,11 @@ export function Pane({
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
   onTurn: (turn: { taskId: string; runId: string } | null) => void;
+  // The modes the chat's session offers and the one it is in, as its log says.
+  onModes: (
+    taskId: string,
+    modes: { available: Mode[]; current: string } | null,
+  ) => void;
   focused: boolean;
   // Today's briefing, drawn in place of an empty chat's hint.
   today?: TodayState | null;
@@ -375,6 +382,7 @@ export function Pane({
   useEffect(() => {
     if (live && runIds) onRunLive(runIds.taskId, runIds.runId);
     onTurn(live && transcript.turnOpen ? runIds : null);
+    if (paneTaskId) onModes(paneTaskId, transcript.modes);
   });
   const offer = extraOffer ?? openActions(lines);
   useEffect(() => {
