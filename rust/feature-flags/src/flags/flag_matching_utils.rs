@@ -1340,8 +1340,9 @@ async fn primary_has_override(
 /// with person deletions.
 ///
 /// With `personhog`, the write goes through `UpsertHashKeyOverrides` instead of the persons DB
-/// transaction. A failed personhog call is not retried here, because the router already retries
-/// the replica and `InvalidArgument` gives the same error on each attempt.
+/// transaction. A transient failure of the flag key query is retried, the same as on the SQL path.
+/// A failed personhog call is not retried here, because the router already retries the replica
+/// and `InvalidArgument` gives the same error on each attempt.
 pub async fn set_feature_flag_hash_key_overrides(
     router: &PostgresRouter,
     personhog: Option<&RouterClient>,
