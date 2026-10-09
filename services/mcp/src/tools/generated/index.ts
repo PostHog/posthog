@@ -65,6 +65,7 @@ import { GENERATED_TOOLS as today } from './today'
 import { GENERATED_TOOLS as tracing } from './tracing'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
+import { GENERATED_TOOLS as warehouse_suggestions } from './warehouse_suggestions'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
@@ -133,6 +134,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...tracing,
     ...visual_review,
     ...warehouse_sources,
+    ...warehouse_suggestions,
     ...web_analytics,
     ...workflows,
 }

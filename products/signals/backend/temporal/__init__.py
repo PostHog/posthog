@@ -13,6 +13,7 @@ from products.signals.backend.temporal.agentic.scout_rubrics import (
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
+    evaluate_signals_scout_precheck_activity,
     resume_signals_scout_workflow_step,
     run_signals_scout_activity,
 )
@@ -32,9 +33,11 @@ from products.signals.backend.temporal.agentic.scout_trial_comparison import (
 )
 from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     RunScoutTrialEvaluationWorkflow,
+    RunScoutTrialJudgeWorkflow,
     finish_scout_trial_evaluation_activity,
     judge_scout_trial_run_activity,
     load_scout_trial_evaluation_activity,
+    poll_scout_trial_judge_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -122,6 +125,7 @@ WORKFLOWS = [
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
     RunScoutTrialEvaluationWorkflow,
+    RunScoutTrialJudgeWorkflow,
     RunScoutTrialComparisonWorkflow,
     SignalsScoutCoordinatorWorkflow,
     RunScoutSuggestionsWorkflow,
@@ -136,6 +140,7 @@ ACTIVITIES = [
     prepare_scout_trial_comparison_evaluation_activity,
     finish_scout_trial_comparison_activity,
     judge_scout_trial_run_activity,
+    poll_scout_trial_judge_activity,
     finish_scout_trial_evaluation_activity,
     generate_scout_rubrics_activity,
     fail_scout_rubrics_activity,
@@ -185,6 +190,7 @@ ACTIVITIES = [
     run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
+    evaluate_signals_scout_precheck_activity,
     plan_scout_suggestion_runs_activity,
     resume_signals_scout_workflow_step,
     run_scout_suggestions_activity,

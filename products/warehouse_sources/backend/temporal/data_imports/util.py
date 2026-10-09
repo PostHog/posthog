@@ -322,6 +322,29 @@ def _timestamped_folder_scan_due(
     )
 
 
+async def copy_s3_file(s3: "S3FileSystem", source: str, destination: str, size: Optional[int]) -> None:
+    """Copy one object to a known destination key, with one CopyObject when the size allows it.
+
+    `_cp_file` reads the size of the source with a HEAD to select between a single CopyObject and
+    the multipart copy. A caller that has the size from the Delta log or from a listing passes it,
+    and a file at or below the s3fs managed-copy threshold then costs one request. CopyObject copies
+    the full object, so a wrong size cannot change the bytes that arrive.
+    """
+    if size is not None and size <= MANAGED_COPY_THRESHOLD:
+        try:
+            await s3._copy_basic(source, destination)
+            return
+        except FileNotFoundError:
+            raise
+        except OSError as e:
+            if _is_s3_throttling_error(e):
+                raise
+            # Object stores do not agree on the error for a source that is gone: S3 answers
+            # NoSuchKey, others answer with an invalid-argument error. The copy below reads the
+            # source first, so it raises the error the caller's retry loop expects.
+    await s3._cp_file(source, destination)
+
+
 async def _list_query_folder_files(s3: "S3FileSystem", folder_uri: str) -> dict[str, str]:
     """Map each file under `folder_uri` from its folder-relative path to its full `s3://` URI.
 
@@ -602,24 +625,8 @@ async def prepare_s3_files_for_querying(
                 # files copied concurrently, that multiplies into enough LIST traffic to trigger
                 # S3's SlowDown rate limiting on the destination prefix.
                 relative = relative_path(file)
-                destination = f"{s3_path_for_querying}/{relative}"
                 size = file_sizes.get(relative) if file_sizes is not None else None
-                if size is not None and size <= MANAGED_COPY_THRESHOLD:
-                    # `_cp_file` reads the size of the source with a HEAD to select between this copy
-                    # and the multipart copy. The Delta log already has the size. CopyObject copies
-                    # the full object, so a wrong size cannot change the bytes that arrive.
-                    try:
-                        await s3._copy_basic(file, destination)
-                        return
-                    except FileNotFoundError:
-                        raise
-                    except OSError as e:
-                        if _is_s3_throttling_error(e):
-                            raise
-                        # Object stores do not agree on the error for a source that is gone: S3
-                        # answers NoSuchKey, others answer with an invalid-argument error. The copy
-                        # below reads the source first, so it raises the error the retry loop expects.
-                await s3._cp_file(file, destination)
+                await copy_s3_file(s3, file, f"{s3_path_for_querying}/{relative}", size)
 
         import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
 

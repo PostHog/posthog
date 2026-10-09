@@ -34,6 +34,7 @@ from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 from .marketing_search_query_runner import MarketingAnalyticsSearchQueryRunner
@@ -50,7 +51,9 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    def test_combines_platforms_without_multiplying_metrics_or_mixing_currencies(self) -> None:
+    @parameterized.expand([("absent",), ("ready",), ("denied",), ("missing",)])
+    def test_combines_platforms_without_multiplying_metrics_or_mixing_currencies(self, placement_status: str) -> None:
+        with_placement = placement_status == "ready"
         keywords = self._table(
             "search_keywords",
             {
@@ -90,8 +93,62 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "1,10,100,7,USD,900,9000,90000000,9,2023-01-10,CONTENT,0.99,0.99\n"
             "1,10,100,7,USD,20,200,30000000,1.25,2022-12-15,SEARCH,0.6,0.2\n"
             "1,10,100,7,USD,8,80,16000000,2,2022-01-10,SEARCH,0.6,0.2\n"
-            "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH,0.6,0.2\n",
+            "2,20,200,7,USD,3,100,6000000,1,2023-01-10,SEARCH,0.6,0.2\n"
+            "1,10,100,8,USD,7,70,14000000,1,2023-01-10,SEARCH,0.5,0.5\n",
         )
+        placement = None
+        if placement_status in {"ready", "denied"}:
+            placement = self._table(
+                "search_google_placement",
+                {
+                    "customer_id": "Int64",
+                    "campaign_id": "Int64",
+                    "ad_group_id": "Int64",
+                    "ad_group_criterion_criterion_id": "Int64",
+                    "ad_group_criterion_keyword_text": "String",
+                    "ad_group_criterion_keyword_match_type": "String",
+                    "customer_currency_code": "String",
+                    "segments_date": "Date",
+                    "segments_ad_network_type": "String",
+                    "metrics_impressions": "Float64",
+                    "metrics_top_impression_percentage": "Float64",
+                    "metrics_absolute_top_impression_percentage": "Float64",
+                },
+                "customer_id,campaign_id,ad_group_id,ad_group_criterion_criterion_id,ad_group_criterion_keyword_text,ad_group_criterion_keyword_match_type,customer_currency_code,segments_date,segments_ad_network_type,metrics_impressions,metrics_top_impression_percentage,metrics_absolute_top_impression_percentage\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-10,SEARCH,40,0.8,0.4\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-11,SEARCH,60,0.3,0.1\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-11,SEARCH_PARTNERS,900,0.99,0.99\n"
+                "1,10,100,7,Hedgehog,EXACT,EUR,2023-01-10,SEARCH,100,0.6,0.2\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2023-01-10,CONTENT,9000,0.99,0.99\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2022-12-15,SEARCH,200,0.6,0.2\n"
+                "1,10,100,7,Hedgehog,EXACT,USD,2022-01-10,SEARCH,80,0.6,0.2\n"
+                "2,20,200,7,Other keyword,PHRASE,USD,2023-01-10,SEARCH,100,0.6,0.2\n"
+                "1,10,100,8,Unsynced keyword,BROAD,USD,2023-01-10,SEARCH,70,0.5,0.5\n",
+            )
+        if placement_status == "denied":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            placement_table = DataWarehouseTable.objects.get(team=self.team, name=placement)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_table",
+                resource_id=str(placement_table.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+            flag = patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
+            )
+            flag.start()
+            self.addCleanup(flag.stop)
+        elif placement_status == "missing":
+            placement = "missing_keyword_placement_stats"
         bing_stats = self._table(
             "search_bing_stats",
             {
@@ -116,12 +173,19 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         query = MarketingAnalyticsSearchQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             sources=[
-                MarketingAnalyticsSearchSource(sourceType="GoogleAds", statsTable=google_stats, keywordTable=keywords),
+                MarketingAnalyticsSearchSource(
+                    sourceType="GoogleAds", statsTable=google_stats, keywordTable=keywords, placementTable=placement
+                ),
                 MarketingAnalyticsSearchSource(sourceType="BingAds", statsTable=bing_stats),
             ],
         )
-        rows = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
-        assert len(rows) == 6
+        response = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert response.placementUnavailable == (placement_status in {"denied", "missing"})
+        rows = response.results
+        assert len(rows) == 7
+        unsynced = next(row for row in rows if row.platform == "GoogleAds" and row.keyword is None)
+        assert unsynced.clicks == 7 and unsynced.impressions == 70
+        assert unsynced.topImpressionRate == (pytest.approx(0.5) if with_placement else None)
         google = next(
             row for row in rows if row.platform == "GoogleAds" and row.currency == "USD" and row.keyword == "hedgehog"
         )
@@ -129,8 +193,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "keyword": "hedgehog",
             "page": None,
             "position": None,
-            "topImpressionRate": 0.5,
-            "absoluteTopImpressionRate": pytest.approx(0.22),
+            "topImpressionRate": pytest.approx(0.5) if with_placement else None,
+            "absoluteTopImpressionRate": pytest.approx(0.22) if with_placement else None,
             "platform": "GoogleAds",
             "matchType": "exact",
             "currency": "USD",
@@ -163,7 +227,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         query.search = None
         query.compareFilter = CompareFilter(compare=True)
         compared = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results
-        assert len(compared) == 7
+        assert len(compared) == 8
         google_compared = next(
             row
             for row in compared
@@ -180,8 +244,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "cpc": 1.5,
             "cpa": 24,
             "position": None,
-            "topImpressionRate": 0.6,
-            "absoluteTopImpressionRate": 0.2,
+            "topImpressionRate": pytest.approx(0.6) if with_placement else None,
+            "absoluteTopImpressionRate": pytest.approx(0.2) if with_placement else None,
         }
         previous_only = next(row for row in compared if row.keyword == "previous only")
         assert previous_only.clicks == 0
@@ -303,8 +367,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert usd.page == "https://example.com/a" and usd.keyword is None
         assert usd.clicks == 15 and usd.impressions == 150
         assert usd.cost == 30 and usd.conversions == 2.5 and usd.position is None
-        assert usd.topImpressionRate == (0.8 if placement_available else None)
-        assert usd.absoluteTopImpressionRate == (0.4 if placement_available else None)
+        assert usd.topImpressionRate == (0.8 if platform == "BingAds" and placement_available else None)
+        assert usd.absoluteTopImpressionRate == (0.4 if platform == "BingAds" and placement_available else None)
 
     @parameterized.expand([(False,), (True,)])
     def test_organic_positions_are_weighted_and_details_keep_query_page_filters(self, normalize_urls: bool) -> None:

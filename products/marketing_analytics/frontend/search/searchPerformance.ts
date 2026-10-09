@@ -86,7 +86,14 @@ export function searchPerformanceSource(
         ? {
               sourceType: 'GoogleAds',
               statsTable: tables[tables.length - 1]!,
-              ...(breakdown === 'keyword' ? { keywordTable: tables[0] } : {}),
+              ...(breakdown === 'keyword'
+                  ? {
+                        keywordTable: tables[0],
+                        ...(table('keyword_placement_stats')
+                            ? { placementTable: table('keyword_placement_stats') }
+                            : {}),
+                    }
+                  : {}),
           }
         : { sourceType: 'BingAds', statsTable: tables[0]! }
 }
@@ -99,6 +106,21 @@ export function searchPerformanceSourceNotice(
     const querySource = searchPerformanceSource(source, breakdown, detail)
     const fallback = querySource?.queryPageTable && !detail
     if (querySource && !fallback) {
+        if (source.source_type === 'GoogleAds' && breakdown === 'keyword' && !querySource.placementTable) {
+            const status = searchTableStatus(source.schemas.find((schema) => schema.name === 'keyword_placement_stats'))
+            const message = {
+                disabled: 'Enable keyword_placement_stats in the source settings to see Top and First percentages.',
+                pending: 'Position data will appear after the first sync of keyword_placement_stats finishes.',
+                failed: 'The sync of keyword_placement_stats failed. Retry it in the source settings to see position data.',
+                billing:
+                    'A billing limit is blocking keyword_placement_stats. Check the source settings to restore position data.',
+                paused: 'Syncing has stopped for keyword_placement_stats. Resume it in the source settings to restore position data.',
+                stale: 'Position data in keyword_placement_stats is out of date. Sync it again in the source settings.',
+                ready: '',
+            }[status]
+            const label = source.description || SEARCH_PLATFORM_LABELS.GoogleAds
+            return `${label}: ${message} Traffic data is available.`
+        }
         return null
     }
     const names = searchTableNames(source, breakdown, detail)

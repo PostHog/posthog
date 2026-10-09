@@ -49,6 +49,7 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - **The `inserted_at` bound does not cover a re-embedded rendering.** The source replaces on a key that includes the rendering and the document id, so a partition rebuilt _later_ for an earlier day finds only the newer row, whose `inserted_at` is past the cutoff, and the report reads as having no vector that day. That loses coverage and never leaks a future vector. A forward run carries the same loss over a shorter window: the schedule fires at 02:30 UTC for the previous day, so the query starts at least 2.5 hours after the cutoff, and the title snapshot runs after the join, which makes its window the wider of the two. A partition before `title_v1` emission shipped holds zero rows, which is written as an empty Parquet with the full schema rather than skipped.
 - Report-state mutability reaches **inclusion**, not just feature values: `promoted_at` is cleared on suppression and snooze, so a report promoted before the cutoff and suppressed after it leaves the spine unless a label event referenced it before the cutoff. Forward runs see this only for the 2.5 hours between the cutoff and the schedule; backfills see the full accumulated effect. Deriving the spine from immutable promotion history (`signal_report_status_changed` carries `promoted_at`) is the v2 fix.
 - **The server-side action counts read current artefact rows**, bounded by `created_at < snapshot_end`. A report merge moves the source's notes and linked PRs to the survivor and keeps their `created_at`, and a note can be deleted. A partition rebuilt after either change gives that action to the survivor, or loses it. Claims and Slack discussions stay on the source report. Forward runs see this only for the 2.5 hours between the cutoff and the schedule.
+- **`signal_report_status_changed` names the actor of each transition.** `actor_kind` is `user`, `agent`, `task` or `system`, and `actor_user_uuid`, `actor_distinct_id`, `actor_agent` and `actor_task_id` identify it. A transition no caller attributed (the pipeline, the PR-merge webhook, an unresolved Slack click) is `system`. The event `distinct_id` stays the team uuid. Events before this change carry no actor keys, so a per-user feature must treat a missing `actor_kind` as unknown, not as `system`.
 
 ### Signal-grain partitions
 
@@ -173,6 +174,11 @@ Both regions read the same flag, so one override applies everywhere, if the regi
 A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it with a reason.
 Self-driving's own `task` and `system` writes do not count: they are internal operational work.
 A resolve without a reason is the automatic resolve after a tracked PR merges, so it does not count either.
+
+The Today home sends the same client events as the Inbox, with `surface: 'today'` and a `list` property (`briefing` or `sidebar_more`) on impressions and opens.
+Filter on `surface` where a metric must stay Inbox-only.
+Today sets a verdict first and sends its optional reason in a second state call, which does not change the status.
+For that call the server emits `signal_report_status_changed` with `previous_status` equal to `status` and `reason_added: true`, so the reason reaches the status-stream heads.
 
 `thumbs_up` (a positive rating on the report body) and `reviewer_fix` (a suggested reviewer added or removed) are the explicit human-feedback pair.
 Both are rare, so neither clears its holdout bar on a single day.
