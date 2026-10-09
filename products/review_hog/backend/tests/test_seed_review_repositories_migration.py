@@ -8,41 +8,63 @@ from django.db.migrations.loader import MigrationLoader
 from django.test import override_settings
 
 from posthog.models import User
+from posthog.models.integration import Integration
 
-from products.review_hog.backend.models import (
-    ReviewRepository,
-    ReviewRepositoryPerson,
-    ReviewUserRepositoryChoice,
-    ReviewUserSettings,
-)
+from products.review_hog.backend.models import ReviewInstallationClaim, ReviewRepository, ReviewUserSettings
 
 seed_migration = importlib.import_module("products.review_hog.backend.migrations.0035_seed_review_repositories")
 
 
-class TestSeedReviewRepositoriesMigration(BaseTest):
+class TestSeedReviewSettingsMigration(BaseTest):
     def _settings(self, email: str, **fields: Any) -> User:
         user = User.objects.create_and_join(self.organization, email, None)
         ReviewUserSettings.objects.for_team(self.team.id).create(team_id=self.team.id, user_id=user.id, **fields)
         return user
 
-    def test_opted_in_users_get_flash_in_seeded_repositories(self) -> None:
-        opted_in = self._settings("opted-in@example.com", review_authored_prs=True)
-        not_opted_in = self._settings("not-opted-in@example.com", review_authored_prs=False)
-
+    def _run(self) -> None:
         # The migration runs on historical models, whose managers have no team scoping.
         historical_apps = (
             MigrationLoader(connection).project_state(("review_hog", "0035_seed_review_repositories")).apps
         )
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            seed_migration.seed_review_repositories(historical_apps, None)
-            seed_migration.seed_review_repositories(historical_apps, None)
+            seed_migration.seed_review_settings(historical_apps, None)
+            seed_migration.seed_review_settings(historical_apps, None)
 
-        modes = dict(ReviewUserSettings.objects.for_team(self.team.id).values_list("user_id", "default_review_mode"))
-        assert modes == {opted_in.id: "flash", not_opted_in.id: "follow"}
-        repositories = ReviewRepository.objects.for_team(self.team.id)
-        assert sorted(repositories.values_list("full_name", "flash_for")) == [
-            ("PostHog/ai-gateway", "listed"),
-            ("PostHog/posthog", "listed"),
+    def test_columns_move_into_sparse_preferences_and_empty_rows_go(self) -> None:
+        flash = self._settings("flash@example.com", review_authored_prs=True, urgency_threshold="must_fix")
+        quiet = self._settings(
+            "quiet@example.com", celebrate_clean_reviews=False, review_inbox_prs=True, stamphog_review_inbox_prs=True
+        )
+        # Resolution becomes opt-in, so the old default of on copies nothing and the row goes.
+        self._settings("defaults@example.com", resolve_comments=True, review_labeled_prs=False)
+
+        self._run()
+
+        preferences = dict(ReviewUserSettings.objects.for_team(self.team.id).values_list("user_id", "preferences"))
+        assert preferences == {
+            flash.id: {"default_review_mode": "flash", "urgency_threshold": "must_fix"},
+            quiet.id: {"celebrate_clean_reviews": False, "review_inbox_prs": True, "stamphog_review_inbox_prs": True},
+        }
+
+    def test_the_first_team_selects_the_repositories_the_allowlists_covered(self) -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="1001",
+            config={},
+            repository_cache=[
+                {"id": 11, "name": "posthog", "full_name": "PostHog/posthog"},
+                {"id": 12, "name": "ai-gateway", "full_name": "PostHog/ai-gateway"},
+                {"id": 13, "name": "posthog-js", "full_name": "PostHog/posthog-js"},
+            ],
+        )
+
+        self._run()
+
+        claim = ReviewInstallationClaim.objects.for_team(self.team.id).get()
+        assert (claim.installation_id, claim.scope) == ("1001", "selected")
+        rows = ReviewRepository.objects.for_team(self.team.id).order_by("github_repo_id")
+        assert list(rows.values_list("full_name", "github_repo_id", "selected", "flash_for")) == [
+            ("PostHog/posthog", 11, True, None),
+            ("PostHog/ai-gateway", 12, True, None),
         ]
-        assert not ReviewRepositoryPerson.objects.for_team(self.team.id).exists()
-        assert not ReviewUserRepositoryChoice.objects.for_team(self.team.id).exists()

@@ -6,6 +6,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.review_hog.backend.preferences import ReviewPreferences, ReviewProjectDefaults, UrgencyThreshold
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     DroppedFindingArtefact,
@@ -388,69 +389,101 @@ class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
         ]
 
 
-class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
-    """Per-(team, user) ReviewHog settings: what gets reviewed and how strict publishing is.
+class AutomaticFlashFor(models.TextChoices):
+    """Who gets automatic Flash reviews under a project rule or a repository exception."""
 
-    One row per user per project, created with defaults on first read. `review_labeled_prs` is the
-    label trigger's opt-out — the workflow gates on the PR author's row (no row = the defaults).
-    `urgency_threshold` is the minimum priority a validated finding needs to be published; it snaps
-    to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
-    `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
-    cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
-    `stamphog_review_inbox_prs` is the same opt-in for hosted Stamphog (approve-first review with a
-    real GitHub approval) on those same inbox PRs. It is a cross-product preference kept here so both
-    toggles live on one row, and it only takes effect for teams with a synced, enabled
-    StamphogRepoConfig covering the PR's repository.
-    `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
-    when on, every published review of the user's PRs chains into the resolution stage.
-    `default_review_mode` is the user's choice for automatic reviews of their own PRs in every added
-    `ReviewRepository`: follow the repository's rule, or always Flash, Full, or off. A
-    `ReviewUserRepositoryChoice` overrides it for one repository. `review_authored_prs` is deprecated:
-    the automatic trigger reads `default_review_mode`, and writes keep the two in sync until the
-    column is dropped. `flash_reasoning_effort` also applies to manually requested Flash reviews, so
-    disabling the automatic trigger preserves that preference.
+    EVERYONE = "everyone", "Automatic Flash for everyone"
+    LISTED = "listed", "Automatic Flash for these people"
+    OFF = "off", "Automatic Flash opt-in only"
+
+
+class ReviewProjectSettings(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """A project's ReviewHog rule: who gets automatic Flash, bot pull requests, and Full defaults.
+
+    One row per root project, created on the first save. Without a row the defaults apply: automatic
+    Flash only for people who opt in, no reviews of bot pull requests, and the code defaults for the
+    Full review preferences. The rule's people lists are `ReviewRepositoryPerson` rows without a
+    repository.
     """
 
-    class UrgencyThreshold(models.TextChoices):
-        # Values mirror `IssuePriority` so the threshold compares directly against finding priorities.
-        CONSIDER = "consider"  # "All issues"
-        SHOULD_FIX = "should_fix"
-        MUST_FIX = "must_fix"
+    class BotPullRequests(models.TextChoices):
+        SKIP = "skip", "Not reviewed"
+        RUN = "run", "Automatic Flash"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    flash_for = models.CharField(
+        max_length=20,
+        choices=AutomaticFlashFor.choices,
+        default=AutomaticFlashFor.OFF,
+        db_default=AutomaticFlashFor.OFF.value,
+    )
+    bot_prs = models.CharField(
+        max_length=10,
+        choices=BotPullRequests.choices,
+        default=BotPullRequests.SKIP,
+        db_default=BotPullRequests.SKIP.value,
+    )
+    # Project defaults for the Full review preferences (see `preferences.PROJECT_DEFAULT_FIELDS`).
+    preferences = models.JSONField(default=dict, db_default={}, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team"], name="uniq_review_project_settings_per_team"),
+        ]
+
+    @classmethod
+    def load(cls, team_id: int) -> "ReviewProjectSettings":
+        """The project's row, or an unsaved instance carrying the defaults when none exists."""
+        row = cls.objects.for_team(team_id).first()
+        return row if row is not None else cls(team_id=team_id)
+
+    @property
+    def defaults(self) -> ReviewProjectDefaults:
+        return ReviewProjectDefaults.resolve(self.preferences)
+
+
+class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
+    """Per-(team, user) ReviewHog preferences.
+
+    One row per user per project, created on the first save. `preferences` holds only the keys the
+    user changed; `preferences.ReviewPreferences` fills in the project and code defaults. Use
+    `load_preferences` to read them. The boolean and choice columns are unused: their values moved
+    into `preferences`, and the columns stay only so that no migration has to drop them.
+    """
+
+    UrgencyThreshold = UrgencyThreshold
 
     class FlashReasoningEffort(models.TextChoices):
         MEDIUM = "medium", "Medium"
         XHIGH = "xhigh", "Extra high"
 
-    class DefaultReviewMode(models.TextChoices):
-        FOLLOW = "follow", "Follow repositories"
-        FLASH = "flash", "Flash"
-        FULL = "full", "Full"
-        OFF = "off", "Off"
-
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on the parents (app-level enforcement only).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    preferences = models.JSONField(default=dict, db_default={}, blank=True)
+    # Unused: values live in preferences.
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    # Unused: values live in preferences.
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    # Unused: a label always runs.
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
+    # Unused: values live in preferences.
     resolve_comments = models.BooleanField(default=True, db_default=True)
-    # Opt-out of the clean-review media in the PR status comment ("Nothing worth raising this time").
+    # Unused: values live in preferences.
     celebrate_clean_reviews = models.BooleanField(default=True, db_default=True)
-    # Deprecated: kept in sync with `default_review_mode` until the column is dropped.
+    # Unused: values live in preferences (`default_review_mode`).
     review_authored_prs = models.BooleanField(default=False, db_default=False)
-    default_review_mode = models.CharField(
-        max_length=10,
-        choices=DefaultReviewMode.choices,
-        default=DefaultReviewMode.FOLLOW,
-        db_default=DefaultReviewMode.FOLLOW.value,
-    )
+    # Unused: Flash reviews use the default reasoning effort.
     flash_reasoning_effort = models.CharField(
         max_length=10,
         choices=FlashReasoningEffort.choices,
         default=FlashReasoningEffort.MEDIUM,
         db_default=FlashReasoningEffort.MEDIUM.value,
     )
+    # Unused: values live in preferences.
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
@@ -478,39 +511,35 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         return {user_id: rows.get(user_id) or cls(team_id=team_id, user_id=user_id) for user_id in user_ids}
 
     @classmethod
-    def default_mode_for_authored_prs(cls, enabled: bool) -> "ReviewUserSettings.DefaultReviewMode":
-        """The `default_review_mode` that the deprecated `review_authored_prs` switch stands for.
+    def load_preferences(cls, team_id: int, user_id: int) -> ReviewPreferences:
+        """The user's effective preferences: their own values over the project and code defaults."""
+        return cls.load_preferences_many(team_id, [user_id])[user_id]
 
-        The switch meant "Flash on my PRs in PostHog/posthog". Turning it off maps to Off, not Follow:
-        a repository that reviews everyone would otherwise still give Flash to someone who said no.
-        """
-        return cls.DefaultReviewMode.FLASH if enabled else cls.DefaultReviewMode.OFF
+    @classmethod
+    def load_preferences_many(cls, team_id: int, user_ids: list[int]) -> dict[int, ReviewPreferences]:
+        project = ReviewProjectSettings.load(team_id).defaults
+        rows = cls.load_many(team_id, user_ids)
+        return {user_id: ReviewPreferences.resolve(row.preferences, project) for user_id, row in rows.items()}
 
 
-class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
-    """A GitHub repository where ReviewHog runs automatic reviews for this project.
+class ReviewInstallationClaim(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """Which repositories of a GitHub installation this project reviews, like GitHub's install picker.
 
-    Automatic reviews run only in added repositories. `flash_for` is the repository's own rule for
-    authors who follow the repositories: Flash for everyone except the excepted people, or Flash only
-    for the listed people. An author's own choice (`ReviewUserSettings.default_review_mode`, or a
-    `ReviewUserRepositoryChoice`) always wins over this rule. A repository never asks for Full.
+    `all` takes every repository of the installation that no other project selected. At most one
+    project can take all repositories of an installation. `selected` takes only the repositories
+    this project selected (`ReviewRepository.selected`). Read `ownership.py` for the resolution.
     """
 
     activity_logging_on_delete = True
 
-    class FlashFor(models.TextChoices):
-        EVERYONE = "everyone", "Everyone"
-        LISTED = "listed", "Only listed people"
+    class Scope(models.TextChoices):
+        ALL = "all", "All repositories"
+        SELECTED = "selected", "Only selected repositories"
 
-    # db_constraint=False keeps the migration lock-free on hot posthog_team / posthog_user.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    # `owner/name` as GitHub spells it. GitHub treats the name case-insensitively, so every lookup
-    # and the unique constraint compare it lowercased.
-    full_name = models.CharField(max_length=200)
-    flash_for = models.CharField(
-        max_length=20, choices=FlashFor.choices, default=FlashFor.EVERYONE, db_default=FlashFor.EVERYONE.value
-    )
-    exclude_bots = models.BooleanField(default=True, db_default=True)
+    # The GitHub App installation id, as `Integration.integration_id` stores it.
+    installation_id = models.CharField(max_length=64)
+    scope = models.CharField(max_length=10, choices=Scope.choices)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
@@ -519,15 +548,61 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint("team", Lower("full_name"), name="uniq_review_repository_per_team"),
+            models.UniqueConstraint(fields=["team", "installation_id"], name="uniq_review_installation_claim"),
+            models.UniqueConstraint(
+                fields=["installation_id"],
+                condition=models.Q(scope="all"),
+                name="uniq_review_installation_claim_all",
+            ),
+        ]
+
+
+class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
+    """A GitHub repository that one project has settings for.
+
+    `selected` includes the repository into this project, also when another project takes all
+    repositories of the installation. `flash_for` is the repository exception: null follows the
+    project rule (`ReviewProjectSettings.flash_for`). A row that is neither selected nor an exception
+    has no meaning and is deleted. A repository has at most one row across all projects, so it
+    belongs to one project only.
+    """
+
+    activity_logging_on_delete = True
+
+    # db_constraint=False keeps the migration lock-free on hot posthog_team / posthog_user.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    installation_id = models.CharField(max_length=64)
+    # Null until a webhook or the repository list shows the id. Renames keep the id, so lookups
+    # match the id first and then the name.
+    github_repo_id = models.BigIntegerField(null=True, blank=True)
+    # `owner/name` as GitHub spells it. GitHub treats the name case-insensitively, so every lookup
+    # and the unique constraint compare it lowercased.
+    full_name = models.CharField(max_length=200)
+    selected = models.BooleanField(default=False, db_default=False)
+    flash_for = models.CharField(max_length=20, choices=AutomaticFlashFor.choices, null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint("installation_id", Lower("full_name"), name="uniq_review_repository_name"),
+            models.UniqueConstraint(
+                fields=["github_repo_id"],
+                condition=models.Q(github_repo_id__isnull=False),
+                name="uniq_review_repository_github_id",
+            ),
         ]
 
 
 class ReviewRepositoryPerson(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
-    """A person on one of a repository's two lists.
+    """A person on one of the two lists of the project rule, or of a repository exception.
 
-    The lists are separate, so a change of `flash_for` does not turn listed people into excepted
-    people. Only the list that matches the repository's `flash_for` has an effect.
+    `repository` is null for the lists of the project rule. The lists are separate, so a change of
+    `flash_for` does not turn listed people into excepted people. Only the list that matches
+    `flash_for` has an effect.
     """
 
     activity_logging_on_delete = True
@@ -537,36 +612,50 @@ class ReviewRepositoryPerson(ModelActivityMixin, UUIDModel, TeamScopedRootMixin)
         EXCEPTED = "excepted", "Excepted"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    repository = models.ForeignKey(ReviewRepository, on_delete=models.CASCADE, related_name="+")
+    repository = models.ForeignKey(ReviewRepository, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["repository", "user", "kind"], name="uniq_review_repository_person"),
+            models.UniqueConstraint(
+                fields=["repository", "user", "kind"],
+                condition=models.Q(repository__isnull=False),
+                name="uniq_review_repository_person",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "user", "kind"],
+                condition=models.Q(repository__isnull=True),
+                name="uniq_review_project_person",
+            ),
         ]
 
 
 class ReviewUserRepositoryChoice(UUIDModel, TeamScopedRootMixin):
     """A user's own automatic review choice for their PRs in one repository.
 
-    No row means the user's `default_review_mode` applies, so there is no "follow" value here.
+    Keyed by the repository itself, not by a `ReviewRepository` row, so a choice works in every
+    repository the project reviews. A choice in a repository that another project reviews stays
+    stored but has no effect. No row means the user's default applies, so there is no "follow" value.
     """
 
     class Mode(models.TextChoices):
         FLASH = "flash", "Flash"
-        FULL = "full", "Full"
         OFF = "off", "Off"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    repository = models.ForeignKey(ReviewRepository, on_delete=models.CASCADE, related_name="+")
+    installation_id = models.CharField(max_length=64)
+    github_repo_id = models.BigIntegerField(null=True, blank=True)
+    full_name = models.CharField(max_length=200)
     mode = models.CharField(max_length=10, choices=Mode.choices)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user", "repository"], name="uniq_review_user_repository_choice"),
+            models.UniqueConstraint(
+                "team", "user", "installation_id", Lower("full_name"), name="uniq_review_user_repository_choice"
+            ),
         ]
