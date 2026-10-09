@@ -404,7 +404,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         jobsPage: [1, { setJobsPage: (_, { page }) => page }],
         olderJobsPageError: [false, { loadOlderJobsPage: () => false, loadOlderJobsPageFailure: () => true }],
         deletingView: [false, { deleteView: () => true, finishDeletingView: () => false }],
@@ -502,11 +502,12 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             {
                 setStartingMaterialization: (_, { starting }: { starting: boolean }) => starting,
                 // No job exists when the request itself failed, so the reset on job arrival never
-                // fires and the controls would stay disabled until the panel remounts.
-                runDataWarehouseSavedQueryFailure: () => false,
+                // fires and the controls would stay disabled until the starting timeout.
+                runDataWarehouseSavedQueryFailure: (state: boolean, { viewId }: { viewId: string }) =>
+                    viewId === props.viewId ? false : state,
             },
         ],
-    }),
+    })),
     selectors({
         materializationRefreshPending: [
             (s) => [s.savedQueryRefreshPending, s.jobsRefreshPending],
@@ -634,8 +635,10 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 { pauseOnPageHidden: false }
             )
         },
-        runDataWarehouseSavedQueryFailure: () => {
-            cache.disposables.dispose('startingMaterializationTimeout')
+        runDataWarehouseSavedQueryFailure: ({ viewId }) => {
+            if (viewId === props.viewId) {
+                cache.disposables.dispose('startingMaterializationTimeout')
+            }
         },
         loadDataModelingJobsFailure: () => {
             actions.scheduleJobsRefresh(IDLE_REFRESH_INTERVAL_MS)
