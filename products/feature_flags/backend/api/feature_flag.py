@@ -4217,6 +4217,7 @@ class FeatureFlagViewSet(
 
         The lifecycle actions use this because evaluation reads through a manager that excludes
         deleted rows, so reporting a state change on one would be a success for a flag that serves nobody.
+        The rollout actions use it because a filters write on a deleted flag takes effect when it is restored.
         """
         if not feature_flag.deleted:
             return None
