@@ -40,7 +40,8 @@ pub async fn evaluate_feature_flags(
     .with_only_use_override_person_properties(context.only_use_override_person_properties)
     .with_timezone(context.team_timezone)
     .with_persons_db_deadline(context.persons_db_deadline)
-    .with_personhog_hash_key_reader(context.personhog_hash_key_reader);
+    .with_personhog_hash_key_reader(context.personhog_hash_key_reader)
+    .with_personhog_hash_key_writer(context.personhog_hash_key_writer);
 
     matcher
         .evaluate_all_feature_flags(

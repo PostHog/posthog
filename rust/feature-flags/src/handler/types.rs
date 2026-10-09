@@ -108,6 +108,8 @@ pub struct FeatureFlagEvaluationContext {
     pub persons_db_deadline: Option<std::time::Duration>,
     /// Set only for teams that read hash key overrides through personhog.
     pub personhog_hash_key_reader: Option<RouterClient>,
+    /// Set only for teams that write hash key overrides through personhog.
+    pub personhog_hash_key_writer: Option<RouterClient>,
 }
 
 /// SDK type classification based on user-agent parsing.

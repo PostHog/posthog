@@ -25,6 +25,7 @@ use personhog_proto::personhog::types::v1::{
     GetHashKeyOverrideContextRequest, GetPersonRequest, HashKeyOverrideContext, Person,
     ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
     ReleaseFencesResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest,
 };
 
 /// Routing headers for leader-bound calls through the router.
@@ -206,6 +207,29 @@ impl RouterClient {
         )
         .await
         .map(|response| response.results)
+    }
+
+    /// Hash key override write. The router sends it to the replica, which writes to the
+    /// primary. Returns the number of rows that the upsert inserted or replaced.
+    pub async fn upsert_hash_key_overrides(
+        &self,
+        team_id: i64,
+        distinct_ids: Vec<String>,
+        hash_key: String,
+        feature_flag_keys: Vec<String>,
+    ) -> Result<i64, Status> {
+        let request = self.request(UpsertHashKeyOverridesRequest {
+            team_id,
+            distinct_ids,
+            hash_key,
+            feature_flag_keys,
+        });
+        Self::timed(
+            "UpsertHashKeyOverrides",
+            self.client().upsert_hash_key_overrides(request),
+        )
+        .await
+        .map(|response| response.inserted_count)
     }
 
     /// Leader-routed lifecycle fence (saga runner only): freeze the person

@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use sqlx::FromRow;
+use sqlx::{FromRow, PgConnection};
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
-use crate::storage::error::StorageResult;
+use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::FeatureFlagStorage;
 use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
 
@@ -176,54 +176,32 @@ impl FeatureFlagStorage for PostgresStorage {
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
-        let mut tx = sqlx::Connection::begin(&mut *conn).await?;
-        // The foreign key from posthog_featureflaghashkeyoverride to posthog_person is deferred.
-        // Postgres checks deferred keys at COMMIT. statement_timeout does not cover COMMIT. A
-        // person delete or merge holds FOR UPDATE on the person row until its transaction ends.
-        // Until then, the commit waits. This statement moves the check into the INSERT, where
-        // statement_timeout applies.
-        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
-            .execute(&mut *tx)
-            .await?;
-        // Kept under the router's 5 s backend deadline so the caller sees an error, not a timeout.
-        sqlx::query("SET LOCAL lock_timeout = '2s'")
-            .execute(&mut *tx)
-            .await?;
-
-        // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
-        // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
-        // concurrent write commits after NOT EXISTS reads its snapshot. DO UPDATE also fails
-        // when two distinct ids of one person produce the same row twice, so DISTINCT removes
-        // the duplicates. ORDER BY makes concurrent upserts lock rows in the same order.
-        let result = sqlx::query!(
-            r#"
-            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            SELECT DISTINCT $1::integer, p.person_id, f.flag_key, $2::text
-            FROM posthog_persondistinctid p
-            CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
-            WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false
-              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
-              AND NOT EXISTS (
-                  SELECT 1 FROM posthog_featureflaghashkeyoverride o
-                  WHERE o.team_id = p.team_id AND o.person_id = p.person_id
-                    AND o.feature_flag_key = f.flag_key AND o.hash_key <> $5
-              )
-            ORDER BY p.person_id, f.flag_key
-            ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
-                SET hash_key = EXCLUDED.hash_key
-                WHERE posthog_featureflaghashkeyoverride.hash_key = $5
-            "#,
-            team_id as i32,
-            hash_key,
+        // A person merge moves the distinct IDs to the surviving person and deletes the merged
+        // person in one transaction. An upsert that resolved a distinct ID before that commit
+        // fails the foreign key check with 23503 after the commit. The second attempt resolves
+        // the distinct IDs again and writes to the surviving person.
+        match Self::try_upsert_hash_key_overrides(
+            &mut conn,
+            team_id,
             distinct_ids,
             feature_flag_keys,
-            COOKIELESS_SENTINEL_VALUE
+            hash_key,
         )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-
-        Ok(result.rows_affected() as i64)
+        .await
+        {
+            Err(err) if common_database::is_foreign_key_constraint_error(&err) => {
+                Self::try_upsert_hash_key_overrides(
+                    &mut conn,
+                    team_id,
+                    distinct_ids,
+                    feature_flag_keys,
+                    hash_key,
+                )
+                .await
+            }
+            result => result,
+        }
+        .map_err(StorageError::from)
     }
 
     async fn delete_hash_key_overrides_by_teams(
@@ -279,6 +257,65 @@ impl FeatureFlagStorage for PostgresStorage {
             ],
             result.rows_affected() as f64,
         );
+
+        Ok(result.rows_affected() as i64)
+    }
+}
+
+impl PostgresStorage {
+    async fn try_upsert_hash_key_overrides(
+        conn: &mut PgConnection,
+        team_id: i64,
+        distinct_ids: &[String],
+        feature_flag_keys: &[String],
+        hash_key: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let mut tx = sqlx::Connection::begin(conn).await?;
+        // The foreign key from posthog_featureflaghashkeyoverride to posthog_person is deferred.
+        // Postgres checks deferred keys at COMMIT. statement_timeout does not cover COMMIT. A
+        // person delete or merge holds FOR UPDATE on the person row until its transaction ends.
+        // Until then, the commit waits. This statement moves the check into the INSERT, where
+        // statement_timeout applies.
+        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+            .execute(&mut *tx)
+            .await?;
+        // Kept under the router's 5 s backend deadline so the caller sees an error, not a timeout.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
+        // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
+        // concurrent write commits after NOT EXISTS reads its snapshot. DO UPDATE also fails
+        // when two distinct ids of one person produce the same row twice, so DISTINCT removes
+        // the duplicates. ORDER BY makes concurrent upserts lock rows in the same order.
+        let result = sqlx::query!(
+            r#"
+            INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+            SELECT DISTINCT $1::integer, p.person_id, f.flag_key, $2::text
+            FROM posthog_persondistinctid p
+            CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
+            WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false
+              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
+              AND NOT EXISTS (
+                  SELECT 1 FROM posthog_featureflaghashkeyoverride o
+                  WHERE o.team_id = p.team_id AND o.person_id = p.person_id
+                    AND o.feature_flag_key = f.flag_key AND o.hash_key <> $5
+              )
+            ORDER BY p.person_id, f.flag_key
+            ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
+                SET hash_key = EXCLUDED.hash_key
+                WHERE posthog_featureflaghashkeyoverride.hash_key = $5
+            "#,
+            team_id as i32,
+            hash_key,
+            distinct_ids,
+            feature_flag_keys,
+            COOKIELESS_SENTINEL_VALUE
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
 
         Ok(result.rows_affected() as i64)
     }

@@ -488,6 +488,8 @@ pub struct FeatureFlagMatcher {
     persons_db_deadline: Option<Instant>,
     /// Reads hash key overrides through personhog when set, and through the persons DB when not.
     personhog_hash_key_reader: Option<RouterClient>,
+    /// Writes hash key overrides through personhog when set, and through the persons DB when not.
+    personhog_hash_key_writer: Option<RouterClient>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -611,6 +613,7 @@ impl FeatureFlagMatcher {
             now: Utc::now(),
             persons_db_deadline: None,
             personhog_hash_key_reader: None,
+            personhog_hash_key_writer: None,
         }
     }
 
@@ -688,6 +691,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_personhog_hash_key_reader(mut self, client: Option<RouterClient>) -> Self {
         self.personhog_hash_key_reader = client;
+        self
+    }
+
+    pub fn with_personhog_hash_key_writer(mut self, client: Option<RouterClient>) -> Self {
+        self.personhog_hash_key_writer = client;
         self
     }
 
@@ -905,6 +913,7 @@ impl FeatureFlagMatcher {
                     db_operations::SET_HASH_KEY_OVERRIDES,
                     set_feature_flag_hash_key_overrides(
                         &self.router,
+                        self.personhog_hash_key_writer.as_ref(),
                         self.team_id,
                         target_distinct_ids.clone(),
                         hash_key.clone(),
@@ -924,12 +933,20 @@ impl FeatureFlagMatcher {
             }
         }
 
+        let write_path = if self.personhog_hash_key_writer.is_some() {
+            "personhog"
+        } else {
+            "sql"
+        };
         inc(
             FLAG_HASH_KEY_WRITES_COUNTER,
-            &[(
-                "successful_write".to_string(),
-                writing_hash_key_override.to_string(),
-            )],
+            &[
+                (
+                    "successful_write".to_string(),
+                    writing_hash_key_override.to_string(),
+                ),
+                ("path".to_string(), write_path.to_string()),
+            ],
             1,
         );
 
