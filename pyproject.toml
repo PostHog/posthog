@@ -753,9 +753,6 @@ ignore_imports = [
     "products.messaging.backend.presentation.views.message_suppression -> products.messaging.backend.models.message_suppression",
     # Lane B: categories, Customer.io config and the Customer.io webhook
     # Lane C: preferences and the recipient preferences page
-    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_preferences",
-    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.services.customerio_sync_service",
     # Lane D: templates
     "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_category",
     "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_template",
