@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -18,10 +18,14 @@ import type { CustomerTaskApi } from 'products/customer_analytics/frontend/gener
 
 import { BusinessType, customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
-function setBusinessTypeOnMountedLogic(businessType: BusinessType): void {
-    for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-        logic.actions.setBusinessType(businessType)
-    }
+// Mount the scene logic in an effect, so that App has already mounted sceneLogic with its scenes.
+// The effect runs before the lazy scene loads, so the first scene render uses this business type.
+function useBusinessType(businessType: BusinessType): void {
+    useOnMountEffect(() => {
+        const unmount = customerAnalyticsSceneLogic.mount()
+        customerAnalyticsSceneLogic.actions.setBusinessType(businessType)
+        return unmount
+    })
 }
 
 const meta: Meta = {
@@ -50,9 +54,7 @@ type Story = StoryObj<{}>
 
 export const B2CMode: Story = {
     render: () => {
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2c')
-        })
+        useBusinessType('b2c')
 
         return <App />
     },
@@ -75,17 +77,18 @@ export const B2BModeWithGroupsEnabled: Story = {
             },
         })
 
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2b')
-            for (const logic of customerAnalyticsSceneLogic.findAllMounted()) {
-                logic.actions.setSelectedGroupType(0)
-            }
+        useBusinessType('b2b')
+        useOnMountEffect(() => {
+            customerAnalyticsSceneLogic.actions.setSelectedGroupType(0)
         })
 
         return <App />
     },
     parameters: {
         pageUrl: urls.customerAnalyticsDashboard(),
+        testOptions: {
+            waitForSelector: '[data-attr="customer-analytics-group-type"]',
+        },
     },
 }
 
@@ -93,9 +96,7 @@ export const B2BModeWithoutGroups: Story = {
     render: () => {
         useAvailableFeatures([])
 
-        useDelayedOnMountEffect(() => {
-            setBusinessTypeOnMountedLogic('b2b')
-        })
+        useBusinessType('b2b')
 
         return <App />
     },
