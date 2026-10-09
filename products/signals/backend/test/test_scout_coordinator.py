@@ -922,11 +922,17 @@ class TestFailureStreakProbeCollection:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam):
+@pytest.mark.parametrize("approved", [True, False, None])
+async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam, aorganization, approved):
     # Wiring guard for the whole half-open path: a lane the breaker paused is invisible to the
     # `enabled=True` dispatch query, so only `_collect_probe_runs` inside `_collect_planned_runs`
     # can bring it back — if that call is dropped, a wedged lane whose cause was fixed stays
     # paused forever with no human in the loop.
+    # Without AI data processing consent every output is dropped, so neither lane may dispatch.
+    aorganization.is_ai_data_processing_approved = approved
+    await sync_to_async(aorganization.save)(update_fields=["is_ai_data_processing_approved"])
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-broken")
     await database_sync_to_async(_create_config)(
         ateam,
@@ -939,7 +945,8 @@ async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam):
 
     planned = await _run_activity()
 
-    assert [p.skill_name for p in planned] == ["signals-scout-broken"]
+    expected = ["signals-scout-broken", "signals-scout-errors"] if approved is True else []
+    assert [p.skill_name for p in planned] == expected
 
 
 class TestCronScheduleDueCheck:
