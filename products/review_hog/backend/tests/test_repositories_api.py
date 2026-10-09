@@ -282,6 +282,9 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewRepository.objects.for_team(self.team.id).create(
             team=self.team, installation_id=INSTALLATION, full_name="example-org/docs", flash_for="everyone"
         )
+        ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
+            team=self.team, user=self.user, installation_id=INSTALLATION, full_name="example-org/docs", mode="off"
+        )
         url = self._url(f"repository_overview/?installation_id={INSTALLATION}")
 
         everything = self.client.get(url)
@@ -295,7 +298,8 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert entries["example-org/api"]["owner_project"] == {"id": self.other_team.id, "name": "Other project"}
         assert entries["example-org/api"]["my_result"] == {"flash": False, "reason": "not_in_project"}
         assert entries["example-org/docs"]["exception"]["flash_for"] == "everyone"
-        assert entries["example-org/docs"]["my_result"] == {"flash": True, "reason": "repository_everyone"}
+        assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
+        assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "repository_everyone"}
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]

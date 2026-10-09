@@ -36,7 +36,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
@@ -184,6 +184,9 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
         allow_null=True, help_text="When the latest review turn completed; null while the first is in flight."
     )
     published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
+    full_review_published = serializers.BooleanField(
+        help_text="Whether a Full review of this pull request has been published. No Flash review runs after one."
+    )
     in_progress = serializers.BooleanField(
         help_text="Whether a run is on this report right now: a review turn or a resolution run "
         "(activity within the last 30 minutes)."
@@ -501,6 +504,8 @@ def _review_payload(
         "run_count": report.run_count,
         "last_run_at": report.last_run_at,
         "published": report.published_head_sha is not None,
+        # Reads only the per-mode marker, so the list never loads findings to tell older reports apart.
+        "full_review_published": REVIEW_MODE_FULL in (report.published_heads_by_mode or {}),
         "in_progress": progress is not None or (resolution is not None and resolution.status == RESOLUTION_RESOLVING),
         "progress": progress,
         "resolution": {

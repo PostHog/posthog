@@ -562,6 +562,8 @@ export interface ReviewRepositoryOverviewEntryApi {
     my_choice_id: string | null
     /** What the requesting user's own pull requests get here, and the rule that decided it. */
     my_result: AutomaticReviewDecisionApi
+    /** What the requesting user's own pull requests would get here without their choice for this repository. Equals my_result when there is no choice. */
+    inherited_result: AutomaticReviewDecisionApi
 }
 
 export interface ReviewRepositoryOverviewApi {
@@ -729,6 +731,8 @@ export interface ReviewRecentReviewApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
+    /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+    full_review_published: boolean
     /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
     /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
@@ -944,6 +948,8 @@ export interface ReviewDetailApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
+    /** Whether a Full review of this pull request has been published. No Flash review runs after one. */
+    full_review_published: boolean
     /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
     /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */

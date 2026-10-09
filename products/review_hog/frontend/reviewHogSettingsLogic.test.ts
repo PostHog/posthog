@@ -105,6 +105,46 @@ describe('reviewHogSettingsLogic', () => {
         expect(router.values.searchParams.reviews_scope).toBeUndefined()
     })
 
+    it('following the project default writes the project value, so the server drops the own value', async () => {
+        const patches: Record<string, unknown>[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/settings/': () => [
+                    200,
+                    {
+                        urgency_threshold: 'must_fix',
+                        sources: { urgency_threshold: 'user' },
+                        project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                    },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/review_hog/settings/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [
+                        200,
+                        {
+                            urgency_threshold: 'should_fix',
+                            sources: { urgency_threshold: 'project' },
+                            project_defaults: { urgency_threshold: 'should_fix', celebrate_clean_reviews: true },
+                        },
+                    ]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSettingsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.followProjectDefault('urgency_threshold')).toDispatchActions([
+            'updateSettings',
+            'updateSettingsSuccess',
+        ])
+
+        expect(patches).toEqual([{ urgency_threshold: 'should_fix' }])
+        expect(logic.values.settings?.sources.urgency_threshold).toBe('project')
+    })
+
     it('a started review clears the input, reloads the list, and resets the in-flight flag', async () => {
         logic.mount()
         // Consume the mount-time auto-default so its loadRecentReviews can't satisfy the assertion below.
