@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
+import { capture } from '../analytics/posthog'
 import { AppErrorState } from '../components/AppErrorState'
 import { AppLoadingState } from '../components/AppLoadingState'
 import { AppWrapper } from '../components/AppWrapper'
@@ -46,6 +47,9 @@ function RenderUiContent({
     // re-render with a fresh-but-equal envelope object must not refetch.
     const toolName = envelope.tool_name
     const toolInputJson = JSON.stringify(envelope.tool_input ?? {})
+    useEffect(() => {
+        capture('mcp_ui_app_render_requested', { rendered_tool_name: toolName, app_key: envelope.app_key })
+    }, [toolName, envelope.app_key])
     useEffect(() => {
         if (!app) {
             setError('Visualization unavailable: app context not provided.')
