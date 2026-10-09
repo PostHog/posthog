@@ -19,7 +19,7 @@ export function MissingRecipientEmailBanner({
     if (missing <= 0) {
         return null
     }
-    const code = <code>{property}</code>
+    const code = <code className="break-words">{property}</code>
     const nobody = audienceSize != null && missing >= audienceSize
 
     return (
@@ -34,8 +34,8 @@ export function MissingRecipientEmailBanner({
             )}
             {property === 'email' ? (
                 <>
-                    If your people store their address in <code>$email</code>, set the To field to{' '}
-                    <code>{"{{ person.properties['$email'] }}"}</code>.
+                    Set the To field to <code className="whitespace-nowrap">{"{{ person.properties['$email'] }}"}</code>{' '}
+                    if their address is in <code>$email</code>.
                 </>
             ) : (
                 <>Set the To field to the property that holds their email address.</>

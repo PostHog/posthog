@@ -54,7 +54,7 @@ function ReviewRow({
                     {error}
                 </LemonButton>
             ))}
-            <div>{children}</div>
+            <div className="flex flex-col gap-2">{children}</div>
         </div>
     )
 }
@@ -114,7 +114,6 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
-                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
                     {audienceProperties.length > 0 ? (
                         <div className="flex flex-col gap-2">
                             {nonCohortAudience.length > 0 ? (
@@ -148,6 +147,7 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Email" step="content">
+                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
                     {!emailSettings.trackingEnabled && (
                         <div className="text-xs text-secondary">Open and click tracking is off.</div>
                     )}
