@@ -443,7 +443,7 @@ describe('experimentLogic', () => {
                 },
             },
             {
-                desc: 'a reader with the health panel and an answer where the server finds no exposure',
+                desc: 'a reader with health findings on a legacy experiment, and an answer where the server finds no exposure',
                 exposures: {
                     timeseries: [{ variant: 'control' }, { variant: 'test' }],
                     total_exposures: { control: 0, test: 0 },
@@ -451,7 +451,7 @@ describe('experimentLogic', () => {
                 },
                 handling: undefined,
                 health: { findings: [] },
-                expected: { health_ui: 'panel', exposures_total: 0, zero_exposures_server: true },
+                expected: { health_ui: 'warnings', exposures_total: 0, zero_exposures_server: true },
             },
         ])(
             'reports the exposure state with the completed refresh: $desc',
@@ -2811,6 +2811,8 @@ describe('experimentLogic', () => {
         })
 
         const running = { start_date: '2020-01-01', end_date: undefined }
+        // The fixture holds legacy metrics, and a legacy experiment never shows the health panel.
+        const newEngineMetrics = { metrics: [], metrics_secondary: [], saved_metrics: [] }
 
         it.each<{ desc: string; overrides: Partial<Experiment>; expected: ExperimentWarning | null }>([
             {
@@ -3002,6 +3004,7 @@ describe('experimentLogic', () => {
                 desc: 'a server finding the local rules miss',
                 overrides: {
                     ...running,
+                    ...newEngineMetrics,
                     feature_flag: flag(true, multivariantFilters),
                     health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
                 },
@@ -3022,6 +3025,11 @@ describe('experimentLogic', () => {
                     health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_archived')] },
                 },
                 expected: { flag_state_browser: null, flag_state_server: 'running_but_flag_archived' },
+            },
+            {
+                desc: 'a reader with health findings on a legacy experiment, which shows the separate warnings',
+                overrides: { ...running, feature_flag: flag(true, multivariantFilters), health: { findings: [] } },
+                expected: { health_ui: 'warnings', health_finding_count: 0 },
             },
             {
                 desc: 'a reader without health findings',
@@ -3121,6 +3129,9 @@ describe('experimentLogic', () => {
                 id: 7,
                 status: ExperimentStatus.Running,
                 start_date: dayjs().subtract(3, 'day').toISOString(),
+                metrics: [],
+                metrics_secondary: [],
+                saved_metrics: [],
                 health: { findings: [] },
             })
 

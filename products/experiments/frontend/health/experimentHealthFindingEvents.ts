@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
 import type { ExperimentWarning, ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
+import { isLegacyExperiment } from 'scenes/experiments/utils'
 
 import type { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
@@ -56,8 +57,9 @@ export type ExperimentHealthUi = 'panel' | 'warnings'
 
 export function experimentHealthUi(experiment: Experiment): ExperimentHealthUi {
     // The page shows the health panel only when the server sent health findings, which it does for readers
-    // with the experiment-health-findings flag.
-    return experiment.health ? 'panel' : 'warnings'
+    // with the experiment-health-findings flag. A legacy experiment opens the legacy view, which shows the
+    // separate warnings even then.
+    return experiment.health && !isLegacyExperiment(experiment) ? 'panel' : 'warnings'
 }
 
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
