@@ -22,6 +22,7 @@ import re
 import logging
 from dataclasses import field
 from datetime import timedelta
+from urllib.parse import quote
 
 import temporalio
 from temporalio import activity, workflow
@@ -38,6 +39,8 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
+from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal
 from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import (
     MAX_THREADS_PER_RUN,
@@ -46,6 +49,7 @@ from products.review_hog.backend.reviewer.constants import (
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
     RESOLUTION_RUNTIME_ADAPTER,
+    REVIEW_MODE_FULL,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadOutcome, ThreadResolution
@@ -95,7 +99,6 @@ from products.review_hog.backend.temporal.activities import (
     SyncReviewSkillsInput,
     ValidateIntegrationInput,
     _installation_for,
-    _login_to_user_id,
     _sandbox_workflow_id_prefix,
     generate_schemas_activity,
     sync_review_skills_activity,
@@ -122,10 +125,9 @@ _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=RESOLUTION_MAX_ATTEMPTS)
 class ResolveThreadsInput:
     team_id: int
     user_id: int
-    # Whose selected resolution-criteria skill applies to this run. None (the shared-secret
-    # /resolve path) means "the PR author": prepare maps the fetched author login to a PostHog
-    # user; an unmapped author pins the canonical bar — a borrowed account's personal selection
-    # never governs someone else's PR.
+    # Whose selected resolution-criteria skill applies to this run. None means the PR owner
+    # (`pr_owner.py`), which prepare resolves from the fetched PR. A borrowed account's personal
+    # selection never governs someone else's PR.
     acting_user_id: int | None
     owner: str
     repo: str
@@ -204,6 +206,18 @@ def _merge_queue_state(input: ResolveThreadsInput, github: GitHubIntegration) ->
     return github.get_pull_request_merge_queue_state(f"{input.owner}/{input.repo}", input.pr_number)
 
 
+def _branch_protected(input: ResolveThreadsInput, github: GitHubIntegration, head_branch: str) -> bool:
+    """Whether GitHub protects the PR's head branch. A failed read raises, so the run never pushes blind."""
+    branch = github_api_request(
+        "GET",
+        f"/repos/{input.owner}/{input.repo}/branches/{quote(head_branch, safe='/')}",
+        token=github.get_access_token(),
+        installation_id=github.github_installation_id,
+        endpoint="/repos/{owner}/{repo}/branches/{branch}",
+    ).json()
+    return isinstance(branch, dict) and branch.get("protected") is True
+
+
 def _commit_hold(
     input: ResolveThreadsInput,
     github: GitHubIntegration,
@@ -219,6 +233,8 @@ def _commit_hold(
     # or one old push would block the stage on this PR for good.
     if queue_state == MergeQueueState.EJECTED and queue_state_at_start != MergeQueueState.EJECTED:
         return CommitHold.MERGE_QUEUE
+    if _branch_protected(input, github, head_branch):
+        return CommitHold.BRANCH_PROTECTED
     if github.has_open_pull_request_with_base(f"{input.owner}/{input.repo}", head_branch):
         return CommitHold.STACKED
     return None
@@ -252,6 +268,22 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         )
     if pr_metadata.state != "open":
         return ResolutionRunResult(skipped_reason="pr_not_open")
+    # Every trigger reaches this gate, so no path writes to a branch whose owner did not opt in. The
+    # fork check above makes the head branch the base repository's, which the Inbox link needs.
+    owner = PullRequestOwnerResolver.resolve(
+        input.team_id,
+        repository=f"{input.owner}/{input.repo}",
+        author_login=pr_metadata.author,
+        head_branch=pr_metadata.head_branch,
+    )
+    if not ResolutionGate.load(input.team_id, owner.user_id).allows(REVIEW_MODE_FULL):
+        logger.info(
+            "Resolution skipped for %s/%s#%s: the pull request owner did not opt in",
+            input.owner,
+            input.repo,
+            input.pr_number,
+        )
+        return ResolutionRunResult(skipped_reason=ReviewRequestRefusal.RESOLUTION_NOT_OPTED_IN.value)
 
     pr_url = input.pr_url or f"https://github.com/{input.owner}/{input.repo}/pull/{input.pr_number}"
     report_id = upsert_review_report(
@@ -310,17 +342,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         )
         _mark_queued_threads(input, triage, token=token, installation_id=installation_id)
 
-    acting_user_id = input.acting_user_id
-    if acting_user_id is None:
-        acting_user_id = _login_to_user_id(input.team_id, pr_metadata.author)
-        logger.info(
-            "Resolution acting user for %s/%s#%s: author %r -> %s",
-            input.owner,
-            input.repo,
-            input.pr_number,
-            pr_metadata.author,
-            acting_user_id if acting_user_id is not None else "unmapped (canonical criteria)",
-        )
+    acting_user_id = input.acting_user_id if input.acting_user_id is not None else owner.user_id
     skill = load_resolution_skill_for_run(input.team_id, acting_user_id)
     return _PreparedRun(
         report_id=report_id,

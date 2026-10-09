@@ -95,7 +95,7 @@ class TestEngagementMethod:
         assert engagement_method(comment=comment, review_comments=[comment, agent, human]) == "comment_reply"
 
     def test_agent_replies_are_ignored_when_our_bot_login_is_unconfigured(self):
-        # `is_app_bot_author` fails open to "any bot" without REVIEWHOG_GITHUB_BOT_LOGIN, so a
+        # Outside production `is_app_bot_author` falls back to "any bot" without REVIEWHOG_GITHUB_BOT_LOGIN, so a
         # stranger's bot is never credited as engagement on a deployment that cannot tell it from
         # ours — the signal degrades to the old ignore-every-bot behaviour rather than misattributing.
         comment: dict[str, Any] = {"id": 1, "reactions": {"total_count": 0}}

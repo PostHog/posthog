@@ -367,6 +367,13 @@ def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: in
             else "Not resolving comments: other pull requests are stacked on this branch"
         )
         why = "A fix commit here would leave the stacked pull requests out of date"
+    elif hold == CommitHold.BRANCH_PROTECTED:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: this branch is now protected"
+            if total
+            else "Not resolving comments: this branch is protected"
+        )
+        why = "A person decides what lands on a protected branch"
     else:
         line = (
             f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
