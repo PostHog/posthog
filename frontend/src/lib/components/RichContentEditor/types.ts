@@ -30,6 +30,7 @@ declare module '@tiptap/core' {
 export interface RichContentEditorType {
     isEmpty: () => boolean
     getJSON: () => JSONContent
+    getHTML: () => string
     getEndPosition: () => number
     getSelectedNode: () => RichContentNode | null
     getCurrentPosition: () => number

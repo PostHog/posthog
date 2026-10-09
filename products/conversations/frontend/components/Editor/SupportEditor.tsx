@@ -10,6 +10,7 @@ import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import {
     EditorContent,
     Extension,
+    Extensions,
     NodeViewContent,
     NodeViewProps,
     NodeViewWrapper,
@@ -147,7 +148,52 @@ function IconUnderline(): JSX.Element {
     )
 }
 
+// Strikethrough icon (not in @posthog/icons)
+function IconStrikethrough(): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M4 12h16M16 6.5C15.3 4.9 13.8 4 12 4c-2.5 0-4.5 1.6-4.5 3.8 0 1.5.9 2.6 2.4 3.2M8 17.5c.7 1.6 2.2 2.5 4 2.5 2.5 0 4.5-1.6 4.5-3.8 0-.9-.3-1.6-.8-2.2"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    )
+}
+
+export type SupportEditorFormat =
+    | 'bold'
+    | 'italic'
+    | 'underline'
+    | 'strike'
+    | 'bulletList'
+    | 'orderedList'
+    | 'code'
+    | 'codeBlock'
+    | 'link'
+    | 'image'
+    | 'emoji'
+    | 'mentions'
+
+const DEFAULT_FORMATS: SupportEditorFormat[] = [
+    'bold',
+    'italic',
+    'underline',
+    'bulletList',
+    'orderedList',
+    'code',
+    'codeBlock',
+    'link',
+    'image',
+    'emoji',
+    'mentions',
+]
+
 export type SupportEditorProps = {
+    /** The toolbar buttons and the content the editor accepts, also on paste */
+    formats?: readonly SupportEditorFormat[]
     initialContent?: JSONContent | null
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void
@@ -235,36 +281,42 @@ const LinkOnPasteExtension = Extension.create({
     },
 })
 
-export const SUPPORT_EXTENSIONS = [
-    MentionsExtension,
-    EmojiSuggestionExtension,
-    RichContentNodeMention,
-    ExtensionDocument,
-    StarterKit.configure({
-        document: false,
-        link: false, // We use our own Link extension
-        heading: false,
-        blockquote: false,
-        // bold: enabled - Cmd+B
-        // bulletList: enabled - Cmd+Shift+8
-        // code: enabled - inline code (Cmd+E) - just visual styling, not executable
-        codeBlock: false, // We use our own SupportCodeBlockExtension
-        // hardBreak: enabled - allows Shift+Enter for line breaks within paragraphs
-        // dropcursor: enabled - shows visual indicator when dragging content
-        // gapcursor: enabled - helps position cursor near images/blocks
-        horizontalRule: false,
-        // italic: enabled - Cmd+I
-        // listItem/listKeymap: enabled - required by bulletList/orderedList
-        // orderedList: enabled - Cmd+Shift+7
-        strike: false,
-        underline: false, // Registered explicitly below
-    }),
-    Underline, // Cmd+U
-    ImageExtension,
-    SupportLinkExtension,
-    LinkOnPasteExtension,
-    SupportCodeBlockExtension,
-]
+export function buildSupportExtensions(formats: readonly SupportEditorFormat[]): Extensions {
+    const has = (format: SupportEditorFormat): boolean => formats.includes(format)
+    const hasList = has('bulletList') || has('orderedList')
+    return [
+        ...(has('mentions') ? [MentionsExtension, RichContentNodeMention] : []),
+        ...(has('emoji') ? [EmojiSuggestionExtension] : []),
+        ExtensionDocument,
+        StarterKit.configure({
+            document: false,
+            link: false, // We use our own Link extension
+            heading: false,
+            blockquote: false,
+            bold: has('bold') ? {} : false, // Cmd+B
+            bulletList: has('bulletList') ? {} : false, // Cmd+Shift+8
+            code: has('code') ? {} : false, // inline code (Cmd+E) - just visual styling, not executable
+            codeBlock: false, // We use our own SupportCodeBlockExtension
+            // hardBreak: enabled - allows Shift+Enter for line breaks within paragraphs
+            // dropcursor: enabled - shows visual indicator when dragging content
+            // gapcursor: enabled - helps position cursor near images/blocks
+            horizontalRule: false,
+            italic: has('italic') ? {} : false, // Cmd+I
+            // listItem/listKeymap are required by bulletList/orderedList
+            listItem: hasList ? {} : false,
+            listKeymap: hasList ? {} : false,
+            orderedList: has('orderedList') ? {} : false, // Cmd+Shift+7
+            strike: has('strike') ? {} : false, // Cmd+Shift+S
+            underline: false, // Registered explicitly below
+        }),
+        ...(has('underline') ? [Underline] : []), // Cmd+U
+        ...(has('image') ? [ImageExtension] : []),
+        ...(has('link') ? [SupportLinkExtension, LinkOnPasteExtension] : []),
+        ...(has('codeBlock') ? [SupportCodeBlockExtension] : []),
+    ]
+}
+
+export const SUPPORT_EXTENSIONS = buildSupportExtensions(DEFAULT_FORMATS)
 
 export const SUPPORT_PREVIEW_EXTENSIONS = [
     MentionsExtension,
@@ -469,6 +521,7 @@ function serializeListNode(node: JSONContent, ordered: boolean, indent: string):
 }
 
 export function SupportEditor({
+    formats = DEFAULT_FORMATS,
     initialContent,
     placeholder,
     onCreate,
@@ -503,10 +556,12 @@ export function SupportEditor({
 
     const editor = useRichContentEditor({
         extensions: [
-            ...SUPPORT_EXTENSIONS,
+            ...buildSupportExtensions(formats),
             Placeholder.configure({ placeholder }),
             CommandEnterExtension.configure({ onPressCmdEnter }),
-            LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            ...(formats.includes('link')
+                ? [LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut })]
+                : []),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -578,7 +633,7 @@ export function SupportEditor({
 
     const handlePaste = useCallback(
         (e: ClipboardEvent): void => {
-            if (!objectStorageAvailable || !e.clipboardData) {
+            if (!formats.includes('image') || !objectStorageAvailable || !e.clipboardData) {
                 return
             }
             const imageItem = Array.from(e.clipboardData.items).find((item) => item.type.startsWith('image/'))
@@ -590,7 +645,7 @@ export function SupportEditor({
                 }
             }
         },
-        [objectStorageAvailable, setFilesToUpload]
+        [formats, objectStorageAvailable, setFilesToUpload]
     )
 
     useEffect(() => {
@@ -623,160 +678,193 @@ export function SupportEditor({
             />
             <div className="flex justify-between p-0.5">
                 <div className="flex items-center">
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('bold')}
-                        onClick={() => ttEditor?.chain().focus().toggleBold().run()}
-                        icon={<IconBold />}
-                        tooltip="Bold (Cmd+B)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('italic')}
-                        onClick={() => ttEditor?.chain().focus().toggleItalic().run()}
-                        icon={<IconItalic />}
-                        tooltip="Italic (Cmd+I)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('underline')}
-                        onClick={() => ttEditor?.chain().focus().toggleUnderline().run()}
-                        icon={<IconUnderline />}
-                        tooltip="Underline (Cmd+U)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('bulletList')}
-                        onClick={() => ttEditor?.chain().focus().toggleBulletList().run()}
-                        icon={<IconList />}
-                        tooltip="Bullet list (Cmd+Shift+8)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('orderedList')}
-                        onClick={() => ttEditor?.chain().focus().toggleOrderedList().run()}
-                        icon={<IconOrderedList />}
-                        tooltip="Numbered list (Cmd+Shift+7)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('code')}
-                        onClick={() => ttEditor?.chain().focus().toggleCode().run()}
-                        icon={<IconCode />}
-                        tooltip="Inline code (Cmd+E)"
-                    />
-                    <LemonButton
-                        size="small"
-                        active={ttEditor?.isActive('codeBlock')}
-                        onClick={() => ttEditor?.chain().focus().toggleCodeBlock().run()}
-                        icon={<IconTerminal />}
-                        tooltip="Code block (Cmd+Alt+C)"
-                    />
-                    <Popover
-                        visible={linkPopoverOpen}
-                        onClickOutside={() => {
-                            setLinkPopoverOpen(false)
-                            setLinkUrl('')
-                        }}
-                        overlay={
-                            <div className="p-2 flex gap-2 items-center">
-                                <LemonInput
-                                    size="small"
-                                    placeholder="https://..."
-                                    value={linkUrl}
-                                    onChange={setLinkUrl}
-                                    autoFocus
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && linkUrl) {
-                                            e.preventDefault()
-                                            if (ttEditor) {
+                    {formats.includes('bold') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('bold')}
+                            onClick={() => ttEditor?.chain().focus().toggleBold().run()}
+                            icon={<IconBold />}
+                            tooltip="Bold (Cmd+B)"
+                        />
+                    )}
+                    {formats.includes('italic') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('italic')}
+                            onClick={() => ttEditor?.chain().focus().toggleItalic().run()}
+                            icon={<IconItalic />}
+                            tooltip="Italic (Cmd+I)"
+                        />
+                    )}
+                    {formats.includes('underline') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('underline')}
+                            onClick={() => ttEditor?.chain().focus().toggleUnderline().run()}
+                            icon={<IconUnderline />}
+                            tooltip="Underline (Cmd+U)"
+                        />
+                    )}
+                    {formats.includes('bulletList') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('bulletList')}
+                            onClick={() => ttEditor?.chain().focus().toggleBulletList().run()}
+                            icon={<IconList />}
+                            tooltip="Bullet list (Cmd+Shift+8)"
+                        />
+                    )}
+                    {formats.includes('orderedList') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('orderedList')}
+                            onClick={() => ttEditor?.chain().focus().toggleOrderedList().run()}
+                            icon={<IconOrderedList />}
+                            tooltip="Numbered list (Cmd+Shift+7)"
+                        />
+                    )}
+                    {formats.includes('strike') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('strike')}
+                            onClick={() => ttEditor?.chain().focus().toggleStrike().run()}
+                            icon={<IconStrikethrough />}
+                            tooltip="Strikethrough (Cmd+Shift+S)"
+                        />
+                    )}
+                    {formats.includes('code') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('code')}
+                            onClick={() => ttEditor?.chain().focus().toggleCode().run()}
+                            icon={<IconCode />}
+                            tooltip="Inline code (Cmd+E)"
+                        />
+                    )}
+                    {formats.includes('codeBlock') && (
+                        <LemonButton
+                            size="small"
+                            active={ttEditor?.isActive('codeBlock')}
+                            onClick={() => ttEditor?.chain().focus().toggleCodeBlock().run()}
+                            icon={<IconTerminal />}
+                            tooltip="Code block (Cmd+Alt+C)"
+                        />
+                    )}
+                    {formats.includes('link') && (
+                        <Popover
+                            visible={linkPopoverOpen}
+                            onClickOutside={() => {
+                                setLinkPopoverOpen(false)
+                                setLinkUrl('')
+                            }}
+                            overlay={
+                                <div className="p-2 flex gap-2 items-center">
+                                    <LemonInput
+                                        size="small"
+                                        placeholder="https://..."
+                                        value={linkUrl}
+                                        onChange={setLinkUrl}
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && linkUrl) {
+                                                e.preventDefault()
+                                                if (ttEditor) {
+                                                    ttEditor.chain().focus().setLink({ href: linkUrl }).run()
+                                                }
+                                                setLinkPopoverOpen(false)
+                                                setLinkUrl('')
+                                            } else if (e.key === 'Escape') {
+                                                setLinkPopoverOpen(false)
+                                                setLinkUrl('')
+                                            }
+                                        }}
+                                    />
+                                    <LemonButton
+                                        size="small"
+                                        type="primary"
+                                        onClick={() => {
+                                            if (ttEditor && linkUrl) {
                                                 ttEditor.chain().focus().setLink({ href: linkUrl }).run()
                                             }
                                             setLinkPopoverOpen(false)
                                             setLinkUrl('')
-                                        } else if (e.key === 'Escape') {
-                                            setLinkPopoverOpen(false)
-                                            setLinkUrl('')
-                                        }
-                                    }}
-                                />
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    onClick={() => {
-                                        if (ttEditor && linkUrl) {
-                                            ttEditor.chain().focus().setLink({ href: linkUrl }).run()
-                                        }
-                                        setLinkPopoverOpen(false)
-                                        setLinkUrl('')
-                                    }}
-                                    disabledReason={!linkUrl ? 'Enter a URL' : undefined}
-                                >
-                                    Add
-                                </LemonButton>
-                                {ttEditor?.isActive('link') && (
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() => {
-                                            ttEditor?.chain().focus().unsetLink().run()
-                                            setLinkPopoverOpen(false)
-                                            setLinkUrl('')
                                         }}
+                                        disabledReason={!linkUrl ? 'Enter a URL' : undefined}
                                     >
-                                        Remove
+                                        Add
                                     </LemonButton>
-                                )}
-                            </div>
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            active={ttEditor?.isActive('link')}
-                            onClick={openLinkPopover}
-                            icon={<IconLink />}
-                            tooltip="Add link (Cmd+Shift+U)"
-                        />
-                    </Popover>
-                    <div className="w-px h-4 bg-border mx-1" />
-                    <LemonFileInput
-                        key="file-upload"
-                        accept={'image/*'}
-                        multiple={false}
-                        alternativeDropTargetRef={dropRef}
-                        onChange={setFilesToUpload}
-                        loading={uploading}
-                        value={filesToUpload}
-                        showUploadedFiles={false}
-                        callToAction={
+                                    {ttEditor?.isActive('link') && (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            onClick={() => {
+                                                ttEditor?.chain().focus().unsetLink().run()
+                                                setLinkPopoverOpen(false)
+                                                setLinkUrl('')
+                                            }}
+                                        >
+                                            Remove
+                                        </LemonButton>
+                                    )}
+                                </div>
+                            }
+                        >
                             <LemonButton
                                 size="small"
-                                icon={
-                                    uploading ? (
-                                        <Spinner className="text-lg" textColored={true} />
-                                    ) : (
-                                        <IconImage className="text-lg" />
-                                    )
-                                }
-                                disabledReason={
-                                    objectStorageAvailable
-                                        ? undefined
-                                        : 'Enable object storage to add images by dragging and dropping'
-                                }
-                                tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload images' : null}
+                                active={ttEditor?.isActive('link')}
+                                onClick={openLinkPopover}
+                                icon={<IconLink />}
+                                tooltip="Add link (Cmd+Shift+U)"
                             />
-                        }
-                    />
-                    <EmojiPickerPopover
-                        key="emoj-picker"
-                        data-attr="lemon-rich-text-editor-emoji-popover"
-                        onSelect={(emoji: string) => {
-                            if (ttEditor) {
-                                ttEditor.commands.insertContent(emoji)
-                                emojiUsed(emoji)
+                        </Popover>
+                    )}
+                    {(formats.includes('image') || formats.includes('emoji')) && (
+                        <div className="w-px h-4 bg-border mx-1" />
+                    )}
+                    {formats.includes('image') && (
+                        <LemonFileInput
+                            key="file-upload"
+                            accept={'image/*'}
+                            multiple={false}
+                            alternativeDropTargetRef={dropRef}
+                            onChange={setFilesToUpload}
+                            loading={uploading}
+                            value={filesToUpload}
+                            showUploadedFiles={false}
+                            callToAction={
+                                <LemonButton
+                                    size="small"
+                                    icon={
+                                        uploading ? (
+                                            <Spinner className="text-lg" textColored={true} />
+                                        ) : (
+                                            <IconImage className="text-lg" />
+                                        )
+                                    }
+                                    disabledReason={
+                                        objectStorageAvailable
+                                            ? undefined
+                                            : 'Enable object storage to add images by dragging and dropping'
+                                    }
+                                    tooltip={
+                                        objectStorageAvailable ? 'Click here or drag and drop to upload images' : null
+                                    }
+                                />
                             }
-                        }}
-                    />
+                        />
+                    )}
+                    {formats.includes('emoji') && (
+                        <EmojiPickerPopover
+                            key="emoj-picker"
+                            data-attr="lemon-rich-text-editor-emoji-popover"
+                            onSelect={(emoji: string) => {
+                                if (ttEditor) {
+                                    ttEditor.commands.insertContent(emoji)
+                                    emojiUsed(emoji)
+                                }
+                            }}
+                        />
+                    )}
                 </div>
             </div>
         </div>
