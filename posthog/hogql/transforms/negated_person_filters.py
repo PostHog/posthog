@@ -62,10 +62,17 @@ def rewrite_negated_person_filters(node: _T_AST, context: HogQLContext) -> _T_AS
     # more than the join.
     if context.modifiers.materializationMode == MaterializationMode.DISABLED:
         return None
+    # Without a team, persons_join_is_inner cannot decide. The persons join loads the team later, so leave it in place.
+    if context.team is None:
+        return None
     planner = _Planner()
     planner.visit(node)
     # The exclusion reads `FROM persons`. A CTE with that name would replace the persons table in it.
     if planner.defines_persons_cte:
+        return None
+    # The caller resolves the whole tree again. That drops the isolated scope of expanded expression fields such as
+    # `events.person_id`, so their unqualified inner fields become ambiguous in a SELECT that joins two tables.
+    if planner.joins_tables:
         return None
     if not planner.rewrites:
         return None
@@ -138,7 +145,15 @@ def _all_materialized(properties: list[list[str | int]], columns: _MaterializedC
     materialized column, it reads the whole properties JSON of each row. That costs more than the join, which reads
     properties only for the latest row of each person.
     """
-    return all(len(chain) == 1 and (str(chain[0]), "properties") in columns for chain in properties)
+    return all(
+        len(chain) == 1 and _is_string_column(columns.get((str(chain[0]), "properties"))) for chain in properties
+    )
+
+
+def _is_string_column(column: "MaterializedColumn | None") -> bool:
+    # An unmatched LEFT JOIN fills a typed column, such as Float64, with its default instead of NULL. The filter can
+    # then drop a row with no person, which the exclusion keeps.
+    return column is not None and column.type in ("String", "Nullable(String)")
 
 
 def _is_events(table_type: ast.Type | None) -> TypeGuard[ast.TableType | ast.TableAliasType]:
@@ -218,10 +233,16 @@ def _is_literal(expr: ast.Expr) -> bool:
     # get_inner_where returns None. select_from_persons_table then skips its where_optimization subquery, so the persons
     # subquery reads every person in the team.
     if isinstance(expr, ast.Constant):
-        return expr.value is not None and not isinstance(expr.value, bool)
+        return _is_literal_value(expr.value)
     if isinstance(expr, ast.Tuple | ast.Array):
         return bool(expr.exprs) and all(_is_literal(item) for item in expr.exprs)
     return False
+
+
+def _is_literal_value(value: object) -> bool:
+    if isinstance(value, list | tuple):
+        return bool(value) and all(_is_literal_value(item) for item in value)
+    return value is not None and not isinstance(value, bool)
 
 
 def _is_int(expr: ast.Expr, value: int) -> bool:
@@ -314,10 +335,13 @@ class _Planner(TraversingVisitor):
         super().__init__()
         self.rewrites: dict[int, _Rewrite] = {}
         self.defines_persons_cte = False
+        self.joins_tables = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node.ctes and "persons" in node.ctes:
             self.defines_persons_cte = True
+        if node.select_from is not None and node.select_from.next_join is not None:
+            self.joins_tables = True
         rewrite = _plan(node)
         if rewrite is not None:
             self.rewrites[id(node)] = rewrite

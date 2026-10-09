@@ -17,6 +17,7 @@ from parameterized import param, parameterized
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -47,8 +48,9 @@ MATERIALIZED_PERSON_COLUMNS = {
             name=f"pmat_{name}",
             details=MaterializedColumnDetails(table_column="properties", property_name=name, is_disabled=False),
             is_nullable=False,
+            column_type=column_type,
         )
-        for name in ("email", "is_staff")
+        for name, column_type in (("email", None), ("is_staff", None), ("score", "Float64"))
     }
 }
 
@@ -193,14 +195,15 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
 
     def _print(
         self,
-        select: str,
-        filters: list[dict],
+        query: str,
+        placeholders: dict[str, ast.Expr] | None = None,
         mode: PersonsOnEventsMode = JOINED,
         materialization_mode: MaterializationMode | None = None,
+        team_on_context: bool = True,
     ) -> str:
         context = HogQLContext(
             team_id=self.team.pk,
-            team=self.team,
+            team=self.team if team_on_context else None,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(
                 self.team,
@@ -211,12 +214,13 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
                 ),
             ),
         )
-        query = parse_select(f"{select} WHERE {{where}}", placeholders={"where": property_to_expr(filters, self.team)})
-        sql, _ = prepare_and_print_ast(query, context, dialect="clickhouse")
+        sql, _ = prepare_and_print_ast(parse_select(query, placeholders=placeholders), context, dialect="clickhouse")
         return sql
 
     def test_rewrite_reads_only_persons_that_ever_matched(self):
-        sql = self._print("SELECT event FROM events", [INTERNAL, EXAMPLE])
+        sql = self._print(
+            "SELECT event FROM events WHERE {where}", {"where": property_to_expr([INTERNAL, EXAMPLE], self.team)}
+        )
 
         assert not PERSONS_JOIN.search(sql)
         assert "where_optimization" in sql
@@ -233,6 +237,10 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
             param("property_not_materialized", [{**INTERNAL, "key": "$email"}]),
             param("persons_cte", [INTERNAL], select="WITH persons AS (SELECT 1 AS id) SELECT event FROM events"),
             param("materialization_disabled", [INTERNAL], materialization_mode=MaterializationMode.DISABLED),
+            param(
+                "typed_materialized_column", [{"key": "score", "type": "person", "operator": "is_not", "value": "0"}]
+            ),
+            param("team_id_only", [INTERNAL], team_on_context=False),
         ]
     )
     def test_keeps_the_join_when_the_rewrite_would_not_drop_it(
@@ -243,9 +251,38 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         mode: PersonsOnEventsMode = JOINED,
         inner_join: bool = False,
         materialization_mode: MaterializationMode | None = None,
+        team_on_context: bool = True,
     ):
         with patch("posthog.hogql.database.schema.persons.posthoganalytics.feature_enabled", return_value=inner_join):
-            sql = self._print(select, filters, mode, materialization_mode)
+            sql = self._print(
+                f"{select} WHERE {{where}}",
+                {"where": property_to_expr(filters, self.team)},
+                mode,
+                materialization_mode,
+                team_on_context,
+            )
 
         assert "where_optimization" not in sql
         assert bool(PERSONS_JOIN.search(sql)) == (mode == JOINED)
+
+    @parameterized.expand(
+        [
+            param(
+                "self_join",
+                "SELECT e.event FROM events e JOIN events f ON e.uuid = f.uuid"
+                " WHERE e.person.properties.email != 'alice@internal.example'",
+            ),
+            param(
+                "null_in_constant_list",
+                "SELECT event FROM events WHERE person.properties.email NOT IN {excluded}",
+                {"excluded": ast.Constant(value=[None, "alice@internal.example"])},
+            ),
+        ]
+    )
+    def test_keeps_the_join_for_hogql_the_rewrite_would_change(
+        self, _name: str, query: str, placeholders: dict[str, ast.Expr] | None = None
+    ):
+        sql = self._print(query, placeholders)
+
+        assert "where_optimization" not in sql
+        assert PERSONS_JOIN.search(sql)
