@@ -1600,7 +1600,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             actions.setRefreshingLaunches(entries, false)
         },
         downloadResults: () => {
-            const results = values.rows.flatMap((row) => {
+            const results = values.comparisonRows.flatMap((row) => {
                 const result = values.results[row.launchId]
                 return result ? [{ variant: row.variant, ...result }] : []
             })

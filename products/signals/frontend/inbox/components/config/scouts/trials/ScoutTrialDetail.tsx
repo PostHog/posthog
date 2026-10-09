@@ -269,21 +269,35 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                 </div>
             )}
             {props.evaluationState.value?.report && (
-                <>
-                    <ScoutTrialComparisonReport
-                        report={props.evaluationState.value.report}
-                        rows={props.comparisonRows}
-                        onSelectRun={props.selectResult}
-                    />
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconDownload />}
-                        onClick={props.downloadEvaluation}
-                    >
-                        Download report
-                    </LemonButton>
-                </>
+                <ScoutTrialComparisonReport
+                    report={props.evaluationState.value.report}
+                    rows={props.comparisonRows}
+                    onSelectRun={props.selectResult}
+                />
+            )}
+            {(props.evaluationState.value?.report || props.comparisonRows.some((row) => row.result)) && (
+                <div className="flex flex-wrap gap-2">
+                    {props.evaluationState.value?.report && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDownload />}
+                            onClick={props.downloadEvaluation}
+                        >
+                            Download report
+                        </LemonButton>
+                    )}
+                    {props.comparisonRows.some((row) => row.result) && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDownload />}
+                            onClick={props.downloadResults}
+                        >
+                            Download results
+                        </LemonButton>
+                    )}
+                </div>
             )}
             {(props.evaluationState.value?.status === 'completed' ||
                 props.evaluationState.value?.status === 'failed') && (

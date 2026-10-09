@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { downloadFile } from 'lib/utils/dom'
 
 import { initKeaTests } from '~/test/init'
 
@@ -40,6 +41,11 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigTrialResult: jest.fn(),
     signalsScoutConfigTrialSetup: jest.fn(),
     signalsScoutRubricsRetrieve: jest.fn(),
+}))
+
+jest.mock('lib/utils/dom', () => ({
+    ...jest.requireActual('lib/utils/dom'),
+    downloadFile: jest.fn(),
 }))
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
@@ -205,6 +211,8 @@ describe('ScoutTrialsPanel', () => {
         await userEvent.click(screen.getByText('Stop run'))
         expect(await screen.findByText("Couldn't stop this run. Try again.")).not.toBeNull()
         expect(screen.queryByText('Saved run data is unavailable. This run cannot be judged.')).toBeNull()
+        await userEvent.click(screen.getByText('Download results'))
+        expect(jest.mocked(downloadFile).mock.calls[0][0].name).toBe('scout-comparison-results.json')
         await userEvent.click(screen.getByText('Run details'))
         expect(await screen.findByText('Saved run data is unavailable. This run cannot be judged.')).not.toBeNull()
     })
