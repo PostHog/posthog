@@ -10,13 +10,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.api.repositories import (
     UUID_PATH_PATTERN,
     AutomaticReviewDecisionSerializer,
+    EffectiveTeamStrictManagementPermission,
     ReviewHogProjectViewSetMixin,
     ReviewHogSettingsErrorSerializer,
     ReviewInstallationSerializer,
@@ -187,15 +187,11 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
     """
 
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewProjectSettings.objects.unscoped()
     serializer_class = ReviewProjectSettingsSerializer
-
-    def _can_edit(self) -> bool:
-        level = self.user_permissions.current_team.effective_membership_level
-        return level is not None and level >= OrganizationMembership.Level.ADMIN
 
     def _settings_response(self, response_status: int = status.HTTP_200_OK) -> Response:
         team_id = self.effective_team_id
@@ -208,7 +204,7 @@ class ReviewProjectSettingsViewSet(ReviewHogProjectViewSetMixin, viewsets.Generi
             "celebrate_clean_reviews": defaults.celebrate_clean_reviews,
             "people": load_people(team_id, [])[None],
             "installations": [installation_data(summary) for summary in self.project_repositories().installations()],
-            "can_edit": self._can_edit(),
+            "can_edit": self.is_effective_team_admin(),
         }
         return Response(ReviewProjectSettingsSerializer(data).data, status=response_status)
 

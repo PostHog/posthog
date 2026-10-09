@@ -13,6 +13,7 @@ from drf_spectacular.utils import (
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -22,7 +23,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.activity_logging import installation_account_name
 from products.review_hog.backend.automatic_review_rules import (
@@ -353,8 +354,29 @@ class ReviewHogProjectViewSetMixin(TeamAndOrgViewSetMixin):
         team_id = self.effective_team_id
         return self.team if self.team.id == team_id else Team.objects.get(id=team_id)
 
+    def is_effective_team_admin(self) -> bool:
+        level = self.user_permissions.team(self.effective_team).effective_membership_level
+        return level is not None and level >= OrganizationMembership.Level.ADMIN
+
     def project_repositories(self) -> ProjectRepositories:
         return ProjectRepositories(self.effective_team, cast(User, self.request.user))
+
+
+class EffectiveTeamStrictManagementPermission(BasePermission):
+    """Members read, admins write, both checked on the root project that the writes change.
+
+    An environment URL resolves to its parent project, and a user can be admin of the environment
+    but only a member of the parent.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not isinstance(view, ReviewHogProjectViewSetMixin):
+            return False
+        if request.method in SAFE_METHODS:
+            return view.user_permissions.team(view.effective_team).effective_membership_level is not None
+        return view.is_effective_team_admin()
 
 
 # `list` keeps the inherited method, because overriding it marks the viewset as a custom list for
@@ -379,7 +401,7 @@ class ReviewRepositoryViewSet(
     """
 
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; `safely_get_queryset` scopes every read.
     queryset = ReviewRepository.objects.unscoped()
@@ -504,7 +526,7 @@ class ReviewInstallationClaimViewSet(
     """
 
     scope_object = "review_hog"
-    permission_classes = [PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamStrictManagementPermission]
     posthog_feature_flag = "review-hog"
     queryset = ReviewInstallationClaim.objects.unscoped()
     serializer_class = ReviewInstallationClaimSerializer

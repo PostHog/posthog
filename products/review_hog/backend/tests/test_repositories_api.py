@@ -3,11 +3,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
@@ -21,6 +23,12 @@ CACHED_REPOSITORIES = [
     {"id": 501, "name": "web", "full_name": "example-org/web"},
     {"id": 502, "name": "api", "full_name": "example-org/api"},
     {"id": 503, "name": "docs", "full_name": "example-org/docs"},
+]
+
+ADMIN_WRITES = [
+    ("project_settings/", "patch", {"flash_for": "everyone"}),
+    ("installation_claims/", "post", {"installation_id": INSTALLATION, "scope": "all"}),
+    ("repositories/", "post", {**WEB, "selected": True}),
 ]
 
 
@@ -56,13 +64,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             team=team, installation_id=INSTALLATION, scope=scope
         )
 
-    @parameterized.expand(
-        [
-            ("project_settings/", "patch", {"flash_for": "everyone"}),
-            ("installation_claims/", "post", {"installation_id": INSTALLATION, "scope": "all"}),
-            ("repositories/", "post", {**WEB, "selected": True}),
-        ]
-    )
+    @parameterized.expand(ADMIN_WRITES)
     def test_members_read_but_only_admins_change_project_settings(self, path: str, method: str, body: dict) -> None:
         self._set_level(OrganizationMembership.Level.MEMBER)
 
@@ -72,6 +74,30 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         self._set_level(OrganizationMembership.Level.ADMIN)
 
         assert getattr(self.client, method)(self._url(path), body, format="json").status_code in (200, 201)
+
+    @parameterized.expand(ADMIN_WRITES)
+    def test_admin_of_an_environment_cannot_change_the_parent_project(self, path: str, method: str, body: dict) -> None:
+        self._set_level(OrganizationMembership.Level.MEMBER)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        AccessControl.objects.create(
+            team=environment,
+            resource="project",
+            resource_id=str(environment.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level="admin",
+        )
+
+        res = getattr(self.client, method)(self._url(path, environment), body, format="json")
+
+        assert res.status_code == 403, res.json()
+        assert self.client.get(self._url(path, environment)).status_code == 200
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
         res = self.client.patch(
