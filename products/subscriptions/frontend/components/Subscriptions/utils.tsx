@@ -10,7 +10,12 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import {
+    SubscriptionAIContextReadBudget,
+    SubscriptionAIContextSelectionLimit,
+    SubscriptionAIPromptMaxLength,
+    SubscriptionFreeTierLimit,
+} from '~/queries/schema/schema-general'
 import { InsightShortId, IntegrationType, SubscriptionResourceTypes, SubscriptionType, WeekdayType } from '~/types'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
@@ -22,6 +27,8 @@ import {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+export const MAX_SELECTED_CONTEXTS = SubscriptionAIContextSelectionLimit.COUNT
+export const CONTEXT_READ_BUDGET = SubscriptionAIContextReadBudget.COUNT
 
 const AI_DISPLAY_CONFIG_FIELDS = [
     'include_images',

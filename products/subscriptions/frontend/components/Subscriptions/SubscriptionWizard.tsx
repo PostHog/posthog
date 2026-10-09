@@ -33,11 +33,13 @@ import { urls } from 'scenes/urls'
 
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import type { SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
-import type { SubscriptionLogicProps } from './subscriptionLogic'
+import type { SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
 import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
@@ -120,6 +122,7 @@ export function SubscriptionWizard({
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXTS')
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />
@@ -194,6 +197,7 @@ export function SubscriptionWizard({
                     insightName={insightName}
                     subscription={subscription}
                     aiSubscriptionBlocked={aiGate.submitBlocked}
+                    aiContextsEnabled={Boolean(aiContextsEnabled)}
                 />
             )
             break
@@ -210,6 +214,7 @@ export function SubscriptionWizard({
                     subscription={subscription}
                     dashboard={dashboard}
                     insightShortId={insightShortId}
+                    contextsEnabled={Boolean(aiContextsEnabled)}
                 />
             )
             break
@@ -351,7 +356,7 @@ function SubscriptionDeliveryStep({
     subscription,
     logicProps,
 }: {
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
@@ -475,16 +480,18 @@ function SubscriptionContentStep({
     insightName,
     subscription,
     aiSubscriptionBlocked,
+    aiContextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
     dashboard?: DashboardType | null
     insightName?: string
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     aiSubscriptionBlocked: boolean
+    aiContextsEnabled: boolean
 }): JSX.Element {
-    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
-        subscriptionLogic(logicProps)
-    )
+    const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
+        useActions(subscriptionLogic(logicProps))
+    const { contextInsightCounts, contextReadTotal } = useValues(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -510,9 +517,15 @@ function SubscriptionContentStep({
             {isAiPrompt ? (
                 <AiPromptFields
                     compactAnalysisWindow
+                    contexts={subscription.contexts}
+                    contextInsightCounts={contextInsightCounts}
+                    contextReadTotal={contextReadTotal}
+                    contextsEnabled={aiContextsEnabled}
                     prompt={subscription.prompt}
                     targetType={subscription.target_type}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
+                    onAddContext={addContext}
+                    onRemoveContext={removeContext}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
                 />
@@ -706,23 +719,37 @@ function formatAiAnalysisWindow(subscription: SubscriptionType): string {
     return 'Since last report'
 }
 
+function formatSubscriptionContexts(contexts: SubscriptionContextApi[]): string {
+    if (!contexts.length) {
+        return 'No context. The report chooses relevant project data based on your prompt.'
+    }
+    return contexts
+        .map((context) => ('dashboard_id' in context ? context.dashboard_name : context.insight_name))
+        .join(' · ')
+}
+
 function SubscriptionReviewStep({
     logicProps,
     subscription,
     dashboard,
     insightShortId,
+    contextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     dashboard?: DashboardType | null
     insightShortId?: InsightShortId
+    contextsEnabled: boolean
 }): JSX.Element {
-    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
+    const { previewLoading, previewError, previewImageUrl, subscriptionErrors } = useValues(
+        subscriptionLogic(logicProps)
+    )
     const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
     const nextDeliveryDate = getNextDeliveryDate(subscription)
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+    const contextError = typeof subscriptionErrors.contexts === 'string' ? subscriptionErrors.contexts : undefined
     let reviewNotice: JSX.Element
 
     if (subscription.send_test_now) {
@@ -747,6 +774,9 @@ function SubscriptionReviewStep({
         { label: 'Name', value: subscription.title },
         ...(isAiPrompt
             ? [
+                  ...(contextsEnabled
+                      ? [{ label: 'Context', value: formatSubscriptionContexts(subscription.contexts) }]
+                      : []),
                   { label: 'Prompt', value: subscription.prompt ?? '' },
                   { label: 'Analysis window', value: formatAiAnalysisWindow(subscription) },
                   {
@@ -776,7 +806,17 @@ function SubscriptionReviewStep({
 
     return (
         <div className="flex flex-col gap-4">
-            <WizardReview items={reviewItems} footer={<div className="text-secondary text-sm">{reviewNotice}</div>} />
+            <WizardReview
+                items={reviewItems}
+                notice={
+                    contextsEnabled && isAiPrompt && contextError ? (
+                        <LemonBanner type="error">
+                            {contextError} Return to What to send to update the context.
+                        </LemonBanner>
+                    ) : undefined
+                }
+                footer={<div className="text-secondary text-sm">{reviewNotice}</div>}
+            />
             {insightShortId && !isAiPrompt ? (
                 <div>
                     <LemonLabel className="mb-2">Preview</LemonLabel>
