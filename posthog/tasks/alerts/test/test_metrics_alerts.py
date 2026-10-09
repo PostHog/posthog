@@ -90,6 +90,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         group_by: Optional[list[str]] = None,
         clauses: Optional[list[dict[str, Any]]] = None,
         formula: Optional[str] = None,
+        date_range: Optional[dict[str, str]] = None,
     ) -> dict:
         if clauses is None:
             clause: dict[str, Any] = {"name": "a", "metricName": self.metric_name, "aggregation": "avg"}
@@ -99,6 +100,8 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         query_dict: dict[str, Any] = {"kind": "MetricsQuery", "clauses": clauses}
         if formula:
             query_dict["formula"] = formula
+        if date_range:
+            query_dict["dateRange"] = date_range
         return self.dashboard_api.create_insight(data={"name": "metrics insight", "query": query_dict})[1]
 
     def create_alert(
@@ -178,26 +181,8 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
     def test_sub_day_relative_range_excludes_earlier_points_the_same_day(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
-        seed_metric(
-            team_id=self.team.pk,
-            metric_name=self.metric_name,
-            metric_type="gauge",
-            points=[
-                (dt.datetime(2026, 9, 19, 7, 30, tzinfo=dt.UTC), 50.0),
-                (dt.datetime(2026, 9, 19, 8, 40, tzinfo=dt.UTC), 5.0),
-            ],
-            labels={},
-        )
-        insight = self.dashboard_api.create_insight(
-            data={
-                "name": "metrics insight",
-                "query": {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": self.metric_name, "aggregation": "avg"}],
-                    "dateRange": {"date_from": "-30M"},
-                },
-            }
-        )[1]
+        self.seed_gauge({7: 50.0, 8: 5.0})
+        insight = self.create_metrics_insight(date_range={"date_from": "-30M"})
         alert = self.create_alert(insight, upper=20.0)
 
         run_alert_check(alert["id"])
