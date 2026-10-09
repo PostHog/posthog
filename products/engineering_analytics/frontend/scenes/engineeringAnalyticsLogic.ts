@@ -37,7 +37,7 @@ import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersL
 import type { RunScopeParams } from './engineeringAnalyticsFiltersLogic'
 
 // pinned: analytics event name. Renaming it breaks the insights built on it.
-const EVENT_PULL_REQUEST_JUMP_OPENED = 'ci explorer opened from pull request jump'
+const EVENT_PULL_REQUEST_JUMP_SUBMITTED = 'pull request jump submitted'
 
 // Mirrors the endpoint's server-side limit.
 export const PR_TABLE_LIMIT = 1000
@@ -958,6 +958,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     failPullRequestJump: (_, { failure }) => failure,
                     setPullRequestJumpText: () => null,
                     setScope: () => null,
+                    setSourceId: () => null,
                 },
             ],
             cardsStatus: [
@@ -1262,11 +1263,19 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 }
                 const reference = parsePullRequestReference(values.pullRequestJumpText)
                 const target = reference && resolvePullRequestTarget(reference, values.activeSource?.repo || null)
+                const capture = (outcome: 'opened' | PullRequestJumpFailure): void => {
+                    posthog.capture(EVENT_PULL_REQUEST_JUMP_SUBMITTED, {
+                        outcome,
+                        input_kind: reference?.kind ?? null,
+                    })
+                }
                 if (!reference || !target) {
-                    actions.failPullRequestJump(reference ? 'needs_repository' : 'invalid')
+                    const failure = reference ? 'needs_repository' : 'invalid'
+                    capture(failure)
+                    actions.failPullRequestJump(failure)
                     return
                 }
-                posthog.capture(EVENT_PULL_REQUEST_JUMP_OPENED, { input_kind: reference.kind })
+                capture('opened')
                 // The next scene can take a moment to load. An empty box makes a second submit do nothing.
                 actions.setPullRequestJumpText('')
                 const explorerUrl = urls.engineeringAnalyticsCIExplorer(target.owner, target.repo, target.number)

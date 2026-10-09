@@ -21,6 +21,10 @@ export function parsePullRequestReference(text: string): PullRequestReference | 
     const trimmed = text.trim()
     const link = LINK.exec(trimmed)
     const named = link ?? REPO_NUMBER.exec(trimmed)
+    // GitHub reserves `.` and `..`, and a browser resolves them as path segments of the explorer URL.
+    if (named && /^\.+$/.test(named[2])) {
+        return null
+    }
     const digits = named?.[3] ?? NUMBER.exec(trimmed)?.[1]
     const number = digits ? Number(digits) : 0
     // Past the safe integer range a number prints in exponent form, which is not a pull request number.

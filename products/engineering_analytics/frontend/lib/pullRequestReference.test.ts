@@ -33,6 +33,8 @@ describe('pullRequestReference', () => {
         ['an issue link', 'https://github.com/PostHog/posthog/issues/123', null],
         ['a commit link', 'https://github.com/PostHog/posthog/commit/123', null],
         ['a link to pull request zero', 'https://github.com/PostHog/posthog/pull/0', null],
+        ['a link whose repository is a dot segment', 'https://github.com/PostHog/../pull/5', null],
+        ['owner/repo#n whose repository is a dot segment', 'PostHog/..#5', null],
         ['zero', '#0', null],
         ['digits with a suffix', '123abc', null],
         ['words', 'not a pr', null],

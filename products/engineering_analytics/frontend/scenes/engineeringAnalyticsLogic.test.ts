@@ -502,7 +502,7 @@ describe('engineeringAnalyticsLogic', () => {
     }
     const jumpEvents = (capture: jest.SpyInstance): unknown[] =>
         capture.mock.calls
-            .filter(([event]) => event === 'ci explorer opened from pull request jump')
+            .filter(([event]) => event === 'pull request jump submitted')
             .map(([, properties]) => properties)
     const routedPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
 
@@ -542,7 +542,7 @@ describe('engineeringAnalyticsLogic', () => {
 
         expect(routedPath()).toBe(pathname)
         expect(router.values.searchParams).toEqual(searchParams)
-        expect(jumpEvents(capture)).toEqual([{ input_kind: inputKind }])
+        expect(jumpEvents(capture)).toEqual([{ outcome: 'opened', input_kind: inputKind }])
         expect(logic.values.pullRequestJumpFailure).toBeNull()
     })
 
@@ -558,7 +558,10 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.submitPullRequestJump()
         expect(logic.values.pullRequestJumpFailure).toBe('needs_repository')
         expect(routedPath()).toBe(urls.engineeringAnalyticsPullRequestList())
-        expect(jumpEvents(capture)).toEqual([])
+        expect(jumpEvents(capture)).toEqual([
+            { outcome: 'invalid', input_kind: null },
+            { outcome: 'needs_repository', input_kind: 'number' },
+        ])
 
         logic.actions.setPullRequestJumpText('PostHog/posthog#42')
         expect(logic.values.pullRequestJumpFailure).toBeNull()
