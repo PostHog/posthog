@@ -97,12 +97,30 @@ def test_tools_never_reveal_content_outside_the_checkout(checkout: Path, tool: s
             "src/deep/inner.py:1:nested = True",
             id="double-star-spans-segments",
         ),
+        pytest.param(
+            {"pattern": "handler", "path": "src/app.py", "glob": "src/app.py/**"},
+            "(no matches)",
+            id="trailing-double-star-excludes-the-prefix",
+        ),
     ],
 )
 def test_grep_finds_untracked_files_and_reports_bad_patterns(checkout: Path, arguments: dict, expected: str) -> None:
     output = RepoTools(checkout).call("grep", json.dumps(arguments))
 
     assert output.startswith(expected)
+
+
+def test_grep_glob_with_many_double_stars_finishes_on_a_deep_path(checkout: Path) -> None:
+    deep = checkout.joinpath(*["d"] * 40)
+    deep.mkdir(parents=True)
+    (deep / "zz.py").write_text("x = 1\n")
+    path = deep.relative_to(checkout).joinpath("zz.py").as_posix()
+
+    output = RepoTools(checkout).call(
+        "grep", json.dumps({"pattern": "x", "path": path, "glob": "/".join(["**"] * 8 + ["nomatch"])})
+    )
+
+    assert output == "(no matches)"
 
 
 def test_read_file_refuses_when_the_ignore_check_times_out(checkout: Path, monkeypatch: pytest.MonkeyPatch) -> None:

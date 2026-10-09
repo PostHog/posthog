@@ -19,6 +19,7 @@ import threading
 import subprocess
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatchcase
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -153,12 +154,24 @@ def git_environment() -> dict[str, str]:
 
 
 def _glob_matches(parts: list[str], pattern: list[str]) -> bool:
-    """Match path segments the way a git :(glob) pathspec does: * stays inside one segment, ** spans any number."""
-    if not pattern:
-        return not parts
-    if pattern[0] == "**":
-        return any(_glob_matches(parts[skip:], pattern[1:]) for skip in range(len(parts) + 1))
-    return bool(parts) and fnmatchcase(parts[0], pattern[0]) and _glob_matches(parts[1:], pattern[1:])
+    """Match path segments the way a git :(glob) pathspec does: * stays inside one segment, ** spans any number.
+
+    The glob comes from the model, which PR content can steer, so the match is memoized: its work stays
+    bounded by path depth times pattern length, however many ** segments the glob has.
+    """
+
+    @cache
+    def match(part: int, segment: int) -> bool:
+        if segment == len(pattern):
+            return part == len(parts)
+        if pattern[segment] == "**":
+            if segment == len(pattern) - 1:
+                # A trailing ** matches what is below the prefix, never the prefix itself.
+                return part < len(parts)
+            return match(part, segment + 1) or (part < len(parts) and match(part + 1, segment))
+        return part < len(parts) and fnmatchcase(parts[part], pattern[segment]) and match(part + 1, segment + 1)
+
+    return match(0, 0)
 
 
 class ToolError(Exception):
