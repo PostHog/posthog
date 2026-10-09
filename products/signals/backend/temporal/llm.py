@@ -110,10 +110,17 @@ class EmptyLLMResponseError(Exception):
     pass
 
 
+class LLMRefusalError(EmptyLLMResponseError):
+    pass
+
+
 def _extract_text_content(response: Message) -> str:
     """Extract text content from Anthropic response."""
     if not isinstance(response, Message):
         raise TypeError(f"Expected Anthropic Message response, got {type(response).__name__}")
+
+    if response.stop_reason == "refusal":
+        raise LLMRefusalError("Model refused the request")
 
     for block in reversed(response.content):
         if block.type == "text":
