@@ -63,8 +63,7 @@ We're always here if you need a follow-up.
 
 ## Worked example — "the flag isn't rolling out to me" (out of rollout bound)
 
-Use when the reproduced reason is `out_of_rollout_bound`. The point is that it's deterministic, not
-broken.
+Use when the reproduced reason is `out_of_rollout_bound`.
 
 ```text
 Hi Sam,
@@ -92,8 +91,8 @@ We're always here if you need a follow-up.
 
 ## Worked example — "the flag returns false for a user who should get it" (group not passed)
 
-Use when the reproduced reason is `no_group_type` and the flag is group-aggregated. This one says the
-fix is in their code, so it's written to be concrete and blameless.
+Use when the reproduced reason is `no_group_type` and the flag is group-aggregated. The fix is in their
+code, so stay concrete and blameless.
 
 ```text
 Hi Alex,
@@ -121,9 +120,8 @@ Happy to take another look once the change is out if the value doesn't move.
 
 ## Worked example — "it returns false with no conditions, but the testing tab says true"
 
-Use when the flag is runtime-scoped and the customer's caller isn't classified as that runtime. It has
-to account for the testing tab disagreeing, since that's usually their main evidence. Lead with the
-config change, which is immediate; the SDK upgrade is the durable fix.
+Use when the flag is runtime-scoped and the customer's caller isn't classified as that runtime. Account
+for the testing tab disagreeing, since that's usually their main evidence.
 
 ```text
 Hi Robin,
