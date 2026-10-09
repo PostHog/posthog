@@ -17,6 +17,7 @@ def source_inputs(
     db_incremental_field_last_value: object | None = None,
     db_incremental_field_earliest_value: object | None = None,
     reset_pipeline: bool = False,
+    api_version: str | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -36,4 +37,5 @@ def source_inputs(
         job_id=job_id,
         logger=structlog.get_logger(_LOGGER_NAME),
         reset_pipeline=reset_pipeline,
+        api_version=api_version,
     )
