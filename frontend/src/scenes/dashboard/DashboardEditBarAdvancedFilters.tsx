@@ -65,9 +65,10 @@ export function DashboardEditBarAdvancedFilters({
     // Only the full dashboard scene mounts DashboardInsightColorsModal, so elsewhere the button would no-op.
     const showColors =
         hasDashboardColors && canEditDashboard && !!dashboard && placement === DashboardPlacement.Dashboard
-    // Colors and the comparison period don't count towards the badge: their effect is visible on
-    // the charts themselves, while a forced test account filter changes the data with no other visible cue.
-    const overrideCount = choice === 'inherit' ? 0 : 1
+    const hasCompareOverride = showCompareFilter && effectiveEditBarFilters.compareFilter != null
+    // Color customizations don't count towards the badge because they only restyle the charts.
+    // The other overrides change what every insight queries, and the panel is closed by default.
+    const overrideCount = (choice === 'inherit' ? 0 : 1) + (hasCompareOverride ? 1 : 0)
 
     return (
         <Popover
