@@ -3692,7 +3692,7 @@ async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered
         assert result == output
     else:
         assert result.run_id is None
-        assert result.skip_reason == "precheck_no_rows"
+        assert result.skip_reason == "precheck_skipped"
 
 
 class TestScoutCosts(BaseTest):

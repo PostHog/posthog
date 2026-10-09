@@ -18,10 +18,8 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 
 @time_machine.travel(NOW, tick=False)
 class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
-    def _config(self, query: str | None, max_quiet_minutes: int | None = None) -> SignalScoutConfig:
-        config = SignalScoutConfig.all_teams.create(
-            team=self.team, skill_name=SKILL, precheck_query=query, precheck_max_quiet_minutes=max_quiet_minutes
-        )
+    def _config(self, query: str | None) -> SignalScoutConfig:
+        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=SKILL, precheck_query=query)
         SignalScoutConfig.all_teams.filter(pk=config.pk).update(created_at=NOW - timedelta(days=7))
         return config
 
@@ -72,8 +70,15 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         assert capture.call_args.kwargs["event"] == "scout_precheck_evaluated"
         assert (properties["outcome"], properties["row_count"]) == (outcome, row_count)
 
-    def test_rows_are_capped(self) -> None:
-        self._config("SELECT number FROM numbers(1000)")
+    @parameterized.expand(
+        [
+            ("no_limit", "SELECT number FROM numbers(1000)"),
+            ("larger_limit", "SELECT number FROM numbers(1000) LIMIT 500"),
+            ("union", "SELECT number FROM numbers(40) UNION ALL SELECT number FROM numbers(40)"),
+        ]
+    )
+    def test_rows_are_capped(self, _name, query) -> None:
+        self._config(query)
 
         result, _ = self._evaluate()
 
@@ -90,14 +95,25 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         assert (result.outcome, result.should_run) == ("error", True)
         assert capture.call_args.kwargs["properties"]["error_type"] is not None
 
-    def test_max_quiet_runs_without_the_query(self) -> None:
-        self._config("SELECT nope FROM not_a_table", max_quiet_minutes=60)
-        self._last_run(hours_ago=2)
+    @parameterized.expand(
+        [
+            ("zero_count", "SELECT count() FROM numbers(0)", "skip", "false_value"),
+            ("false", "SELECT false", "skip", "false_value"),
+            ("null", "SELECT NULL", "skip", "false_value"),
+            ("empty_string", "SELECT ''", "skip", "false_value"),
+            ("nonzero_count", "SELECT count() FROM numbers(3)", "run", "rows"),
+            ("true", "SELECT true", "run", "rows"),
+            ("zero_with_a_second_column", "SELECT 0, 'x'", "run", "rows"),
+            ("two_zero_rows", "SELECT 0 FROM numbers(2)", "run", "rows"),
+        ]
+    )
+    def test_single_false_value_skips(self, _name, query, outcome, reason) -> None:
+        self._config(query)
 
         result, _ = self._evaluate()
 
         assert result is not None
-        assert (result.outcome, result.reason) == ("run", "max_quiet")
+        assert (result.outcome, result.reason) == (outcome, reason)
 
     @parameterized.expand(
         [

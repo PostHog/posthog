@@ -11,16 +11,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalscoutconfig",
-            name="precheck_max_quiet_minutes",
-            field=models.PositiveIntegerField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="signalscoutconfig",
-            name="precheck_pass_rows",
-            field=models.BooleanField(db_default=True, default=True),
-        ),
-        migrations.AddField(
-            model_name="signalscoutconfig",
             name="precheck_query",
             field=models.TextField(blank=True, null=True),
         ),
