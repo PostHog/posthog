@@ -1,8 +1,8 @@
 """Stripe / billing customer signals read from the duckgres Postgres DWH."""
 
 import datetime as dt
-from dataclasses import dataclass
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
 from .duckgres_client import duckgres_cursor
@@ -10,7 +10,7 @@ from .duckgres_client import duckgres_cursor
 LOGGER = get_logger(__name__)
 
 
-@dataclass
+@frozen
 class StripeSignals:
     """Stripe customer data for a single PostHog organization."""
 
