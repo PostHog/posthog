@@ -237,11 +237,13 @@ The property identifies the active environment: explicitly include every environ
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
 
-Newly enabled projects get manual review and resolution. The first `REVIEWHOG_TEAM_IDS` entry retains
-Flash and all automation UI (`show_internal_features`); other projects do not query Stamphog.
+Newly enabled projects get manual Full reviews. The `review-hog-internal` flag, set up the same way per
+project, adds the internal-only parts: automatic Flash reviews, the `reviewhog` label trigger, manual
+Flash, resolution, Inbox reviews, the tiered review models, and the Stamphog Inbox switch.
 Existing Inbox or Stamphog opt-ins remain visible in other projects until the user switches them off.
 Each project needs a GitHub App integration covering the repository; review skills seed automatically.
-Existing automation routing and label secrets stay unchanged.
+Automatic reviews and the label trigger also need the project to claim the repository in the Code review
+settings. No environment variable or shared secret picks the project.
 
 Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
 Ownership does not authenticate commenters: operators must assess repository and comment trust before

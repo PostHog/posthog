@@ -69,8 +69,8 @@ against the hard-floor **path backstop** (`commit_restricted_paths`): one touchi
 dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
 
 **TODO (BLOCKING public release): the three remaining injection-surface hardening items from the July e2e
-GO conditions.** Manual review and resolution are available to explicitly enabled projects for
-repositories their teams own. This is a limited rollout; the feature flag does not establish repository or
+GO conditions.** Manual review is available to explicitly enabled projects. Resolution is limited to
+projects with the `review-hog-internal` flag, for repositories their teams own. This is a limited rollout; the feature flag does not establish repository or
 comment trust. Operators must assess both before enabling resolution. DECISIONS.md Stage 7 records the
 2026-09-30 decision to accept the existing risks for this limited manual rollout. The path backstop above is built; these
 are deliberately deferred (maintainer decisions 2026-08-06 and 2026-08-10, recorded in DECISIONS.md Stage 7)
@@ -96,12 +96,16 @@ and MUST land before public release or resolution on untrusted PRs or repositori
    the Tasks facade threading the policy in, plus a sandbox image rebuild), which is why it is a gate rather
    than a fix in this repo.
 
-**Full reviews can include resolving**: a published Full review chains into the stage when the acting user's
-`resolve_comments` preference is on (default off; the toggle sits with the trigger opt-outs on the Code review scene,
-which also carries a single-active resolution-criteria skill block and a split Review button with
-review-without-resolving / resolve-only side actions). Standalone entry: `POST /api/review_hog/resolve`, the
-`run_resolution` command, or the UI's resolve-only action. Standalone runs without a pinned acting user apply
-the PR author's resolution criteria (canonical for unmapped authors). Design + decision record: DECISIONS.md
+**Full reviews can include resolving**: a published Full review chains into the stage when the **PR owner**
+opted in (`resolve_comments`, default off), whoever triggered the review, and the project has the
+`review-hog-internal` flag (`review_request_rules.ResolutionGate`). The owner (`backend/pr_owner.py`) is the
+author when the GitHub login maps to an active member; for a self-driving PR that the PostHog GitHub App opened, it
+is the Inbox report's canonical reviewer; otherwise nobody, and a PR without an owner never gets writes. Flash never
+resolves. The chained run applies the owner's resolution criteria. Standalone entry: the `run_resolution` command or
+the UI / MCP resolve-only action, which answers 409 `resolution_not_opted_in` unless the owner opted in;
+`_prepare_run` checks the same gate again before any write. Before every push the stage also holds on a protected
+head branch (`CommitHold.BRANCH_PROTECTED`, read from GitHub's branch API; a failed read raises), next to the merge
+queue and stacked-PR holds. Design + decision record: DECISIONS.md
 Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver fixes its own PR):
 `eval/experiments/2026-07-resolution-e2e/PLAN.md`.
 
@@ -133,7 +137,7 @@ outcome, and everything else skips at zero cost. What's missing is the **trigger
 run when the reply lands, so today the conversation only advances when someone runs `run_resolution` / the
 resolve-only action. Build the comment trigger — a `pull_request_review_comment` (created) event → the existing
 trigger API → `start_resolution_workflow` for that PR (debounced; skip when the commenter is ReviewHog itself,
-mirroring the label-trigger Action) — so replying to an escalation gets an actual answer: implement on a go-ahead,
+mirroring the label trigger) — so replying to an escalation gets an actual answer: implement on a go-ahead,
 decline-and-say-why on a disagreement, re-escalate with the new context otherwise. Mind the known blind spot: the
 work-list only fetches **unresolved** threads, so replies on already-resolved (FIXED) threads are invisible —
 the trigger should either unresolve-on-human-reply or the fetch must include threads with comments newer than
@@ -549,7 +553,7 @@ never the reverse; a resolve-only run upserts the same row but does not lift (`l
 person's Full trigger that lands while the report's review is still running signals the existing queue and preserves a pending Full request.
 The trigger endpoints write the lift themselves (`lift_review_tier_for_joined_trigger`) and answer
 `joined_running_review`; remaining Full units and later Full turns use the human tier, while an active Flash turn keeps its Flash arm.
-The cheaper arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfood gate; other teams record their tier
+The cheaper arms are rolled out per project through the `review-hog-internal` flag; other projects record their tier
 but run the default arm. `load_review_arm` → `resolve_review_arm` honors a persisted arm only while it stays a
 registry-supported combo — anything else falls back to the default (full-strength) pins and stamps
 `review_arm_fallback` on the run's analytics events. Chunking, dedup, and the validator stay on Claude at fixed
@@ -828,10 +832,8 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   lookups match GitHub's repository id first and then the name, and backfill both. The repository list in the
   settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
   core `installation_repositories` webhook keeps fresh.
-- **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret).
-  The project that owns the repository runs and publishes the review. `REVIEWHOG_RUN_USER_ID` (optional) applies
-  only where it is an active member; otherwise the run user is whoever connected the installation, then the
-  oldest active member. Enabling manual project access requires no changes to these settings or the shared secret.
+- **Label trigger** — the PostHog GitHub App's own `pull_request` `labeled` delivery (`backend/label_reviews.py`).
+  No GitHub Action, shared secret, or environment variable is involved. See the triggers paragraph below.
 - **Automatic authored-PR trigger** runs in the owning project and requires that project's GitHub integration for
   the delivery's installation. The rules in `backend/automatic_review_rules.py` decide, highest first: the
   author's choice for the repository (`ReviewUserRepositoryChoice`, flash/off, stored only when it differs from
@@ -839,17 +841,30 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   project rule (`ReviewProjectSettings.flash_for`: everyone except the excepted people, the listed people, or
   opt-in only, the default). Bot authors and authors who map to no active member get automatic Flash only when the
   project sets `bot_prs=run`; the review then runs as the user who connected the installation, with default
-  settings and no resolution. `REVIEWHOG_TEAM_IDS` no longer picks the project for any trigger.
-- **Internal UI features** use `show_internal_features` in the settings response, true only for the first
-  `REVIEWHOG_TEAM_IDS` entry. That project retains Flash and all automation controls. Other enabled projects
-  show manual review and resolution without Flash or automation controls, except that saved Inbox or
-  Stamphog opt-ins remain visible until switched off. Their settings reads do not query Stamphog.
-  Existing automation routing and its configuration remain separate from the flag.
+  settings and no resolution. The owning project also needs the `review-hog-internal` flag. No per-deploy team id
+  picks the project for any trigger.
+- **Internal features** (`backend/internal_features.py::has_internal_features`) — the `review-hog-internal`
+  feature flag, evaluated per project with the project group the same way as `review-hog` (set it up the same way).
+  It gates automatic Flash reviews, the label trigger, resolution, manual Flash, the tiered review arms, and the
+  scene's Flash, Inbox, and Stamphog controls (`FEATURE_FLAGS.REVIEW_HOG_INTERNAL`). Saved Inbox or Stamphog
+  opt-ins stay visible without it until switched off, and settings reads without it do not query Stamphog. A flag
+  service failure reads as off.
+- **`REVIEWHOG_GITHUB_BOT_LOGIN`** (`posthog/settings/access.py`) names the app's `<slug>[bot]` login per region.
+  `is_app_bot_author` trusts only that login; unset, it trusts no author in production (local development and tests
+  fall back to any `Bot`-typed author).
+
+**Customer setup path.** Nothing in ReviewHog's behavior depends on a per-deploy team id, so any project can enable it:
+
+1. Turn on the `review-hog` flag for the project (and `review-hog-internal` for the internal-only parts).
+2. Connect GitHub through the core GitHub integration (the PostHog GitHub App installation).
+3. In the Code review settings, claim the installation: all repositories (at most one project per installation) or
+   only selected repositories.
+4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`reviewhog` **label** on a PR in a repository that a project reviews (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
+`reviewhog` **label** on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
-also carries the review-without-resolving and resolve-only variants; the configured internal project also shows
+also carries the review-without-resolving and resolve-only variants; projects with `review-hog-internal` also see
 **Flash**, which pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
 a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
@@ -860,11 +875,19 @@ The automatic trigger consumes signed GitHub `pull_request` deliveries through `
 It accepts `opened` and `synchronize` for open PRs whose head and base belong to the delivery's repository, including drafts.
 The webhook handler reads only the cached ownership summary, so the task checks ownership again.
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
-The turn rechecks ownership and the rules before starting and uses the author's severity threshold; Flash never starts resolution.
+The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
+**No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
+The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `reviewhog` label queues `process_label_event`.
+That task finds the owning project, requires `review-hog-internal`, and accepts a person or `stamphog[bot]` (Stamphog's hand-off) as the labeler; another bot's label gets an explaining comment and is removed with the app token.
+The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; the workflow removes the label when the run ends, and a running resolution leaves the label for a later retry.
+Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_label_review_total`, keyed by outcome.
+`facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
 and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
-It refuses `run_mode=flash` with a 403 outside the project that has `show_internal_features`.
+It refuses `run_mode=flash` and `resolve_only` with a 403 (`internal_feature`) without the `review-hog-internal` flag.
+Settings: an automatic review follows the owner's rules (Flash reads no personal settings), the UI / MCP Review button
+follows the person who asks, the label follows the owner, and an Inbox review follows the report's reviewer.
 See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
 
 The `review-pr-queue` workflow keeps the existing per-PR workflow ID and records requests through signals.
@@ -874,8 +897,8 @@ An explicit Full request remains pending during an active Flash turn and runs if
 Automatic pushes coalesce to the latest head; a rule change that stops the author's automatic review prevents pending automatic reviews from starting without canceling a running turn.
 `automatic_reviewed_head_sha` advances only after publication succeeds or finds nothing to publish, so a failed publication can retry and an empty review does not repeat.
 An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first runs the push gate (`reviewer/push_gate.py`) on the PR's own commits since that head.
-Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).
-Each rule has a `SKIP_*` switch. `no_new_commits` and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data confirms them.
+Its rules, in order: `no_new_commits` (the PR gained no commit and its full diff is unchanged; a force-push that drops commits runs the review), `reviewhog_commits_only` (the ReviewHog app authored every new commit, such as resolution fixes; this includes the PostHog app's commits on self-driving PRs, which share the app identity), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).
+Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
 Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability and model.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
