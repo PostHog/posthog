@@ -8,16 +8,22 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 
+// Kept in step with the max_value on TeamWorkflowsConfigSerializer.
+const MAX_MESSAGES = 1000
+const MAX_WINDOW_DAYS = 365
+
 // A cleared number input reports NaN, which must save as null to turn the cap off.
 function toInputValue(value: number | null | undefined): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function errorFor(value: number | null, other: number | null): string | undefined {
+function errorFor(value: number | null, other: number | null, max: number): string | undefined {
     if (value === null) {
         return other === null ? undefined : 'Fill in both fields, or clear both to turn the cap off'
     }
-    return Number.isInteger(value) && value >= 1 ? undefined : 'Enter a whole number of 1 or more'
+    return Number.isInteger(value) && value >= 1 && value <= max
+        ? undefined
+        : `Enter a whole number from 1 to ${max.toLocaleString()}`
 }
 
 export function WorkflowsFrequencyCapSettings(): JSX.Element {
@@ -39,8 +45,8 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
         setWindowDays(savedWindowDays)
     }, [savedMaxMessages, savedWindowDays])
 
-    const maxMessagesError = errorFor(maxMessages, windowDays)
-    const windowDaysError = errorFor(windowDays, maxMessages)
+    const maxMessagesError = errorFor(maxMessages, windowDays, MAX_MESSAGES)
+    const windowDaysError = errorFor(windowDays, maxMessages, MAX_WINDOW_DAYS)
     const unchanged = maxMessages === savedMaxMessages && windowDays === savedWindowDays
 
     return (
@@ -56,6 +62,7 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                         id="workflows-frequency-cap-max-messages"
                         type="number"
                         min={1}
+                        max={MAX_MESSAGES}
                         value={maxMessages ?? undefined}
                         onChange={(value) => setMaxMessages(toInputValue(value))}
                         placeholder="No cap"
@@ -73,6 +80,7 @@ export function WorkflowsFrequencyCapSettings(): JSX.Element {
                         id="workflows-frequency-cap-window-days"
                         type="number"
                         min={1}
+                        max={MAX_WINDOW_DAYS}
                         value={windowDays ?? undefined}
                         onChange={(value) => setWindowDays(toInputValue(value))}
                         placeholder="No cap"

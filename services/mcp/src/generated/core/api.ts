@@ -353,6 +353,10 @@ export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimit
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 365
+
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
@@ -2764,6 +2768,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                 marketing_frequency_cap_max_messages: zod
                     .number()
                     .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
                     .nullish()
                     .describe(
                         'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
@@ -2771,6 +2776,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                 marketing_frequency_cap_window_days: zod
                     .number()
                     .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
                     .nullish()
                     .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
             })
@@ -3069,6 +3075,10 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttri
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 365
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5489,6 +5499,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 marketing_frequency_cap_max_messages: zod
                     .number()
                     .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax)
                     .nullish()
                     .describe(
                         'Most marketing messages one person can get in the window, across all workflows. Null disables the cap.'
@@ -5496,6 +5507,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 marketing_frequency_cap_window_days: zod
                     .number()
                     .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax)
                     .nullish()
                     .describe('Length of the rolling frequency cap window in days. Null disables the cap.'),
             })

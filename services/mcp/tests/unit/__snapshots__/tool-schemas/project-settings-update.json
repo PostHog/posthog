@@ -4292,6 +4292,7 @@
                 "marketing_frequency_cap_max_messages": {
                     "anyOf": [
                         {
+                            "maximum": 1000,
                             "minimum": 1,
                             "type": "number"
                         },
@@ -4304,6 +4305,7 @@
                 "marketing_frequency_cap_window_days": {
                     "anyOf": [
                         {
+                            "maximum": 365,
                             "minimum": 1,
                             "type": "number"
                         },
