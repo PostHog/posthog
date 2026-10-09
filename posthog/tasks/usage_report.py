@@ -792,23 +792,36 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
-    with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
-        use_new = use_new_events_schema(None)
-        group_columns = [f"properties.`$group_{i}`" if use_new else f"$group_{i}" for i in range(5)]
-        # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
-        return sync_execute(
-            f"""
-            SELECT team_id, count(1) as count
-            FROM {events_read_table(use_new)}
-            WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+def get_teams_with_event_count_with_groups_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> list[tuple[int, int]]:
+    # Uses the same exclusions and de-duplication as the billable enhanced persons count,
+    # so that a group event count is never larger than the identified event count it is a subset of.
+    if count_distinct:
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
+    use_new = use_new_events_schema(None)
+    group_columns = [f"properties.`$group_{i}`" if use_new else f"$group_{i}" for i in range(5)]
+    # nosemgrep: clickhouse-fstring-param-audit - events table/count expression/group columns are internal fragments
+    query_template = f"""
+        SELECT team_id, count({distinct_expression}) as count
+        FROM {events_read_table(use_new)}
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND NOT startsWith(event, %(ai_event_prefix)s)
             AND ({" OR ".join(f"{column} != ''" for column in group_columns)})
-            GROUP BY team_id
-            """,
-            {"begin": begin, "end": end},
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
+        GROUP BY team_id
+    """
+
+    with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        return _execute_split_query(
+            begin,
+            end,
+            query_template,
+            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            num_splits=12,
         )
 
 
@@ -2940,7 +2953,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, count_distinct=True
         ),
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
-            period_start, period_end
+            period_start, period_end, count_distinct=True
         ),
         "teams_with_event_count_from_helicone_in_period": all_metrics["helicone_events"],
         "teams_with_event_count_from_langfuse_in_period": all_metrics["langfuse_events"],
