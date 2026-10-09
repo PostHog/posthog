@@ -21,6 +21,7 @@ export type ExperimentHealthFindingCode =
     | 'srm'
     | 'zero_exposures'
     | 'no_metric'
+    | 'forced_variant_release_condition'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -37,6 +38,7 @@ export type ExperimentHealthFindingActionKind =
     | 'use_first_seen_variant'
     | 'open_feature_flag'
     | 'edit_exposure_criteria'
+    | 'edit_release_conditions'
     | 'add_primary_metric'
     | 'add_secondary_metric'
 
@@ -139,6 +141,7 @@ export function captureExperimentHealthFindingActedOn(
 export interface ExperimentViewedHealthProperties {
     health_ui: ExperimentHealthUi
     health_finding_codes: ExperimentHealthFindingApi['code'][] | null
+    health_finding_subcodes: string[] | null
     health_finding_count: number | null
     flag_state_browser: string | null
     flag_state_server: string | null
@@ -161,6 +164,11 @@ export function experimentHealthStateEventProperties(
     return {
         health_ui: experimentHealthUi(experiment),
         health_finding_codes: health ? health.findings.map((finding) => finding.code) : null,
+        // pinned: `code:subcode`, as on the server's `experiment launched`. The code prefix keeps a subcode
+        // unambiguous when two codes use the same subcode.
+        health_finding_subcodes: health
+            ? health.findings.flatMap(({ code, subcode }) => (subcode ? [`${code}:${subcode}`] : []))
+            : null,
         health_finding_count: health ? health.findings.length : null,
         flag_state_browser: browserWarning?.key ?? null,
         // The server sends the warning key as the subcode. A finding without one still differs from no finding.

@@ -2800,6 +2800,25 @@ class TestExperimentService(APIBaseTest):
         experiment.feature_flag.refresh_from_db()
         return experiment
 
+    def _create_launchable_experiment_with_pinned_condition(self, **kwargs: Any) -> Experiment:
+        experiment = self._create_launchable_experiment(**kwargs)
+        flag = experiment.feature_flag
+        flag.filters = {
+            **flag.filters,
+            "groups": [
+                {
+                    "properties": [
+                        {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
+                    ],
+                    "rollout_percentage": 100,
+                    "variant": "test",
+                },
+                *flag.filters["groups"],
+            ],
+        }
+        flag.save()
+        return experiment
+
     def _create_ended_experiment(
         self,
         name: str = "Ended",
@@ -3803,7 +3822,22 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0, [])],
+                [("launch_endpoint", 0, [], [])],
+            ),
+            (
+                "launch_endpoint_with_a_qa_override",
+                lambda self: self._create_launchable_experiment_with_pinned_condition(
+                    name="Path P", feature_flag_key="path-pinned-flag"
+                ),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+                [
+                    (
+                        "launch_endpoint",
+                        0,
+                        ["forced_variant_release_condition"],
+                        ["forced_variant_release_condition:some_conditions_pinned"],
+                    )
+                ],
             ),
             (
                 "launch_endpoint_on_older_flag",
@@ -3811,7 +3845,7 @@ class TestExperimentService(APIBaseTest):
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
                 ),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 266400, [])],
+                [("launch_endpoint", 266400, [], [])],
             ),
             (
                 "create_with_start_date",
@@ -3822,7 +3856,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0, ["no_metric"])],
+                [("create_request", 0, ["no_metric"], [])],
             ),
             (
                 "create_draft",
@@ -3838,7 +3872,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, [])],
+                [("update_start_date", 0, [], [])],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -3863,7 +3897,13 @@ class TestExperimentService(APIBaseTest):
             call.args[2] for call in mock_report_user_action.call_args_list if call.args[1] == "experiment launched"
         ]
         assert [
-            (event["launch_path"], event["flag_age_seconds"], event["health_finding_codes"]) for event in launched
+            (
+                event["launch_path"],
+                event["flag_age_seconds"],
+                event["health_finding_codes"],
+                event["health_finding_subcodes"],
+            )
+            for event in launched
         ] == expected
 
     @parameterized.expand(
