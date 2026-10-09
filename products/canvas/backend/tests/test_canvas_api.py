@@ -193,6 +193,58 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert self.client.get(f"{base}/source/").status_code == status.HTTP_404_NOT_FOUND
         assert self._publish(str(notebook_canvas.id)).status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            ("read_in_personal_space", Channel.ChannelType.PERSONAL, {}, "get", "/", status.HTTP_403_FORBIDDEN),
+            ("read_in_private_space", Channel.ChannelType.PRIVATE, {}, "get", "/", status.HTTP_403_FORBIDDEN),
+            ("open_in_personal_space", Channel.ChannelType.PERSONAL, {}, "get", "/view/", status.HTTP_403_FORBIDDEN),
+            (
+                "write_in_personal_space",
+                Channel.ChannelType.PERSONAL,
+                {},
+                "post",
+                "/publish/",
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "deleted_in_personal_space",
+                Channel.ChannelType.PERSONAL,
+                {"deleted": True},
+                "get",
+                "/",
+                status.HTTP_404_NOT_FOUND,
+            ),
+            (
+                "notebook_widget_in_personal_space",
+                Channel.ChannelType.PERSONAL,
+                {"source_policy": Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET},
+                "get",
+                "/",
+                status.HTTP_404_NOT_FOUND,
+            ),
+        ]
+    )
+    def test_canvas_hidden_by_its_space(
+        self, _name: str, channel_type: str, canvas_kwargs: dict, method: str, path: str, expected: int
+    ) -> None:
+        owner = self._create_user(f"space-owner-{uuid4().hex}@example.com")
+        with team_scope(self.team.id):
+            space = Channel.objects.create(team=self.team, name="theirs", channel_type=channel_type, created_by=owner)
+            canvas = Canvas.objects.create(
+                team=self.team, channel=space, name="Theirs", created_by=owner, **canvas_kwargs
+            )
+
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/canvases/{canvas.id}{path}")
+
+        assert response.status_code == expected
+        if expected == status.HTTP_403_FORBIDDEN:
+            assert response.json()["detail"] == "This canvas is in a space that has not been shared with you."
+
+    def test_unknown_canvas_is_not_found(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{uuid4()}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_can_file_canvas_to_another_visible_channel(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):
@@ -284,7 +336,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
-        # list omits it, and every detail/write action 404s for anyone else.
+        # list omits it, a read of the record is 403, and every other action 404s.
         private_channel_id = None
         public_canvas_id = self._create_canvas(name="Public canvas")
         with team_scope(self.team.id):
@@ -324,7 +376,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert response.json()["results"] == []
 
         base = f"/api/projects/{self.team.id}/canvases/{private_canvas_id}"
-        assert self.client.get(f"{base}/").status_code == 404
+        assert self.client.get(f"{base}/").status_code == 403
         assert self.client.get(f"{base}/source/").status_code == 404
         assert self.client.get(f"{base}/versions/").status_code == 404
         assert self.client.get(f"{base}/builds/").status_code == 404
