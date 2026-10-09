@@ -963,6 +963,39 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.description).toEqual('stale write')
         })
 
+        it.each([
+            {
+                kind: 'an approval request',
+                error: {
+                    status: 409,
+                    data: { change_request_id: 'cr-1', code: 'approval_required', detail: 'Approval required.' },
+                },
+                approvalToasts: [['cr-1', undefined, 'approval_required']],
+                errorToasts: [],
+            },
+            {
+                kind: 'another 409',
+                error: {
+                    status: 409,
+                    detail: 'This experiment cannot change right now.',
+                    data: { detail: 'This experiment cannot change right now.' },
+                },
+                approvalToasts: [],
+                errorToasts: [['This experiment cannot change right now.']],
+            },
+        ])('shows one message for $kind without a version conflict', async ({ error, approvalToasts, errorToasts }) => {
+            api.update.mockRejectedValue(error)
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'rejected' })
+            })
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(mockShowApprovalRequiredToast.mock.calls).toEqual(approvalToasts)
+            expect(jest.mocked(lemonToast.error).mock.calls).toEqual(errorToasts)
+        })
+
         it('collapses identical concurrent dispatches into a single request', async () => {
             const snapshot = { ...experiment, version: 3 } as Experiment
             logic.actions.setUnmodifiedExperiment(snapshot)
