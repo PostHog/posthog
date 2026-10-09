@@ -157,7 +157,9 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const showHit = useCallback(
         (hit: SankeyHit, cursor: { x: number; y: number }) => {
-            setHover(hitToHoverIndex(layoutRef.current, hit), cursor)
+            // Only the tooltip reads the cursor position. Without one, a constant position lets React skip
+            // the state update on every mouse move inside the same node or ribbon.
+            setHover(hitToHoverIndex(layoutRef.current, hit), showTooltip ? cursor : null)
             if (showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
                 setTooltipCtx(buildTooltipCtx(layoutRef.current, hit, cursor, canvasBounds))
