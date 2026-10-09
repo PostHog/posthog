@@ -72212,18 +72212,6 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
-    /**
-     * * `potential` - Potential
-     * * `candidate` - Candidate
-     * * `in_progress` - In Progress
-     * * `pending_input` - Pending Input
-     * * `ready` - Ready
-     * * `monitoring` - Monitoring
-     * * `resolved` - Resolved
-     * * `failed` - Failed
-     * * `deleted` - Deleted
-     * * `suppressed` - Suppressed
-     */
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
 
 
@@ -72609,6 +72597,7 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -93820,6 +93809,7 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;

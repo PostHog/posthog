@@ -116,18 +116,6 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
-/**
- * * `potential` - Potential
- * * `candidate` - Candidate
- * * `in_progress` - In Progress
- * * `pending_input` - Pending Input
- * * `ready` - Ready
- * * `monitoring` - Monitoring
- * * `resolved` - Resolved
- * * `failed` - Failed
- * * `deleted` - Deleted
- * * `suppressed` - Suppressed
- */
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
 export const SignalReportStatusEnumApi = {
@@ -647,6 +635,7 @@ export interface SignalReportListApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -868,6 +857,7 @@ export interface SignalReportApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number

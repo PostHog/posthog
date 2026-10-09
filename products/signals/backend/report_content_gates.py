@@ -70,5 +70,9 @@ def team_report_metrics_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_METRICS_FLAG, team_id)
 
 
+def organization_report_monitoring_enabled(organization_id: UUID) -> bool:
+    return _organization_flag_enabled(REPORT_MONITORING_FLAG, organization_id, enable_in_debug=False)
+
+
 def team_report_monitoring_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_MONITORING_FLAG, team_id, enable_in_debug=False)
