@@ -376,44 +376,92 @@ describe('experimentLogic', () => {
             total_exposures: { control: 600, test: 350, $multiple: 50 },
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
+            health_findings: [{ code: 'srm' }, { code: 'bias_risk_multiple_excluded' }],
         }
+        const noServerVerdicts = { srm_server: null, zero_exposures_server: null, bias_risk_server: null }
 
         it.each([
             {
                 desc: 'no exposure answer',
                 exposures: null,
                 handling: undefined,
-                expected: { exposures_total: null, exposures_multiple: null, has_srm: null, has_bias_risk: null },
+                health: undefined,
+                expected: {
+                    health_ui: 'warnings',
+                    exposures_total: null,
+                    exposures_multiple: null,
+                    has_srm: null,
+                    has_bias_risk: null,
+                    ...noServerVerdicts,
+                },
             },
             {
-                desc: 'an answer without exposures',
+                desc: 'an answer without exposures, cached before the server ran its checks',
                 exposures: { timeseries: [], total_exposures: {} },
                 handling: undefined,
-                expected: { exposures_total: 0, exposures_multiple: 0, has_srm: false, has_bias_risk: false },
+                health: undefined,
+                expected: {
+                    exposures_total: 0,
+                    exposures_multiple: 0,
+                    has_srm: false,
+                    has_bias_risk: false,
+                    ...noServerVerdicts,
+                },
             },
             {
                 desc: 'an uneven split with users in several variants',
                 exposures: unevenExposures,
                 handling: 'exclude' as const,
-                expected: { exposures_total: 1000, exposures_multiple: 50, has_srm: true, has_bias_risk: true },
+                health: undefined,
+                expected: {
+                    exposures_total: 1000,
+                    exposures_multiple: 50,
+                    has_srm: true,
+                    has_bias_risk: true,
+                    srm_server: true,
+                    zero_exposures_server: false,
+                    bias_risk_server: true,
+                },
             },
             {
                 desc: 'first-seen handling, which hides the users in several variants',
                 exposures: {
                     timeseries: [{ variant: 'control' }, { variant: 'test' }],
                     total_exposures: { control: 600, test: 400 },
+                    health_findings: [],
                 },
                 handling: 'first_seen' as const,
-                expected: { exposures_total: 1000, exposures_multiple: null, has_srm: false, has_bias_risk: false },
+                health: undefined,
+                expected: {
+                    exposures_total: 1000,
+                    exposures_multiple: null,
+                    has_srm: false,
+                    has_bias_risk: false,
+                    srm_server: false,
+                    zero_exposures_server: false,
+                    bias_risk_server: false,
+                },
+            },
+            {
+                desc: 'a reader with the health panel and an answer where the server finds no exposure',
+                exposures: {
+                    timeseries: [{ variant: 'control' }, { variant: 'test' }],
+                    total_exposures: { control: 0, test: 0 },
+                    health_findings: [{ code: 'zero_exposures' }],
+                },
+                handling: undefined,
+                health: { findings: [] },
+                expected: { health_ui: 'panel', exposures_total: 0, zero_exposures_server: true },
             },
         ])(
             'reports the exposure state with the completed refresh: $desc',
-            async ({ exposures, handling, expected }) => {
+            async ({ exposures, handling, health, expected }) => {
                 const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
                 // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
                 logic.actions.setExperiment({
                     ...experiment,
                     exposure_criteria: { ...experiment.exposure_criteria, multiple_variant_handling: handling },
+                    health,
                 })
                 if (exposures) {
                     logic.actions.loadExposuresSuccess(exposures)
@@ -2949,6 +2997,57 @@ describe('experimentLogic', () => {
             expect(logic.values.experimentWarning).toEqual(expected)
         })
 
+        it.each<{ desc: string; overrides: Partial<Experiment>; expected: Record<string, unknown> }>([
+            {
+                desc: 'a server finding the local rules miss',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_disabled')] },
+                },
+                expected: {
+                    health_ui: 'panel',
+                    health_finding_codes: ['flag_off_while_running'],
+                    health_finding_count: 1,
+                    flag_state_browser: null,
+                    flag_state_server: 'running_but_flag_disabled',
+                    no_metric_server: false,
+                },
+            },
+            {
+                desc: 'a server subcode the page does not know',
+                overrides: {
+                    ...running,
+                    feature_flag: flag(true, multivariantFilters),
+                    health: { findings: [healthFinding('flag_off_while_running', 'running_but_flag_archived')] },
+                },
+                expected: { flag_state_browser: null, flag_state_server: 'running_but_flag_archived' },
+            },
+            {
+                desc: 'a reader without health findings',
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters), health: null },
+                expected: {
+                    health_ui: 'warnings',
+                    health_finding_codes: null,
+                    health_finding_count: null,
+                    flag_state_browser: 'running_but_flag_disabled',
+                    flag_state_server: null,
+                    no_metric_server: null,
+                },
+            },
+        ])(
+            'reports the local rules and the server checks with the experiment view: $desc',
+            ({ overrides, expected }) => {
+                const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+                logic.actions.loadExperimentSuccess(createExperiment(overrides))
+
+                const viewedEvents = captureSpy.mock.calls.filter(([event]) => event === 'experiment viewed')
+                expect(viewedEvents).toHaveLength(1)
+                expect(viewedEvents[0][1]).toMatchObject(expected)
+            }
+        )
+
         it('applies the local rules after a local flag write makes the server findings stale', () => {
             logic.actions.setExperiment(
                 createExperiment({
@@ -3002,6 +3101,7 @@ describe('experimentLogic', () => {
                         experiment_days_since_start: null,
                         finding_code: 'flag_live_before_launch',
                         finding_variant: 'not_started_but_multiple_variants_rolled_out',
+                        health_ui: 'warnings',
                         surface: 'experiment_page',
                         source: 'web',
                     },
@@ -3021,6 +3121,7 @@ describe('experimentLogic', () => {
                 id: 7,
                 status: ExperimentStatus.Running,
                 start_date: dayjs().subtract(3, 'day').toISOString(),
+                health: { findings: [] },
             })
 
             logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
@@ -3035,6 +3136,7 @@ describe('experimentLogic', () => {
                         experiment_days_since_start: 3,
                         finding_code: 'bias_risk_multiple_excluded',
                         finding_variant: null,
+                        health_ui: 'panel',
                         surface: 'experiment_page',
                         source: 'web',
                         action_kind: 'use_first_seen_variant',
@@ -3058,6 +3160,7 @@ describe('experimentLogic', () => {
                 experiment_days_since_start: 3,
                 finding_code: 'zero_exposures',
                 finding_variant: null,
+                health_ui: 'warnings',
                 surface: 'experiment_page',
                 source: 'web',
             }

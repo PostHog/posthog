@@ -51,6 +51,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -1365,6 +1370,8 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
+            # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
+            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",
@@ -1374,6 +1381,8 @@ class ExperimentService:
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
                     "flag_age_seconds": int(flag_age.total_seconds()),
+                    "health_finding_codes": [finding.code.value for finding in findings],
+                    "health_finding_count": len(findings),
                 },
             )
         except Exception:

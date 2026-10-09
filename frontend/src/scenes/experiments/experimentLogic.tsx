@@ -90,9 +90,12 @@ import {
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
     type ExperimentHealthFindingOpenKind,
+    type ExperimentViewedHealthProperties,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    experimentHealthUi,
+    experimentHealthStateEventProperties,
     experimentWarningFromHealth,
     exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
@@ -712,10 +715,12 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     reportExperimentViewed: (
         experiment: Experiment,
-        duration: number | null
+        duration: number | null,
+        healthProperties: ExperimentViewedHealthProperties
     ) => {
         duration: number | null
         experiment: Experiment
+        healthProperties: ExperimentViewedHealthProperties
     } // eventUsageLogic
     updateExperiments: (experiment: Experiment) => Experiment // experimentsLogic
     setFeatureFlags: (
@@ -2301,7 +2306,16 @@ export const experimentLogic = kea<experimentLogicType>([
         loadExperimentSuccess: async ({ experiment, payload }) => {
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             // eslint-disable-next-line no-unused-expressions
-            experiment && actions.reportExperimentViewed(experiment, duration)
+            experiment &&
+                actions.reportExperimentViewed(
+                    experiment,
+                    duration,
+                    experimentHealthStateEventProperties(
+                        experiment,
+                        values.browserExperimentWarning,
+                        values.browserNoMetricsWarning
+                    )
+                )
 
             // Load metrics for launched experiments (will set up auto-refresh after load completes).
             // refreshExperimentResults branches on the recalculation feature flag internally.
@@ -2598,6 +2612,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        health_ui: experimentHealthUi(values.experiment),
                         ...exposureHealthEventProperties(
                             values.exposures,
                             values.exposureCriteria?.multiple_variant_handling
