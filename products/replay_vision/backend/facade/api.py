@@ -163,6 +163,10 @@ def start_workflow_observation_request(
     from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN  # noqa: PLC0415
 
     team = TeamModel.objects.select_related("organization").get(id=team_id)
+    if team.parent_team_id is not None:
+        raise ObservationRequestRejected(
+            "Replay vision scans from workflows are only available in the project's main environment.", "invalid"
+        )
     owner = _workflow_owner(team, owner_id)
     access = UserAccessControl(user=owner, team=team, organization_id=str(team.organization_id))
     if not access.has_project_access or not access.check_access_level_for_resource(

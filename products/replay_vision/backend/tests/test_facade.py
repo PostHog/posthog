@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -195,6 +196,7 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
             ("unknown_scanner", {"scanner_id": uuid.uuid4()}, "not_found"),
             ("no_session", {"session_ids": [""]}, "invalid"),
             ("no_owner", {"owner_id": None}, "forbidden"),
+            ("child_environment", {}, "invalid"),
             ("owner_cannot_view_recordings", {}, "forbidden"),
         ]
     )
@@ -202,6 +204,9 @@ class TestStartWorkflowObservationRequest(APIBaseTest):
         if name == "no_ai_consent":
             self.organization.is_ai_data_processing_approved = False
             self.organization.save()
+        if name == "child_environment":
+            child = Team.objects.create(organization=self.organization, parent_team=self.team, name="child env")
+            overrides = {**overrides, "team_id": child.id}
         if name == "owner_cannot_view_recordings":
             # Without this, anyone who can edit a workflow could forward recording contents they may not read.
             self.organization.available_product_features = [
