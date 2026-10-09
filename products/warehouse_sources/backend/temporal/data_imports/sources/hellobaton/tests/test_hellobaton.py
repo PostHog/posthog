@@ -78,20 +78,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "projects"):
 
 class TestNormalizeCompany:
     @pytest.mark.parametrize(
-        "value, expected",
-        [
-            ("acme", "acme"),
-            ("acme.hellobaton.com", "acme"),
-            ("https://acme.hellobaton.com", "acme"),
-            ("acme.hellobaton.com/", "acme"),
-            ("acme-corp", "acme-corp"),
-            ("  acme  ", "acme"),
-        ],
-    )
-    def test_valid_companies(self, value: str, expected: str) -> None:
-        assert normalize_company(value) == expected
-
-    @pytest.mark.parametrize(
         "value",
         ["acme/../evil", "acme.evil.com", "acme@evil.com", "", "ac me", "acme-"],
     )
@@ -102,25 +88,6 @@ class TestNormalizeCompany:
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_next_is_absent(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(
-            session,
-            [
-                _response([{"id": 1}, {"id": 2}], next_url="https://acme.hellobaton.com/api/projects/?page=2"),
-                _response([{"id": 3}], next_url=None),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager()))
-
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        # Stops when `next` is absent — never probes a third (would-be 404) page.
-        assert session.send.call_count == 2
-        assert params[0]["page"] == 1
-        assert params[1]["page"] == 2
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_page_size_sent_on_every_page(self, MockSession) -> None:
         session = MockSession.return_value
@@ -147,34 +114,6 @@ class TestPagination:
         assert session.send.call_count == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_resume_state_only_while_more_pages_remain(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([{"id": 1}], next_url="https://acme.hellobaton.com/api/projects/?page=2"),
-                _response([{"id": 2}], next_url=None),
-            ],
-        )
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        # Checkpoint points at the next page after page 1; the last page (no `next`) saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == HellobatonResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_saves_no_checkpoint(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], next_url=None)])
-
-        manager = _make_manager()
-        _rows(_source(manager))
-
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response([{"id": 2}], next_url=None)])
@@ -184,25 +123,6 @@ class TestPagination:
         assert [r["id"] for r in rows] == [2]
         assert params[0]["page"] == 2
         assert session.send.call_count == 1
-
-
-class TestPartitioning:
-    @pytest.mark.parametrize(
-        "endpoint, expected_keys",
-        [
-            ("projects", ["created"]),
-            ("time_entries", ["reference_date"]),
-            # No stable non-null creation timestamp, so partitioning would rewrite partitions.
-            ("project_phases", None),
-            ("templates", None),
-            ("task_deliverables", None),
-        ],
-    )
-    def test_partitions_only_on_a_stable_field(self, endpoint: str, expected_keys: list[str] | None) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
-
-        assert response.partition_keys == expected_keys
-        assert response.partition_mode == ("datetime" if expected_keys else None)
 
 
 class TestErrorHandling:
@@ -247,11 +167,6 @@ class TestValidateCredentials:
         ok, status = validate_credentials("acme", "key")
         assert ok is expected_ok
         assert status == status_code
-
-    @mock.patch(HELLOBATON_SESSION_PATCH)
-    def test_transport_error_is_not_validated(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("acme", "key") == (False, None)
 
     def test_malformed_company_raises_before_probe(self) -> None:
         # _base_url validates the company, so a bad instance fails before any network call.

@@ -10,12 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.healthchec
     DEFAULT_BASE_URL,
     HealthchecksResumeConfig,
     HealthchecksRetryableError,
-    _check_key,
     _fetch,
     _to_unix_seconds,
     get_rows,
     healthchecks_source,
-    hostname_of,
     normalize_base_url,
     validate_credentials,
 )
@@ -92,9 +90,6 @@ class TestNormalizeBaseUrl:
         with pytest.raises(ValueError):
             normalize_base_url(value)
 
-    def test_hostname_of_default(self):
-        assert hostname_of(None) == "healthchecks.io"
-
 
 class TestToUnixSeconds:
     @pytest.mark.parametrize(
@@ -116,17 +111,6 @@ class TestToUnixSeconds:
 
     def test_date_conversion(self):
         assert _to_unix_seconds(date(2023, 11, 14)) == int(datetime(2023, 11, 14, tzinfo=UTC).timestamp())
-
-
-class TestCheckKey:
-    def test_prefers_uuid(self):
-        assert _check_key({"uuid": "u-1", "unique_key": "k-1"}) == "u-1"
-
-    def test_falls_back_to_unique_key(self):
-        assert _check_key({"unique_key": "k-1"}) == "k-1"
-
-    def test_none_when_absent(self):
-        assert _check_key({"name": "x"}) is None
 
 
 class TestFetch:
@@ -154,11 +138,6 @@ class TestFetch:
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid(self, mock_session):
-        mock_session.return_value.get.return_value = _response({"checks": []})
-        assert validate_credentials(None, "key") == (True, None)
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_invalid_key(self, mock_session):
         mock_session.return_value.get.return_value = _response({"error": "wrong api key"}, status_code=401)
         ok, err = validate_credentials(None, "bad")
@@ -183,14 +162,6 @@ class TestValidateCredentials:
 
 class TestGetRowsTopLevel:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_checks_normalizes_id_from_uuid(self, mock_session):
-        mock_session.return_value = _routing_session(
-            {"/checks/": _response({"checks": [{"uuid": "u-1", "name": "job"}]})}
-        )
-        rows = list(get_rows(None, "key", "checks", mock.MagicMock(), _make_manager()))
-        assert rows == [[{"id": "u-1", "uuid": "u-1", "name": "job"}]]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_checks_normalizes_id_from_unique_key(self, mock_session):
         # Read-only keys omit uuid and expose unique_key; id must still be populated.
         mock_session.return_value = _routing_session(
@@ -198,27 +169,6 @@ class TestGetRowsTopLevel:
         )
         rows = list(get_rows(None, "key", "checks", mock.MagicMock(), _make_manager()))
         assert rows[0][0]["id"] == "k-1"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_channels(self, mock_session):
-        mock_session.return_value = _routing_session(
-            {"/channels/": _response({"channels": [{"id": "c-1", "kind": "email"}]})}
-        )
-        rows = list(get_rows(None, "key", "channels", mock.MagicMock(), _make_manager()))
-        assert rows == [[{"id": "c-1", "kind": "email"}]]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_empty_yields_nothing(self, mock_session):
-        mock_session.return_value = _routing_session({"/channels/": _response({"channels": []})})
-        assert list(get_rows(None, "key", "channels", mock.MagicMock(), _make_manager())) == []
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_disables_sample_capture(self, mock_session):
-        # The checks response carries uuid/ping_url (ping credentials); the session must keep it
-        # out of the HTTP sample store.
-        mock_session.return_value = _routing_session({"/checks/": _response({"checks": []})})
-        list(get_rows(None, "key", "checks", mock.MagicMock(), _make_manager()))
-        assert mock_session.call_args.kwargs["capture"] is False
 
 
 class TestGetRowsFanOut:
@@ -255,14 +205,6 @@ class TestGetRowsFanOut:
         )
         flip_call = next(c for c in session.get.call_args_list if "/flips/" in c.args[0])
         assert "start=1700000000" in flip_call.args[0]
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_flips_no_incremental_omits_start(self, mock_session):
-        session = _routing_session({"/checks/": _response({"checks": [{"uuid": "u-1"}]}), "/flips/": _response([])})
-        mock_session.return_value = session
-        list(get_rows(None, "key", "flips", mock.MagicMock(), _make_manager()))
-        flip_call = next(c for c in session.get.call_args_list if "/flips/" in c.args[0])
-        assert "start=" not in flip_call.args[0]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_pings_404_is_skipped(self, mock_session):

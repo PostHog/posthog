@@ -321,6 +321,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             target_type=subscription.target_type,
             available_insight_count=resolved_insights.available_insight_count,
             selected_insight_count=resolved_insights.selected_insight_count,
+            insight_limit=max_asset_count,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
             failure_context=failure_context,
         )
@@ -392,6 +393,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         target_type=subscription.target_type,
         available_insight_count=resolved_insights.available_insight_count,
         selected_insight_count=resolved_insights.selected_insight_count,
+        insight_limit=max_asset_count,
     )
 
 

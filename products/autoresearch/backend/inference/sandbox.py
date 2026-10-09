@@ -40,6 +40,7 @@ import io
 import json
 import math
 import base64
+import hashlib
 import binascii
 from dataclasses import field
 from datetime import UTC, datetime
@@ -182,12 +183,25 @@ class InferenceRows:
 
 
 @frozen
+class MaterializedFeatures:
+    """The inference rows of one ``features.sql`` at one cutoff, so a second model with the same SQL reuses them."""
+
+    sql_digest: str
+    data: InferenceRows
+
+
+@frozen
 class SandboxScoreResult:
     scored_rows: list[dict[str, Any]]  # score rows with an added "p_y"
     holdout_auc: float | None
     n_train: int
     n_features: int
     rows_eligible: int
+    features: MaterializedFeatures | None = None
+
+
+def features_sql_digest(feature_sql: str) -> str:
+    return hashlib.sha256(feature_sql.encode("utf-8")).hexdigest()
 
 
 # ── Public entry point ─────────────────────────────────────────────────────────
@@ -260,14 +274,19 @@ def score_via_sandbox(
     cutoff_ts: int | None = None,
     user: User | None = None,
     query_context: QueryContext = INTERACTIVE_QUERY,
+    bundle: ArtifactBundle | None = None,
+    score_data: InferenceRows | None = None,
 ) -> SandboxScoreResult:
     """
-    Predict run: score the inference population with the champion's persisted model.
+    Predict run: score the inference population with the model's persisted ``model.pkl``.
 
     Pure inference: it loads ``model.pkl`` and runs only ``predict.py`` against the
     inference population (cutoff now(), no labels, no holdout). A missing model fails
     the run: fitting stays at training completion, so a cadence never becomes a
     five-minute fit that races other cadences for the same pickle.
+
+    Shadow scoring passes the ``bundle`` it already read, and the ``score_data`` another
+    model materialized from the same ``features.sql``, so that query runs once per cadence.
 
     Raises SandboxInferenceError on any failure (missing bundle or model, no data,
     sandbox or script error). Never falls back to stub scoring.
@@ -276,10 +295,11 @@ def score_via_sandbox(
         raise SandboxInferenceError(f"Model {model.pk} has no artifact_prefix")
     prefix = model.artifact_prefix
 
-    try:
-        bundle = read_bundle(prefix)
-    except Exception as exc:
-        raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
+    if bundle is None:
+        try:
+            bundle = read_bundle(prefix)
+        except Exception as exc:
+            raise SandboxInferenceError(f"Could not read bundle at {prefix}: {exc}") from exc
     acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
     _validate_bundle_feature_sql(bundle)
 
@@ -287,14 +307,16 @@ def score_via_sandbox(
     if not model_bytes:
         raise ModelLoadError(f"Champion model.pkl is missing at {prefix}; the completion-time fit has not produced it")
 
-    score_data = _materialize_score_data(
-        team=team,
-        pipeline=pipeline,
-        feature_sql=bundle.features_sql,
-        cutoff_ts=cutoff_ts,
-        user=acting_user,
-        query_context=query_context,
-    )
+    if score_data is None:
+        score_data = _materialize_score_data(
+            team=team,
+            pipeline=pipeline,
+            feature_sql=bundle.features_sql,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=query_context,
+        )
+    features = MaterializedFeatures(sql_digest=features_sql_digest(bundle.features_sql), data=score_data)
     score_rows = score_data.rows
     n_train = int((model.metrics or {}).get("n_train") or 0)
     # A population that matches nobody today is a real zero, not a failure: retrying cannot
@@ -306,6 +328,7 @@ def score_via_sandbox(
             n_train=n_train,
             n_features=0,
             rows_eligible=score_data.eligible,
+            features=features,
         )
     feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
     # Cheap guard before paying for a sandbox.
@@ -321,6 +344,7 @@ def score_via_sandbox(
         n_train=n_train,
         n_features=len(feature_cols),
         rows_eligible=score_data.eligible,
+        features=features,
     )
 
 

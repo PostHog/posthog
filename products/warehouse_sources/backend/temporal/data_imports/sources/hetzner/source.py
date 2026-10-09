@@ -23,12 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import (
     HetznerResumeConfig,
+    hetzner_child_source,
     hetzner_metrics_source,
     hetzner_source,
     validate_credentials as validate_hetzner_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import (
     ENDPOINTS,
+    HETZNER_CHILD_ENDPOINTS,
     HETZNER_METRICS_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -133,6 +135,12 @@ Create a token under **Security > API tokens** in the [Hetzner Cloud Console](ht
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value
                 if inputs.should_use_incremental_field
                 else None,
+            )
+        if inputs.schema_name in HETZNER_CHILD_ENDPOINTS:
+            return hetzner_child_source(
+                api_token=config.api_token,
+                endpoint=inputs.schema_name,
+                resumable_source_manager=resumable_source_manager,
             )
         return hetzner_source(
             api_token=config.api_token,

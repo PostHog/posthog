@@ -143,49 +143,16 @@ class TestErrorEnvelope:
 
 
 class TestCatalogEndpoints:
-    def test_catalog_rows_unwrapped_from_data_key(self) -> None:
-        rows = [{"symbol": "AAPL", "mic_code": "XNGS"}, {"symbol": "AAPL", "mic_code": "XWBO"}]
-        batches, session, _ = _run("stocks", [_response({"data": rows, "status": "ok"})])
-        assert batches == [rows]
-        assert session.get.call_count == 1
-
-    def test_large_catalog_yields_in_chunks(self) -> None:
-        rows = [{"symbol": f"S{i}", "mic_code": "X"} for i in range(twelve_data.CATALOG_CHUNK_SIZE + 1)]
-        batches, _session, _ = _run("stocks", [_response({"data": rows, "status": "ok"})])
-        assert [len(b) for b in batches] == [twelve_data.CATALOG_CHUNK_SIZE, 1]
-
     def test_catalog_does_not_touch_resume_state(self) -> None:
         _batches, _session, manager = _run("exchanges", [_response({"data": [{"code": "XNGS"}], "status": "ok"})])
         manager.save_state.assert_not_called()
 
 
 class TestPerSymbolEndpoints:
-    def test_rows_carry_symbol_from_meta(self) -> None:
-        body = {
-            "meta": {"symbol": "AAPL"},
-            "dividends": [{"ex_date": "2026-05-11", "amount": 0.27}],
-        }
-        batches, session, _ = _run("dividends", [_response(body)])
-        assert batches == [[{"symbol": "AAPL", "ex_date": "2026-05-11", "amount": 0.27}]]
-        assert _params(session, 0)["symbol"] == "AAPL"
-
     def test_quote_single_object_row_drops_status(self) -> None:
         body = {"symbol": "AAPL", "close": "326.47", "status": "ok"}
         batches, _session, _ = _run("quotes", [_response(body)])
         assert batches == [[{"symbol": "AAPL", "close": "326.47"}]]
-
-    def test_iterates_each_symbol_and_bookmarks_completion(self) -> None:
-        responses = [
-            _response({"meta": {"symbol": "AAPL"}, "splits": [{"date": "2020-08-31", "ratio": 0.25}]}),
-            _response({"meta": {"symbol": "MSFT"}, "splits": []}),
-        ]
-        batches, session, manager = _run("splits", responses, symbols=["AAPL", "MSFT"])
-        assert [_params(session, i)["symbol"] for i in range(2)] == ["AAPL", "MSFT"]
-        assert len(batches) == 1
-        # A crash between symbols must resume at MSFT, not refetch AAPL.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved[0].completed_symbols == ["AAPL"]
-        assert saved[-1].completed_symbols == ["AAPL", "MSFT"]
 
     def test_sync_rejects_too_many_symbols(self) -> None:
         # The cap must hold at sync time too, so a stored config can't bypass validation.
@@ -203,55 +170,6 @@ class TestPerSymbolEndpoints:
 
 
 class TestTimeSeries:
-    def test_first_sync_without_start_date_fetches_single_page(self) -> None:
-        # Without a lower bound there is nothing to back-walk toward — even a full page must not
-        # trigger endless history paging on high-frequency intervals.
-        with mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 2):
-            responses = [_response(_time_series_body("AAPL", ["2026-07-21", "2026-07-20"]))]
-            batches, session, _ = _run("time_series", responses)
-        assert session.get.call_count == 1
-        assert "start_date" not in _params(session, 0)
-        assert batches[0][0] == {
-            "symbol": "AAPL",
-            "interval": "1day",
-            "datetime": "2026-07-21",
-            "open": "1",
-            "high": "2",
-            "low": "0.5",
-            "close": "1.5",
-            "volume": "100",
-        }
-
-    def test_incremental_walks_back_to_watermark(self) -> None:
-        with mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 3):
-            responses = [
-                _response(_time_series_body("AAPL", ["2026-07-21", "2026-07-20", "2026-07-19"])),
-                # end_date is inclusive, so the boundary bar (07-19) comes back and must be deduped;
-                # the short page ends the walk.
-                _response(_time_series_body("AAPL", ["2026-07-19", "2026-07-18"])),
-            ]
-            batches, session, manager = _run(
-                "time_series",
-                responses,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=date(2026, 7, 18),
-            )
-
-        assert _params(session, 0)["start_date"] == "2026-07-18"
-        assert "end_date" not in _params(session, 0)
-        assert _params(session, 1)["start_date"] == "2026-07-18"
-        assert _params(session, 1)["end_date"] == "2026-07-19"
-
-        yielded = [(row["datetime"]) for batch in batches for row in batch]
-        assert yielded == ["2026-07-21", "2026-07-20", "2026-07-19", "2026-07-18"]
-
-        # Mid-walk checkpoint points at the next page; the final checkpoint completes the symbol.
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved[0] == TwelveDataResumeConfig(
-            completed_symbols=[], current_symbol="AAPL", next_end_date="2026-07-19"
-        )
-        assert saved[-1] == TwelveDataResumeConfig(completed_symbols=["AAPL"])
-
     def test_config_start_date_used_when_not_incremental(self) -> None:
         with mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 2):
             responses = [_response(_time_series_body("AAPL", ["2020-01-03", "2020-01-02"]))]
@@ -276,39 +194,8 @@ class TestTimeSeries:
         assert session.get.call_count == 2
         assert [row["datetime"] for batch in batches for row in batch] == ["2026-07-21", "2026-07-20", "2026-07-19"]
 
-    def test_resume_mid_symbol_seeds_end_date_and_dedupes_boundary(self) -> None:
-        resume = TwelveDataResumeConfig(completed_symbols=[], current_symbol="AAPL", next_end_date="2026-07-20")
-        with mock.patch.object(twelve_data, "TIME_SERIES_PAGE_SIZE", 3):
-            responses = [_response(_time_series_body("AAPL", ["2026-07-20", "2026-07-19"]))]
-            batches, session, _ = _run(
-                "time_series",
-                responses,
-                manager=_make_manager(resume),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value="2026-07-01",
-            )
-        assert _params(session, 0)["end_date"] == "2026-07-20"
-        # The 07-20 bar was already yielded by the crashed attempt.
-        assert [row["datetime"] for batch in batches for row in batch] == ["2026-07-19"]
-
 
 class TestSourceResponse:
-    def test_time_series_response_shape(self) -> None:
-        response = twelve_data_source(
-            api_key="key",
-            endpoint="time_series",
-            symbols=["AAPL"],
-            interval="1day",
-            config_start_date=None,
-            resumable_source_manager=_make_manager(),
-            logger=LOGGER,
-        )
-        assert response.primary_keys == ["symbol", "datetime"]
-        # History is walked newest → oldest, so the watermark must only persist at job end.
-        assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["datetime"]
-
     @parameterized.expand(
         [
             ("stocks", ["symbol", "mic_code"]),

@@ -283,6 +283,123 @@ class TestRepartitionDetection:
         assert schema.repartition_pending["partition_keys"] == ["id"]
 
 
+class TestPartitionMeasurementRecord:
+    @pytest.mark.parametrize(
+        "budget, phase, healthy",
+        [(10**12, "post_load", True), (10**12, "pre_extraction", True), (1, "post_load", False)],
+        ids=["within_budget_after_load", "within_budget_before_extraction", "over_budget"],
+    )
+    def test_detection_records_who_measured_and_the_verdict(
+        self, team, budget: int, phase: ctrl.MeasurementPhase, healthy: bool
+    ):
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        job = _make_job(team, schema)
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=budget),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                async_to_sync(ctrl.maybe_flag_for_repartition)(schema, schema.source, job, delta, logger, phase=phase)
+
+        schema.refresh_from_db()
+        assert schema.partition_measurement == {
+            "job_id": str(job.id),
+            "phase": phase,
+            "budget": budget,
+            "healthy": healthy,
+        }
+
+    def test_reset_invalidates_the_measurement(self, team):
+        schema = _make_schema(
+            team,
+            {
+                "partition_measurement": {
+                    "job_id": "previous-job",
+                    "phase": "post_load",
+                    "budget": 500,
+                    "healthy": True,
+                }
+            },
+        )
+
+        schema.update_sync_type_config_for_reset_pipeline()
+
+        assert schema.partition_measurement is None
+
+    def test_a_table_that_coarsening_can_pick_up_is_measured_on_each_run(self, team):
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 32, "partitioning_keys": ["id"]},
+        )
+        job = _make_job(team, schema)
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(ctrl.COARSEN_MIN_PARTITIONS)])
+            with patch.object(ctrl, "capture_repartition_event"):
+                async_to_sync(ctrl.maybe_flag_for_repartition)(
+                    schema, schema.source, job, delta, logger, phase="post_load"
+                )
+
+        schema.refresh_from_db()
+        measurement = schema.partition_measurement
+        assert measurement is not None and measurement["healthy"] is False
+
+    @pytest.mark.parametrize(
+        "previous_status, nominated, measured_budget, recent_ooms, redundant",
+        [
+            (ExternalDataJob.Status.COMPLETED, False, 500, 0, True),
+            (ExternalDataJob.Status.FAILED, False, 500, 0, False),
+            (ExternalDataJob.Status.COMPLETED, True, 500, 0, False),
+            (ExternalDataJob.Status.COMPLETED, False, 400, 0, False),
+            (ExternalDataJob.Status.COMPLETED, False, 500, 3, False),
+        ],
+        ids=[
+            "previous_run_completed",
+            "previous_run_failed",
+            "operator_nomination_waits",
+            "budget_changed_since_the_measurement",
+            "repeated_oom_kills_since_the_measurement",
+        ],
+    )
+    def test_gate_reads_what_can_change_without_a_write(
+        self, team, previous_status: str, nominated: bool, measured_budget: int, recent_ooms: int, redundant: bool
+    ):
+        schema = _make_schema(team, {})
+        other_schema = ExternalDataSchema.objects.create(
+            name="other", team=team, source=schema.source, sync_type_config={}
+        )
+        now = datetime.datetime.now(datetime.UTC)
+        previous = _make_job(team, schema)
+        ExternalDataJob.objects.filter(id=previous.id).update(
+            status=previous_status, rows_synced=10, created_at=now - datetime.timedelta(minutes=10)
+        )
+        # A failed job of another schema of the same source must not break this schema's chain.
+        ExternalDataJob.objects.filter(id=_make_job(team, other_schema).id).update(
+            status=ExternalDataJob.Status.FAILED, created_at=now - datetime.timedelta(minutes=5)
+        )
+        current = _make_job(team, schema)
+        ExternalDataJob.objects.filter(id=current.id).update(created_at=now)
+        current.refresh_from_db()
+        schema.sync_type_config = {
+            "partition_measurement": {
+                "job_id": str(previous.id),
+                "phase": "post_load",
+                "budget": measured_budget,
+                "healthy": True,
+            },
+            **({"coarsen_requested": _NOMINATION} if nominated else {}),
+        }
+
+        with (
+            patch.object(ctrl, "target_partition_bytes", return_value=500),
+            patch.object(ctrl.ExternalDataSchemaOOMEvent, "recent_count", return_value=recent_ooms),
+        ):
+            assert ctrl.pre_extraction_measurement_is_redundant(schema, current) is redundant
+
+
 class TestIsRepartitionHoldEnabled:
     def test_retries_once_on_transient_db_connection_drop(self, team):
         # The Team lookup runs on a long-lived Temporal worker thread; a pooler-dropped connection
@@ -921,7 +1038,20 @@ class TestRepartitionActivity:
         # all-or-nothing. Landing the settings but keeping the swap marker holds the schema's imports
         # forever; clearing the markers without the cooldown re-flags the table on the very next sync;
         # keeping the operator pin re-applies it on a later reset.
-        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4, "partition_count_override": 4})
+        schema = _make_schema(
+            team,
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_count_override": 4,
+                "partition_measurement": {
+                    "job_id": "previous-job",
+                    "phase": "post_load",
+                    "budget": 500,
+                    "healthy": True,
+                },
+            },
+        )
         schema.set_repartition_claim({"token": "live-claim", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
         schema.set_repartition_pending(
             {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
@@ -947,7 +1077,111 @@ class TestRepartitionActivity:
         assert schema.repartition_swap is None
         assert schema.repartition_pending is None
         assert schema.repartition_rewrite is None
+        assert schema.partition_measurement is None
         assert schema.last_repartition_at is not None
+
+    @pytest.mark.parametrize(
+        "target,expected",
+        [
+            pytest.param(
+                {"partitioning_keys": ["id"], "partition_count": 8, "partition_size": None, "partition_mode": "md5"},
+                {"partition_count": 8, "partition_size": None, "partition_mode": "md5", "partitioning_keys": ["id"]},
+                id="fewer_hash_buckets",
+            ),
+            pytest.param(
+                {
+                    "partitioning_keys": ["created_at"],
+                    "partition_count": None,
+                    "partition_size": None,
+                    "partition_mode": "datetime",
+                    "partition_format": "month",
+                },
+                {"partition_mode": "datetime", "partitioning_keys": ["created_at"], "partition_format": "month"},
+                id="coarser_datetime_format",
+            ),
+            pytest.param(
+                {
+                    "partitioning_keys": ["id"],
+                    "partition_count": None,
+                    "partition_size": 4096,
+                    "partition_mode": "numerical",
+                },
+                {"partition_size": 4096, "partition_mode": "numerical", "partitioning_keys": ["id"]},
+                id="wider_numerical_ranges",
+            ),
+        ],
+    )
+    def test_a_scheme_staged_for_a_full_refresh_survives_that_syncs_reset(self, team, target, expected):
+        # A full-refresh sync starts by wiping the plain partition settings, so a scheme saved as
+        # plain settings would be discarded and the sync would write the old layout again.
+        schema = _make_schema(
+            team,
+            {"partition_mode": "md5", "partition_count": 64, "partitioning_keys": ["id"], "partition_format": "hour"},
+        )
+        schema.set_repartition_pending({"partition_mode": "md5", "partition_keys": ["id"], "trigger_reason": "t"})
+        schema.set_repartition_rewrite({"temp_uri": "s3://t", "rows_written": 5})
+
+        external_data_schema.stage_partition_scheme_for_full_refresh(schema, **{"partition_format": None, **target})
+        schema.refresh_from_db()
+        schema.update_sync_type_config_for_reset_pipeline(clear_initial_sync_complete=False)
+        schema.refresh_from_db()
+
+        resolved = {
+            "partition_count": schema.partition_count_override,
+            "partition_size": schema.partition_size_override,
+            "partition_mode": schema.partition_mode_override,
+            "partitioning_keys": schema.partitioning_keys_override,
+            "partition_format": schema.partition_format,
+        }
+        for key, value in expected.items():
+            assert resolved[key] == value
+        assert schema.repartition_pending is None
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
+    def test_full_refresh_staging_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "newer-claim", "job_id": "j2", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
+        )
+
+        wrote = external_data_schema.stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="superseded-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count_override is None
+        assert schema.repartition_pending is not None
+        assert schema.repartition_claim is not None
+        assert schema.repartition_claim["token"] == "newer-claim"
+
+    def test_full_refresh_staging_preserves_a_swap_that_appeared_after_claiming(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "ours", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+
+        wrote = external_data_schema.stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="ours",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count_override is None
+        assert schema.repartition_swap is not None
 
     def test_finalizing_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
         # A zombie writing here would describe a layout the new claimant is in the middle of replacing.

@@ -40,7 +40,8 @@ export function ScoutRubricReference({
                 reference.reference_limits.truncated_files.length > 0) && (
                 <LemonBanner type="warning">
                     Scoring is unavailable because some instructions or reference files were shortened or omitted.
-                    Shorten the source, then generate and save a complete reference.
+                    Generate suggestions again, review and use the new reference, then save your rubric. You can keep
+                    your existing criteria.
                 </LemonBanner>
             )}
         </div>

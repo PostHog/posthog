@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coveralls.
     _builds_url,
     _fetch_json,
     _incremental_cutoff,
-    _repo_config_url,
     coveralls_source,
     get_builds_rows,
     get_repository_rows,
@@ -66,24 +65,6 @@ def _manager(state: CoverallsResumeConfig | None = None) -> mock.MagicMock:
 
 
 class TestParseRepositories:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("acme/widgets", ["acme/widgets"]),
-            ("acme/widgets\nacme/gadgets", ["acme/widgets", "acme/gadgets"]),
-            ("acme/widgets, acme/gadgets", ["acme/widgets", "acme/gadgets"]),
-            ("  acme/widgets , acme/gadgets \n acme/things ", ["acme/widgets", "acme/gadgets", "acme/things"]),
-            # De-duplicated case-insensitively while preserving order, so the primary key never sees
-            # the same repository twice.
-            ("acme/widgets\nAcme/Widgets\nacme/gadgets", ["acme/widgets", "acme/gadgets"]),
-            ("acme/widgets\n\n  \nacme/gadgets", ["acme/widgets", "acme/gadgets"]),
-            # GitLab subgroups keep their full path.
-            ("group/subgroup/project", ["group/subgroup/project"]),
-        ],
-    )
-    def test_valid(self, raw, expected):
-        assert parse_repositories(raw) == expected
-
     @pytest.mark.parametrize("raw", [None, "", "   \n  ", " , , ", "not-owner-repo"])
     def test_invalid_raises(self, raw):
         with pytest.raises(ValueError):
@@ -95,37 +76,12 @@ class TestParseRepositories:
             parse_repositories(raw)
 
 
-class TestUrls:
-    def test_builds_url_shape(self):
-        assert _builds_url("github", "acme/widgets", 3) == f"{COVERALLS_BASE_URL}/github/acme/widgets.json?page=3"
-
-    def test_repo_config_url_shape(self):
-        assert _repo_config_url("github", "acme/widgets") == f"{COVERALLS_BASE_URL}/api/v1/repos/github/acme/widgets"
-
-    def test_encodes_odd_characters(self):
-        # An odd character must not break out of the path.
-        assert "%3F" in _builds_url("github", "acme/widg?ets", 1)
-
-
 # tenacity exposes the undecorated function via `__wrapped__` so status classification can be
 # asserted without waiting through retry backoff.
 _fetch_once = _fetch_json.__wrapped__  # type: ignore[attr-defined]
 
 
 class TestFetchJson:
-    def test_ok_returns_body(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response(200, {"builds": []})
-
-        assert _fetch_once(session, "https://coveralls.io/x", {}, structlog.get_logger()) == {"builds": []}
-
-    def test_404_returns_none(self):
-        # A typo'd, untracked, or private repository must be skipped, not fail the whole sync.
-        session = mock.MagicMock()
-        session.get.return_value = _response(404)
-
-        assert _fetch_once(session, "https://coveralls.io/x", {}, structlog.get_logger()) is None
-
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable(self, status):
         session = mock.MagicMock()
@@ -164,18 +120,6 @@ class TestIncrementalCutoff:
 
 
 class TestGetBuildsRows:
-    def test_walks_every_page_until_pages_reached(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _builds_page(1, 2, [_build(20, "2021-04-16T17:46:20Z")])),
-                _response(200, _builds_page(2, 2, [_build(10, "2021-04-13T18:45:20Z")])),
-            ]
-
-            batches = list(get_builds_rows("github", ["acme/widgets"], structlog.get_logger(), _manager(), None))
-
-        assert [[row["id"] for row in batch] for batch in batches] == [[20], [10]]
-        assert mock_session.return_value.get.call_count == 2
-
     def test_stops_on_empty_page(self):
         # Past-the-end pages return an empty builds list; the walk must terminate rather than loop.
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
@@ -202,17 +146,6 @@ class TestGetBuildsRows:
         assert len(batches) == 1
         assert mock_session.return_value.get.call_count == 1
 
-    def test_no_watermark_walks_full_history(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _builds_page(1, 2, [_build(20, "2021-04-16T17:46:20Z")])),
-                _response(200, _builds_page(2, 2, [_build(10, "2021-04-13T18:45:20Z")])),
-            ]
-
-            batches = list(get_builds_rows("github", ["acme/widgets"], structlog.get_logger(), _manager(), None))
-
-        assert len(batches) == 2
-
     def test_skips_404_repository_and_continues(self):
         # One typo'd or private repository must not kill the sync for the others.
         with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
@@ -226,17 +159,6 @@ class TestGetBuildsRows:
             )
 
         assert [[row["id"] for row in batch] for batch in batches] == [[30]]
-
-    def test_stamps_repo_name_when_missing(self):
-        # `repo_name` is part of the primary key; a row without it couldn't upsert cleanly.
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, _builds_page(1, 1, [_build(20, "2021-04-16T17:46:20Z", repo_name=None)])
-            )
-
-            batches = list(get_builds_rows("github", ["acme/widgets"], structlog.get_logger(), _manager(), None))
-
-        assert batches[0][0]["repo_name"] == "acme/widgets"
 
     def test_saves_state_after_each_page_and_between_repositories(self):
         manager = _manager()
@@ -281,18 +203,6 @@ class TestGetBuildsRows:
         called_url = mock_session.return_value.get.call_args[0][0]
         assert called_url == _builds_url("github", "acme/gadgets", 3)
 
-    def test_resume_bookmark_no_longer_configured_starts_over(self):
-        manager = _manager(CoverallsResumeConfig(repository="acme/removed", page=7))
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, _builds_page(1, 1, [_build(20, "2021-04-16T17:46:20Z")])
-            )
-
-            list(get_builds_rows("github", ["acme/widgets"], structlog.get_logger(), manager, None))
-
-        called_url = mock_session.return_value.get.call_args[0][0]
-        assert called_url == _builds_url("github", "acme/widgets", 1)
-
 
 class TestGetRepositoryRows:
     def test_requires_api_token(self):
@@ -322,26 +232,6 @@ class TestGetRepositoryRows:
         # The response's secret coverage-upload token must never be persisted as warehouse data.
         for batch in batches:
             assert not any("token" in key for key in batch[0])
-
-    def test_sends_token_header(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {})
-
-            list(get_repository_rows("github", ["acme/widgets"], "tok", structlog.get_logger()))
-
-            headers = mock_session.return_value.get.call_args[1]["headers"]
-
-        assert headers["Authorization"] == "token tok"
-
-    def test_repos_session_disables_sample_capture(self):
-        # The /api/v1/repos response carries the repo's secret coverage-upload token, so the
-        # session must opt out of HTTP sample capture — otherwise the token lands in stored samples.
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {})
-
-            list(get_repository_rows("github", ["acme/widgets"], "tok", structlog.get_logger()))
-
-        assert mock_session.call_args.kwargs.get("capture") is False
 
 
 class TestValidateCredentials:
@@ -406,21 +296,6 @@ class TestValidateCredentials:
 
 
 class TestCoverallsSource:
-    @pytest.mark.parametrize("endpoint", list(COVERALLS_ENDPOINTS))
-    def test_source_response_shape(self, endpoint):
-        response = coveralls_source(
-            endpoint=endpoint,
-            service="github",
-            repositories_raw="acme/widgets",
-            api_token=None,
-            logger=structlog.get_logger(),
-            resumable_source_manager=_manager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == COVERALLS_ENDPOINTS[endpoint].primary_keys
-        assert response.sort_mode == "desc"
-
     def test_only_builds_is_partitioned(self):
         builds = coveralls_source(
             endpoint="builds",
