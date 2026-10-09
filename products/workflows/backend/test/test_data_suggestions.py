@@ -23,7 +23,7 @@ from products.workflows.backend.services.data_suggestions.ranking import (
     select_prompt_events,
     suggestion_score,
 )
-from products.workflows.backend.services.data_suggestions.stages import classify_event_stages
+from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed, classify_event_stages
 
 IDEA = WorkflowIdea(
     name="Trial started upgrade nudge",
@@ -310,21 +310,16 @@ class TestDataSuggestions(SimpleTestCase):
             "thing_happened": "other",
         }
 
-    @parameterized.expand(
-        [
-            ("not configured", SystemOneNotConfigured("no gateway"), None),
-            ("request failed", None, SystemOneRequestFailed("boom", status_code=529)),
-        ]
-    )
     @patch("products.workflows.backend.services.data_suggestions.stages.build_system_one_client")
-    def test_classify_event_stages_falls_back_to_nothing_when_jev_is_unavailable(
-        self, _name: str, build_error: Exception | None, decide_error: Exception | None, build_client: MagicMock
-    ) -> None:
-        if build_error:
-            build_client.side_effect = build_error
-        else:
-            build_client.return_value.decide.side_effect = decide_error
+    def test_classify_event_stages_falls_back_when_jev_is_not_configured(self, build_client: MagicMock) -> None:
+        build_client.side_effect = SystemOneNotConfigured("no gateway")
         assert classify_event_stages(team_id=1, event_names=["signed_up"]) == {}
+
+    @patch("products.workflows.backend.services.data_suggestions.stages.build_system_one_client")
+    def test_classify_event_stages_fails_when_a_configured_jev_does_not_answer(self, build_client: MagicMock) -> None:
+        build_client.return_value.decide.side_effect = SystemOneRequestFailed("boom", status_code=529)
+        with self.assertRaises(StageClassificationFailed):
+            classify_event_stages(team_id=1, event_names=["signed_up"])
 
     @parameterized.expand(
         [

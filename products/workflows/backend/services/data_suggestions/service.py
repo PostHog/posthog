@@ -1,3 +1,4 @@
+import math
 import uuid
 from typing import Any, Literal
 
@@ -6,9 +7,10 @@ from django.core.cache import cache
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ProductKey
+from posthog.schema import HogQLQueryResponse, ProductKey
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -47,12 +49,22 @@ from products.workflows.backend.services.data_suggestions.ranking import (
     select_prompt_events,
     suggestion_score,
 )
-from products.workflows.backend.services.data_suggestions.stages import MAX_CLASSIFIED_EVENTS, classify_event_stages
+from products.workflows.backend.services.data_suggestions.stages import (
+    MAX_CLASSIFIED_EVENTS,
+    StageClassificationFailed,
+    classify_event_stages,
+)
 from products.workflows.backend.services.hog_flow_templates import list_step_templates
 
 logger = structlog.get_logger(__name__)
 
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+# A failed run waits this long before it tries again, so an outage does not rerun the queries on every visit.
+FAILURE_CACHE_TTL_SECONDS = 30 * 60
+# Above this many events a week the counts are sampled. The estimate itself reads 1 in 100 events.
+_FULL_SCAN_MAX_WEEKLY_EVENTS = 20_000_000
+_ESTIMATE_SAMPLE_DENOMINATOR = 100
+_COUNT_TIMEOUT_SECONDS = 30
 MAX_SUGGESTIONS = 3
 _EVENT_DEFINITIONS_LIMIT = 300
 _PROMPT_EVENTS_LIMIT = 60
@@ -98,10 +110,11 @@ def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> Da
         if isinstance(cached, DataSuggestionsResult):
             return cached
 
-    result = _suggest(team=team, user=user)
-    # A failed call is not cached, so the next visit tries again rather than showing nothing for a week.
-    if result.status == "ready":
-        cache.set(key, result, CACHE_TTL_SECONDS)
+    try:
+        result = _suggest(team=team, user=user)
+    except StageClassificationFailed:
+        result = DataSuggestionsResult(status="unavailable", suggestions=())
+    cache.set(key, result, CACHE_TTL_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS)
     return result
 
 
@@ -276,6 +289,9 @@ def _weekly_counts(team: Team, *, exclude: set[str]) -> dict[str, int]:
     names = _recent_event_names(team, exclude=exclude)
     if not names:
         return {}
+    # Small teams get exact counts, since a quiet event could vanish from a sample. Large teams only need the
+    # ranking, so a sample keeps the scan at about the size of a small team's.
+    sample_denominator = max(1, math.ceil(_estimated_weekly_events(team) / _FULL_SCAN_MAX_WEEKLY_EVENTS))
     query = parse_select(
         """
         SELECT event, count() AS weekly_count
@@ -286,9 +302,33 @@ def _weekly_counts(team: Team, *, exclude: set[str]) -> dict[str, int]:
         """,
         placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names])},
     )
+    if sample_denominator > 1 and isinstance(query, ast.SelectQuery) and query.select_from is not None:
+        query.select_from.sample = _sample(sample_denominator)
+    response = _run_count(team, query, "workflows_data_suggestions_counts")
+    return {str(row[0]): int(row[1]) * sample_denominator for row in response.results or [] if int(row[1]) > 0}
+
+
+def _estimated_weekly_events(team: Team) -> int:
+    query = parse_select("SELECT count() FROM events WHERE timestamp >= now() - INTERVAL 7 DAY")
+    if isinstance(query, ast.SelectQuery) and query.select_from is not None:
+        query.select_from.sample = _sample(_ESTIMATE_SAMPLE_DENOMINATOR)
+    response = _run_count(team, query, "workflows_data_suggestions_volume")
+    rows = response.results or []
+    return int(rows[0][0]) * _ESTIMATE_SAMPLE_DENOMINATOR if rows else 0
+
+
+def _sample(denominator: int) -> ast.SampleExpr:
+    return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=denominator)))
+
+
+def _run_count(team: Team, query: ast.SelectQuery | ast.SelectSetQuery, query_type: str) -> HogQLQueryResponse:
     tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
-    response = execute_hogql_query(query=query, team=team, query_type="workflows_data_suggestions_counts")
-    return {str(row[0]): int(row[1]) for row in response.results or [] if int(row[1]) > 0}
+    return execute_hogql_query(
+        query=query,
+        team=team,
+        query_type=query_type,
+        settings=HogQLGlobalSettings(max_execution_time=_COUNT_TIMEOUT_SECONDS),
+    )
 
 
 def _email_templates(team: Team) -> dict[str, dict]:

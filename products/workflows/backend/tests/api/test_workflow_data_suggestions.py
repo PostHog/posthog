@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models import EventDefinition
 
@@ -13,6 +15,8 @@ from products.workflows.backend.services.data_suggestions.planner import (
     WorkflowIdea,
 )
 from products.workflows.backend.services.data_suggestions.ranking import LifecycleStage
+from products.workflows.backend.services.data_suggestions.service import _FULL_SCAN_MAX_WEEKLY_EVENTS, _weekly_counts
+from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.tests.api.test_hog_flow_action_email import _email_function_template, webhook_template
 
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
@@ -148,6 +152,38 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("query executed", "onboarding"),
             ("trial_started", "other"),
         ]
+
+    @parameterized.expand(
+        [
+            ("jev fails", StageClassificationFailed(), []),
+            ("claude returns nothing", None, []),
+        ]
+    )
+    @patch(f"{SERVICE}.classify_event_stages")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_failed_run_shows_nothing_and_is_not_retried_on_every_visit(
+        self,
+        _name: str,
+        classify_error: Exception | None,
+        ideas: list,
+        suggest_ideas: MagicMock,
+        classify: MagicMock,
+        _flag,
+    ) -> None:
+        classify.side_effect = classify_error
+        classify.return_value = {}
+        suggest_ideas.return_value = ideas
+
+        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert self._list() == {"status": "unavailable", "suggestions": []}
+        assert classify.call_count == 1
+
+    @patch(f"{SERVICE}._estimated_weekly_events", return_value=2 * _FULL_SCAN_MAX_WEEKLY_EVENTS)
+    def test_large_teams_get_sampled_counts_scaled_back_up(self, _estimate: MagicMock, _flag) -> None:
+        counts = _weekly_counts(self.team, exclude=set())
+
+        assert counts
+        assert all(count % 2 == 0 for count in counts.values())
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_ai_is_not_called_without_ai_data_processing_approval(self, suggest_ideas: MagicMock, _flag) -> None:

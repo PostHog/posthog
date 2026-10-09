@@ -51,11 +51,9 @@ export function WorkflowSuggestionCard({
     return (
         <LemonCard hoverEffect={false} className="flex h-full flex-col gap-3 p-4">
             <div className="flex flex-wrap items-center gap-2">
-                {card.source === 'ai' && (
-                    <LemonTag type="highlight" icon={<IconSparkles />}>
-                        Made for your data
-                    </LemonTag>
-                )}
+                <LemonTag type="highlight" icon={<IconSparkles />}>
+                    Made for your data
+                </LemonTag>
                 <span className="inline-flex min-w-0 items-center gap-1 text-xs text-secondary">
                     <code className="truncate text-primary">{card.triggerEvent}</code>
                     <span translate="no">{humanFriendlyNumber(card.weeklyCount)}</span>
@@ -87,7 +85,8 @@ export function WorkflowSuggestionCard({
                     loading={building}
                     disabledReason={buildingKey && !building ? 'Another workflow is being built' : undefined}
                     onClick={() => startSuggestion(card)}
-                    data-attr={`workflows-data-suggestion-${card.source}`}
+                    // pinned: data-attr - autocapture dashboards read it
+                    data-attr="workflows-data-suggestion-ai"
                 >
                     {building ? 'Building your workflow' : 'Start with this'}
                 </LemonButton>

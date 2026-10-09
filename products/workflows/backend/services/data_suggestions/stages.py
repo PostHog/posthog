@@ -34,9 +34,13 @@ STAGE_CRITERIA: dict[str, str] = {
 }
 
 
+class StageClassificationFailed(Exception):
+    """Jev is configured but did not answer, so the stages for this run are unknown."""
+
+
 def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[str, LifecycleStage]:
-    """The stage Jev picks for each event it answers with enough confidence. Empty when Jev is unavailable,
-    so callers fall back to their own guess."""
+    """The stage Jev picks for each event it answers with enough confidence. Empty when Jev is not configured,
+    so callers fall back to their own guess. Raises StageClassificationFailed when a configured Jev fails."""
     names = list(event_names)[:MAX_CLASSIFIED_EVENTS]
     if not names:
         return {}
@@ -75,7 +79,7 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
                 status_code=error.status_code,
             )
             capture_exception(error, {"team_id": team_id, "chunk_size": len(chunk)})
-            continue
+            raise StageClassificationFailed() from error
         for index, name in enumerate(chunk):
             answer = result.answers.get(f"e{index}")
             if isinstance(answer, ChoiceAnswer) and answer.choice in valid_stages:
