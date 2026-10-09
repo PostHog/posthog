@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class LightspeedRetailResumeConfig:
     # X-Series keyset pagination: `after=<version>` where version is the max
     # record version of the previous page — one integer fully describes where

@@ -22,7 +22,7 @@ _VERSION_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class LightspeedRetailEndpointConfig:
     name: str
     path: str
