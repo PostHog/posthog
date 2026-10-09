@@ -1,7 +1,11 @@
 from typing import TYPE_CHECKING
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceAccessMethod
+from products.warehouse_sources.backend.facade.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSourceAccessMethod,
+    ExternalDataSourceType,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -30,6 +34,16 @@ def bigquery_direct_query_enabled(team: "Team") -> bool:
 def direct_capable_source_types() -> frozenset[str]:
     """Source types that map to a direct-SQL engine (the static capability surface)."""
     return frozenset(DIRECT_ENGINE_BY_SOURCE_TYPE.keys())
+
+
+def direct_capable_source_types_for_team(team: "Team") -> frozenset[str]:
+    """Source types this team can add as a direct connection: the static surface minus the
+    engines still behind a rollout flag. The presentation layer asks this instead of naming
+    a source type, so the flag check lives in one place."""
+    source_types = set(DIRECT_ENGINE_BY_SOURCE_TYPE.keys())
+    if not bigquery_direct_query_enabled(team):
+        source_types.discard(ExternalDataSourceType.BIGQUERY)
+    return frozenset(source_types)
 
 
 def is_direct_capable(source: ExternalDataSource) -> bool:

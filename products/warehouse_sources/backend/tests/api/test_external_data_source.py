@@ -2969,7 +2969,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertNotIn("BigQuery", source_types)
 
         with patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_source.connection_options.bigquery_direct_query_enabled",
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
             return_value=True,
         ):
             flag_on = self.client.get(
@@ -4331,7 +4331,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.json(), {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE})
 
         with patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.bigquery_direct_query_enabled",
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
             return_value=True,
         ):
             response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
