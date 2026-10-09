@@ -466,6 +466,7 @@ class DestinationType(LabeledStrEnum):
     TEAMS = "teams", "Microsoft Teams"
     PAGERDUTY = "pagerduty", "PagerDuty"
     EMAIL = "email", "Email"
+    IN_APP = "in_app", "In-app notification"
 
 
 class PagerDutySeverity(StrEnum):
@@ -502,6 +503,12 @@ class AlertDestinationData(TypedDict):
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
     email_addresses: NotRequired[list[str]]
+    in_app_user_ids: NotRequired[list[int]]
+    # What an in-app notification is about, so the inbox applies its access rules for that resource.
+    in_app_resource_type: NotRequired[str]
+    in_app_resource_id: NotRequired[str]
+    # A path in the app, because the inbox opens it with the client-side router.
+    in_app_url: NotRequired[str]
 
 
 class AlertDestinationValidationError(Exception):

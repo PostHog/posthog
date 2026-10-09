@@ -20,19 +20,33 @@ class TestInsightAlertEmailDestination(APIBaseTest):
         AlertSubscription.objects.create(user=user, alert_configuration=alert)
 
     @parameterized.expand([("firing", LEGACY_INSIGHT_ALERT_EVENT), ("errored", INSIGHT_ALERT_ERRORED_EVENT_ID)])
-    def test_the_platform_emails_subscribers_who_can_still_see_the_alert(self, _name: str, event_id: str) -> None:
+    def test_the_platform_reaches_the_subscribers_production_reaches(self, _name: str, event_id: str) -> None:
         alert = self._alert()
         self._subscribe(alert, self.user)
-        self._subscribe(alert, User.objects.create(email="former-member@example.com"))
+        former_member = User.objects.create(email="former-member@example.com")
+        self._subscribe(alert, former_member)
+        firing = event_id == LEGACY_INSIGHT_ALERT_EVENT
+        short_id = alert.insight.short_id
 
         groups = list_delivery_destination_groups(
             team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=[event_id]
         )
 
+        # Production notifies every subscriber in the app when an alert fires, and only those who
+        # can still see the alert when a check fails.
         assert [group.data for group in groups] == [
-            {"type": DestinationType.EMAIL, "email_addresses": [self.user.email]}
+            {"type": DestinationType.EMAIL, "email_addresses": [self.user.email]},
+            {
+                "type": DestinationType.IN_APP,
+                "in_app_user_ids": sorted([self.user.id, former_member.id]) if firing else [self.user.id],
+                "in_app_resource_type": "insight",
+                "in_app_resource_id": short_id,
+                "in_app_url": f"/project/{self.team.project_id}/insights/{short_id}#alert={alert.id}"
+                if firing
+                else f"/project/{self.team.id}/insights/{short_id}?alert_id={alert.id}",
+            },
         ]
-        # The alert APIs list and delete through this one, so an email group there would read as a
+        # The alert APIs list and delete through this one, so a subscriber group there would read as a
         # destination a person could remove.
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=[event_id])
@@ -46,7 +60,7 @@ class TestInsightAlertEmailDestination(APIBaseTest):
             ("an_alert_nobody_subscribed_to", False, None, LEGACY_INSIGHT_ALERT_EVENT),
         ]
     )
-    def test_no_email_group_without_an_insight_alert_and_a_subscriber(
+    def test_no_subscriber_group_without_an_insight_alert_and_a_subscriber(
         self, _name: str, subscribed: bool, alert_id: str | None, event_id: str
     ) -> None:
         alert = self._alert()

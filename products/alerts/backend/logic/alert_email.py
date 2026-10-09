@@ -13,7 +13,6 @@ from uuid import UUID
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.alerts.backend.logic.destinations import list_alert_destination_groups
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -45,21 +44,7 @@ def alert_email_recipients(*, team_id: int, alert_id: UUID) -> list[tuple[int, s
     ]
 
 
-def list_delivery_destination_groups(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
-) -> list[AlertDestinationGroup]:
-    """Everything the platform delivers one alert's events to: its HogFunction destinations, plus
-    its subscribers' email for an insight alert.
-
-    Separate from `list_alert_destination_groups`, which the alert APIs list and delete through. An
-    email group there would show up as a destination a person could delete.
-    """
-    groups = list_alert_destination_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-    email = _insight_email_group(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-    return [*groups, email] if email is not None else groups
-
-
-def _insight_email_group(
+def insight_email_group(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> AlertDestinationGroup | None:
     if _EMAIL_EVENT_IDS.isdisjoint(allowed_event_ids):
