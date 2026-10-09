@@ -657,9 +657,9 @@ snapshots:
     components-chart-legend-series-menu--single-series--light:
         hash: v1.k794b7964.45544c43c187fd1d1fc7b204e7c33c7e422c5c56838cac44e5d63318c7f5e283.phbzfcS5A5m2LHaspjABfv-I6FPQ1-LnsCFRwyX81uQ
     components-command-k-search--chip-and-value-suggestions--dark:
-        hash: v1.k794b7964.bb2146400c33663fe6dcf1bd8ed3b728759ad68c72c676ac86f03d4abb209507.gdnIyse2UFs7BPGXjLG1EJXyF7jtrfDzCNo7LLzCwKM
+        hash: v1.k794b7964.1db8f7cf1e15e47931535561c9fa8fe4e7635b5441715efb183776410482ebd4.TzkbRd1YbNiuS-4IyijmupTNwdCJLJo9BkkBqVgDBNI
     components-command-k-search--chip-and-value-suggestions--light:
-        hash: v1.k794b7964.7c546a5379c0a5d025630508266a9f40c2e216a45bfa6d894d983ace0c4cae5b.MXIWq8T3Rb_keioh261ukhjJk0E279_P42OuZVDakfA
+        hash: v1.k794b7964.1f156fcb62177c54eddaf141565a293f383d79ced9443ad570108215f5d68627.xvKPM445SeJQj5XOeZcMd3YTDywIpPVgQ5g4kZew9O8
     components-command-k-search--empty--dark:
         hash: v1.k794b7964.458b55fd345ec31873d513d00258ebe6f6f6e9b1e91c4504ad4f0c16046f5151.wfpwrARigE_uao91HNDgU7NeZN24s2vP9Q3H4W4mEX4
     components-command-k-search--empty--light:
