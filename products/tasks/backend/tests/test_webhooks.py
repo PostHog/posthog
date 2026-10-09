@@ -2621,6 +2621,21 @@ class TestGitHubWebhookFanout(TestCase):
                     },
                 },
             ),
+            (
+                "pull_request_opened",
+                "pull_request",
+                {
+                    "action": "opened",
+                    "pull_request": {
+                        "number": 100,
+                        "title": "Fix it",
+                        "html_url": "https://github.com/myorg/myrepo/pull/100",
+                        "author_association": "MEMBER",
+                        "head": {"ref": "fix-it"},
+                        "merged": False,
+                    },
+                },
+            ),
         ]
     )
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")

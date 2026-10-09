@@ -52,8 +52,8 @@ It scans descriptions for direct issue links and fingerprint permalinks on the c
 Repeated links and deliveries reuse an existing reference.
 Removing a link from a later description does not remove the reference.
 
-A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` from `posthog/github/installations.py`, never its own `Integration` query.
-The provider's `dispatch_scope()` opens one lookup cache per request, so every consumer on a delivery that calls it shares a single capped query.
+A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` or `installation_team_ids()` from `posthog/github/installations.py`, never its own `Integration` query.
+The provider's `dispatch_scope()` opens one lookup cache per request, so every consumer on a delivery shares a single capped query.
 
 The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
 PR analytics shared by those consumers live in `posthog/github/`, see its README.
