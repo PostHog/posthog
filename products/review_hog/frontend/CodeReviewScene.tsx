@@ -1265,7 +1265,7 @@ function TriggersSection(): JSX.Element {
                                 aria-label="Review all your PRs in Flash mode"
                                 checked={settings?.default_review_mode === 'flash'}
                                 onChange={(checked) =>
-                                    updateSettings({ default_review_mode: checked ? 'flash' : 'follow' })
+                                    updateSettings({ default_review_mode: checked ? 'flash' : 'off' })
                                 }
                                 disabledReason={switchDisabledReason}
                                 loading={settingsLoading}
