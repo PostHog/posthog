@@ -1,8 +1,11 @@
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
+import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step-dispatch-key'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
@@ -29,11 +32,67 @@ const extractEmailsFromAddressList = (value: unknown): string[] => {
         .filter((addr) => addr.length > 0)
 }
 
+// One Lua script, so two concurrent sends to one person cannot both pass with one slot left. Each slot
+// is keyed on the step visit. The email queue and send retries run the same step visit again, so a
+// visit that already holds a slot passes. That run also moves the slot score to now, because the email
+// queue can delay the actual send by hours and the window must start when the email goes out.
+const FREQUENCY_CAP_SCRIPT = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - tonumber(ARGV[2]))
+if not redis.call('ZSCORE', KEYS[1], ARGV[4]) and redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[3]) then return 1 end
+redis.call('ZADD', KEYS[1], ARGV[1], ARGV[4])
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+return 0
+`
+
 export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private frequencyCap?: { teamWorkflowsConfig: TeamWorkflowsConfigService; valkey: RedisV2 }
     ) {}
+
+    /** Returns true when the person is at the cap. Otherwise records this send against the cap and returns false. */
+    public async isFrequencyCapped(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: HogFlowAction
+    ): Promise<boolean> {
+        const personId = invocation.state.globals.person?.id
+        if (
+            !this.frequencyCap ||
+            !personId ||
+            !this.isSubjectToRecipientPreferences(action) ||
+            action.config.message_category_type === 'transactional'
+        ) {
+            return false
+        }
+        try {
+            const { max_messages, window_days } = await this.frequencyCap.teamWorkflowsConfig.getFrequencyCap(
+                invocation.teamId
+            )
+            if (!max_messages || !window_days) {
+                return false
+            }
+            const capped = await this.frequencyCap.valkey.useClient(
+                { name: 'workflows-frequency-cap', failOpen: true },
+                (client) =>
+                    client.eval(
+                        FREQUENCY_CAP_SCRIPT,
+                        1,
+                        `@posthog/workflows-frequency-cap/${invocation.teamId}/${personId}`,
+                        Date.now(),
+                        window_days * 24 * 60 * 60 * 1000,
+                        max_messages,
+                        workflowStepDispatchKeyFromInvocation(invocation) ?? `${invocation.id}:${action.id}`
+                    ) as Promise<number>
+            )
+            return capped === 1
+        } catch (error) {
+            // Fail open: a config or Valkey pool error must never block a send. failOpen above only
+            // covers errors inside the Valkey callback.
+            logger.error(`Failed to check the frequency cap for team ${invocation.teamId}:`, error)
+            return false
+        }
+    }
 
     public async shouldSkipAction(
         invocation: CyclotronJobInvocationHogFunction,

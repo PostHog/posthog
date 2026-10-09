@@ -93,6 +93,13 @@ export type CdpConfig = ClickhouseConfig & {
     SES_RATE_LIMITER_VALKEY_PASSWORD: string
     SES_RATE_LIMITER_VALKEY_TLS: boolean
 
+    // Dedicated Valkey for the marketing frequency cap. It holds one sorted set per capped person,
+    // so it stays off the shared CDP Valkey and the SES Valkey. Unset turns the cap off.
+    CDP_FREQUENCY_CAP_VALKEY_HOST: string
+    CDP_FREQUENCY_CAP_VALKEY_PORT: number
+    CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
+    CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
+
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
@@ -303,6 +310,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_RATE_LIMITER_VALKEY_PORT: isDevEnv() ? 6390 : 6379,
         SES_RATE_LIMITER_VALKEY_PASSWORD: '',
         SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_FREQUENCY_CAP_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_FREQUENCY_CAP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
+        CDP_FREQUENCY_CAP_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,

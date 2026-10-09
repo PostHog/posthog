@@ -993,6 +993,26 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             f"{MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}."
         ),
     )
+    marketing_frequency_cap_max_messages = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1000,
+        help_text=(
+            "Most marketing messages one person can get in the window, across all workflows. "
+            "Set this together with marketing_frequency_cap_window_days. Set both to null to turn the cap off."
+        ),
+    )
+    marketing_frequency_cap_window_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=30,
+        help_text=(
+            "Length of the rolling frequency cap window in days. "
+            "Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
@@ -1001,6 +1021,8 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
+            "marketing_frequency_cap_max_messages",
+            "marketing_frequency_cap_window_days",
         ]
 
     def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
@@ -1030,6 +1052,28 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         return self._enforce_self_serve_ceiling(
             "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
         )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # As a nested field of the team serializer there is no stored row to merge a partial update with.
+        # validate_team_workflows_config runs this serializer again with the row, and that run does the check.
+        if self.parent:
+            return attrs
+        cap_fields = ("marketing_frequency_cap_max_messages", "marketing_frequency_cap_window_days")
+        cap = {field: attrs[field] for field in cap_fields if field in attrs}
+        if len(cap) == 1 and self.instance is not None:
+            # Read the stored row, because `Team.workflows_config` is a cached_property on the Team instance
+            # and can hold values from before an earlier update.
+            stored = TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values(*cap_fields).first() or {}
+            cap = {**stored, **cap}
+        # The worker treats either null as no cap, so a half-set cap would save but never apply.
+        if cap:
+            missing = [field for field in cap_fields if cap.get(field) is None]
+            if len(missing) == 1:
+                other = next(field for field in cap_fields if field != missing[0])
+                raise serializers.ValidationError(
+                    {missing[0]: f"Set this together with {other}, or set both to null to turn the frequency cap off."}
+                )
+        return attrs
 
 
 def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
