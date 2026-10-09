@@ -123,3 +123,39 @@ def bulk_opt_out(
     team_id: int, entries: list[BulkOptOutEntry], default_category_key: str | None, created_by_id: int | None
 ) -> BulkOptOutResult:
     return OptOutService(team_id=team_id, created_by_id=created_by_id).opt_out_recipients(entries, default_category_key)
+
+
+def category_ids(team_id: int) -> set[str]:
+    return {
+        str(category_id)
+        for category_id in MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list("id", flat=True)
+    }
+
+
+def marketing_categories(team_id: int) -> QuerySet[MessageCategory]:
+    return MessageCategory.objects.filter(deleted=False, team=team_id, category_type="marketing").order_by("name")
+
+
+def get_or_create_recipient(team_id: int, identifier: str) -> MessageRecipientPreference:
+    recipient, _ = MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+    return recipient
+
+
+def recipient_or_none(team_id: int, identifier: str) -> MessageRecipientPreference | None:
+    return MessageRecipientPreference.objects.filter(team_id=team_id, identifier=identifier).first()
+
+
+def set_preferences_column(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
+    recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+    recipient.preferences = preferences
+    recipient.save(update_fields=["preferences"])
+
+
+def replace_preferences(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
+    try:
+        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
+    except MessageRecipientPreference.DoesNotExist:
+        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
+    # Update all preferences with a single DB write
+    recipient.preferences = preferences
+    recipient.save()

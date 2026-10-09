@@ -2,15 +2,31 @@
 
 from collections.abc import Iterator, Sequence
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.models import message_preferences as preference_model
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-from products.messaging.backend.services import preferences as preferences_service
+from products.messaging.backend.services import (
+    customerio_sync_service,
+    preferences as preferences_service,
+)
 from products.messaging.backend.services.lazy_list import LazyList
 from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, UnknownCategoryError
+
+ALL_MESSAGE_PREFERENCE_CATEGORY_ID: str = preference_model.ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+EMAIL_TRACKING_PREFERENCE_ID: str = preference_model.EMAIL_TRACKING_PREFERENCE_ID
+
+
+class PreferenceStatus(StrEnum):
+    """The stored value of one preference. Mirrors the model's choices."""
+
+    OPTED_IN = "OPTED_IN"
+    OPTED_OUT = "OPTED_OUT"
+    NO_PREFERENCE = "NO_PREFERENCE"
 
 
 class MessageCategoryNotFound(Exception):
@@ -106,3 +122,58 @@ def bulk_opt_out(
     return BulkOptOutOutcome(
         total=result.total, opted_out=result.opted_out, skipped=result.skipped, errors=result.errors
     )
+
+
+@frozen
+class CategoryOption:
+    id: UUID
+    name: str
+    public_description: str
+
+
+def preference_status(preferences: dict[str, Any], category_id: str) -> PreferenceStatus:
+    """The status stored for one category. Raises ValueError for a value that is not a status."""
+    return PreferenceStatus(preferences.get(str(category_id), PreferenceStatus.NO_PREFERENCE.value))
+
+
+def all_preference_statuses(preferences: dict[str, Any]) -> dict[str, PreferenceStatus]:
+    """Every stored status by category id. Raises ValueError for a value that is not a status."""
+    return {str(category_id): PreferenceStatus(status) for category_id, status in preferences.items()}
+
+
+def category_ids(team_id: int) -> set[str]:
+    """Ids of the team's categories that are not deleted, of every type."""
+    return preferences_service.category_ids(team_id)
+
+
+def marketing_categories(team_id: int) -> list[CategoryOption]:
+    """The team's marketing categories that are not deleted, by name."""
+    return [
+        CategoryOption(id=c.id, name=c.name, public_description=c.public_description)
+        for c in preferences_service.marketing_categories(team_id)
+    ]
+
+
+def get_or_create_recipient(team_id: int, identifier: str) -> RecipientPreferences:
+    return _to_contract(preferences_service.get_or_create_recipient(team_id, identifier))
+
+
+def recipient_preferences(team_id: int, identifier: str) -> dict[str, Any] | None:
+    """The recipient's stored preferences, or None when the team has no row for them."""
+    row = preferences_service.recipient_or_none(team_id, identifier)
+    return None if row is None else row.preferences
+
+
+def set_preferences_column(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
+    """Overwrite an existing recipient's preferences. Writes only that column, so updated_at stays."""
+    preferences_service.set_preferences_column(team_id, identifier, preferences)
+
+
+def replace_preferences(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
+    """Overwrite the recipient's preferences with one full save, creating the row when it is missing."""
+    preferences_service.replace_preferences(team_id, identifier, preferences)
+
+
+def sync_to_customerio(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
+    """Push the preferences to Customer.io now, when the team has track sync enabled."""
+    customerio_sync_service.sync_preferences_to_customerio(team_id, identifier, preferences)
