@@ -63,7 +63,6 @@ describe('reviewHogSettingsLogic', () => {
                     200,
                     {
                         review_inbox_prs: false,
-                        review_labeled_prs: true,
                         resolve_comments: true,
                         urgency_threshold: 'should_fix',
                     },

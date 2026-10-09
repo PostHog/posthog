@@ -18,16 +18,21 @@ import { expect } from 'storybook/test'
 import { CodeReviewScene } from './CodeReviewScene'
 
 const defaultSettings: ReviewUserSettingsApi = {
+    default_review_mode: 'follow',
+    resolve_comments: false,
+    urgency_threshold: 'consider',
+    celebrate_clean_reviews: true,
     review_inbox_prs: false,
     stamphog_review_inbox_prs: false,
-    review_labeled_prs: true,
-    resolve_comments: true,
-    celebrate_clean_reviews: true,
-    review_authored_prs: false,
-    flash_reasoning_effort: 'medium',
-    urgency_threshold: 'consider',
-    can_trigger_reviews: true,
-    show_internal_features: false,
+    sources: {
+        default_review_mode: 'default',
+        resolve_comments: 'default',
+        urgency_threshold: 'default',
+        celebrate_clean_reviews: 'default',
+        review_inbox_prs: 'default',
+        stamphog_review_inbox_prs: 'default',
+    },
+    project_defaults: { urgency_threshold: 'consider', celebrate_clean_reviews: true },
     stamphog_connected: false,
 }
 
@@ -47,8 +52,6 @@ const meta: Meta<typeof CodeReviewScene> = {
         (Story, context): JSX.Element => {
             let settings: ReviewUserSettingsApi = {
                 ...defaultSettings,
-                show_internal_features: context.parameters.showInternalFeatures ?? false,
-                stamphog_connected: context.parameters.showInternalFeatures ?? false,
                 ...context.parameters.savedSettings,
             }
             return mswDecorator({
@@ -91,7 +94,6 @@ export const Default: Story = {
         await expect(await canvas.findByText('Review a pull request')).toBeVisible()
         await expect(canvas.queryByLabelText('Review all your Inbox PRs')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Let Stamphog review your Inbox PRs')).not.toBeInTheDocument()
-        await expect(canvas.queryByLabelText('Review all your PRs with the reviewhog label')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on your PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Celebrate clean reviews')).toBeVisible()
@@ -99,12 +101,14 @@ export const Default: Story = {
 }
 
 export const InternalFeatures: Story = {
-    parameters: { showInternalFeatures: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
+        savedSettings: { stamphog_connected: true },
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByLabelText('Review all your Inbox PRs')).toBeVisible()
         await expect(canvas.getByLabelText('Let Stamphog review your Inbox PRs')).toBeVisible()
-        await expect(canvas.getByLabelText('Review all your PRs with the reviewhog label')).toBeVisible()
         await expect(canvas.getByLabelText('Review all your PRs in Flash mode')).toBeVisible()
     },
 }
@@ -119,7 +123,6 @@ export const SavedInboxOptIns: Story = {
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()
-        await expect(canvas.queryByLabelText('Review all your PRs with the reviewhog label')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Review all your PRs in Flash mode')).not.toBeInTheDocument()
     },
 }

@@ -3,8 +3,6 @@ from dataclasses import replace
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
@@ -15,6 +13,8 @@ from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
 from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_UI
 from products.signals.backend.models import SignalReport
+
+_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 _MODULE = "products.review_hog.backend.temporal.activities"
 
@@ -131,7 +131,7 @@ class TestFetchDecidesTheTier(BaseTest):
             pr_metadata=_pr_metadata(), pr_comments=[], pr_files=[], diff=""
         )
 
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
+        with patch(_INTERNAL_FLAG, return_value=True):
             fetch_input = FetchPRDataInput(
                 team_id=self.team.id,
                 user_id=1,
