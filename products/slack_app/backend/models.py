@@ -125,6 +125,19 @@ class UntaggedFollowupMode(models.TextChoices):
     NEVER = "never", "Never pick it up"
 
 
+class UnpromptedAnswerMode(models.TextChoices):
+    """What PostHog does with a top-level channel message its author did not tag the app in.
+
+    Read from the author's own settings row, so one person's choice never changes what
+    happens to anyone else's messages. An unset row resolves to ``ASK``: PostHog first
+    shows the author a private prompt and answers only after they confirm.
+    """
+
+    AUTO = "auto", "Answer automatically"
+    ASK = "ask", "Ask me first"
+    OFF = "off", "Never answer"
+
+
 class ChannelWelcomeMode(models.TextChoices):
     """Where the greeting goes when someone adds the app to a channel.
 
@@ -181,6 +194,14 @@ class SlackSettings(UUIDModel):
         blank=True,
         choices=UntaggedFollowupMode.choices,
         help_text="What PostHog does with untagged replies in threads this user started.",
+    )
+    # NULL means the user has never picked, which resolves to ``ASK``.
+    unprompted_answer_mode = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=UnpromptedAnswerMode.choices,
+        help_text="What PostHog does with this user's top-level channel messages that do not tag the app.",
     )
     # Only read on the workspace-wide row. NULL resolves to ``CHANNEL``.
     channel_welcome_mode = models.CharField(

@@ -33,11 +33,16 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_model_router_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_unprompted_answers_enabled,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
     SlackUserProfileCache,
+    UnpromptedAnswerMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
@@ -72,9 +77,11 @@ from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
     resolve_auto_model_choice,
     resolve_channel_welcome_mode,
+    resolve_unprompted_answer_mode,
     resolve_untagged_followup_mode,
     set_auto_model_choice,
     set_channel_welcome_mode,
+    set_unprompted_answer_mode,
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
@@ -101,6 +108,7 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+ACTION_SET_UNPROMPTED_ANSWER_MODE = "slack_app_home:set_unprompted_answer_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
@@ -128,6 +136,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_SET_UNPROMPTED_ANSWER_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
         ACTION_GITHUB_SETTINGS,
@@ -441,6 +450,7 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    unprompted_answer_mode: UnpromptedAnswerMode | None = None,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
     auto_model_choice: bool | None = None,
     has_project_access: bool = True,
@@ -489,6 +499,11 @@ def render_home_view(
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+
+    # `None` means the `slack-app-unprompted-answers` flag is off for this viewer.
+    if unprompted_answer_mode is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_unprompted_answers_section_blocks(unprompted_answer_mode))
 
     # Section 5 — channel welcome: a workspace setting, so only admins see it.
     if is_admin and channel_welcome_mode is not None:
@@ -977,6 +992,46 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
+        },
+    ]
+
+
+UNPROMPTED_ANSWER_MODE_LABELS: dict[str, str] = {
+    UnpromptedAnswerMode.AUTO: "Answer automatically",
+    UnpromptedAnswerMode.ASK: "Ask me first",
+    UnpromptedAnswerMode.OFF: "Never answer",
+}
+
+
+def _unprompted_answers_section_blocks(mode: UnpromptedAnswerMode) -> list[dict]:
+    """Picker for what happens to your channel messages that don't tag @PostHog.
+
+    Ask until picked. Only your own messages are covered.
+    """
+    options = [
+        {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
+        for value, label in UNPROMPTED_ANSWER_MODE_LABELS.items()
+    ]
+    select: dict[str, Any] = {
+        "type": "static_select",
+        "action_id": ACTION_SET_UNPROMPTED_ANSWER_MODE,
+        "options": options,
+        "initial_option": next(o for o in options if o["value"] == mode.value),
+    }
+    return [
+        _section_title(
+            "🙋 Questions in channels",
+            "What I do when you post a question in a channel without tagging @PostHog and I can answer it from your product data.",
+        ),
+        {"type": "actions", "elements": [select]},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": 'With "Ask me first", only you see my offer. Only your own messages are covered.',
+                }
+            ],
         },
     ]
 
@@ -1700,6 +1755,13 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_UNPROMPTED_ANSWER_MODE:
+        # A stale view must not change a setting the flag no longer exposes to this viewer.
+        if _unprompted_answers_offered(integration, slack_user_id):
+            _apply_unprompted_answer_mode_pick(integration, slack_user_id, action)
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_AUTO_MODEL_CHOICE:
         # A stale view must not turn the router on for someone the flag no longer covers.
         if _auto_model_choice_offered(integration, slack_user_id):
@@ -2083,6 +2145,15 @@ def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: 
     )
 
 
+def _apply_unprompted_answer_mode_pick(integration: Integration, slack_user_id: str, action: dict) -> None:
+    """Persist the picked mode. An unrecognised value is ignored rather than stored."""
+
+    picked = (action.get("selected_option") or {}).get("value")
+    if picked not in UnpromptedAnswerMode.values:
+        return
+    set_unprompted_answer_mode(integration.integration_id, slack_user_id, UnpromptedAnswerMode(picked))
+
+
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
     """Clear the personal routing override; drop the row once it holds nothing else."""
 
@@ -2092,7 +2163,7 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode and not row.auto_model_choice:
+    if not row.untagged_followup_mode and not row.unprompted_answer_mode and not row.auto_model_choice:
         row.delete()
         return
     row.default_integration = None
@@ -2153,6 +2224,11 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        unprompted_answer_mode=(
+            resolve_unprompted_answer_mode(integration.integration_id, slack_user_id)
+            if _unprompted_answers_offered(integration, slack_user_id)
+            else None
+        ),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
             resolve_auto_model_choice(integration.integration_id, slack_user_id)
@@ -2411,6 +2487,13 @@ def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> 
     if home_user is None:
         return False
     return is_slack_app_model_router_enabled(integration, distinct_id=home_user.distinct_id)
+
+
+def _unprompted_answers_offered(integration: Integration, slack_user_id: str) -> bool:
+    home_user = _resolve_home_user(integration, slack_user_id)
+    if home_user is None:
+        return False
+    return is_slack_app_unprompted_answers_enabled(integration, distinct_id=home_user.distinct_id)
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:

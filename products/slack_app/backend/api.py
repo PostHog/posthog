@@ -62,6 +62,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_project_picker_enabled,
+    is_slack_app_unprompted_answers_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import (
@@ -69,6 +70,7 @@ from products.slack_app.backend.models import (
     SlackChannel,
     SlackSettings,
     SlackThreadTaskMapping,
+    UnpromptedAnswerMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services import (
@@ -111,7 +113,9 @@ from products.slack_app.backend.services.slack_messages import (
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
+    resolve_unprompted_answer_mode,
     resolve_untagged_followup_mode,
+    set_unprompted_answer_mode,
 )
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
@@ -196,6 +200,18 @@ UNTAGGED_FOLLOWUP_BLOCK_ID_PREFIX = "posthog_code_untagged_followup"
 UNTAGGED_FOLLOWUP_ACTION_RUN = "posthog_code_untagged_followup_run"
 UNTAGGED_FOLLOWUP_ACTION_DISMISS = "posthog_code_untagged_followup_dismiss"
 UNTAGGED_FOLLOWUP_CONTEXT_KIND = "untagged_followup"
+UNPROMPTED_ANSWER_BLOCK_ID_PREFIX = "posthog_code_unprompted_answer"
+UNPROMPTED_ANSWER_ACTION_RUN = "posthog_code_unprompted_answer_run"
+UNPROMPTED_ANSWER_ACTION_DISMISS = "posthog_code_unprompted_answer_dismiss"
+UNPROMPTED_ANSWER_ACTION_TURN_OFF = "posthog_code_unprompted_answer_turn_off"
+UNPROMPTED_ANSWER_CONTEXT_KIND = "unprompted_answer"
+# Cheap bounds on a top-level post worth asking the classifier about.
+UNPROMPTED_QUESTION_MIN_CHARS = 12
+UNPROMPTED_QUESTION_MAX_CHARS = 2000
+_QUESTION_OPENER_PATTERN = re.compile(
+    r"^(how|what|why|when|where|which|who|whose|is|are|was|were|can|could|does|do|did|should|would|will|has|have|any|anyone|anybody)\b",
+    re.IGNORECASE,
+)
 
 _MAX_GITHUB_REPOS = 500
 REPO_LIST_CACHE_TTL_SECONDS = 300
@@ -2449,6 +2465,109 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     return ROUTE_HANDLED_LOCALLY
 
 
+def _unprompted_question_ignore_reason(event: dict[str, Any]) -> str | None:
+    """Why a top-level post nobody tagged the app in can't be a question for PostHog, else None.
+
+    Text-only checks, because every top-level post in every channel the app is in comes through
+    here. The classifier makes the real decision later, on the few posts that pass.
+    """
+    # ``group`` is a private channel. Group DMs (``mpim``) are private conversations between people.
+    if event.get("channel_type") not in ("channel", "group"):
+        return "channel_type"
+    text = (event.get("text") or "").strip()
+    if not text:
+        return "no_text"
+    if not UNPROMPTED_QUESTION_MIN_CHARS <= len(text) <= UNPROMPTED_QUESTION_MAX_CHARS:
+        return "length"
+    # A tag of the app arrives as its own ``app_mention``. A tag of anyone else, a user group or
+    # the whole channel addresses them, not PostHog.
+    if "<@" in text or "<!" in text:
+        return "addresses_someone"
+    if "?" not in text and not _QUESTION_OPENER_PATTERN.match(text):
+        return "not_a_question"
+    return None
+
+
+def _route_unprompted_question(
+    request: HttpRequest,
+    event: dict[str, Any],
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str,
+    can_defer: bool,
+    is_ext_shared_channel: bool,
+) -> str:
+    """Start the classifier workflow for a top-level channel post nobody tagged the app in.
+
+    Every drop here is silent: nobody asked PostHog anything, so nobody waits for an answer.
+    Externally shared channels are out, because people outside the organization would see the reply.
+    """
+    if is_ext_shared_channel or _unprompted_question_ignore_reason(event) is not None:
+        return ROUTE_HANDLED_LOCALLY
+    slack_user_id = str(event.get("user") or "")
+    channel = event.get("channel") if isinstance(event.get("channel"), str) else None
+    # One indexed lookup that needs no integration, ahead of the integration and Slack calls.
+    if resolve_unprompted_answer_mode(slack_team_id, slack_user_id) == UnpromptedAnswerMode.OFF:
+        return ROUTE_HANDLED_LOCALLY
+
+    workspace_result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+        channel=channel,
+    )
+    region_route = resolve_region_or_terminal_route(
+        request,
+        slack_team_id,
+        candidates_present=bool(workspace_result.candidates),
+        kinds=[SLACK_INTEGRATION_KIND],
+        proxied=proxied,
+        other_domain=other_domain,
+        incoming_host=incoming_host,
+        can_defer=can_defer,
+    )
+    if region_route is not None:
+        return region_route
+
+    resolution = resolve_user_for_workspace(
+        workspace_result=workspace_result,
+        slack_team_id=slack_team_id,
+        slack_user_id=slack_user_id,
+        event_id=event_id,
+    )
+    posthog_user = resolution.user
+    if posthog_user is None:
+        return ROUTE_HANDLED_LOCALLY
+    candidates = resolution.candidates
+    # No picker: asking which project a question nobody addressed to us belongs to is noise.
+    target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
+    if target is None:
+        return ROUTE_HANDLED_LOCALLY
+    if not is_slack_app_unprompted_answers_enabled(target, distinct_id=posthog_user.distinct_id):
+        return ROUTE_HANDLED_LOCALLY
+    if SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
+        return ROUTE_HANDLED_LOCALLY
+
+    logger.info(
+        "slack_app_unprompted_question_dispatched",
+        slack_team_id=slack_team_id,
+        integration_id=target.id,
+        channel=channel,
+        message_ts=event.get("ts"),
+    )
+    return _start_mention_workflow(
+        event,
+        target,
+        slack_team_id,
+        event_id,
+        posthog_user=posthog_user,
+        unprompted_question=True,
+    )
+
+
 def _dispatch_mention_to_target(
     event: dict,
     mention_target: Integration,
@@ -2703,9 +2822,20 @@ def route_posthog_code_event_to_relevant_region(
                     message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
-            # Top-level channel posts dominate the wire volume; drop before the pipeline's DB hits.
+            # Top-level channel posts dominate the wire volume, so they leave the shared pipeline
+            # here and face cheap gates before any DB hit.
             if _is_top_level_channel_post(event):
-                return ROUTE_HANDLED_LOCALLY
+                return _route_unprompted_question(
+                    request,
+                    event,
+                    slack_team_id,
+                    event_id,
+                    proxied=proxied,
+                    incoming_host=incoming_host,
+                    other_domain=other_domain,
+                    can_defer=can_defer_to_other_region,
+                    is_ext_shared_channel=is_ext_shared_channel,
+                )
 
         slack_user_id_str = str(event.get("user") or "")
         channel_str = event.get("channel") if isinstance(event.get("channel"), str) else None
@@ -3687,6 +3817,198 @@ def _post_untagged_followup_prompt(
     return True
 
 
+def _post_unprompted_answer_prompt(slack: SlackIntegration, integration: Integration, event: dict[str, Any]) -> bool:
+    """Offer the author, privately, to answer the question they posted without tagging the app.
+
+    Posted when the author's mode is ``ask``. The whole event is stashed behind a one-off
+    token so a click dispatches the original message. Not threaded: the post has no thread
+    yet, so an ephemeral anchored to one would never be seen.
+    """
+    channel = event.get("channel") if isinstance(event.get("channel"), str) else None
+    slack_user_id = event.get("user") if isinstance(event.get("user"), str) else None
+    if not channel or not slack_user_id:
+        logger.warning("slack_app_unprompted_answer_prompt_skipped", integration_id=integration.id)
+        return False
+
+    context_token = uuid.uuid4().hex
+    cache.set(
+        _picker_context_cache_key(context_token),
+        {
+            "kind": UNPROMPTED_ANSWER_CONTEXT_KIND,
+            "integration_id": integration.id,
+            "slack_workspace_id": integration.integration_id,
+            "slack_channel_id": channel,
+            "slack_user_id": slack_user_id,
+            "event": event,
+            "created_at": int(time.time()),
+        },
+        timeout=PICKER_TOKEN_MAX_AGE_SECONDS,
+    )
+
+    home_tab_url = app_home_url(integration)
+    home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "block_id": f"{UNPROMPTED_ANSWER_BLOCK_ID_PREFIX}:{context_token}",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "I think I can answer your question from your PostHog data. Want me to reply in a thread? "
+                    "Only you can see this."
+                ),
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": f"{UNPROMPTED_ANSWER_BLOCK_ID_PREFIX}_actions:{context_token}",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": UNPROMPTED_ANSWER_ACTION_RUN,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Yes, answer it"},
+                    "value": context_token,
+                },
+                {
+                    "type": "button",
+                    "action_id": UNPROMPTED_ANSWER_ACTION_DISMISS,
+                    "text": {"type": "plain_text", "text": "No thanks"},
+                    "value": context_token,
+                },
+                {
+                    "type": "button",
+                    "action_id": UNPROMPTED_ANSWER_ACTION_TURN_OFF,
+                    "text": {"type": "plain_text", "text": "Stop offering"},
+                    "value": context_token,
+                },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"You can change this in the {home_tab_label}."}],
+        },
+    ]
+
+    try:
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            text="PostHog can answer your question. Want a reply?",
+            blocks=blocks,
+        )
+    except Exception:
+        logger.warning(
+            "slack_app_unprompted_answer_prompt_failed",
+            integration_id=integration.id,
+            slack_channel_id=channel,
+            exc_info=True,
+        )
+        return False
+    capture_slack_event(integration, "slack app unprompted answer offered", slack_user_id=slack_user_id)
+    return True
+
+
+def _unprompted_answer_click(payload: dict) -> tuple[str, dict[str, Any], Integration] | None:
+    """The live prompt context and its integration, or None when the prompt is stale or not the clicker's."""
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    if not context or context.get("kind") != UNPROMPTED_ANSWER_CONTEXT_KIND:
+        return None
+    slack_team_id = payload.get("team", {}).get("id", "")
+    integration_id = context.get("integration_id")
+    # The prompt is ephemeral, so only its recipient can click it, but the dispatch runs as the clicker.
+    if not integration_id or not slack_team_id or payload.get("user", {}).get("id") != context.get("slack_user_id"):
+        return None
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team__organization")
+        .first()
+    )
+    if integration is None:
+        return None
+    return context_token, context, integration
+
+
+def _handle_unprompted_answer_run(payload: dict) -> HttpResponse:
+    """Answer the question the author just confirmed, then clear the prompt."""
+    response_url = payload.get("response_url", "")
+    click = _unprompted_answer_click(payload)
+    if click is None:
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    context_token, context, integration = click
+    slack_user_id = context["slack_user_id"]
+    event = context.get("event")
+
+    # The confirmed run skips the gates the webhook and the workflow already applied, so the
+    # ones that can change while the prompt waits are checked again here.
+    posthog_user = _is_org_member(integration, slack_user_id)
+    if (
+        not isinstance(event, dict)
+        or posthog_user is None
+        or not _can_access_team(posthog_user, integration)
+        or resolve_unprompted_answer_mode(integration.integration_id, slack_user_id) == UnpromptedAnswerMode.OFF
+    ):
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+
+    cache.delete(_picker_context_cache_key(context_token))
+    _start_mention_workflow(
+        event,
+        integration,
+        integration.integration_id,
+        None,
+        posthog_user=posthog_user,
+        unprompted_question=True,
+        unprompted_answer_confirmed=True,
+    )
+    capture_slack_event(
+        integration, "slack app unprompted answer confirmed", slack_user_id=slack_user_id, posthog_user=posthog_user
+    )
+    _delete_ephemeral_via_response_url(response_url)
+    return HttpResponse(status=200)
+
+
+def _handle_unprompted_answer_dismiss(payload: dict) -> HttpResponse:
+    """Drop the offer. The choice covers this one message, so nothing is stored."""
+    click = _unprompted_answer_click(payload)
+    _delete_ephemeral_via_response_url(payload.get("response_url", ""))
+    if click is not None:
+        context_token, context, integration = click
+        cache.delete(_picker_context_cache_key(context_token))
+        capture_slack_event(
+            integration, "slack app unprompted answer dismissed", slack_user_id=context["slack_user_id"]
+        )
+    return HttpResponse(status=200)
+
+
+def _handle_unprompted_answer_turn_off(payload: dict) -> HttpResponse:
+    """Turn unprompted answers off for the clicker, and say where to turn them back on."""
+    response_url = payload.get("response_url", "")
+    click = _unprompted_answer_click(payload)
+    if click is None:
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    context_token, context, integration = click
+    slack_user_id = context["slack_user_id"]
+    cache.delete(_picker_context_cache_key(context_token))
+    set_unprompted_answer_mode(integration.integration_id, slack_user_id, UnpromptedAnswerMode.OFF)
+    capture_slack_event(integration, "slack app unprompted answers turned off", slack_user_id=slack_user_id)
+    inbox_interactivity.post_response_url(
+        response_url,
+        {
+            "replace_original": True,
+            "text": "Got it. I won't offer to answer your messages anymore. You can turn this back on in the PostHog app Home tab.",
+        },
+    )
+    return HttpResponse(status=200)
+
+
 def _can_access_team(posthog_user: User, integration: Integration) -> bool:
     """Whether the user can reach the integration's project.
 
@@ -4021,6 +4343,8 @@ def _start_mention_workflow(
     posthog_user: User,
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
+    unprompted_question: bool = False,
+    unprompted_answer_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
     awaited_request_reply: bool = False,
     fork_source_channel: str | None = None,
@@ -4042,10 +4366,11 @@ def _start_mention_workflow(
     The ``fork_source_*`` fields mark a forked run, where the thread being answered
     (a DM) and the thread supplying the context (the forked channel thread) differ.
     They suppress the same two side effects: nobody mentioned us, and a reply in a
-    forked DM can't be resolving a picker.
+    forked DM can't be resolving a picker. ``unprompted_question`` suppresses them
+    for the same reason, and makes the workflow ask its classifier first.
     """
     is_fork = bool(fork_source_channel and fork_source_thread_ts)
-    if not untagged_followup and not is_fork:
+    if not untagged_followup and not unprompted_question and not is_fork:
         _report_slack_mention_received(
             event,
             integration,
@@ -4063,6 +4388,8 @@ def _start_mention_workflow(
         user_id=posthog_user.id,
         untagged_followup=untagged_followup,
         untagged_followup_confirmed=untagged_followup_confirmed,
+        unprompted_question=unprompted_question,
+        unprompted_answer_confirmed=unprompted_answer_confirmed,
         is_ext_shared_channel=is_ext_shared_channel,
         fork_source_channel=fork_source_channel,
         fork_source_thread_ts=fork_source_thread_ts,
@@ -5559,6 +5886,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_untagged_followup_run(payload)
             if action_id == UNTAGGED_FOLLOWUP_ACTION_DISMISS:
                 return _handle_untagged_followup_dismiss(payload)
+            if action_id == UNPROMPTED_ANSWER_ACTION_RUN:
+                return _handle_unprompted_answer_run(payload)
+            if action_id == UNPROMPTED_ANSWER_ACTION_DISMISS:
+                return _handle_unprompted_answer_dismiss(payload)
+            if action_id == UNPROMPTED_ANSWER_ACTION_TURN_OFF:
+                return _handle_unprompted_answer_turn_off(payload)
             if project_picker.is_project_picker_action(action_id):
                 return _handle_project_picker_pick(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:

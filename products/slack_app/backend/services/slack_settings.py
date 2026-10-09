@@ -1,6 +1,6 @@
 """Read helpers for per-(Slack workspace, Slack user) settings backed by
-`models.SlackSettings` (today: the untagged follow-up mode, the channel
-welcome mode and the automatic model choice), plus the shared
+`models.SlackSettings` (today: the untagged follow-up mode, the unprompted
+answer mode, the channel welcome mode and the automatic model choice), plus the shared
 AI-triple value object.
 
 Model preferences themselves live in the central tasks config
@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
+from products.slack_app.backend.models import ChannelWelcomeMode, UnpromptedAnswerMode, UntaggedFollowupMode
 
 if TYPE_CHECKING:
     from posthog.models.integration import Integration
@@ -61,6 +61,40 @@ def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str 
     if stored in UntaggedFollowupMode.values:
         return UntaggedFollowupMode(stored)
     return UntaggedFollowupMode.NEVER
+
+
+def resolve_unprompted_answer_mode(slack_workspace_id: str, slack_user_id: str | None) -> UnpromptedAnswerMode:
+    """Resolve what happens to this user's top-level channel messages that do not tag the app.
+
+    An absent row or empty column resolves to `ASK`. An unknown value resolves to `OFF`,
+    so a bad value never answers anyone.
+    """
+
+    if not slack_user_id:
+        return UnpromptedAnswerMode.OFF
+
+    from products.slack_app.backend.models import SlackSettings
+
+    row = (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("unprompted_answer_mode", flat=True)
+        .first()
+    )
+    if row is None:
+        return UnpromptedAnswerMode.ASK
+    if row in UnpromptedAnswerMode.values:
+        return UnpromptedAnswerMode(row)
+    return UnpromptedAnswerMode.OFF
+
+
+def set_unprompted_answer_mode(slack_workspace_id: str, slack_user_id: str, mode: UnpromptedAnswerMode) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"unprompted_answer_mode": mode.value},
+    )
 
 
 def resolve_channel_welcome_mode(slack_workspace_id: str) -> ChannelWelcomeMode:
@@ -124,7 +158,9 @@ __all__ = [
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",
+    "resolve_unprompted_answer_mode",
     "set_auto_model_choice",
+    "set_unprompted_answer_mode",
     "set_channel_welcome_mode",
     "resolve_untagged_followup_mode",
 ]

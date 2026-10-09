@@ -31,13 +31,13 @@ def enforce_posthog_code_billing_quota_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    # An untagged reply has asked PostHog for nothing yet, because both the classifier
-    # and the confirmation prompt run after this gate. The denial goes into the thread
+    # An untagged reply or an unprompted channel question has asked PostHog for nothing
+    # yet, because both the classifier and the confirmation prompt run after this gate. The denial goes into the thread
     # where everyone in the channel reads it, so an over-quota team would collect one
     # under every reply people write in a thread PostHog owns, chitchat included. Stop
     # the run without the message and keep the message for a mention or a confirmed
     # reply, which are the turns that asked for work.
-    unrequested = inputs.untagged_followup and not inputs.untagged_followup_confirmed
+    unrequested = inputs.unaddressed
     blocked = block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -49,7 +49,7 @@ def enforce_posthog_code_billing_quota_activity(
     )
     if blocked and unrequested:
         logger.info(
-            "slack_app_untagged_followup_dropped_over_quota",
+            "slack_app_unaddressed_message_dropped_over_quota",
             team_id=integration.team_id,
             channel=channel,
             thread_ts=thread_ts,

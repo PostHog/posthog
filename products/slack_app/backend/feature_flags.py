@@ -49,6 +49,7 @@ SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
 SLACK_APP_MODEL_ROUTER_FLAG = "slack-app-model-router"
+SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -144,6 +145,18 @@ def is_slack_app_model_router_enabled(integration: Integration, distinct_id: str
         SLACK_APP_MODEL_ROUTER_FLAG,
         integration,
         failure_log_key="slack_app_model_router_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_unprompted_answers_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+    """Gate for answering top-level channel messages nobody tagged the app in, and for the
+    App Home setting that controls it. Keyed on the author when ``distinct_id`` is given, so a
+    rollout can name people the way every other one does."""
+    return _workspace_flag_enabled(
+        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
+        integration,
+        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 

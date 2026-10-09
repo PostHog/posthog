@@ -4,8 +4,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
-from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
+from products.slack_app.backend.models import SlackSettings, UnpromptedAnswerMode, UntaggedFollowupMode
+from products.slack_app.backend.services.slack_settings import (
+    resolve_unprompted_answer_mode,
+    resolve_untagged_followup_mode,
+)
 
 
 @pytest.fixture
@@ -52,3 +55,24 @@ class TestResolveUntaggedFollowupMode:
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
         assert resolve_untagged_followup_mode(integration, "U001") == UntaggedFollowupMode.ASK
+
+
+class TestResolveUnpromptedAnswerMode:
+    @pytest.mark.parametrize(
+        "stored,expected",
+        [
+            (UnpromptedAnswerMode.AUTO, UnpromptedAnswerMode.AUTO),
+            (UnpromptedAnswerMode.OFF, UnpromptedAnswerMode.OFF),
+            (None, UnpromptedAnswerMode.ASK),
+            ("retired-value", UnpromptedAnswerMode.OFF),
+        ],
+    )
+    def test_stored_value_governs_with_ask_as_the_default(self, db, stored, expected):
+        SlackSettings.objects.create(slack_workspace_id="T_WS", slack_user_id="U001", unprompted_answer_mode=stored)
+        assert resolve_unprompted_answer_mode("T_WS", "U001") == expected
+
+    def test_another_users_choice_does_not_leak(self, db):
+        SlackSettings.objects.create(
+            slack_workspace_id="T_WS", slack_user_id="U002", unprompted_answer_mode=UnpromptedAnswerMode.AUTO
+        )
+        assert resolve_unprompted_answer_mode("T_WS", "U001") == UnpromptedAnswerMode.ASK
