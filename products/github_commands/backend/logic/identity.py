@@ -81,12 +81,15 @@ def _member_team_ids(user: User, installation_id: str) -> tuple[int, ...]:
     teams_by_id = {team.id: team for team in teams}
     permissions = UserPermissions(user)
     organizations = {team.organization_id: team.organization for team in teams_by_id.values()}
-    # The product APIs refuse a member whose email is outside the organization's enforced verified
-    # domains, so a comment must not reach those projects either.
+    # The product APIs refuse an organization that is pending deletion or inactive, and a member
+    # whose email is outside its enforced verified domains, so a comment must not reach those
+    # projects either.
     blocked_organization_ids = {
         organization_id
         for organization_id, organization in organizations.items()
-        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
+        if organization.is_pending_deletion
+        or not organization.is_active
+        or OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
     }
     return tuple(
         team_id

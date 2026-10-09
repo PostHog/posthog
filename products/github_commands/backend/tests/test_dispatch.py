@@ -344,7 +344,9 @@ class TestDispatchCommentCommand(BaseTest):
         assert outcome.message == expected_message
         assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
 
-    @parameterized.expand([("environment_of_a_denied_project",), ("unverified_email_domain",)])
+    @parameterized.expand(
+        [("environment_of_a_denied_project",), ("unverified_email_domain",), ("organization_pending_deletion",)]
+    )
     def test_a_member_the_product_apis_would_refuse_gets_no_project(self, case: str) -> None:
         if case == "environment_of_a_denied_project":
             self.organization.available_product_features = [
@@ -357,6 +359,9 @@ class TestDispatchCommentCommand(BaseTest):
             create_access_control(
                 team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
             )
+        elif case == "organization_pending_deletion":
+            self.organization.is_pending_deletion = True
+            self.organization.save(update_fields=["is_pending_deletion"])
         else:
             OrganizationDomain.objects.create(
                 organization=self.organization, domain="verified-example.com", verified_at=timezone.now()

@@ -69,7 +69,7 @@ The defenses do not depend on an agent ignoring instructions:
   Quoted replies and the lines that continue them, code blocks (list-nested fences too), tab-indented code, `<pre>` and similar HTML blocks, HTML blockquotes, inline code and HTML comments never count, so text that shows or repeats a command does not run it.
 - The command's argument is the commenter's own words, cleaned of control and invisible characters and capped in length. It is treated as their instruction, because the run uses their access.
 - Handlers pass identifiers, never the pull request title, body or other comments. The product reads that content itself and treats it as untrusted.
-- The pull request's branch name goes into prompts and payloads, so a command runs only when the name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`.
+- A command runs only when the pull request's branch name is a plain identifier: letters, digits, `.`, `_`, `/` and `-`. Even then, the name never goes into a prompt or a loop payload. Only the head commit SHA does, and the QA task gets the branch as checkout data.
 - Fork pull requests are refused by every command that runs or reviews code.
 - The QA task gets the head commit seen at request time, and is told to stop if the branch moved since.
 - A loop fires only for its owner, because a loop runs with its owner's credentials and its payload becomes part of its prompt.

@@ -127,7 +127,7 @@ def build_qa_instructions(context: CommandContext, focus: str) -> str:
     pull_request = context.pull_request
     lines = [
         f"Run the `qa-frontend` skill in PR mode on {pull_request.url}.",
-        f"Check out branch `{pull_request.head_branch}` and confirm that HEAD is commit `{pull_request.head_sha}`.",
+        f"Check out the pull request's head and confirm HEAD is commit `{pull_request.head_sha}`.",
         "If HEAD is a different commit, stop and report that the branch moved after the request.",
         f"@{context.request.commenter_login} asked for this run from a pull request comment, "
         "so you have their approval to upload evidence and post one QA report comment on the pull request.",
@@ -203,7 +203,6 @@ def _loop_payload(context: CommandContext) -> dict[str, object]:
             "number": pull_request.number,
             "url": pull_request.url,
             "head_sha": pull_request.head_sha,
-            "head_branch": pull_request.head_branch,
         },
         "requested_by": context.request.commenter_login,
         "comment_url": context.request.comment_url,
