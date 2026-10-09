@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
-use crate::pipeline::{self, Address, Lane};
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane};
 
 /// Kafka topic routing for a processed event.
 /// `Drop` means the event should not be produced at all.
@@ -109,16 +109,16 @@ impl Destination {
     /// The output address this destination publishes to. `None` for `Drop`,
     /// which is never published.
     pub fn address(&self) -> Option<Address> {
-        let lane = |pipeline, lane| Some(Address::Lane { pipeline, lane });
+        let lane = |lane| Some(Address::Lane(lane));
         match self {
-            Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
-            Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
-            Self::Overflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
-            Self::AiEvents => lane(pipeline::Pipeline::Ai, Lane::Main),
-            Self::AiEventsOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
-            Self::ExceptionErrorTracking => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
-            Self::HeatmapMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
-            Self::ClientIngestionWarning => lane(pipeline::Pipeline::Warnings, Lane::Main),
+            Self::AnalyticsMain => lane(PipelineLane::Analytics(AnalyticsLane::Main)),
+            Self::AnalyticsHistorical => lane(PipelineLane::Analytics(AnalyticsLane::Historical)),
+            Self::Overflow => lane(PipelineLane::Analytics(AnalyticsLane::Overflow)),
+            Self::AiEvents => lane(PipelineLane::Ai(AiLane::Main)),
+            Self::AiEventsOverflow => lane(PipelineLane::Ai(AiLane::Overflow)),
+            Self::ExceptionErrorTracking => lane(PipelineLane::ErrorTracking(BasicLane::Main)),
+            Self::HeatmapMain => lane(PipelineLane::Heatmaps(BasicLane::Main)),
+            Self::ClientIngestionWarning => lane(PipelineLane::Warnings(BasicLane::Main)),
             Self::Dlq => Some(Address::Dlq),
             Self::Custom(topic) => Some(Address::Custom(topic.clone())),
             Self::Drop => None,
@@ -186,7 +186,7 @@ mod destination_tests {
         #[case] destination: Destination,
         #[case] expected: Option<Output>,
     ) {
-        let output = destination.address().and_then(Output::for_address);
+        let output = destination.address().map(Output::for_address);
         assert_eq!(output, expected);
     }
 

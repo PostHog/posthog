@@ -1,6 +1,6 @@
 # Capture outputs refactor — implementation plan
 
-Working contract for implementation agents. Steps 1–12 have shipped. Each remaining step is one commit in its own PR.
+Working contract for implementation agents. Steps 1–13 have shipped. Each remaining step is one commit in its own PR.
 
 This doc is deleted when it schedules nothing. Step 18 closes objective 1; objectives 2 and 3 are then scheduled in order. Before deletion, the parts still needed — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning note — move into module docs or `v1/sinks/DESIGN.md`, and unscheduled work becomes issues.
 
@@ -33,7 +33,8 @@ Every step is a small commit, proven by the Step-1 goldens, and reverted by plai
 ```text
 request handler   → Pipeline {Analytics, Ai, Heatmaps, Warnings, ErrorTracking, Replay}
 pipeline steps    → stamp intent (restrictions, overflow, historical)
-lane decision     → Address {(Pipeline, Lane {Main, Overflow, Historical}) | Dlq | Custom(topic)}
+lane decision     → Address {Lane(PipelineLane) | Dlq | Custom(topic)}, each pipeline
+                     typed with only its own lanes
                      + ordering guarantee
 prepared event    → address, ordering + key, header values, JSON body; built once per event
 outputs           → Address → output = 1..n targets + selection policy
@@ -85,19 +86,13 @@ Steps 1–11 shipped the structure:
 - **10** — each v0 `Destination` is an output with a topic and a producer, read from `CAPTURE_OUTPUT_<OUTPUT>_TOPIC` and `CAPTURE_OUTPUT_<OUTPUT>_PRODUCER` as in Node.js ingestion. `OutputTable` replaces `TopicTable`. `PreparedPayload` carries the `Destination`. Setup maps each target's producer name to its handle once and hands the Kafka sink the resolved table; at enqueue the sink publishes through the target's own producer. Custom redirects publish through `CAPTURE_OUTPUT_CUSTOM_PRODUCER`. The resolved table is the Kafka sink's address-to-target lookup for both routes until Step 14's registries replace it.
 - **11** — outputs take prepared events: `OutputRegistry::publish_prepared(Vec<PreparedEvent>) -> Vec<SinkResult>`, one result per event, in input order. `PreparedEvent` carries an `Address` and a `Bytes` payload. Every sink implements `PublishPrepared` beside `PublishEvents`; the `Sink` bound makes both required. The Kafka sink maps the address to its `Destination` and publishes through that target's topic and producer, enqueueing serially in input order; an enqueue or ack failure fails only its event. The S3 sink writes each payload as one line. Failover moves only the events with a retriable primary failure to the fallback. Test sinks that serve only v0 endpoints mark the prepared route `unreachable!`. Deviation from the original step text: the address-to-topic lookup is the Step-10 resolved `OutputTable` held by the Kafka sink, not a separate per-producer sink type; Step 14's registries replace the lookup.
 - **12** — v1 publishes through the outputs layer. `Destination::address` maps each v1 destination to an `Address`, `serialize_batch` builds the outputs layer's `PreparedEvent`s, and `process_batch` calls `state.outputs.publish_prepared` on the registry v0 uses. v0 and v1 are different HTTP endpoints, not different pipelines, so they share the `INGESTION` producer and its settings; per-pipeline tuning stays per deployment. v1's `Router`, `Sink`, `KafkaSink`, producer, per-sink config, `SinkName` and the `topic_ai` injection are deleted, and so is v1's produce timeout, which v0 never had. The capture mode alone decides which v1 endpoints a deployment serves, so `CAPTURE_V1_SINKS` and every `CAPTURE_V1_SINK_*` variable go. Accepted differences: the `capture_v1_kafka_*` metrics give way to the shared Kafka sink's; v1's per-error cause tags collapse into `CaptureError` kinds, so response details read `not_persisted`, `event_too_big` or `rejected`; `InvalidMessage` and `InvalidMessageSize`, which v1 classed as fatal, are now retriable, as in v0; the batch-wide `is_ready` reject and the per-sink lifecycle handles are gone, and producer liveness is the `INGESTION` slot's; v1 traffic takes the deployment's output policy, including S3 failover where it is on. It supersedes Step 19.
+- **13** — lanes are typed per pipeline: `Address::Lane(PipelineLane)`, where `PipelineLane` is `Analytics(AnalyticsLane)`, `Ai(AiLane)`, `Heatmaps`/`Warnings`/`ErrorTracking(BasicLane)` or `Replay(SessionReplayLane)`, and the standalone `Pipeline` enum folds into it. There is no `AiLane::Historical`. The lane → output map is total, so v0 prep loses its dlq fallback for an unbacked pair and the prepared route loses its `NonRetryableSinkError` for one. Goldens unmodified; `resolve` tests retyped with the same assertions.
 
 Today the registry holds one deployment-wide `Output`: a Kafka sink, or Kafka→S3 failover. v0 publishes events through it and v1 publishes prepared events through it.
 
 ## Objective 1 — manual fallback for all capture traffic
 
-Steps 13–14 make the set of reachable outputs a type. Steps 15–16 are the checks that type allows. Step 17 is the fallback. Step 18 deletes the S3 fallback it replaces.
-
-### Step 13 · Typed per-pipeline lanes
-
-- **Goal.** Replace the flat `Lane` with `AnalyticsLane`, `AiLane`, `SessionReplayLane`, `BasicLane`, so invalid `(pipeline, lane)` pairs cannot be built. There is no `AiLane::Historical`: the AI divert wins over historical, as in v1. Both stacks hand this address type to the outputs layer.
-- **Why.** Step 14's registry rows need one field per lane that exists. With a flat `Lane`, the registry needs a runtime error for pairs routing never produces.
-- **Parity proof.** Goldens unmodified; `resolve` precedence tests retyped with the same assertions.
-- **Size.** M/L.
+Step 14 makes the set of reachable outputs a type. Steps 15–16 are the checks that type allows. Step 17 is the fallback. Step 18 deletes the S3 fallback it replaces.
 
 ### Step 14 · Per-mode output registries
 
@@ -265,7 +260,7 @@ One step = one commit, subject from the tracker. No `--no-verify`.
 | 10 · An output owns its topics and names its producer | done | `feat(capture): each output reads its own topic and producer` |
 | 11 · Outputs accept prepared events | done | `feat(capture): outputs publish prepared events with per-event results` |
 | 12 · v1 publishes through the outputs layer | done | `refactor(capture): v1 publishes through outputs; v1 sink stack deleted` |
-| 13 · Typed per-pipeline lanes | pending | `refactor(capture): typed per-pipeline lanes` |
+| 13 · Typed per-pipeline lanes | done | `refactor(capture): typed per-pipeline lanes` |
 | 14 · Per-mode output registries | pending | `feat(capture): per-mode output registries with required rows` |
 | 15 · A reachable output must be configured | pending | `feat(capture): require configuration for every reachable output` |
 | 16 · Verify topics against the producer's broker | pending | `feat(capture): verify each output's topics against its producer's broker at boot` |

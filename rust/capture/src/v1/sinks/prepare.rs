@@ -201,7 +201,7 @@ mod tests {
 
     use super::*;
     use crate::ordering::OrderingGuarantee;
-    use crate::pipeline::{Address, Lane, Pipeline};
+    use crate::pipeline::{Address, AnalyticsLane, PipelineLane};
     use crate::v1::sinks::types::Destination;
     use crate::v1::test_utils::test_context;
 
@@ -323,10 +323,7 @@ mod tests {
             assert_eq!(prepared.partition_key, format!("key-{i}"));
             assert_eq!(
                 prepared.address,
-                Address::Lane {
-                    pipeline: Pipeline::Analytics,
-                    lane: Lane::Main
-                }
+                Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main))
             );
         }
     }
