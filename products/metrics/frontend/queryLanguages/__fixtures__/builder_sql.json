@@ -308,6 +308,49 @@
         },
         "sql": "SELECT\n    toStartOfInterval(s.sample_timestamp, {interval}) AS time,\n    sum(s.contribution) AS value\nFROM (\n    SELECT\n        timestamp AS sample_timestamp,\n        series_fingerprint,\n        multiIf(\n            aggregation_temporality = 'delta', value,\n            isNull(prev_value), NULL,\n            value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),\n            value\n        ) AS contribution\n    FROM (\n        SELECT\n            timestamp,\n            series_fingerprint,\n            value,\n            aggregation_temporality,\n            lagInFrame(toNullable(value)) OVER (\n                PARTITION BY series_fingerprint\n                ORDER BY timestamp ASC\n                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING\n            ) AS prev_value\n        FROM posthog.metrics\n        WHERE metric_name = 'http.server.request.count'\n            AND timestamp >= {date_from} - toIntervalSecond(greatest({interval_seconds}, 300))\n            AND timestamp < {date_to}\n            AND series_fingerprint IN (\n                SELECT series_fingerprint\n                FROM posthog.metric_series\n                WHERE metric_name = 'http.server.request.count'\n                    AND last_seen >= {date_from} - toIntervalHour(1)\n                    AND service_name = 'api'\n                    AND match(if(arrayElement(resource_attributes, 'http.response.status_code') != '', arrayElement(resource_attributes, 'http.response.status_code'), arrayElement(attributes, 'http.response.status_code')), '^5')\n                    AND if(arrayElement(resource_attributes, 'http.route') != '', arrayElement(resource_attributes, 'http.route'), arrayElement(attributes, 'http.route')) != '/health'\n            )\n    )\n) AS s\nWHERE s.sample_timestamp >= {date_from}\nGROUP BY time\nHAVING isNotNull(value)\nORDER BY time"
     },
+    "regex with an escaped dot": {
+        "builder": {
+            "clauses": [
+                {
+                    "name": "a",
+                    "aggregation": "count",
+                    "metricName": "build_info",
+                    "filters": [
+                        {
+                            "key": "version",
+                            "op": "regex",
+                            "value": "^v1\\.2"
+                        }
+                    ]
+                }
+            ]
+        },
+        "sql": "SELECT\n    s.time AS time,\n    toFloat(count()) AS value\nFROM (\n    SELECT\n        toStartOfInterval(timestamp, {interval}) AS time,\n        series_fingerprint,\n        argMax(value, timestamp) AS series_value\n    FROM posthog.metrics\n    WHERE metric_name = 'build_info'\n        AND timestamp >= {date_from}\n        AND timestamp < {date_to}\n        AND series_fingerprint IN (\n            SELECT series_fingerprint\n            FROM posthog.metric_series\n            WHERE metric_name = 'build_info'\n                AND last_seen >= {date_from} - toIntervalHour(1)\n                AND match(if(arrayElement(resource_attributes, 'version') != '', arrayElement(resource_attributes, 'version'), arrayElement(attributes, 'version')), '^v1\\\\.2')\n        )\n    GROUP BY time, series_fingerprint\n) AS s\nGROUP BY time\nORDER BY time"
+    },
+    "non-ASCII and spaced names": {
+        "builder": {
+            "clauses": [
+                {
+                    "name": "a",
+                    "aggregation": "sum",
+                    "metricName": "größe_bytes",
+                    "filters": [
+                        {
+                            "key": "queue name",
+                            "op": "eq",
+                            "value": "é"
+                        }
+                    ],
+                    "groupBy": [
+                        {
+                            "key": "région"
+                        }
+                    ]
+                }
+            ]
+        },
+        "sql": "SELECT\n    s.time AS time,\n    ser.group_0 AS `région`,\n    sum(s.series_value) AS value\nFROM (\n    SELECT\n        toStartOfInterval(timestamp, {interval}) AS time,\n        series_fingerprint,\n        argMax(value, timestamp) AS series_value\n    FROM posthog.metrics\n    WHERE metric_name = 'größe_bytes'\n        AND timestamp >= {date_from}\n        AND timestamp < {date_to}\n        AND series_fingerprint IN (\n            SELECT series_fingerprint\n            FROM posthog.metric_series\n            WHERE metric_name = 'größe_bytes'\n                AND last_seen >= {date_from} - toIntervalHour(1)\n                AND if(arrayElement(resource_attributes, 'queue name') != '', arrayElement(resource_attributes, 'queue name'), arrayElement(attributes, 'queue name')) = 'é'\n        )\n    GROUP BY time, series_fingerprint\n) AS s\nLEFT JOIN (\n    SELECT\n        series_fingerprint,\n        any(toString(if(arrayElement(resource_attributes, 'région') != '', arrayElement(resource_attributes, 'région'), arrayElement(attributes, 'région')))) AS group_0\n    FROM posthog.metric_series\n    WHERE metric_name = 'größe_bytes'\n        AND last_seen >= {date_from} - toIntervalHour(1)\n    GROUP BY series_fingerprint\n) AS ser ON s.series_fingerprint = ser.series_fingerprint\nGROUP BY time, `région`\nORDER BY time"
+    },
     "group by one": {
         "builder": {
             "clauses": [
@@ -415,6 +458,29 @@
             "formula": "a / b"
         },
         "sql": "SELECT\n    time,\n    service_name,\n    a / b AS value\nFROM (\n    SELECT\n        time,\n        service_name,\n        sum(a) AS a,\n        sum(b) AS b\n    FROM (\n        SELECT\n            time, service_name, value AS a, 0 AS b\n        FROM (\n            SELECT\n                toStartOfInterval(s.sample_timestamp, {interval}) AS time,\n                ser.group_0 AS service_name,\n                sum(s.contribution) AS value\n            FROM (\n                SELECT\n                    timestamp AS sample_timestamp,\n                    series_fingerprint,\n                    multiIf(\n                        aggregation_temporality = 'delta', value,\n                        isNull(prev_value), NULL,\n                        value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),\n                        value\n                    ) AS contribution\n                FROM (\n                    SELECT\n                        timestamp,\n                        series_fingerprint,\n                        value,\n                        aggregation_temporality,\n                        lagInFrame(toNullable(value)) OVER (\n                            PARTITION BY series_fingerprint\n                            ORDER BY timestamp ASC\n                            ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING\n                        ) AS prev_value\n                    FROM posthog.metrics\n                    WHERE metric_name = 'errors_total'\n                        AND timestamp >= {date_from} - toIntervalSecond(greatest({interval_seconds}, 300))\n                        AND timestamp < {date_to}\n                )\n            ) AS s\n            LEFT JOIN (\n                SELECT\n                    series_fingerprint,\n                    any(toString(service_name)) AS group_0\n                FROM posthog.metric_series\n                WHERE metric_name = 'errors_total'\n                    AND last_seen >= {date_from} - toIntervalHour(1)\n                GROUP BY series_fingerprint\n            ) AS ser ON s.series_fingerprint = ser.series_fingerprint\n            WHERE s.sample_timestamp >= {date_from}\n            GROUP BY time, service_name\n            HAVING isNotNull(value)\n        )\n        UNION ALL\n        SELECT\n            time, service_name, 0 AS a, value AS b\n        FROM (\n            SELECT\n                toStartOfInterval(s.sample_timestamp, {interval}) AS time,\n                ser.group_0 AS service_name,\n                sum(s.contribution) AS value\n            FROM (\n                SELECT\n                    timestamp AS sample_timestamp,\n                    series_fingerprint,\n                    multiIf(\n                        aggregation_temporality = 'delta', value,\n                        isNull(prev_value), NULL,\n                        value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),\n                        value\n                    ) AS contribution\n                FROM (\n                    SELECT\n                        timestamp,\n                        series_fingerprint,\n                        value,\n                        aggregation_temporality,\n                        lagInFrame(toNullable(value)) OVER (\n                            PARTITION BY series_fingerprint\n                            ORDER BY timestamp ASC\n                            ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING\n                        ) AS prev_value\n                    FROM posthog.metrics\n                    WHERE metric_name = 'requests_total'\n                        AND timestamp >= {date_from} - toIntervalSecond(greatest({interval_seconds}, 300))\n                        AND timestamp < {date_to}\n                )\n            ) AS s\n            LEFT JOIN (\n                SELECT\n                    series_fingerprint,\n                    any(toString(service_name)) AS group_0\n                FROM posthog.metric_series\n                WHERE metric_name = 'requests_total'\n                    AND last_seen >= {date_from} - toIntervalHour(1)\n                GROUP BY series_fingerprint\n            ) AS ser ON s.series_fingerprint = ser.series_fingerprint\n            WHERE s.sample_timestamp >= {date_from}\n            GROUP BY time, service_name\n            HAVING isNotNull(value)\n        )\n    )\n    GROUP BY time, service_name\n)\nORDER BY time"
+    },
+    "right-nested formula": {
+        "builder": {
+            "clauses": [
+                {
+                    "name": "a",
+                    "aggregation": "sum",
+                    "metricName": "queue_depth"
+                },
+                {
+                    "name": "b",
+                    "aggregation": "sum",
+                    "metricName": "retry_queue_depth"
+                },
+                {
+                    "name": "c",
+                    "aggregation": "sum",
+                    "metricName": "dead_queue_depth"
+                }
+            ],
+            "formula": "a - (b - c)"
+        },
+        "sql": "SELECT\n    time,\n    a - (b - c) AS value\nFROM (\n    SELECT\n        time,\n        sum(a) AS a,\n        sum(b) AS b,\n        sum(c) AS c\n    FROM (\n        SELECT\n            time, value AS a, 0 AS b, 0 AS c\n        FROM (\n            SELECT\n                s.time AS time,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            GROUP BY time\n        )\n        UNION ALL\n        SELECT\n            time, 0 AS a, value AS b, 0 AS c\n        FROM (\n            SELECT\n                s.time AS time,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'retry_queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            GROUP BY time\n        )\n        UNION ALL\n        SELECT\n            time, 0 AS a, 0 AS b, value AS c\n        FROM (\n            SELECT\n                s.time AS time,\n                sum(s.series_value) AS value\n            FROM (\n                SELECT\n                    toStartOfInterval(timestamp, {interval}) AS time,\n                    series_fingerprint,\n                    argMax(value, timestamp) AS series_value\n                FROM posthog.metrics\n                WHERE metric_name = 'dead_queue_depth'\n                    AND timestamp >= {date_from}\n                    AND timestamp < {date_to}\n                GROUP BY time, series_fingerprint\n            ) AS s\n            GROUP BY time\n        )\n    )\n    GROUP BY time\n)\nORDER BY time"
     },
     "unary minus formula": {
         "builder": {
