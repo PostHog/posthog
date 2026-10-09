@@ -625,12 +625,22 @@ class TestTaskRunEventIngest(TestCase):
             int(stop_reason == "idle_resume"),
         )
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    @parameterized.expand(
+        [
+            ("interactive_flag_on", "interactive", True, True),
+            ("interactive_flag_off", "interactive", False, False),
+            ("background", "background", True, False),
+        ]
+    )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_permission_request_ingest_pushes_awaiting_input(self, _name: str, flag_enabled: bool) -> None:
+    def test_permission_request_ingest_pushes_awaiting_input(
+        self, _name: str, mode: str, flag_enabled: bool, expect_push: bool
+    ) -> None:
         creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
         self.task.created_by = creator
         self.task.save(update_fields=["created_by"])
+        self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
+        self.task_run.save(update_fields=["state"])
         token = self._create_token()
         permission_request = {
             "type": "notification",
@@ -652,7 +662,7 @@ class TestTaskRunEventIngest(TestCase):
             status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
 
         self.assertEqual((status, body["accepted"]), (200, 1))
-        if not flag_enabled:
+        if not expect_push:
             send_push.assert_not_called()
             return
         send_push.assert_called_once()
