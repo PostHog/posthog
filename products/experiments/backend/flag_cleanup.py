@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from products.feature_flags.backend.flag_cleanup import FLAG_SDK_CALLS
+
 if TYPE_CHECKING:
     from products.experiments.backend.models.experiment import Experiment
 
@@ -21,12 +23,6 @@ CONCLUSION_LABELS = {
     "stopped_early": "stopped early",
     "invalid": "invalid",
 }
-
-# PostHog SDK calls that read a flag, across languages — what the agent greps for.
-FLAG_SDK_CALLS = (
-    "isFeatureEnabled, getFeatureFlag, getFeatureFlagPayload, useFeatureFlag, useActiveFeatureFlags, "
-    "onFeatureFlags, posthog.isFeatureEnabled, posthog.getFeatureFlag, feature_enabled, get_feature_flag"
-)
 
 
 @dataclass(frozen=True)

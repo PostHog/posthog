@@ -24,6 +24,9 @@ import type {
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
+    FeatureFlagCleanupPrRequestApi,
+    FeatureFlagCleanupPrResponseApi,
+    FeatureFlagCleanupTargetApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
@@ -768,6 +771,53 @@ export const featureFlagsArchiveCreate = async (
     return apiMutator<FeatureFlagApi>(getFeatureFlagsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getFeatureFlagsCleanupPrCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/cleanup_pr/`
+}
+
+/**
+ * Open a draft pull request that removes this archived flag from your code.
+ *
+ * Starts a Code task that searches the connected GitHub repository for the flag and removes its checks,
+ * keeping the code path chosen with `keep`. The flag in PostHog is not changed. Returns 400 when the flag
+ * is not archived, the chosen path does not exist on the flag, or no repository can be determined.
+ */
+export const featureFlagsCleanupPrCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagCleanupPrRequestApi: FeatureFlagCleanupPrRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagCleanupPrResponseApi> => {
+    return apiMutator<FeatureFlagCleanupPrResponseApi>(getFeatureFlagsCleanupPrCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagCleanupPrRequestApi),
+    })
+}
+
+export const getFeatureFlagsCleanupTargetRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/cleanup_target/`
+}
+
+/**
+ * Repository a cleanup pull request for this flag would be opened in.
+ *
+ * Resolution order: the environment's default cleanup repository, else the team's only connected
+ * GitHub repository. When the team has several repositories and no default (source=ambiguous), pass
+ * one via `repository` on `cleanup_pr`.
+ */
+export const featureFlagsCleanupTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagCleanupTargetApi> => {
+    return apiMutator<FeatureFlagCleanupTargetApi>(getFeatureFlagsCleanupTargetRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

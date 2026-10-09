@@ -1015,6 +1015,35 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Open a draft pull request that removes this archived flag from your code.
+ *
+ * Starts a Code task that searches the connected GitHub repository for the flag and removes its checks,
+ * keeping the code path chosen with `keep`. The flag in PostHog is not changed. Returns 400 when the flag
+ * is not archived, the chosen path does not exist on the flag, or no repository can be determined.
+ */
+export const featureFlagsCleanupPrCreateBodyRepositoryMax = 255
+
+export const FeatureFlagsCleanupPrCreateBody = /* @__PURE__ */ zod.object({
+    keep: zod
+        .enum(['enabled', 'disabled', 'variant'])
+        .describe('\* `enabled` - Enabled\n\* `disabled` - Disabled\n\* `variant` - Variant')
+        .describe(
+            'Which code path survives the cleanup. `enabled` keeps the path that runs when the flag is on and `disabled` keeps the path that runs when it is off. `variant` keeps one variant of a multivariate flag and needs `variant_key`.\n\n\* `enabled` - Enabled\n\* `disabled` - Disabled\n\* `variant` - Variant'
+        ),
+    variant_key: zod
+        .string()
+        .nullish()
+        .describe('The variant whose code path is kept. Required when `keep` is `variant`, and rejected otherwise.'),
+    repository: zod
+        .string()
+        .max(featureFlagsCleanupPrCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the pull request in, in `organization\/repository` format. It must be one of the team's connected repositories (see the `cleanup_target` action). When omitted, the environment's default cleanup repository or the team's only connected repository is used."
+        ),
+})
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
