@@ -453,7 +453,7 @@ class TestSharePointFileDiscovery:
         ]
 
     def test_stops_after_the_matched_file_limit(self) -> None:
-        items: list[dict[str, object]] = [
+        items: list[dict[str, Any]] = [
             {"id": "unmatched", "name": "skip.csv", "file": {}},
             *[{"id": str(index), "name": f"match-{index}.csv", "file": {}} for index in range(MAX_FILES + 1)],
         ]
@@ -476,7 +476,7 @@ class TestSharePointFileNames:
     @parameterized.expand(
         [
             ("plain", "Shared Documents/Reports/Orders.CSV.GZ", "shared_documents_reports_orders"),
-            ("static_collision", "sites.csv", "sites_5115e536"),
+            ("static_collision", "sites.csv", "sites_bb1b37bb"),
             ("long", "a" * 120 + ".csv", "a" * 100),
         ]
     )
@@ -495,7 +495,8 @@ class TestSharePointFileNames:
     ) -> None:
         files = [_file(first_path, "item-a"), _file(second_path, "item-b")]
         expected = {
-            f"{base}_{hashlib.sha1(f'{file.drive_id}:{file.item_id}'.encode()).hexdigest()[:8]}": file for file in files
+            f"{base}_{hashlib.sha256(f'{file.drive_id}:{file.item_id}'.encode()).hexdigest()[:8]}": file
+            for file in files
         }
 
         assert files_by_table(files) == expected
@@ -503,7 +504,7 @@ class TestSharePointFileNames:
         assert all(len(name) <= 100 for name in expected)
 
     def test_literal_hash_suffix_does_not_replace_another_file(self) -> None:
-        suffix = hashlib.sha1(b"drive-a:item-a").hexdigest()[:8]
+        suffix = hashlib.sha256(b"drive-a:item-a").hexdigest()[:8]
         files = [_file("orders.csv"), _file("orders.tsv", "item-b"), _file(f"orders_{suffix}.csv", "item-c")]
 
         tables = files_by_table(files)
@@ -525,7 +526,8 @@ class TestSharePointFileNames:
     def test_worksheet_collisions_hash_the_full_resource_id(self) -> None:
         files = [replace(_file("a" * 120 + ".xlsx"), worksheet=title) for title in ("Sales - North", "Sales North")]
         expected = {
-            f"{'a' * 79}_sales_north_{hashlib.sha1(file.resource_id.encode()).hexdigest()[:8]}": file for file in files
+            f"{'a' * 79}_sales_north_{hashlib.sha256(file.resource_id.encode()).hexdigest()[:8]}": file
+            for file in files
         }
 
         assert files_by_table(files) == expected

@@ -278,7 +278,7 @@ def files_by_table(files: list[SharePointFile]) -> dict[str, SharePointFile]:
     bases = [_table_base(file, 100) for file in files]
     counts = Counter(bases)
     colliding = {base for base in bases if counts[base] > 1 or base in ENDPOINTS}
-    suffixes = [hashlib.sha1(file.resource_id.encode()).hexdigest()[:8] for file in files]
+    suffixes = [hashlib.sha256(file.resource_id.encode()).hexdigest()[:8] for file in files]
     while True:
         names = [
             f"{_table_base(file, 91)}_{suffix}" if base in colliding else base
