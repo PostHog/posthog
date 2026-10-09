@@ -4,7 +4,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
@@ -15,6 +15,7 @@ import { Hub, Team } from '~/types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
 import { RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -685,14 +686,7 @@ describe('RecipientPreferencesService', () => {
 
         beforeAll(() => {
             // One pool for the block: RedisV2 has no close, so a pool per test would leave its connections open.
-            valkey = createRedisV2PoolFromConfig({
-                connection: {
-                    url: defaultConfig.CDP_VALKEY_HOST,
-                    options: { port: defaultConfig.CDP_VALKEY_PORT, password: defaultConfig.CDP_VALKEY_PASSWORD },
-                },
-                poolMinSize: defaultConfig.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: defaultConfig.REDIS_POOL_MAX_SIZE,
-            })
+            valkey = createFrequencyCapValkeyPool(defaultConfig)!
         })
 
         beforeEach(async () => {
