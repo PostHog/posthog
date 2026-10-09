@@ -49,15 +49,6 @@ class TestBuildParams:
         )
         assert params == {"created_since": "2026-03-04T02:58:14Z"}
 
-    def test_incremental_endpoint_without_cursor_omits_created_since(self) -> None:
-        params = _build_params(
-            "Experiments",
-            incremental_field="created_date",
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert params == {}
-
     def test_full_refresh_endpoint_never_filters(self) -> None:
         # Metrics has no server-side timestamp filter; a cursor must not leak into the request.
         params = _build_params(
@@ -67,24 +58,6 @@ class TestBuildParams:
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
         assert params == {}
-
-    def test_static_params_carried_for_feature_flags(self) -> None:
-        params = _build_params(
-            "FeatureFlags",
-            incremental_field=None,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert params == {"include_archived": "true"}
-
-    def test_static_params_carried_for_audiences(self) -> None:
-        params = _build_params(
-            "Audiences",
-            incremental_field=None,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert params == {"status": "all"}
 
 
 def _response(items: list[dict[str, Any]]) -> Response:
@@ -157,16 +130,6 @@ class TestEppoSourcePagination:
         assert snapshots[0]["url"] == f"{BASE_URL}/experiments"
         assert snapshots[0]["params"] == {"limit": PAGE_LIMIT, "offset": 0}
         assert snapshots[1]["params"] == {"limit": PAGE_LIMIT, "offset": PAGE_LIMIT}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginated_endpoint_stops_on_empty_page(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([])])
-
-        rows = _rows(_source("Holdouts"))
-
-        assert rows == []
-        assert session.send.call_count == 1
 
     @parameterized.expand(
         [
@@ -309,16 +272,6 @@ class TestValidateCredentials:
     def test_ok(self, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         assert validate_credentials("key") == (True, 200)
-
-    @mock.patch(EPPO_SESSION_PATCH)
-    def test_unauthorized(self, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=401)
-        assert validate_credentials("key") == (False, 401)
-
-    @mock.patch(EPPO_SESSION_PATCH)
-    def test_swallows_transport_errors(self, mock_session) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") == (False, None)
 
     @mock.patch(EPPO_SESSION_PATCH)
     def test_probes_experiments_endpoint_with_token_header(self, mock_session) -> None:

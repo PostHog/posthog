@@ -4,7 +4,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 
-const VARIANTS: SampleDataVariant[] = ['line', 'bar', 'pie', 'funnel', 'number', 'table']
+const VARIANTS: SampleDataVariant[] = ['line', 'bar', 'pie', 'proportionBar', 'funnel', 'number', 'table']
 
 const meta: Meta<typeof SampleDataState> = {
     component: SampleDataState,

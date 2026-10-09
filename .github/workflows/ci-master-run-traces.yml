@@ -4,8 +4,8 @@ name: Master run traces
 # a span per job beneath it, a span per step beneath those. Covers every workflow,
 # including the ones with no telemetry of their own (Container Images CD, the
 # container CD lane, the Rust image builds). Master pushes are scanned repo-wide;
-# workflows that cover master from a cron are scanned on their scheduled runs too
-# (see SCHEDULED_MASTER_WORKFLOWS in the script).
+# Backend CI's scheduled runs are read from Depot. Depot exposes workflow and job
+# timestamps, but not step or job-queue timestamps, so those traces stop at jobs.
 #
 # Complements .github/scripts/report_test_timings.py, which emits per-test traces
 # from JUnit XML under its own trace IDs. Those stay separate traces.
@@ -55,8 +55,10 @@ jobs:
             # receives the project token, which cannot happen here.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/report_workflow_run_traces.py
+                      .github/scripts/depot_scheduled_runs.py
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -77,12 +79,17 @@ jobs:
               with:
                   enable-cache: false
 
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              continue-on-error: true
+              timeout-minutes: 1
+
             # Deliberately not continue-on-error: a red tick is what holds the watermark
             # at the last clean one, so the next tick re-covers the window. This workflow
             # gates nothing, so failing costs a notification rather than a blocked merge.
             - name: Emit master run traces
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   SINCE: ${{ inputs.since }}
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   # dual emission while CI traces migrate to the project behind POSTHOG_API_TOKEN

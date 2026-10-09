@@ -5,7 +5,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLFilters,
     ProductKey,
     SharingConfigurationSettings,
@@ -86,7 +86,7 @@ export const urls = {
         metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
-        query?: string | DataVisualizationNode | DataTableNode
+        query?: string | VisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string
@@ -203,7 +203,8 @@ export const urls = {
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
-    credentialReview: (): string => '/account/credential-review',
+    credentialReview: (next?: string): string =>
+        `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     passwordReset: (): string => '/reset',

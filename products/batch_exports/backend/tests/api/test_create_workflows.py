@@ -17,7 +17,7 @@ pytestmark = [
 @pytest.fixture
 def enable_backfilling_workflows(team):
     with mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.presentation.views.batch_export.exports.posthoganalytics.feature_enabled",
         return_value=True,
     ) as feature_enabled:
         yield

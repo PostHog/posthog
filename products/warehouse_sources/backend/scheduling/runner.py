@@ -73,7 +73,7 @@ SCHEMAS_IN_SCOPE = Gauge(
 DUE_PER_TICK = Histogram(
     "warehouse_pg_scheduler_due_per_tick",
     "Number of due schemas claimed per leader tick",
-    buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
+    buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000),
 )
 
 FIRE_LATENESS_SECONDS = Histogram(
@@ -102,6 +102,19 @@ class ShadowSchedulerConfig:
     claim_limit: int = 1000
     decision_retention_days: int = 30
     refresh_page_size: int = REFRESH_PAGE_SIZE
+    # Just under the tick interval, so a backlog drain yields to the next tick
+    # and to shutdown.
+    drain_budget_seconds: float = 55.0
+
+
+@frozen
+class DrainBatchOutcome:
+    """Counts from one claim/evaluate/advance transaction of the due scan."""
+
+    due: int
+    decisions_inserted: int
+    duplicate_windows: int
+    missed_windows: int
 
 
 class ShadowScheduler:
@@ -159,69 +172,98 @@ class ShadowScheduler:
                 ttl_seconds=self._config.refresh_interval_seconds,
             )
             if refresh_won:
-                await self._refresh(conn)
+                await self._refresh(conn, health_reporter)
 
-            now_epoch = int(time.time())
-            async with conn.transaction():
-                due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
-                result = await evaluate_due(due, now_epoch)
-                inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
+            # Drain the backlog in claim_limit batches, one transaction each, so
+            # a backlog larger than one claim does not make every fire late.
+            drain_started = time.monotonic()
+            batches = 0
+            due = 0
+            decisions_inserted = 0
+            duplicate_windows = 0
+            missed_windows = 0
+            while True:
+                outcome = await self._drain_batch(conn)
+                batches += 1
+                due += outcome.due
+                decisions_inserted += outcome.decisions_inserted
+                duplicate_windows += outcome.duplicate_windows
+                missed_windows += outcome.missed_windows
+                health_reporter()
+                if outcome.due < self._config.claim_limit:
+                    break
+                if time.monotonic() - drain_started >= self._config.drain_budget_seconds:
+                    break
 
-                advances = []
-                for row in due:
-                    cadence = SchemaCadence(interval_seconds=row.interval_seconds, offset_seconds=row.offset_seconds)
-                    advances.append((row, datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC)))
-                await SchedulerStateTable.advance_states(conn, advances)
-
-                out_of_scope = [r.schedule_key for r in result.records if r.decision == DECISION_SKIP_OUT_OF_SCOPE]
-                if out_of_scope:
-                    await SchedulerStateTable.delete_states(conn, SYNC_EXTRACT_KIND, out_of_scope)
-
-            DUE_PER_TICK.observe(len(due))
-            for record in inserted_records:
-                FIRE_LATENESS_SECONDS.observe(record.late_seconds)
-                if record.decision == DECISION_WOULD_FIRE:
-                    WOULD_FIRE_TOTAL.inc()
-                    logger.info(
-                        "scheduler_would_fire",
-                        schema_id=record.schedule_key,
-                        team_id=record.team_id,
-                        due_at=record.due_at.isoformat(),
-                        late_seconds=record.late_seconds,
-                    )
-                else:
-                    SKIPS_TOTAL.labels(reason=SKIP_REASONS[record.decision]).inc()
-                    logger.info(
-                        "scheduler_skip",
-                        schema_id=record.schedule_key,
-                        team_id=record.team_id,
-                        due_at=record.due_at.isoformat(),
-                        reason=SKIP_REASONS[record.decision],
-                    )
-            if refused:
-                DUPLICATE_WINDOWS_TOTAL.inc(refused)
-            due_by_schema = {row.schedule_key: row for row in due}
-            inserted_missed_windows = 0
-            for record in inserted_records:
-                row = due_by_schema[record.schedule_key]
-                inserted_missed_windows += max(
-                    0, (int(record.due_at.timestamp()) - int(row.next_due_at.timestamp())) // row.interval_seconds
-                )
-            if inserted_missed_windows:
-                MISSED_WINDOWS_TOTAL.inc(inserted_missed_windows)
-
+            DUE_PER_TICK.observe(due)
             TICKS_TOTAL.labels(outcome="leader").inc()
             logger.info(
                 "scheduler_tick",
-                due=len(due),
-                decisions_inserted=len(inserted_records),
-                duplicate_windows=refused,
-                missed_windows=inserted_missed_windows,
+                due=due,
+                decisions_inserted=decisions_inserted,
+                duplicate_windows=duplicate_windows,
+                missed_windows=missed_windows,
+                batches=batches,
                 refreshed=refresh_won,
             )
-            health_reporter()
 
-    async def _refresh(self, conn: psycopg.AsyncConnection) -> None:
+    async def _drain_batch(self, conn: psycopg.AsyncConnection) -> DrainBatchOutcome:
+        now_epoch = int(time.time())
+        async with conn.transaction():
+            due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
+            result = await evaluate_due(due, now_epoch)
+            inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
+
+            advances = []
+            for row in due:
+                cadence = SchemaCadence(interval_seconds=row.interval_seconds, offset_seconds=row.offset_seconds)
+                advances.append((row, datetime.fromtimestamp(next_due_after(now_epoch, cadence), tz=UTC)))
+            await SchedulerStateTable.advance_states(conn, advances)
+
+            out_of_scope = [r.schedule_key for r in result.records if r.decision == DECISION_SKIP_OUT_OF_SCOPE]
+            if out_of_scope:
+                await SchedulerStateTable.delete_states(conn, SYNC_EXTRACT_KIND, out_of_scope)
+
+        for record in inserted_records:
+            FIRE_LATENESS_SECONDS.observe(record.late_seconds)
+            if record.decision == DECISION_WOULD_FIRE:
+                WOULD_FIRE_TOTAL.inc()
+                logger.info(
+                    "scheduler_would_fire",
+                    schema_id=record.schedule_key,
+                    team_id=record.team_id,
+                    due_at=record.due_at.isoformat(),
+                    late_seconds=record.late_seconds,
+                )
+            else:
+                SKIPS_TOTAL.labels(reason=SKIP_REASONS[record.decision]).inc()
+                logger.info(
+                    "scheduler_skip",
+                    schema_id=record.schedule_key,
+                    team_id=record.team_id,
+                    due_at=record.due_at.isoformat(),
+                    reason=SKIP_REASONS[record.decision],
+                )
+        if refused:
+            DUPLICATE_WINDOWS_TOTAL.inc(refused)
+        due_by_schema = {row.schedule_key: row for row in due}
+        inserted_missed_windows = 0
+        for record in inserted_records:
+            row = due_by_schema[record.schedule_key]
+            inserted_missed_windows += max(
+                0, (int(record.due_at.timestamp()) - int(row.next_due_at.timestamp())) // row.interval_seconds
+            )
+        if inserted_missed_windows:
+            MISSED_WINDOWS_TOTAL.inc(inserted_missed_windows)
+
+        return DrainBatchOutcome(
+            due=len(due),
+            decisions_inserted=len(inserted_records),
+            duplicate_windows=refused,
+            missed_windows=inserted_missed_windows,
+        )
+
+    async def _refresh(self, conn: psycopg.AsyncConnection, health_reporter: Callable[[], None]) -> None:
         started = time.monotonic()
         # DB-clock cutoff: upserts stamp refreshed_at with now() server-side, so
         # the stale-row delete must compare against the same clock.
@@ -245,6 +287,9 @@ class ShadowScheduler:
             upserts = self._build_upserts(page, now_epoch)
             await SchedulerStateTable.upsert_states(conn, upserts)
             in_scope += len(upserts)
+            # A full refresh can outlast the liveness timeout; a pod that keeps
+            # paging is healthy, and a stuck one still stops reporting.
+            health_reporter()
 
         deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
         pruned = await SchedulerStateTable.prune_decisions(

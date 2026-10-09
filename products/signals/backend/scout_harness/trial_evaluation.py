@@ -39,6 +39,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
 )
 from products.signals.backend.scout_harness.trial_inspection import ScoutTrialInspection
 from products.signals.backend.scout_harness.trial_launch import (
+    MAX_EVIDENCE_BYTES,
     ScoutTrialLaunchError,
     TrialContext,
     TrialLaunch,
@@ -46,6 +47,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     assert_trial_work_enabled,
     load_trial_context,
     read_trial_launch,
+    trial_context_evidence,
 )
 from products.signals.backend.scout_harness.trial_result import (
     get_trial_workflow_status,
@@ -58,7 +60,6 @@ from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 JUDGE_MODEL = "gpt-6-astra"
 _Document = TypeVar("_Document", bound=BaseModel)
 
@@ -402,7 +403,12 @@ def _report_evidence(report_id: str, report: JsonValue) -> dict[str, JsonValue]:
 
 
 def _run_evidence(
-    launch: TrialLaunch, context: TrialContext, variant_id: UUID, *, evaluation_id: UUID
+    launch: TrialLaunch,
+    context: TrialContext,
+    variant_id: UUID,
+    *,
+    evaluation_id: UUID,
+    rubric_reference_context: ScoutRubricReferenceContext,
 ) -> TrialRunEvidence:
     run = _bound_run(launch)
     result = read_trial_result(run) if run is not None else None
@@ -459,16 +465,12 @@ def _run_evidence(
         )
     builder = _EvidenceBuilder()
     authored = [
+        TrialEvidenceSource(
+            id="rubric-reference", kind="instructions", text=rubric_reference_context.model_dump_json()
+        ),
         TrialEvidenceSource(id="instructions", kind="instructions", text=launch.skill_body),
         TrialEvidenceSource(id="launch-note", kind="instructions", text=launch.note),
-        TrialEvidenceSource(
-            id="context",
-            kind="context",
-            text=json.dumps(
-                {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
-                ensure_ascii=False,
-            ),
-        ),
+        TrialEvidenceSource(id="context", kind="context", text=trial_context_evidence(context)),
     ]
     summary = result.get("summary")
     if isinstance(summary, str) and summary:
@@ -599,6 +601,7 @@ def prepare_trial_evaluation(
     criteria = trial_evaluation_criteria(rubric)
     if judge_prompt_version != JUDGE_PROMPT_VERSION:
         raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
+    rubric_reference_context = ScoutRubricReferenceContext.model_validate(rubric["reference_context"])
     snapshot = TrialEvaluationSnapshot(
         evaluation_id=request.evaluation_id,
         team_id=config.team_id,
@@ -609,13 +612,18 @@ def prepare_trial_evaluation(
         request=request,
         request_hash=request_hash,
         rubric_document=rubric,
-        rubric_reference_context=ScoutRubricReferenceContext.model_validate(rubric["reference_context"]),
         rubric_reference_generation_id=cast(str, rubric["reference_generation_id"]),
         criteria=criteria,
         judge_model=judge_model,
         judge_prompt_version=judge_prompt_version,
         runs=[
-            _run_evidence(launches[identifier], context, variant.id, evaluation_id=request.evaluation_id)
+            _run_evidence(
+                launches[identifier],
+                context,
+                variant.id,
+                evaluation_id=request.evaluation_id,
+                rubric_reference_context=rubric_reference_context,
+            )
             for variant in request.variants
             for identifier in variant.launch_ids
         ],
