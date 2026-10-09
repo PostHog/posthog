@@ -21,6 +21,7 @@ RECORDING_START = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)
 RECORDING_END = RECORDING_START + timedelta(minutes=30)
 INSIDE_WINDOW = RECORDING_START + timedelta(minutes=10)
 ORDER_PAID = {"id": "order paid", "type": "events", "order": 0, "name": "order paid"}
+PAGEVIEW = {"id": "$pageview", "type": "events", "order": 1, "name": "$pageview"}
 REFUND_EXCLUDED = {"id": "order refunded", "type": "events", "order": 1, "name": "order refunded", "negation": True}
 
 
@@ -68,6 +69,7 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             ("other_session_id_on_event", True, "user-1", INSIDE_WINDOW, "other", [ORDER_PAID], False),
             ("flag_off", False, "user-1", INSIDE_WINDOW, None, [ORDER_PAID], False),
             ("exclusion_turns_match_off", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID, REFUND_EXCLUDED], False),
+            ("and_with_a_sessioned_filter", True, "user-1", INSIDE_WINDOW, None, [ORDER_PAID, PAGEVIEW], True),
         ]
     )
     def test_event_without_session_id_matches_recording_of_same_person_by_time(
@@ -85,12 +87,21 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         self._produce_recording("recording-of-user-1", recording_distinct_id)
         self._produce_recording("recording-of-user-2", "user-2")
         self._create_order_paid("user-1", person.uuid, event_time, event_session_id)
+        for distinct_id, session_id in [("user-1", "recording-of-user-1"), ("user-2", "recording-of-user-2")]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=RECORDING_START + timedelta(minutes=1),
+                properties={"$session_id": session_id},
+            )
         flush_persons_and_events()
 
         self._assert_matches(events, ["recording-of-user-1"] if expected_match else [], flag_enabled)
 
-    def test_event_sent_before_a_merge_matches_without_person_id_overrides(self) -> None:
-        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+    @parameterized.expand([(mode,) for mode in PersonsOnEventsMode])
+    def test_event_sent_before_a_merge_matches_in_every_persons_on_events_mode(self, mode: PersonsOnEventsMode) -> None:
+        self.team.modifiers = {"personsOnEventsMode": mode}
         self.team.save()
         # Sent before the merge, so the event keeps a person id that no distinct id maps to now.
         self._create_order_paid("anon-1", uuid4(), INSIDE_WINDOW)
