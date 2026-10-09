@@ -282,11 +282,7 @@ describe('insight visualizations', () => {
 
         describe('insightQueryProperties', () => {
             it.each([
-                [
-                    'bare trends without a display',
-                    { kind: 'TrendsQuery' },
-                    { queryKind: 'TrendsQuery', display: 'ActionsLineGraph', displayIsDefault: true },
-                ],
+                ['bare trends without a display', { kind: 'TrendsQuery' }, { queryKind: 'TrendsQuery' }],
                 [
                     'trends wrapped in InsightVizNode',
                     {
@@ -297,7 +293,6 @@ describe('insight visualizations', () => {
                         queryKind: 'InsightVizNode',
                         querySourceKind: 'TrendsQuery',
                         display: 'BoldNumber',
-                        displayIsDefault: false,
                     },
                 ],
                 [
@@ -307,7 +302,6 @@ describe('insight visualizations', () => {
                         queryKind: 'DataVisualizationNode',
                         querySourceKind: 'HogQLQuery',
                         display: 'ActionsBar',
-                        displayIsDefault: false,
                     },
                 ],
             ])('%s', (_, query, expected) => {
